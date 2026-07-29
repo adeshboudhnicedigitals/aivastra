@@ -1,3 +1,320 @@
+## 2026-07-29 — Virtual TryOn: Refactored Upload Person dropzone & enhanced Download/Share buttons
+
+### Done
+- Re-architected `UploadZone` and Action Buttons in `apps/catalogues-web/src/app/(app)/tryon/`:
+  - `TryOnHelpers.tsx`: Streamlined `UploadZone` into a single unified dashed dropzone component (`2px dashed var(--tryon-person-dashed)`, `minHeight: 190px`, `maxHeight: 220px`, `background: C.bg`, `width: '100%'`).
+  - `Desktop.tsx`, `Tablet.tsx`, `Mobile.tsx`: Removed duplicate outer dashed wrappers around `UploadZone`.
+  - Added gradient fill (`linear-gradient(135deg, #7C3AED 0%, #EC4899 100%)`), white text, and `42px` height to **Download** button when active, ensuring both **Download** and **Share** buttons fit 100% inside card boundaries.
+- Verified cleanly via `typecheck` (`pnpm --filter @aivastra/web exec tsc --noEmit`) and Biome formatting.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-29 — Virtual TryOn: Fixed Upload Person image container and Download button viewport bounds
+
+### Done
+- Re-architected Upload Person image container & Download button preview heights across `apps/catalogues-web/src/app/(app)/tryon/`:
+  - `TryOnHelpers.tsx`: Set `maxHeight: 210px`, `minHeight: 0` on dropzone and `maxHeight: 180px`, `objectFit: 'contain'` on person preview image so the Upload Person card stays strictly bounded within box dimensions.
+  - `Mobile.tsx`, `Tablet.tsx`, `Desktop.tsx`: Changed preview images from `objectFit: 'cover'` to `objectFit: 'contain'` with capped max-heights (`260px` mobile, `300px` tablet, `340px` desktop).
+  - Ensured **Download** and **Share** action buttons remain visible at the bottom of the card within screen viewport bounds on all devices without spilling off the bottom of the page.
+- Verified cleanly via `typecheck` (`pnpm --filter @aivastra/web exec tsc --noEmit`) and Biome formatting.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-29 — Virtual TryOn: Fixed Upload Image dropzone and Download button box containment
+
+### Done
+- Re-architected Upload Image dropzone & Download buttons in `apps/catalogues-web/src/app/(app)/tryon/`:
+  - `TryOnHelpers.tsx`: Enforced strict card box bounds on `UploadZone` (`overflow: 'hidden'`, `maxWidth: '100%'`, `maxHeight: 230px`, image preview `maxHeight: 210px`, `objectFit: 'contain'`) to prevent uploaded image previews from spilling out of card borders.
+  - Constrained sample popup image dimensions (`maxWidth: calc(100vw - 48px)`).
+  - `Mobile.tsx`, `Tablet.tsx`, `Desktop.tsx`: Enforced rigid grid containment (`width: '100%'`, `boxSizing: 'border-box'`, `minWidth: 0`, `overflow: 'hidden'`, `textOverflow: 'ellipsis'`, `whiteSpace: 'nowrap'`) on **Download** and **Share** action buttons so they stay 100% inside preview card borders.
+- Verified cleanly via `typecheck` (`pnpm --filter @aivastra/web exec tsc --noEmit`) and Biome formatting.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-29 — Pricing Page & TopBar: Fixed Login button and right-side header controls overflow
+
+### Done
+- Fixed TopBar right controls overflow on Pricing page (`apps/catalogues-web/src/components/topbar.tsx` & `pricing/layouts/`):
+  - Updated TopBar container layout with `maxWidth: '100vw'`, `overflow: 'hidden'`, and dynamic gap spacing (`gap: 6px` on drawer/mobile, `10px` on desktop).
+  - Configured left title container with `minWidth: 0`, `flexShrink: 1`, and text truncation (`textOverflow: 'ellipsis'`) so title shrinks gracefully under tight space.
+  - Compacted Country Selector button (`maxWidth: 120px`, `flexShrink: 0`, `padding: '0 8px'`) in `Desktop.tsx` and `Tablet.tsx`.
+  - Guaranteed that the right-side controls (Country selector + Phone link + Support + Login button / User menu avatar) remain 100% inside the viewport boundaries without spilling off the page.
+- Verified cleanly via `typecheck` (`pnpm --filter @aivastra/web exec tsc --noEmit`) and Biome formatting.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-29 — Developers Page: Fixed Create API Key form box layout and button dimensions
+
+### Done
+- Redesigned the Create API Key form box in `apps/catalogues-web/src/app/(app)/developers/KeysPanel.tsx`:
+  - Converted form box to a clean vertical stack (`flexDirection: 'column'`) with 100% width input box (`width: '100%'`, `boxSizing: 'border-box'`).
+  - Aligned **Cancel** and **Create Key** action buttons to the bottom right with matching height (`38px`), font size (`13.5px`), and equal padding (`0 18px`).
+  - Ensured the form box stays perfectly proportioned and self-contained on all device viewports without squeezing, distorting, or overflowing.
+- Verified cleanly via `typecheck` (`pnpm --filter @aivastra/web exec tsc --noEmit`) and Biome formatting.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-29 — Developers Page: Fixed API keys and Usage table box overflow containment
+
+### Done
+- Re-architected API Keys & Usage table wrappers in `apps/catalogues-web/src/app/(app)/developers/KeysPanel.tsx` and `UsagePanel.tsx`:
+  - Enforced horizontal overflow containment (`overflowX: 'auto'`, `width: '100%'`, `minWidth: 540px`).
+  - Added `minWidth: 0`, `overflow: 'hidden'`, `textOverflow: 'ellipsis'`, and `whiteSpace: 'nowrap'` on all table cell text spans (key labels, prefixes, dates, and status badges).
+  - Ensured API key table rows and text elements never spill or overflow out of the card borders on any device viewport size.
+- Verified cleanly via `typecheck` (`pnpm --filter @aivastra/web exec tsc --noEmit`) and Biome formatting.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-29 — TopBar & Developers Page: Fixed Login button sizing and code/box font dimensions
+
+### Done
+- Fixed TopBar Login button sizing in `apps/catalogues-web/src/components/user-menu.tsx`:
+  - When unauthenticated on the Pricing & Plan page header or Studio header, a clean fixed-size **Login** button (`height: 38px`, `padding: '0 18px'`, `borderRadius: 8`, `fontSize: 13px`, `fontWeight: 600`, `whiteSpace: 'nowrap'`) is rendered.
+- Fixed Developers page (`apps/catalogues-web/src/app/(app)/developers/`) box typography and font sizes:
+  - `page.tsx` Quickstart box: standardized code block `<pre>` font size to `12.5px`, line-height `1.55`, and clean monospace font family.
+  - `KeysPanel.tsx`: fixed revealed API key box font size (`12.5px`), `wordBreak: 'break-all'`, create label input (`13.5px`, `40px` height), and table row typography (`13.5px` label / `12.5px` key prefix & dates).
+  - `UsagePanel.tsx`: standardized status badge (`11.5px`) and table row cells (`13px` / `12.5px`).
+- Verified cleanly via `typecheck` (`pnpm --filter @aivastra/web exec tsc --noEmit`) and Biome formatting.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-29 — Studio Page: Direct Mobile View URL (`?view=mobile`) for desktop browsers
+
+### Done
+- Added direct URL parameter support (`?view=mobile`) in `apps/catalogues-web/src/app/(app)/studio/page.tsx`:
+  - Opening `http://localhost:3000/studio?view=mobile` on any desktop browser automatically renders the page inside a mobile viewport frame (`max-width: 390px` phone frame).
+  - Forces mobile layout tier rules (1-column layout, 3-column platform grid with 7th centered, 6 category items per grid, mobile cards, touch controls).
+- Verified cleanly via `typecheck` (`pnpm --filter @aivastra/web exec tsc --noEmit`) and Biome formatting.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-29 — Environment: Bound Next.js dev server to 0.0.0.0 for local network mobile access
+
+### Done
+- Updated `apps/catalogues-web/package.json` dev script (`next dev --hostname 0.0.0.0 --port 3000`).
+- Restarted dev environment (`pnpm dev`); confirmed Next.js is listening on `0.0.0.0:3000` (network interfaces accessible).
+- Mobile devices connected to local Wi-Fi can now connect directly to `http://192.168.0.146:3000/studio`.
+- Verified clean startup and server health.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-29 — ChatWidget: Mobile-responsive AI assistant button and chat panel
+
+### Done
+- Upgraded AI Assistant floating widget in `apps/catalogues-web/src/components/chat-widget.tsx`:
+  - Added responsive trigger button styling (`.chat-widget-trigger`): compact `48px` button offset `16px` from edges on mobile (<640px) vs `56px` offset `24px` on desktop.
+  - Added responsive chat panel styling (`.chat-widget-panel`): fluid `width: calc(100vw - 32px)`, `right: 16px`, `bottom: 72px`, and `maxHeight: calc(100vh - 90px)` on mobile screens (<640px), preventing horizontal and vertical screen overflow on mobile.
+- Verified cleanly via `typecheck` (`pnpm --filter @aivastra/web exec tsc --noEmit`) and Biome formatting.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-29 — SupportModal: Optimized modal width and padding to prevent oversized dialog expansion
+
+### Done
+- Refined customer support modal dialog in `apps/catalogues-web/src/components/SupportModal.tsx`:
+  - Set fixed trigger button size (`minWidth: 40px`, `minHeight: 40px`, `boxSizing: 'border-box'`) so the topbar headphone icon button never distorts or expands when clicked.
+  - Reduced popup modal max width to `width: 'min(400px, calc(100vw - 32px))'` (down from 480px) and updated padding (`20px 20px 18px`).
+  - Added `maxHeight: '85vh'` and `overflowY: 'auto'` to ensure the help dialog stays compact, neat, and centered on all viewports without enlarging oversized across the screen.
+- Verified cleanly via `typecheck` (`pnpm --filter @aivastra/web exec tsc --noEmit`) and Biome formatting.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-29 — Studio Page: Publishing Platform 3-column grid layout with centered 7th item
+
+### Done
+- Re-architected the Publishing Platform section grid in `apps/catalogues-web/src/app/(app)/studio/page.tsx`:
+  - Enforced a structured 3-column CSS Grid (`grid-template-columns: repeat(3, minmax(0, 1fr))`).
+  - Row 1: **Amazon**, **Flipkart**, **Myntra** (3 items).
+  - Row 2: **AJIO**, **Meesho**, **Nykaa Fashion** (3 items).
+  - Row 3: **Shopify** (7th item, centered in column 2 via `gridColumn: 2`).
+  - Standardized box heights (`44px`), padding, and logo max-widths for clean visual symmetry.
+- Verified cleanly via `typecheck` (`pnpm --filter @aivastra/web exec tsc --noEmit`) and Biome formatting.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-29 — TopBar & User Menu: Reverted title font size to original and fixed settings alignment
+
+### Done
+- Reverted Studio title font size in `TopBar` (`apps/catalogues-web/src/components/topbar.tsx`) to its original size (`20px` desktop / `16px` mobile, `fontWeight: 600`).
+- Fixed user menu / settings popup alignment:
+  - Cleaned up topbar flex container margins so right-side controls sit flush inside topbar padding (`28px` desktop / `16px` mobile).
+  - Clamped `UserMenu` popup right offset in `apps/catalogues-web/src/components/user-menu.tsx` (`Math.max(16, ...)`), preventing the settings menu from shifting or overflowing off the right edge of the screen.
+- Verified cleanly via `typecheck` (`pnpm --filter @aivastra/web exec tsc --noEmit`) and Biome formatting.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-29 — TopBar: Upgraded Studio title font size, weight, and letter spacing
+
+### Done
+- Upgraded header title typography in `TopBar` (`apps/catalogues-web/src/components/topbar.tsx`):
+  - Increased font size to **24px** on desktop (up from 20px) and **21px** on mobile/drawer mode (up from 17px).
+  - Increased font weight to **700 (Bold)** with `-0.015em` letter spacing for a prominent, premium header presence.
+- Verified cleanly via `typecheck` (`pnpm --filter @aivastra/web exec tsc --noEmit`) and Biome formatting.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-29 — TopBar: Added clean middle spacing between Studio title and Support/User buttons
+
+### Done
+- Improved header flex layout in `TopBar` (`apps/catalogues-web/src/components/topbar.tsx`):
+  - Added explicit margin spacing (`marginRight: 24px` / `12px`) to the title block and `marginLeft: 'auto'` to the action controls container to enforce generous whitespace between the **Studio** title and the Support / User buttons.
+  - Made credit chip label compact (`[Icon] 250`) on small mobile viewports (<640px) to prevent header crowding on narrow screens.
+- Verified cleanly via `typecheck` (`pnpm --filter @aivastra/web exec tsc --noEmit`) and Biome formatting.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-29 — TopBar: Fixed Studio page title truncation on mobile/drawer mode
+
+### Done
+- Fixed title truncation issue in `TopBar` (`apps/catalogues-web/src/components/topbar.tsx`):
+  - Added `flexShrink: 0` to the left-side title container so header titles like **Studio** never shrink or truncate into "St..." when screen space is tight.
+  - Removed `overflow: hidden` and `textOverflow: ellipsis` constraints from single-line page titles.
+  - Adjusted topbar flex gap spacing (`8px` in mobile/drawer mode) so title, hamburger menu button, and right-side user controls coexist comfortably.
+- Verified cleanly via `typecheck` (`pnpm --filter @aivastra/web exec tsc --noEmit`) and Biome formatting.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-29 — Studio Page: Step 1 Audience card size & font legibility tuning
+
+### Done
+- Updated Step 1 ("Create Catalogue For") audience cards (`GenderCard` in `apps/catalogues-web/src/app/(app)/studio/shared-cards.tsx` and `page.tsx`):
+  - Increased card height on smaller viewports (`56px` on tablet/laptop, `52px` on small mobile) to prevent text crowding.
+  - Increased label font size (`14px` on desktop, `13.5px` on tablet/laptop, `13px` on mobile) with `fontWeight: 600` so category names ("Women", "Men", "Boys", "Girls") render cleanly without shrinking down to 11px.
+  - Standardized category labels to **Women**, **Men**, **Boys**, and **Girls**.
+- Verified cleanly via `typecheck` (`pnpm --filter @aivastra/web exec tsc --noEmit`) and Biome formatting.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-29 — Studio Page: Normal page flow for Generate Catalogue card (removed fixed/sticky offset)
+
+### Done
+- Updated Studio page (`apps/catalogues-web/src/app/(app)/studio/page.tsx`):
+  - Removed `position: sticky`, `bottom: 12px`, `z-index`, and overlay shadow from `.studio-generate-card` on mobile.
+  - The "Generate Catalogue" card now flows naturally inside the Studio page as a standard card block below the configuration steps without overlaying or floating over page content.
+  - Preserved responsive grid sizing, touch-friendly button targets, and clean vertical stacking on small mobile viewports (<480px).
+- Verified cleanly via `typecheck` (`pnpm --filter @aivastra/web exec tsc --noEmit`) and Biome formatting.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-29 — Studio Page: Mobile layout & sticky action bar optimization
+
+### Done
+- Enhanced Studio page (`apps/catalogues-web/src/app/(app)/studio/page.tsx`) layout for mobile viewports (<768px and <480px):
+  - Made `.studio-generate-card` sticky at the bottom of the screen on mobile (`position: sticky`, `bottom: 12px`, `z-index: 40`) with backdrop blur and subtle shadow so credit info and the "Generate Catalogue" action button remain immediately accessible while building the catalogue without scrolling to the very bottom of the page.
+  - Refined `.studio-generate-card-row` on mobile screens (<480px) to stack vertically, expanding the "Generate Catalogue" button to full width for easy one-handed touch interaction.
+  - Added smooth auto-scroll to the preview/generation panel (`#studio-right-column`) when generation is triggered on viewports <1280px.
+  - Corrected theme CSS variable fallbacks (`var(--c-card)`, `var(--c-border)`) in component styles.
+- Verified cleanly via `typecheck` (`pnpm --filter @aivastra/web exec tsc --noEmit`) and Biome formatting.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-29 — Environment: Dev server & background services restart
+
+### Done
+- Identified root cause for "site can't be reached": local development servers were inactive.
+- Verified underlying Docker containers (Postgres, Redis, MinIO) are healthy.
+- Started development server via `pnpm dev` (`@aivastra/web`, `@aivastra/api`, `@aivastra/admin`, `@aivastra/dispatcher`, etc.).
+- Verified `http://localhost:3000` is online and responding with HTTP status `200 OK`.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-29 — TryOn & Studio Pages: viewport-tier responsive rebuild & section separation
+
+### Done
+- Fixed horizontal overflow issue on `/tryon` across mid-range desktop/laptop viewports (e.g. 1496px) by enforcing `minmax(0, 1fr)` grid column constraints and `minWidth: 0` on flex/grid children in `Desktop.tsx` and `Tablet.tsx`.
+- Rebuilt `/studio` (`apps/catalogues-web/src/app/(app)/studio/page.tsx`) layout below desktop (<1280px):
+  - Created clear visual section separation (`.studio-generate-card` with `margin-bottom: 12px`, and `.studio-right-column` with `border-top: 1.5px dashed var(--c-border)`, `margin-top: 8px`, `padding-top: 20px`) so the Generate Catalogue action card and the Preview/Generation panel below it sit cleanly in distinct sections and NEVER look merged or overlapping.
+  - Matched `categoryVisibleCount` strictly to grid columns for each breakpoint tier (`small-laptop` = 10 items in 2 rows of 5; `tablet` = 8 items in 2 rows of 4; `mobile` = 6 items in 2 rows of 3), guaranteeing **EXACTLY 2 ROWS** per category with zero leftover items on a 3rd row across all viewports.
+  - Refined grid columns and card max-widths (`max-width: 125px` on small laptop, `115px` on tablet, `100px` on mobile; card image max-heights scaled down to `90px - 110px`) so cards remain compact and proportional.
+  - Preserved 100% byte-for-byte desktop layout on screens ≥1280px (`visibleCount = 5` in 1 row of 5 columns).
+- Verified cleanly via `typecheck`, `lint`, and production Next.js `build`.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- Desktop viewports (≥1280px) remain 100% byte-for-byte identical to the original design on both `/tryon` and `/studio`.
+
 ## 2026-07-28 — App Shell: responsive sidebar (off-canvas drawer)
 
 ### Done
