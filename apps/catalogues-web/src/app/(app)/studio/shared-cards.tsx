@@ -86,11 +86,12 @@ export function GenderCard({
         </div>
 
         <span
+          className="gender-card-label"
           style={{
-            fontFamily: 'Poppins, sans-serif',
+            fontFamily: 'inherit',
             fontWeight: 600,
             fontSize: 14,
-            lineHeight: '18px',
+            lineHeight: '1.3',
             letterSpacing: 0,
             color: C.text,
             flex: 1,
