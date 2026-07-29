@@ -1,3 +1,16 @@
+## 2026-07-29 - Saree two-input (Body + Pallu) upload
+
+### Done
+- Added `mannequinTwoInputWorkflowTemplateId` and `tryonGarmentNodeId2`, the `saree_step1_two_input` workflow type, admin configuration and auto-detection support, two-input mannequin job creation, and dispatcher pallu-node patching.
+- Added the Flat Saree studio workflow's gated "Full Saree / Body & Pallu" upload mode. The dropdown only appears when a two-input mannequin workflow is configured; selecting it requires separate Body and Pallu uploads and submits the pallu key as `secondGarmentKey`.
+- Added API and dispatcher integration coverage for two-input mannequin jobs, including the two-input-only workflow regression case and pallu-node patching.
+
+### Failed / Not Done
+- The required interactive studio smoke test could not be completed: local Docker, API, and web servers started successfully, but this environment has no controllable browser session. The typecheck and automated integration verification passed; the five UI checks still need a signed-in browser session.
+
+### Open Questions / Decisions
+- Retained the design's copy: "Full Saree" and "Body & Pallu", with upload boxes labelled "Body" and "Pallu".
+
 ## 2026-07-29 - Sample video admin form: PixVerse prompt length cap was wrong
 
 ### Done
@@ -4348,15 +4361,3 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 ---
 
 <!-- Add new entries above this line, newest first -->
-## 2026-07-29 - Saree two-input (Body + Pallu) upload
-
-### Done
-- Added `mannequinTwoInputWorkflowTemplateId` and `tryonGarmentNodeId2`, the `saree_step1_two_input` workflow type, admin configuration and auto-detection support, two-input mannequin job creation, and dispatcher pallu-node patching.
-- Added the Flat Saree studio workflow's gated "Full Saree / Body & Pallu" upload mode. The dropdown only appears when a two-input mannequin workflow is configured; selecting it requires separate Body and Pallu uploads and submits the pallu key as `secondGarmentKey`.
-- Added API and dispatcher integration coverage for two-input mannequin jobs, including the two-input-only workflow regression case and pallu-node patching.
-
-### Failed / Not Done
-- The required interactive studio smoke test could not be completed: local Docker, API, and web servers started successfully, but this environment has no controllable browser session. The typecheck and automated integration verification passed; the five UI checks still need a signed-in browser session.
-
-### Open Questions / Decisions
-- Retained the design's copy: "Full Saree" and "Body & Pallu", with upload boxes labelled "Body" and "Pallu".
