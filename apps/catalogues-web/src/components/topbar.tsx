@@ -1,3 +1,5 @@
+'use client';
+
 import { Menu, PhoneCall } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { SupportButton } from './SupportModal';
@@ -32,92 +34,144 @@ export function TopBar({
   }, [isOpen]);
 
   return (
-    <div
-      style={{
-        height: 76,
-        background: C.white,
-        borderBottom: `1px solid ${C.border}`,
-        padding: '0 28px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        flexShrink: 0,
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-        {isDrawerMode && (
-          <button
-            type="button"
-            ref={menuButtonRef}
-            onClick={toggle}
-            aria-label="Toggle navigation menu"
-            aria-expanded={isOpen}
-            aria-controls={SIDEBAR_DRAWER_ID}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: 40,
-              height: 40,
-              borderRadius: 8,
-              border: `1px solid ${C.border}`,
-              background: C.white,
-              cursor: 'pointer',
-              flexShrink: 0,
-            }}
-          >
-            <Menu size={18} color={C.text} />
-          </button>
-        )}
-        {lead ?? (
-          <div>
-            {title && (
-              <div style={{ fontWeight: 600, fontSize: 20, lineHeight: '32px', color: C.text }}>
-                {title}
-              </div>
-            )}
-            {subtitle && (
-              <div
-                style={{
-                  fontWeight: 500,
-                  fontSize: 14,
-                  lineHeight: '20px',
-                  color: C.mid,
-                  marginTop: 2,
-                }}
-              >
-                {subtitle}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        {right}
-
-        <a
-          href="tel:+917729883692"
+    <>
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+            @media (max-width: 640px) {
+              .user-menu-credits-word {
+                display: none !important;
+              }
+              .user-menu-credits-btn {
+                padding: 0 8px !important;
+              }
+            }
+          `,
+        }}
+      />
+      <div
+        style={{
+          height: 76,
+          background: C.white,
+          borderBottom: `1px solid ${C.border}`,
+          padding: isDrawerMode ? '0 12px' : '0 24px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexShrink: 0,
+          boxSizing: 'border-box',
+          width: '100%',
+          maxWidth: '100vw',
+          overflow: 'hidden',
+        }}
+      >
+        <div
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 8,
-            color: C.text,
-            fontSize: 14,
-            fontWeight: 500,
-            textDecoration: 'none',
-            whiteSpace: 'nowrap',
-            flexShrink: 0,
+            gap: isDrawerMode ? 6 : 12,
+            minWidth: 0,
+            flexShrink: 1,
+            overflow: 'hidden',
           }}
         >
-          <PhoneCall size={18} />
-          +91 77298 83692
-        </a>
+          {isDrawerMode && (
+            <button
+              type="button"
+              ref={menuButtonRef}
+              onClick={toggle}
+              aria-label="Toggle navigation menu"
+              aria-expanded={isOpen}
+              aria-controls={SIDEBAR_DRAWER_ID}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 40,
+                height: 40,
+                borderRadius: 8,
+                border: `1px solid ${C.border}`,
+                background: C.white,
+                cursor: 'pointer',
+                flexShrink: 0,
+              }}
+            >
+              <Menu size={18} color={C.text} />
+            </button>
+          )}
+          {lead ?? (
+            <div style={{ minWidth: 0, overflow: 'hidden' }}>
+              {title && (
+                <div
+                  style={{
+                    fontWeight: 600,
+                    fontSize: isDrawerMode ? 16 : 20,
+                    lineHeight: isDrawerMode ? '24px' : '32px',
+                    color: C.text,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {title}
+                </div>
+              )}
+              {subtitle && !isDrawerMode && (
+                <div
+                  style={{
+                    fontWeight: 500,
+                    fontSize: 14,
+                    lineHeight: '20px',
+                    color: C.mid,
+                    marginTop: 2,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {subtitle}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: isDrawerMode ? 6 : 10,
+            flexShrink: 0,
+            maxWidth: '100%',
+          }}
+        >
+          {right}
 
-        {/* Support button */}
-        <SupportButton />
+          {!isDrawerMode && (
+            <a
+              href="tel:+917729883692"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                color: C.text,
+                fontSize: 14,
+                fontWeight: 500,
+                textDecoration: 'none',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+              }}
+            >
+              <PhoneCall size={18} />
+              +91 77298 83692
+            </a>
+          )}
 
-        <UserMenu />
+          {/* Support button */}
+          <SupportButton />
+
+          <UserMenu />
+        </div>
       </div>
-    </div>
+    </>
   );
 }

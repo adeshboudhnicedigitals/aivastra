@@ -87,7 +87,13 @@ const NAV: {
 
 const SIDEBAR_WIDTH = 200;
 
-export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
+export function Sidebar({
+  onNavigate,
+  fillWidth,
+}: {
+  onNavigate?: () => void;
+  fillWidth?: boolean;
+}) {
   const pathname = usePathname();
   const qc = useQueryClient();
   const [darkMode, setDarkMode] = useState(false);
@@ -181,8 +187,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div
       style={{
-        width: SIDEBAR_WIDTH,
-        minWidth: SIDEBAR_WIDTH,
+        width: fillWidth ? '100%' : SIDEBAR_WIDTH,
+        minWidth: fillWidth ? 0 : SIDEBAR_WIDTH,
         height: '100vh',
         background: '#080C18',
         display: 'flex',

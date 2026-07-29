@@ -142,7 +142,7 @@ export function SidebarProvider({
               transition: 'transform 180ms ease, opacity 180ms ease',
             }}
           >
-            <Sidebar onNavigate={close} />
+            <Sidebar onNavigate={close} fillWidth />
           </div>
         </>
       ) : (

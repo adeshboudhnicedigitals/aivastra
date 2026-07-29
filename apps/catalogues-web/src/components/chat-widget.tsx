@@ -142,27 +142,63 @@ export function ChatWidget() {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        style={{
-          position: 'fixed',
-          bottom: '24px',
-          right: '24px',
-          width: '56px',
-          height: '56px',
-          borderRadius: '50%',
-          border: 'none',
-          cursor: 'pointer',
-          zIndex: 1000,
-          background: '#521D9C',
-          color: '#fff',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          boxShadow: '0 4px 12px rgba(82,29,156,0.25)',
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+            .chat-widget-trigger {
+              position: fixed;
+              bottom: 24px;
+              right: 24px;
+              width: 56px;
+              height: 56px;
+              border-radius: 50%;
+              border: none;
+              cursor: pointer;
+              z-index: 1000;
+              background: #521D9C;
+              color: #fff;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              box-shadow: 0 4px 12px rgba(82, 29, 156, 0.25);
+              transition: transform 0.2s ease, bottom 0.2s ease, right 0.2s ease;
+            }
+            .chat-widget-panel {
+              position: fixed;
+              bottom: 92px;
+              right: 24px;
+              width: 360px;
+              max-width: calc(100vw - 32px);
+              max-height: 520px;
+              border-radius: 12px;
+              background: #fff;
+              box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+              display: flex;
+              flex-direction: column;
+              z-index: 1000;
+              overflow: hidden;
+              font-family: system-ui, -apple-system, sans-serif;
+              box-sizing: border-box;
+            }
+            @media (max-width: 640px) {
+              .chat-widget-trigger {
+                bottom: 16px !important;
+                right: 16px !important;
+                width: 48px !important;
+                height: 48px !important;
+              }
+              .chat-widget-panel {
+                bottom: 72px !important;
+                right: 16px !important;
+                width: calc(100vw - 32px) !important;
+                max-height: calc(100vh - 90px) !important;
+                height: 440px;
+              }
+            }
+          `,
         }}
-      >
+      />
+      <button type="button" className="chat-widget-trigger" onClick={() => setOpen(!open)}>
         {open ? (
           '✕'
         ) : (
@@ -183,23 +219,7 @@ export function ChatWidget() {
       </button>
 
       {open && (
-        <div
-          style={{
-            position: 'fixed',
-            bottom: '92px',
-            right: '24px',
-            width: '360px',
-            maxHeight: '520px',
-            borderRadius: '12px',
-            background: '#fff',
-            boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
-            display: 'flex',
-            flexDirection: 'column',
-            zIndex: 1000,
-            overflow: 'hidden',
-            fontFamily: 'system-ui, sans-serif',
-          }}
-        >
+        <div className="chat-widget-panel">
           <div
             style={{
               padding: '16px',
