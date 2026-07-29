@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -236,7 +237,7 @@ describe('POST /v1/jobs/saree-mannequin', () => {
     const garmentTypeId = await seedFlatSareeGarmentTypeTwoInput(wf.id, twoInputWf.id);
     await app.db.update(schema.garmentSubcategories).set({ sareeStep2WorkflowTemplateId: step2Wf.id }).where(eq(schema.garmentSubcategories.id, garmentTypeId));
     const garmentKey = `inputs/${userId}/garment.jpg`;
-    const secondGarmentKey = `inputs/${userId}/pallu.jpg`;
+    const secondGarmentKey = `inputs/${randomUUID()}/garment.jpg`;
     await bindUploadKey(userId, garmentKey);
     await bindUploadKey(userId, secondGarmentKey);
     const res = await app.inject({ method: 'POST', url: '/v1/jobs/saree-mannequin', headers: { authorization: `Bearer ${token}` }, payload: { garmentTypeId, garmentKey, secondGarmentKey, faceId, step2: { inputs: { faceId, backgroundId, poseIds: [poseId], garmentTypeId }, aspectRatio: '1:1', resolution: 'HD' } } });
@@ -258,7 +259,7 @@ describe('POST /v1/jobs/saree-mannequin', () => {
     const [wf] = await app.db.insert(schema.workflowTemplates).values({ slug: `saree-step1-noconf-${Date.now()}`, label: 'Step1', jsonContent: {}, workflowType: 'saree_step1', faceNodeId: '', poseNodeId: '', bgNodeId: '', upperNodeIds: [], facePhasePromptNode: '', garmentPhasePromptNode: '' }).returning();
     await app.db.update(schema.garmentSubcategories).set({ mannequinWorkflowTemplateId: wf.id }).where(eq(schema.garmentSubcategories.id, garmentTypeId));
     const garmentKey = `inputs/${userId}/garment.jpg`;
-    const secondGarmentKey = `inputs/${userId}/pallu.jpg`;
+    const secondGarmentKey = `inputs/${randomUUID()}/garment.jpg`;
     await bindUploadKey(userId, garmentKey);
     await bindUploadKey(userId, secondGarmentKey);
     const res = await app.inject({ method: 'POST', url: '/v1/jobs/saree-mannequin', headers: { authorization: `Bearer ${token}` }, payload: { garmentTypeId, garmentKey, secondGarmentKey, faceId, step2: { inputs: { faceId, backgroundId: '00000000-0000-0000-0000-000000000000', poseIds: ['00000000-0000-0000-0000-000000000000'] }, aspectRatio: '1:1', resolution: 'HD' } } });
@@ -279,7 +280,7 @@ describe('POST /v1/jobs/saree-mannequin', () => {
     const garmentTypeId = await seedFlatSareeGarmentTypeTwoInput(null, twoInputWf.id);
     await app.db.update(schema.garmentSubcategories).set({ sareeStep2WorkflowTemplateId: step2Wf.id }).where(eq(schema.garmentSubcategories.id, garmentTypeId));
     const garmentKey = `inputs/${userId}/garment.jpg`;
-    const secondGarmentKey = `inputs/${userId}/pallu.jpg`;
+    const secondGarmentKey = `inputs/${randomUUID()}/garment.jpg`;
     await bindUploadKey(userId, garmentKey);
     await bindUploadKey(userId, secondGarmentKey);
     const res = await app.inject({ method: 'POST', url: '/v1/jobs/saree-mannequin', headers: { authorization: `Bearer ${token}` }, payload: { garmentTypeId, garmentKey, secondGarmentKey, faceId, step2: { inputs: { faceId, backgroundId, poseIds: [poseId], garmentTypeId }, aspectRatio: '1:1', resolution: 'HD' } } });
