@@ -51,6 +51,7 @@ export interface GarmentType {
   requiresMannequinStep?: boolean;
   mannequinWorkflowTemplateId?: string | null;
   sareeStep2WorkflowTemplateId?: string | null;
+  mannequinTwoInputWorkflowTemplateId?: string | null;
   upperUploadLabel?: string | null;
   lowerUploadLabel?: string | null;
   requiresThirdUpload?: boolean;
@@ -64,7 +65,7 @@ export interface WorkflowOption {
   id: string; // UUID from workflow_templates table
   slug: string;
   label: string;
-  workflowType: 'regular' | 'tryon' | 'saree_step1';
+  workflowType: 'regular' | 'tryon' | 'saree_step1' | 'saree_step1_two_input';
   isActive: boolean;
   poseCount: number;
   defaultFacePhasePrompt: string;
@@ -75,6 +76,7 @@ export interface WorkflowOption {
   sizeNodeIds: string[];
   tryonPersonNodeId: string | null;
   tryonGarmentNodeId: string | null;
+  tryonGarmentNodeId2: string | null;
   tryonOutputNodeId: string | null;
   createdAt: string;
 }
