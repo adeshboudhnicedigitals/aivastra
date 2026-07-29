@@ -1,7 +1,7 @@
 'use client';
 import type { MerchantCatalogItem } from '@aivastra/types';
 import { useEffect, useRef, useState } from 'react';
-import { UploadIcon } from '@/components/icons';
+import { CameraIcon, UploadIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { catalogAppApi as api } from '../catalog-app-api';
@@ -34,6 +34,7 @@ export function ProductForm({
   const [isSaving, setIsSaving] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const previewUrlRef = useRef<string | undefined>(undefined);
   previewUrlRef.current = previewUrl;
 
@@ -129,7 +130,7 @@ export function ProductForm({
               <UploadIcon size={28} />
             )}
           </div>
-        ) : (
+        ) : previewUrl ? (
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
@@ -153,25 +154,85 @@ export function ProductForm({
             }}
             className="hover-surface"
           >
-            {previewUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              // biome-ignore lint/performance/noImgElement: local preview
-              <img
-                src={previewUrl}
-                alt="Preview"
-                style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-              />
-            ) : (
-              <>
-                <div style={{ color: C.mid }}>
-                  <UploadIcon size={28} />
-                </div>
-                <div style={{ fontSize: 13, color: C.mid, fontWeight: 500 }}>
-                  Tap to choose a product photo
-                </div>
-              </>
-            )}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {/* biome-ignore lint/performance/noImgElement: local preview */}
+            <img
+              src={previewUrl}
+              alt="Preview"
+              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+            />
           </button>
+        ) : (
+          <div
+            style={{
+              height: 180,
+              borderRadius: 8,
+              border: `1px dashed ${C.border2}`,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 12,
+              width: '100%',
+            }}
+          >
+            <div style={{ color: C.mid }}>
+              <UploadIcon size={28} />
+            </div>
+            <div style={{ fontSize: 13, color: C.mid, fontWeight: 500 }}>
+              Tap to choose a product photo
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => cameraInputRef.current?.click()}
+                disabled={busy}
+                className="hover-surface"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  height: 36,
+                  padding: '0 14px',
+                  borderRadius: 8,
+                  border: `1px solid ${C.border2}`,
+                  background: 'none',
+                  color: C.text,
+                  fontFamily: 'inherit',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: busy ? 'not-allowed' : 'pointer',
+                }}
+              >
+                <CameraIcon size={16} />
+                Take Photo
+              </button>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={busy}
+                className="hover-surface"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  height: 36,
+                  padding: '0 14px',
+                  borderRadius: 8,
+                  border: `1px solid ${C.border2}`,
+                  background: 'none',
+                  color: C.text,
+                  fontFamily: 'inherit',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: busy ? 'not-allowed' : 'pointer',
+                }}
+              >
+                <UploadIcon size={16} />
+                Choose from Gallery
+              </button>
+            </div>
+          </div>
         )}
 
         <input
@@ -179,6 +240,15 @@ export function ProductForm({
           ref={fileInputRef}
           onChange={handleFileChange}
           accept="image/jpeg,image/png,image/webp"
+          style={{ display: 'none' }}
+          tabIndex={-1}
+        />
+        <input
+          type="file"
+          ref={cameraInputRef}
+          onChange={handleFileChange}
+          accept="image/jpeg,image/png,image/webp"
+          capture="environment"
           style={{ display: 'none' }}
           tabIndex={-1}
         />
