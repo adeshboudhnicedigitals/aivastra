@@ -222,12 +222,12 @@ export const ConfirmSampleVideoBody = z.object({
   title: z.string().min(1).max(120),
   videoR2Key: z.string().min(1),
   thumbnailR2Key: z.string().min(1),
-  prompt: z.string().min(1).max(500),
+  prompt: z.string().min(1).max(5000),
   sortOrder: z.number().int().default(0),
 });
 export const PatchSampleVideoBody = z.object({
   title: z.string().min(1).max(120).optional(),
-  prompt: z.string().min(1).max(500).optional(),
+  prompt: z.string().min(1).max(5000).optional(),
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
 });
