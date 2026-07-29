@@ -214,6 +214,7 @@ export const MerchantSareeStyle = z.object({
   label: z.string(),
   previewUrl: z.string().url().nullable(),
   sortOrder: z.number().int(),
+  supportsTwoInput: z.boolean(),
 });
 export type MerchantSareeStyle = z.infer<typeof MerchantSareeStyle>;
 
