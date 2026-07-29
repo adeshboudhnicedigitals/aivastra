@@ -798,7 +798,6 @@ async function processTryonDirectJob(
     );
     return;
   }
-
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
   const worker = await selectWorker(redis, 'tryon');
   if (!worker) {
@@ -1023,6 +1022,7 @@ async function processSareeMannequinJob(
       jsonContent: schema.workflowTemplates.jsonContent,
       tryonPersonNodeId: schema.workflowTemplates.tryonPersonNodeId,
       tryonGarmentNodeId: schema.workflowTemplates.tryonGarmentNodeId,
+      tryonGarmentNodeId2: schema.workflowTemplates.tryonGarmentNodeId2,
       tryonOutputNodeId: schema.workflowTemplates.tryonOutputNodeId,
     })
     .from(schema.workflowTemplates)
@@ -1043,6 +1043,7 @@ async function processSareeMannequinJob(
 
   const personNodeId = template.tryonPersonNodeId;
   const garmentNodeId = template.tryonGarmentNodeId;
+  const palluNodeId = template.tryonGarmentNodeId2;
   const outputNodeId = template.tryonOutputNodeId;
   if (!garmentNodeId || !outputNodeId) {
     await markFailed(
@@ -1052,6 +1053,33 @@ async function processSareeMannequinJob(
       stream,
       messageId,
       'MANNEQUIN_NODES_NOT_CONFIGURED',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
+  if (inputs.thirdGarmentKey && !palluNodeId) {
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'MANNEQUIN_NODES_NOT_CONFIGURED',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+  if (palluNodeId && !inputs.thirdGarmentKey) {
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'MANNEQUIN_INPUTS_MISSING',
       jobLog,
       startedAt,
     );
@@ -1131,11 +1159,14 @@ async function processSareeMannequinJob(
     }
 
     jobLog.info('uploading mannequin inputs to ComfyUI');
-    const [personFile, garmentFile] = await Promise.all([
+    const [personFile, garmentFile, palluFile] = await Promise.all([
       personKey ? uploadToComfy(personKey, 'mannequin_person') : Promise.resolve(undefined),
       uploadToComfy(garmentKey, 'mannequin_garment'),
+      inputs.thirdGarmentKey
+        ? uploadToComfy(inputs.thirdGarmentKey, 'mannequin_pallu')
+        : Promise.resolve(undefined),
     ]);
-    jobLog.info({ personFile, garmentFile }, 'mannequin inputs uploaded');
+    jobLog.info({ personFile, garmentFile, palluFile }, 'mannequin inputs uploaded');
 
     const workflow = structuredClone(template.jsonContent) as Record<
       string,
@@ -1148,6 +1179,10 @@ async function processSareeMannequinJob(
     if (workflow[garmentNodeId]?.inputs) {
       // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
       workflow[garmentNodeId].inputs!.image = garmentFile;
+    }
+    if (palluNodeId && palluFile && workflow[palluNodeId]?.inputs) {
+      // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
+      workflow[palluNodeId].inputs!.image = palluFile;
     }
 
     await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);
@@ -1164,7 +1199,14 @@ async function processSareeMannequinJob(
         workerId: w.id,
         workerUrl: w.url,
         workflowTemplateId,
-        inputs: { garmentKey, personKey, personFile, garmentFile },
+        inputs: {
+          garmentKey,
+          personKey,
+          personFile,
+          garmentFile,
+          palluKey: inputs.thirdGarmentKey,
+          palluFile,
+        },
       },
     });
 

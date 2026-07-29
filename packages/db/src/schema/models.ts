@@ -122,6 +122,14 @@ export const garmentSubcategories = pgTable('garment_subcategories', {
     () => workflowTemplates.id,
     { onDelete: 'set null' },
   ),
+  // Optional second step-1 workflow: takes two garment images (body + pallu)
+  // instead of one. Presence of this column is what gates the studio wizard's
+  // "Full Saree / Body & Pallu" upload-mode dropdown for this garment type.
+  // See docs/superpowers/specs/2026-07-29-saree-two-input-upload-design.md.
+  mannequinTwoInputWorkflowTemplateId: uuid('mannequin_two_input_workflow_template_id').references(
+    () => workflowTemplates.id,
+    { onDelete: 'set null' },
+  ),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -167,6 +175,9 @@ export const workflowTemplates = pgTable('workflow_templates', {
   // Tryon workflow node IDs — only set when workflowType = 'tryon'
   tryonPersonNodeId: text('tryon_person_node_id'),
   tryonGarmentNodeId: text('tryon_garment_node_id'),
+  // Second garment node (pallu) — only set when workflowType = 'saree_step1_two_input'.
+  // tryonGarmentNodeId carries the body image in that case.
+  tryonGarmentNodeId2: text('tryon_garment_node_id_2'),
   tryonOutputNodeId: text('tryon_output_node_id'),
 
   isActive: boolean('is_active').notNull().default(true),

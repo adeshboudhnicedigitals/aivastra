@@ -29,6 +29,7 @@ interface GarmentType {
   requiresMannequinStep?: boolean;
   requiresThirdUpload?: boolean;
   thirdUploadLabel?: string | null;
+  mannequinTwoInputWorkflowTemplateId?: string | null;
 }
 interface FaceItem {
   id: string;
@@ -502,6 +503,19 @@ export default function StudioPage(): React.ReactElement {
   }, [thirdGarmentPreviewUrl]);
   const [thirdGarmentKey, setThirdGarmentKey] = useState('');
   const [isUploadingThird, setIsUploadingThird] = useState(false);
+  const [palluGarmentFile, setPalluGarmentFile] = useState<File | null>(null);
+  const palluGarmentPreviewUrl = useMemo(
+    () => (palluGarmentFile ? URL.createObjectURL(palluGarmentFile) : ''),
+    [palluGarmentFile],
+  );
+  useEffect(() => {
+    return () => {
+      if (palluGarmentPreviewUrl) URL.revokeObjectURL(palluGarmentPreviewUrl);
+    };
+  }, [palluGarmentPreviewUrl]);
+  const [palluGarmentKey, setPalluGarmentKey] = useState('');
+  const [isUploadingPallu, setIsUploadingPallu] = useState(false);
+  const [sareeUploadMode, setSareeUploadMode] = useState<'single' | 'two_input'>('single');
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -510,6 +524,8 @@ export default function StudioPage(): React.ReactElement {
   const uploadAbortRef = useRef<AbortController | null>(null);
   const lowerUploadAbortRef = useRef<AbortController | null>(null);
   const thirdUploadAbortRef = useRef<AbortController | null>(null);
+  const palluFileInputRef = useRef<HTMLInputElement>(null);
+  const palluUploadAbortRef = useRef<AbortController | null>(null);
 
   // Abort any in-flight XHR uploads when the component unmounts (user navigates away)
   useEffect(() => {
@@ -517,6 +533,7 @@ export default function StudioPage(): React.ReactElement {
       uploadAbortRef.current?.abort();
       lowerUploadAbortRef.current?.abort();
       thirdUploadAbortRef.current?.abort();
+      palluUploadAbortRef.current?.abort();
     };
   }, []);
   const garmentVisibleCount = 5;
@@ -1026,6 +1043,43 @@ export default function StudioPage(): React.ReactElement {
     }
   }
 
+  async function handlePalluGarmentUpload(file: File) {
+    if (isUploadingPallu) return;
+    if (file.size > 10 * 1024 * 1024) {
+      showToast('File exceeds 10 MB. Please choose a smaller image.');
+      return;
+    }
+    if (!(await isSupportedImageBytes(file))) {
+      showToast('Unsupported file type. Please upload a JPEG, PNG, or WebP image.');
+      return;
+    }
+    setPalluGarmentFile(file);
+    setIsUploadingPallu(true);
+    const palluAbort = new AbortController();
+    palluUploadAbortRef.current = palluAbort;
+    try {
+      const { uploadUrl, r2Key } = await api.post<{
+        uploadUrl: string;
+        r2Key: string;
+        expiresIn: number;
+      }>('/v1/uploads/presign', { contentType: file.type, contentLength: file.size });
+      await api.uploadToR2WithProgress(uploadUrl, file, () => {}, palluAbort.signal);
+      setPalluGarmentKey(r2Key);
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return;
+      const msg = (e as Error).message ?? '';
+      showToast(
+        msg.includes('403')
+          ? 'Upload session expired. Please re-select your image and try again.'
+          : `Pallu upload failed: ${msg}`,
+      );
+      setPalluGarmentFile(null);
+      setPalluGarmentKey('');
+    } finally {
+      setIsUploadingPallu(false);
+    }
+  }
+
   function handleFaceSelect(id: string) {
     setFaceId(id);
     setCatalogueTemplateId('custom');
@@ -1075,6 +1129,7 @@ export default function StudioPage(): React.ReactElement {
   async function handleSubmit() {
     if (isSubmittingRef.current) return;
     if (!garmentKey || !faceId || !resolution) return;
+    if (sareeTwoInputActive && !palluGarmentKey) return;
     if (catalogueTemplateId === 'custom') {
       if (!backgroundId || poseIds.length === 0) return;
     } else {
@@ -1134,7 +1189,13 @@ export default function StudioPage(): React.ReactElement {
       if (selectedGarmentType?.requiresMannequinStep) {
         ({ catalogueId, jobIds } = await api.post<{ catalogueId: string; jobIds: string[] }>(
           '/v1/jobs/saree-mannequin',
-          { garmentTypeId, garmentKey, faceId, step2: step2Body },
+          {
+            garmentTypeId,
+            garmentKey,
+            ...(sareeTwoInputActive ? { secondGarmentKey: palluGarmentKey } : {}),
+            faceId,
+            step2: step2Body,
+          },
         ));
       } else {
         const inputs = {
@@ -1273,7 +1334,11 @@ export default function StudioPage(): React.ReactElement {
 
   const requiresLowerUpload = selectedGarmentType?.requiresLowerUpload ?? false;
   const requiresThirdUpload = selectedGarmentType?.requiresThirdUpload ?? false;
-  const hasMultipleUploadBoxes = requiresLowerUpload || requiresThirdUpload;
+  const sareeTwoInputCapable =
+    !!selectedGarmentType?.requiresMannequinStep &&
+    !!selectedGarmentType?.mannequinTwoInputWorkflowTemplateId;
+  const sareeTwoInputActive = sareeTwoInputCapable && sareeUploadMode === 'two_input';
+  const hasMultipleUploadBoxes = requiresLowerUpload || requiresThirdUpload || sareeTwoInputActive;
 
   const creditCost = resolution ? RESOLUTION_COSTS[resolution] * selectedCount : 0;
   const canGenerate =
@@ -1281,6 +1346,7 @@ export default function StudioPage(): React.ReactElement {
     !!garmentKey &&
     (!requiresLowerUpload || !!lowerGarmentKey) &&
     (!requiresThirdUpload || !!thirdGarmentKey) &&
+    (!sareeTwoInputActive || !!palluGarmentKey) &&
     !!faceId &&
     (catalogueTemplateId === 'custom' ? !!backgroundId : true) &&
     customDimsReady &&
@@ -1288,12 +1354,13 @@ export default function StudioPage(): React.ReactElement {
     !isUploading &&
     !isUploadingLower &&
     !isUploadingThird &&
+    !isUploadingPallu &&
     !isSubmitting &&
     !generationInProgress;
 
   const generateBlocker = generationInProgress
     ? 'Generation in progress…'
-    : isUploading || isUploadingLower || isUploadingThird
+    : isUploading || isUploadingLower || isUploadingThird || isUploadingPallu
       ? 'Waiting for upload to finish…'
       : !garmentKey
         ? 'Upload a garment image first'
@@ -1301,13 +1368,15 @@ export default function StudioPage(): React.ReactElement {
           ? 'Upload the lower garment image first'
           : requiresThirdUpload && !thirdGarmentKey
             ? 'Upload the third garment image first'
-            : selectedCount === 0
-              ? catalogueTemplateId === 'custom'
-                ? 'Select at least one pose'
-                : 'Select at least one look'
-              : !customDimsReady
-                ? 'Enter valid width and height for custom size'
-                : '';
+            : sareeTwoInputActive && !palluGarmentKey
+              ? 'Upload the pallu image first'
+              : selectedCount === 0
+                ? catalogueTemplateId === 'custom'
+                  ? 'Select at least one pose'
+                  : 'Select at least one look'
+                : !customDimsReady
+                  ? 'Enter valid width and height for custom size'
+                  : '';
 
   // Sections 1-4 (Create Catalogue For / Outfit Type / Upload / Choose AI Model)
   // are always visible and keep their static stepNumber. Everything after that is
@@ -1565,6 +1634,9 @@ export default function StudioPage(): React.ReactElement {
                               setPoseIds([]);
                               setLowerCatalogId('');
                               setShoeCatalogId('');
+                              setSareeUploadMode('single');
+                              setPalluGarmentFile(null);
+                              setPalluGarmentKey('');
                             }
                           }}
                         />
@@ -1581,6 +1653,46 @@ export default function StudioPage(): React.ReactElement {
                 subtitle="Upload a clean flat lay garment image"
                 stepNumber={3}
               />
+              {sareeTwoInputCapable && (
+                <div style={{ marginBottom: 12 }}>
+                  <label
+                    htmlFor="saree-upload-mode"
+                    style={{
+                      display: 'block',
+                      fontSize: 12,
+                      fontWeight: 500,
+                      color: C.mid,
+                      marginBottom: 6,
+                    }}
+                  >
+                    Upload type
+                  </label>
+                  <select
+                    id="saree-upload-mode"
+                    value={sareeUploadMode}
+                    onChange={(e) => {
+                      const mode = e.target.value as 'single' | 'two_input';
+                      setSareeUploadMode(mode);
+                      if (mode === 'single') {
+                        setPalluGarmentFile(null);
+                        setPalluGarmentKey('');
+                      }
+                    }}
+                    style={{
+                      background: C.field,
+                      color: C.text,
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 8,
+                      padding: '8px 12px',
+                      fontSize: 13,
+                      minWidth: 220,
+                    }}
+                  >
+                    <option value="single">Full Saree</option>
+                    <option value="two_input">Body & Pallu</option>
+                  </select>
+                </div>
+              )}
               <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
                 {/* Dashed upload box — single zone or split into two */}
                 <div
@@ -1760,10 +1872,12 @@ export default function StudioPage(): React.ReactElement {
                                 textAlign: 'center',
                               }}
                             >
-                              {hasMultipleUploadBoxes
-                                ? selectedGarmentType?.upperUploadLabel ||
-                                  `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`
-                                : `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`}
+                              {sareeTwoInputActive
+                                ? 'Body'
+                                : hasMultipleUploadBoxes
+                                  ? selectedGarmentType?.upperUploadLabel ||
+                                    `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`
+                                  : `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`}
                             </span>
                             <span
                               style={{
@@ -1813,6 +1927,187 @@ export default function StudioPage(): React.ReactElement {
                         }}
                       />
                     </label>
+
+                    {sareeTwoInputActive && (
+                      <label
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 12,
+                          background: C.card,
+                          border: `1px solid ${C.border}`,
+                          borderRadius: 8,
+                          padding: 12,
+                          cursor: 'pointer',
+                          boxSizing: 'border-box',
+                          overflow: 'hidden',
+                        }}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const f = e.dataTransfer.files?.[0];
+                          if (f && ['image/jpeg', 'image/png', 'image/webp'].includes(f.type))
+                            handlePalluGarmentUpload(f);
+                        }}
+                      >
+                        {palluGarmentFile ? (
+                          <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
+                            <img
+                              src={palluGarmentPreviewUrl}
+                              alt={palluGarmentFile.name}
+                              style={{
+                                width: '100%',
+                                height: '100%',
+                                objectFit: 'contain',
+                                borderRadius: 6,
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                setPalluGarmentFile(null);
+                                setPalluGarmentKey('');
+                              }}
+                              style={{
+                                position: 'absolute',
+                                top: 6,
+                                right: 6,
+                                width: 24,
+                                height: 24,
+                                borderRadius: '50%',
+                                background: 'rgba(0,0,0,0.5)',
+                                border: 'none',
+                                color: 'white',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                            >
+                              <XIcon size={14} />
+                            </button>
+                            {isUploadingPallu && (
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  bottom: 8,
+                                  left: 8,
+                                  right: 8,
+                                  background: 'rgba(255,255,255,0.95)',
+                                  borderRadius: 8,
+                                  padding: '6px 10px',
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 8,
+                                    fontSize: 12,
+                                    color: C.text,
+                                  }}
+                                >
+                                  <SpinnerIcon size={14} /> Uploading…
+                                </div>
+                              </div>
+                            )}
+                            {palluGarmentKey && (
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  top: 8,
+                                  left: 8,
+                                  background: C.mint,
+                                  color: 'white',
+                                  borderRadius: 6,
+                                  padding: '3px 8px',
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                }}
+                              >
+                                <CheckIcon color="#fff" size={10} /> Uploaded
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <>
+                            <div
+                              style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                gap: 4,
+                              }}
+                            >
+                              <span
+                                style={{
+                                  width: '100%',
+                                  fontSize: 11,
+                                  fontWeight: 500,
+                                  lineHeight: '100%',
+                                  color: C.text,
+                                  textAlign: 'center',
+                                }}
+                              >
+                                Pallu
+                              </span>
+                              <span
+                                style={{
+                                  width: '100%',
+                                  fontSize: 10,
+                                  fontWeight: 500,
+                                  lineHeight: '140%',
+                                  color: C.mid,
+                                  textAlign: 'center',
+                                }}
+                              >
+                                JPG, PNG · Max 10MB
+                              </span>
+                            </div>
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 6,
+                              }}
+                            >
+                              <ImagePlusIcon size={14} />
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 500,
+                                  lineHeight: '18px',
+                                  color: C.text,
+                                }}
+                              >
+                                Browse
+                              </span>
+                            </div>
+                          </>
+                        )}
+                        <input
+                          ref={palluFileInputRef}
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          style={{ display: 'none' }}
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) handlePalluGarmentUpload(f);
+                          }}
+                        />
+                      </label>
+                    )}
 
                     {requiresLowerUpload && (
                       <label
