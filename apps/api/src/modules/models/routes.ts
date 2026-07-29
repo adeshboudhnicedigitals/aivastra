@@ -31,6 +31,8 @@ export async function modelsRoutes(app: FastifyInstance) {
           defaultLowerCatalogId: schema.garmentSubcategories.defaultLowerCatalogId,
           defaultShoeCatalogId: schema.garmentSubcategories.defaultShoeCatalogId,
           requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep,
+          mannequinTwoInputWorkflowTemplateId:
+            schema.garmentSubcategories.mannequinTwoInputWorkflowTemplateId,
         })
         .from(schema.garmentSubcategories)
         .where(
