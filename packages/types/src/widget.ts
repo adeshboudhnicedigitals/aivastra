@@ -183,7 +183,15 @@ export const MerchantCatalogGenerateBody = z.object({
   // row's id, so callers can send the human-readable style name shown in
   // admin/the app instead of looking up a UUID. Omitted = falls back to the
   // garment type's own mannequinWorkflowTemplateId (unchanged behavior).
+  // Ignored when secondFlatImageKey is present — two-input mode always uses
+  // the garment type's mannequinTwoInputWorkflowTemplateId, styles don't
+  // have a two-input variant.
   sareeStyleId: z.string().min(1).optional(),
+  // Pallu image for the "Body & Pallu" two-input upload mode. Only valid for
+  // garment types with mannequinTwoInputWorkflowTemplateId configured
+  // (enforced server-side). Presigned the same way as flatImageKey, via
+  // POST /v1/merchant/catalog/presign called a second time.
+  secondFlatImageKey: z.string().min(1).optional(),
 });
 export type MerchantCatalogGenerateBody = z.infer<typeof MerchantCatalogGenerateBody>;
 
