@@ -87,7 +87,13 @@ const NAV: {
 
 const SIDEBAR_WIDTH = 200;
 
-export function Sidebar() {
+export function Sidebar({
+  onNavigate,
+  fillWidth,
+}: {
+  onNavigate?: () => void;
+  fillWidth?: boolean;
+}) {
   const pathname = usePathname();
   const qc = useQueryClient();
   const [darkMode, setDarkMode] = useState(false);
@@ -181,8 +187,8 @@ export function Sidebar() {
   return (
     <div
       style={{
-        width: SIDEBAR_WIDTH,
-        minWidth: SIDEBAR_WIDTH,
+        width: fillWidth ? '100%' : SIDEBAR_WIDTH,
+        minWidth: fillWidth ? 0 : SIDEBAR_WIDTH,
         height: '100vh',
         background: '#080C18',
         display: 'flex',
@@ -237,7 +243,11 @@ export function Sidebar() {
           flexShrink: 0,
         }}
       >
-        <Link href="/studio" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Link
+          href="/studio"
+          onClick={() => onNavigate?.()}
+          style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+        >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           {/* biome-ignore lint/performance/noImgElement: logo */}
           <img
@@ -370,6 +380,7 @@ export function Sidebar() {
                         }}
                         onMouseEnter={() => prefetchRoute(item.id)}
                         onFocus={() => prefetchRoute(item.id)}
+                        onClick={() => onNavigate?.()}
                       >
                         {linkContent}
                       </Link>
@@ -398,6 +409,7 @@ export function Sidebar() {
                       }}
                       onMouseEnter={() => prefetchRoute(item.id)}
                       onFocus={() => prefetchRoute(item.id)}
+                      onClick={() => onNavigate?.()}
                     >
                       {linkContent}
                     </Link>
@@ -415,6 +427,7 @@ export function Sidebar() {
       >
         <Link
           href="/pricing"
+          onClick={() => onNavigate?.()}
           style={{
             textDecoration: 'none',
             display: 'flex',

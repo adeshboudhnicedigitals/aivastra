@@ -29,11 +29,14 @@ export function SupportButton() {
           justifyContent: 'center',
           width: 40,
           height: 40,
+          minWidth: 40,
+          minHeight: 40,
           borderRadius: 8,
           border: `1px solid ${C.border}`,
           background: C.white,
           color: C.mid,
           flexShrink: 0,
+          boxSizing: 'border-box',
           cursor: 'pointer',
         }}
       >
@@ -57,6 +60,7 @@ export function SupportModal({
   const [errMsg, setErrMsg] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
+  const canSubmit = message.trim().length > 0 && stage === 'idle';
 
   useEffect(() => {
     const el = modalRef.current;
@@ -102,52 +106,57 @@ export function SupportModal({
         attachmentKey = key;
       }
 
-      await api.post('/v1/support', { message: message.trim(), attachmentKey });
+      await api.post('/v1/support', {
+        message: message.trim(),
+        attachmentKey,
+      });
+
       setStage('done');
     } catch (e) {
-      setErrMsg(e instanceof Error ? e.message : 'Something went wrong');
+      setErrMsg((e as Error).message || 'Failed to submit ticket');
       setStage('error');
     }
   }
 
-  const canSubmit = message.trim().length > 0 && stage === 'idle';
-
   return (
-    <>
-      {/* Backdrop */}
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: backdrop click closes modal */}
-      <div
-        role="presentation"
-        onClick={onClose}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') onClose();
-        }}
-        style={{
-          position: 'fixed',
-          inset: 0,
-          background: 'rgba(0,0,0,0.35)',
-          zIndex: 1000,
-        }}
-      />
-
+    // biome-ignore lint/a11y/noStaticElementInteractions: backdrop dismisses modal
+    <div
+      role="presentation"
+      onClick={onClose}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') onClose();
+      }}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.35)',
+        zIndex: 1000,
+      }}
+    >
       {/* Modal */}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: click swallowed inside modal panel */}
       <div
         ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="support-modal-title"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={() => {}}
         style={{
           position: 'fixed',
           top: '50%',
           left: '50%',
           transform: 'translate(-50%, -50%)',
           zIndex: 1001,
-          width: 480,
+          width: 'min(400px, calc(100vw - 32px))',
           maxWidth: 'calc(100vw - 32px)',
+          maxHeight: '85vh',
+          overflowY: 'auto',
           background: C.white,
-          borderRadius: 16,
-          boxShadow: '0 20px 60px rgba(0,0,0,0.18)',
-          padding: '28px 28px 24px',
+          borderRadius: 14,
+          boxShadow: '0 16px 48px rgba(0,0,0,0.18)',
+          padding: '20px 20px 18px',
+          boxSizing: 'border-box',
           display: 'flex',
           flexDirection: 'column',
           gap: 0,
@@ -399,6 +408,6 @@ export function SupportModal({
           </>
         )}
       </div>
-    </>
+    </div>
   );
 }

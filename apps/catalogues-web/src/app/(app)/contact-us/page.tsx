@@ -21,6 +21,195 @@ export default function ContactUsPage() {
       }}
     >
       <style>{`
+        .contact-content-area {
+          flex: 1;
+          overflow-y: auto;
+          background: ${C.bg};
+          padding: 40px 24px;
+          box-sizing: border-box;
+        }
+
+        .contact-container {
+          width: 100%;
+          max-width: 1156px;
+          margin: 0 auto;
+          display: flex;
+          flex-direction: row;
+          justify-content: space-between;
+          align-items: stretch;
+          gap: 32px;
+        }
+
+        .contact-info-card {
+          box-sizing: border-box;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          align-items: flex-start;
+          padding: 32px 36px;
+          gap: 28px;
+          flex: 1 1 500px;
+          min-width: 320px;
+          max-width: 651px;
+          width: 100%;
+          background: #FEFEFE;
+          border: 1px solid #EEEEEE;
+          box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.08);
+          border-radius: 24px;
+        }
+
+        .contact-form-card {
+          box-sizing: border-box;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          align-items: flex-start;
+          padding: 32px;
+          gap: 20px;
+          width: 460px;
+          max-width: 100%;
+          flex-shrink: 0;
+          background: #FEFEFE;
+          border: 1px solid #EEEEEE;
+          box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.08);
+          border-radius: 24px;
+        }
+
+        .contact-card-title {
+          font-size: 26px;
+          font-weight: 600;
+          color: #1A1A2E;
+        }
+
+        .contact-card-subtitle {
+          font-size: 14px;
+          color: ${C.mid};
+          line-height: 1.5;
+        }
+
+        .contact-item-label {
+          font-size: 13px;
+          font-weight: 600;
+          color: #1A1A2E;
+          margin-bottom: 4px;
+        }
+
+        .contact-item-val {
+          font-size: 14px;
+          color: ${C.mid};
+          line-height: 1.5;
+        }
+
+        .contact-icon-box {
+          width: 45px;
+          height: 45px;
+          min-width: 45px;
+          border-radius: 10px;
+          border: 1px solid #DDDDDD;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .contact-form-label {
+          font-size: 12px;
+          font-weight: 600;
+          color: #1A1A2E;
+          margin-bottom: 6px;
+          display: block;
+        }
+
+        .contact-submit-btn {
+          width: 100%;
+          height: 44px;
+          background: ${grad};
+          color: #fff;
+          border: none;
+          border-radius: 8px;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          font-family: inherit;
+        }
+
+        @media (max-width: 1200px) {
+          .contact-content-area {
+            padding: 24px 20px;
+          }
+          .contact-container {
+            flex-direction: column;
+            align-items: center;
+            gap: 24px;
+          }
+          .contact-info-card {
+            width: 100%;
+            max-width: 650px;
+            padding: 28px 28px;
+            gap: 24px;
+          }
+          .contact-form-card {
+            width: 100%;
+            max-width: 650px;
+            padding: 28px 28px;
+            gap: 20px;
+          }
+          .contact-card-title {
+            font-size: 22px;
+          }
+          .contact-card-subtitle {
+            font-size: 13px;
+          }
+          .contact-item-val {
+            font-size: 13px;
+          }
+          .contact-icon-box {
+            width: 40px;
+            height: 40px;
+            min-width: 40px;
+          }
+        }
+
+        @media (max-width: 639px) {
+          .contact-content-area {
+            padding: 16px 16px;
+          }
+          .contact-container {
+            gap: 16px;
+          }
+          .contact-info-card {
+            padding: 20px 16px;
+            border-radius: 16px;
+            gap: 20px;
+          }
+          .contact-form-card {
+            padding: 20px 16px;
+            border-radius: 16px;
+            gap: 16px;
+          }
+          .contact-card-title {
+            font-size: 20px;
+          }
+          .contact-card-subtitle {
+            font-size: 12px;
+          }
+          .contact-item-label {
+            font-size: 12.5px;
+          }
+          .contact-item-val {
+            font-size: 12px;
+            line-height: 1.4;
+          }
+          .contact-icon-box {
+            width: 36px;
+            height: 36px;
+            min-width: 36px;
+          }
+          .contact-submit-btn {
+            height: 40px;
+            font-size: 13px;
+          }
+        }
+
         .contact-input::placeholder {
           color: #E2E8F0 !important;
           opacity: 1 !important;
@@ -28,54 +217,13 @@ export default function ContactUsPage() {
         }
       `}</style>
       <TopBar title="Contact Us" subtitle="" />
-      <div
-        style={{
-          flex: 1,
-          overflowY: 'auto',
-          background: C.bg,
-          position: 'relative',
-        }}
-      >
-        <div
-          style={{
-            position: 'absolute',
-            width: 1156,
-            height: 562,
-            left: '48%',
-            top: '48%',
-            transform: 'translate(-50%, -50%)',
-            display: 'flex',
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: 80,
-          }}
-        >
+      <div className="contact-content-area">
+        <div className="contact-container">
           {/* Left - Contact Info */}
-          <div
-            style={{
-              boxSizing: 'border-box',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'center',
-              alignItems: 'flex-start',
-              padding: '20px 40px',
-              gap: 32,
-              width: 651,
-              height: 562,
-              background: '#FEFEFE',
-              border: '1px solid #EEEEEE',
-              boxShadow: '0px 4px 15px rgba(0, 0, 0, 0.08)',
-              borderRadius: 24,
-              flex: 'none',
-              order: 0,
-              alignSelf: 'stretch',
-              flexGrow: 0,
-            }}
-          >
+          <div className="contact-info-card">
             <div>
-              <div style={{ fontSize: 26, fontWeight: 600, color: '#1A1A2E' }}>Let's Connect</div>
-              <div style={{ fontSize: 14, color: C.mid, lineHeight: 1.5 }}>
+              <div className="contact-card-title">Let's Connect</div>
+              <div className="contact-card-subtitle">
                 Reach out to us through any of the following channels.
               </div>
             </div>
@@ -83,73 +231,34 @@ export default function ContactUsPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16, width: '100%' }}>
               {/* Email */}
               <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                <div
-                  style={{
-                    width: 45,
-                    height: 45,
-                    minWidth: 45,
-                    borderRadius: 10,
-                    border: '1px solid #DDDDDD',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Mail size={20} color={C.mid} />
+                <div className="contact-icon-box">
+                  <Mail size={18} color={C.mid} />
                 </div>
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1A2E', marginBottom: 4 }}>
-                    Email
-                  </div>
-                  <div style={{ fontSize: 14, color: C.mid }}>support@aivastra.com</div>
+                  <div className="contact-item-label">Email</div>
+                  <div className="contact-item-val">support@aivastra.com</div>
                 </div>
               </div>
 
               {/* Phone */}
               <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                <div
-                  style={{
-                    width: 45,
-                    height: 45,
-                    minWidth: 45,
-                    borderRadius: 10,
-                    border: '1px solid #DDDDDD',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Phone size={20} color={C.mid} />
+                <div className="contact-icon-box">
+                  <Phone size={18} color={C.mid} />
                 </div>
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1A2E', marginBottom: 4 }}>
-                    Phone
-                  </div>
-                  <div style={{ fontSize: 14, color: C.mid }}>+91 7729883692</div>
+                  <div className="contact-item-label">Phone</div>
+                  <div className="contact-item-val">+91 7729883692</div>
                 </div>
               </div>
 
               {/* Corporate Office */}
               <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                <div
-                  style={{
-                    width: 45,
-                    height: 45,
-                    minWidth: 45,
-                    borderRadius: 10,
-                    border: '1px solid #DDDDDD',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <MapPinned size={20} color={C.mid} />
+                <div className="contact-icon-box">
+                  <MapPinned size={18} color={C.mid} />
                 </div>
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1A2E', marginBottom: 4 }}>
-                    Corporate Office
-                  </div>
-                  <div style={{ fontSize: 14, color: C.mid, lineHeight: 1.5 }}>
+                  <div className="contact-item-label">Corporate Office</div>
+                  <div className="contact-item-val">
                     #904, 9th Floor Asian Sun City Commercial Beside Sarath City Capital Mall
                     Kondapur, Hyderabad, 500084.
                   </div>
@@ -158,25 +267,12 @@ export default function ContactUsPage() {
 
               {/* Head Office */}
               <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                <div
-                  style={{
-                    width: 45,
-                    height: 45,
-                    minWidth: 45,
-                    borderRadius: 10,
-                    border: '1px solid #DDDDDD',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <MapPinned size={20} color={C.mid} />
+                <div className="contact-icon-box">
+                  <MapPinned size={18} color={C.mid} />
                 </div>
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1A2E', marginBottom: 4 }}>
-                    Head Office
-                  </div>
-                  <div style={{ fontSize: 14, color: C.mid, lineHeight: 1.5 }}>
+                  <div className="contact-item-label">Head Office</div>
+                  <div className="contact-item-val">
                     3rd Floor, Salumuri Vari St, above Ishita Mini Function Hall, Innespeta,
                     Rajamahendravaram, Andhra Pradesh, 533101.
                   </div>
@@ -271,30 +367,10 @@ export default function ContactUsPage() {
           </div>
 
           {/* Right - Contact Form */}
-          <div
-            style={{
-              boxSizing: 'border-box',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'flex-start',
-              padding: 20,
-              gap: 24,
-              width: 480,
-              height: 562,
-              background: '#FEFEFE',
-              border: '1px solid #EEEEEE',
-              boxShadow: '0px 4px 15px rgba(0, 0, 0, 0.08)',
-              borderRadius: 24,
-              flex: 'none',
-              order: 1,
-              flexGrow: 0,
-            }}
-          >
+          <div className="contact-form-card">
             <div>
-              <div style={{ fontSize: 26, fontWeight: 600, color: '#1A1A2E' }}>
-                Send Us a Message
-              </div>
-              <div style={{ fontSize: 14, color: C.mid, lineHeight: 1.5 }}>
+              <div className="contact-card-title">Send Us a Message</div>
+              <div className="contact-card-subtitle">
                 Share few details, and we&apos;ll contact you soon.
               </div>
             </div>
@@ -302,16 +378,7 @@ export default function ContactUsPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16, width: '100%' }}>
               {/* Full Name */}
               <div>
-                <label
-                  htmlFor="contact-name"
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: '#1A1A2E',
-                    marginBottom: 6,
-                    display: 'block',
-                  }}
-                >
+                <label htmlFor="contact-name" className="contact-form-label">
                   Full Name<span style={{ color: '#DC2626' }}>*</span>
                 </label>
                 <input
@@ -338,16 +405,7 @@ export default function ContactUsPage() {
 
               {/* Email */}
               <div>
-                <label
-                  htmlFor="contact-email"
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: '#1A1A2E',
-                    marginBottom: 6,
-                    display: 'block',
-                  }}
-                >
+                <label htmlFor="contact-email" className="contact-form-label">
                   Email<span style={{ color: '#DC2626' }}>*</span>
                 </label>
                 <input
@@ -374,16 +432,7 @@ export default function ContactUsPage() {
 
               {/* Phone */}
               <div>
-                <label
-                  htmlFor="contact-phone"
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: '#1A1A2E',
-                    marginBottom: 6,
-                    display: 'block',
-                  }}
-                >
+                <label htmlFor="contact-phone" className="contact-form-label">
                   Phone Number<span style={{ color: '#DC2626' }}>*</span>
                 </label>
                 <input
@@ -412,16 +461,7 @@ export default function ContactUsPage() {
 
               {/* Message */}
               <div>
-                <label
-                  htmlFor="contact-message"
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: '#1A1A2E',
-                    marginBottom: 6,
-                    display: 'block',
-                  }}
-                >
+                <label htmlFor="contact-message" className="contact-form-label">
                   Your Message
                 </label>
                 <textarea
@@ -450,21 +490,7 @@ export default function ContactUsPage() {
             </div>
 
             {/* Submit */}
-            <button
-              type="button"
-              style={{
-                width: '100%',
-                height: 44,
-                background: grad,
-                color: '#fff',
-                border: 'none',
-                borderRadius: 8,
-                fontSize: 14,
-                fontWeight: 600,
-                cursor: 'pointer',
-                fontFamily: 'inherit',
-              }}
-            >
+            <button type="button" className="contact-submit-btn">
               Submit Message
             </button>
           </div>
