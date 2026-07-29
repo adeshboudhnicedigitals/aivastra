@@ -32,11 +32,16 @@ export async function createSareeMannequinJob(
   if (!garmentType?.isActive || !garmentType.requiresMannequinStep) {
     throw new AppError('BAD_CATALOG', 400, 'garment type does not use a mannequin step');
   }
-  if (!garmentType.mannequinWorkflowTemplateId) {
+  if (secondGarmentKey) {
+    if (!garmentType.mannequinTwoInputWorkflowTemplateId) {
+      throw new AppError(
+        'CONFIG',
+        400,
+        'garment type missing two-input step-1 workflow configuration',
+      );
+    }
+  } else if (!garmentType.mannequinWorkflowTemplateId) {
     throw new AppError('CONFIG', 400, 'garment type missing step-1 workflow configuration');
-  }
-  if (secondGarmentKey && !garmentType.mannequinTwoInputWorkflowTemplateId) {
-    throw new AppError('CONFIG', 400, 'garment type missing two-input step-1 workflow configuration');
   }
 
   const [face] = await app.db
