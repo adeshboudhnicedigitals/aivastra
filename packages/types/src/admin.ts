@@ -497,6 +497,7 @@ export const PatchGarmentTypeBody = z.object({
   requiresMannequinStep: z.boolean().optional(),
   mannequinWorkflowTemplateId: z.string().uuid().nullable().optional(),
   sareeStep2WorkflowTemplateId: z.string().uuid().nullable().optional(),
+  mannequinTwoInputWorkflowTemplateId: z.string().uuid().nullable().optional(),
 });
 export const PresignGarmentTypeBody = z.object({
   contentType: AssetContentType,
