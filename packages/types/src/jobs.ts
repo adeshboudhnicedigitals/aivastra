@@ -132,7 +132,10 @@ export const CreateSareeMannequinJobRequest = z.object({
   // Pallu image for the "Body & Pallu" two-input upload mode â€” only valid when
   // the garment type has mannequinTwoInputWorkflowTemplateId configured
   // (enforced server-side in createSareeMannequinJob, see Task 6).
-  secondGarmentKey: z.string().regex(INPUT_GARMENT_KEY).optional(),
+  secondGarmentKey: z
+    .string()
+    .regex(/^inputs\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/(?:garment|pallu)\.jpg$/)
+    .optional(),
   faceId: z.string().uuid(),
   // Full step-2 (tryon) request, captured up front so the dispatcher can create
   // and enqueue the tryon job(s) itself once the mannequin job completes — see
