@@ -757,6 +757,8 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         label: schema.sareeMannequinStyles.label,
         previewImageKey: schema.sareeMannequinStyles.previewImageKey,
         sortOrder: schema.sareeMannequinStyles.sortOrder,
+        mannequinTwoInputWorkflowTemplateId:
+          schema.sareeMannequinStyles.mannequinTwoInputWorkflowTemplateId,
       })
       .from(schema.sareeMannequinStyles)
       .where(eq(schema.sareeMannequinStyles.isActive, true))
@@ -773,6 +775,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
               .catch(() => null)
           : null,
         sortOrder: row.sortOrder,
+        supportsTwoInput: row.mannequinTwoInputWorkflowTemplateId !== null,
       })),
     );
     return { items };
