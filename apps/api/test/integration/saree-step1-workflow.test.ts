@@ -95,4 +95,45 @@ describe('POST /admin/workflows — saree_step1 workflowType', () => {
       .where(eq(schema.workflowTemplates.id, body.id));
     expect(row?.workflowType).toBe('saree_step1');
   });
+
+  it('creates a saree_step1_two_input workflow with auto-detected body/pallu/output nodes', async () => {
+    const token = await registerAdmin('wf-two-input-admin@x.com');
+    const jsonContent = {
+      '10': { class_type: 'SaveImage', inputs: {}, _meta: { title: 'output' } },
+      '1': { class_type: 'LoadImage', inputs: {}, _meta: { title: 'person' } },
+      '2': { class_type: 'LoadImage', inputs: {}, _meta: { title: 'body' } },
+      '3': { class_type: 'LoadImage', inputs: {}, _meta: { title: 'pallu' } },
+      '4': {
+        class_type: 'CLIPTextEncode',
+        inputs: { text: 'pos' },
+        _meta: { title: 'positive_prompt' },
+      },
+      '5': {
+        class_type: 'CLIPTextEncode',
+        inputs: { text: 'neg' },
+        _meta: { title: 'negative_prompt' },
+      },
+    };
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        slug: `saree_two_input_${Date.now()}`,
+        label: 'Saree Two Input',
+        jsonContent,
+        workflowType: 'saree_step1_two_input',
+        facePhasePromptNode: '5',
+        garmentPhasePromptNode: '4',
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.tryonPersonNodeId).toBe('1');
+    expect(body.tryonGarmentNodeId).toBe('2');
+    expect(body.tryonGarmentNodeId2).toBe('3');
+    expect(body.tryonOutputNodeId).toBe('10');
+    expect(body.workflowType).toBe('saree_step1_two_input');
+  });
 });

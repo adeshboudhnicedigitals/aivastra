@@ -14,22 +14,33 @@ export async function createSareeMannequinJob(
   userId: string,
   body: z.infer<typeof CreateSareeMannequinJobRequest>,
 ): Promise<{ catalogueId: string; jobIds: string[] }> {
-  const { garmentTypeId, garmentKey, faceId, step2 } = body;
+  const { garmentTypeId, garmentKey, secondGarmentKey, faceId, step2 } = body;
 
   await assertOwnsUploadKey(app, userId, garmentKey);
+  if (secondGarmentKey) await assertOwnsUploadKey(app, userId, secondGarmentKey);
 
   const [garmentType] = await app.db
     .select({
       isActive: schema.garmentSubcategories.isActive,
       requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep,
       mannequinWorkflowTemplateId: schema.garmentSubcategories.mannequinWorkflowTemplateId,
+      mannequinTwoInputWorkflowTemplateId:
+        schema.garmentSubcategories.mannequinTwoInputWorkflowTemplateId,
     })
     .from(schema.garmentSubcategories)
     .where(eq(schema.garmentSubcategories.id, garmentTypeId));
   if (!garmentType?.isActive || !garmentType.requiresMannequinStep) {
     throw new AppError('BAD_CATALOG', 400, 'garment type does not use a mannequin step');
   }
-  if (!garmentType.mannequinWorkflowTemplateId) {
+  if (secondGarmentKey) {
+    if (!garmentType.mannequinTwoInputWorkflowTemplateId) {
+      throw new AppError(
+        'CONFIG',
+        400,
+        'garment type missing two-input step-1 workflow configuration',
+      );
+    }
+  } else if (!garmentType.mannequinWorkflowTemplateId) {
     throw new AppError('CONFIG', 400, 'garment type missing step-1 workflow configuration');
   }
 
@@ -78,9 +89,15 @@ export async function createSareeMannequinJob(
     await tx.insert(schema.jobInputs).values({
       jobId: mannequinJob.id,
       upperGarmentKey: garmentKey,
+      thirdGarmentKey: secondGarmentKey ?? null,
       faceId,
       garmentTypeId,
-      params: { kind: 'saree_mannequin' },
+      params: {
+        kind: 'saree_mannequin',
+        ...(secondGarmentKey
+          ? { workflowTemplateId: garmentType.mannequinTwoInputWorkflowTemplateId }
+          : {}),
+      },
     });
 
     const created: string[] = [];

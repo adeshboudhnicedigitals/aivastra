@@ -77,7 +77,7 @@ export async function createVideoTask(
     method: 'POST',
     headers: apiHeaders(apiKey),
     body: JSON.stringify({
-      duration: 5,
+      duration: 8,
       img_id: imageId,
       model: 'v6',
       motion_mode: 'normal',

@@ -247,7 +247,7 @@ export function SampleVideoUploadModal({
                   className="input"
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
-                  maxLength={500}
+                  maxLength={5000}
                   rows={4}
                 />
               </div>

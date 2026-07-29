@@ -222,12 +222,12 @@ export const ConfirmSampleVideoBody = z.object({
   title: z.string().min(1).max(120),
   videoR2Key: z.string().min(1),
   thumbnailR2Key: z.string().min(1),
-  prompt: z.string().min(1).max(500),
+  prompt: z.string().min(1).max(5000),
   sortOrder: z.number().int().default(0),
 });
 export const PatchSampleVideoBody = z.object({
   title: z.string().min(1).max(120).optional(),
-  prompt: z.string().min(1).max(500).optional(),
+  prompt: z.string().min(1).max(5000).optional(),
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
 });
@@ -244,7 +244,9 @@ export const CreateWorkflowBody = z
       ),
     label: z.string().min(1).max(120),
     jsonContent: z.record(z.any()),
-    workflowType: z.enum(['regular', 'tryon', 'saree_step1']).default('regular'),
+    workflowType: z
+      .enum(['regular', 'tryon', 'saree_step1', 'saree_step1_two_input'])
+      .default('regular'),
     // Regular workflow fields (required when workflowType = 'regular')
     faceNodeId: z.string().min(1).optional(),
     poseNodeId: z.string().min(1).optional(),
@@ -269,10 +271,15 @@ export const CreateWorkflowBody = z
     // Tryon workflow fields (required when workflowType = 'tryon')
     tryonPersonNodeId: z.string().min(1).optional(),
     tryonGarmentNodeId: z.string().min(1).optional(),
+    tryonGarmentNodeId2: z.string().min(1).optional(),
     tryonOutputNodeId: z.string().min(1).optional(),
   })
   .superRefine((val, ctx) => {
-    if (val.workflowType === 'tryon' || val.workflowType === 'saree_step1') {
+    if (
+      val.workflowType === 'tryon' ||
+      val.workflowType === 'saree_step1' ||
+      val.workflowType === 'saree_step1_two_input'
+    ) {
       for (const field of ['facePhasePromptNode', 'garmentPhasePromptNode'] as const) {
         if (!val[field]) {
           ctx.addIssue({
@@ -318,7 +325,7 @@ export const CreateWorkflowBody = z
 
 export const ParseWorkflowBody = z.object({
   jsonContent: z.record(z.any()),
-  workflowType: z.enum(['regular', 'tryon', 'saree_step1']).optional(),
+  workflowType: z.enum(['regular', 'tryon', 'saree_step1', 'saree_step1_two_input']).optional(),
 });
 
 export const UpdateWorkflowBody = z.object({
@@ -353,6 +360,7 @@ export const UpdateWorkflowBody = z.object({
   // Tryon workflow node IDs
   tryonPersonNodeId: z.string().min(1).nullable().optional(),
   tryonGarmentNodeId: z.string().min(1).nullable().optional(),
+  tryonGarmentNodeId2: z.string().min(1).nullable().optional(),
   tryonOutputNodeId: z.string().min(1).nullable().optional(),
 });
 
@@ -497,6 +505,7 @@ export const PatchGarmentTypeBody = z.object({
   requiresMannequinStep: z.boolean().optional(),
   mannequinWorkflowTemplateId: z.string().uuid().nullable().optional(),
   sareeStep2WorkflowTemplateId: z.string().uuid().nullable().optional(),
+  mannequinTwoInputWorkflowTemplateId: z.string().uuid().nullable().optional(),
 });
 export const PresignGarmentTypeBody = z.object({
   contentType: AssetContentType,
