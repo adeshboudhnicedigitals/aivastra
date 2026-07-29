@@ -1290,6 +1290,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           label: z.string().min(1),
           previewImageKey: z.string().optional(),
           mannequinWorkflowTemplateId: z.string().uuid(),
+          mannequinTwoInputWorkflowTemplateId: z.string().uuid().optional(),
           sortOrder: z.number().int().optional(),
           isActive: z.boolean().optional(),
         }),
@@ -1300,6 +1301,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         label: string;
         previewImageKey?: string;
         mannequinWorkflowTemplateId: string;
+        mannequinTwoInputWorkflowTemplateId?: string;
         sortOrder?: number;
         isActive?: boolean;
       };
@@ -1309,6 +1311,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           label: body.label,
           previewImageKey: body.previewImageKey ?? null,
           mannequinWorkflowTemplateId: body.mannequinWorkflowTemplateId,
+          mannequinTwoInputWorkflowTemplateId: body.mannequinTwoInputWorkflowTemplateId ?? null,
           sortOrder: body.sortOrder ?? 0,
           isActive: body.isActive ?? true,
         })
@@ -1328,6 +1331,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           label: z.string().min(1).optional(),
           previewImageKey: z.string().optional(),
           mannequinWorkflowTemplateId: z.string().uuid().optional(),
+          mannequinTwoInputWorkflowTemplateId: z.string().uuid().optional(),
           sortOrder: z.number().int().optional(),
           isActive: z.boolean().optional(),
         }),
@@ -1339,6 +1343,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         label?: string;
         previewImageKey?: string;
         mannequinWorkflowTemplateId?: string;
+        mannequinTwoInputWorkflowTemplateId?: string;
         sortOrder?: number;
         isActive?: boolean;
       };

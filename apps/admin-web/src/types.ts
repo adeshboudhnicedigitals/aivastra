@@ -355,6 +355,7 @@ export interface SareeMannequinStyle {
   label: string;
   previewImageKey: string | null;
   mannequinWorkflowTemplateId: string;
+  mannequinTwoInputWorkflowTemplateId: string | null;
   sortOrder: number;
   isActive: boolean;
   createdAt: string;
