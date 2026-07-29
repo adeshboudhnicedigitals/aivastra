@@ -1,3 +1,42 @@
+## 2026-07-29 - Saree two-input (Body + Pallu) upload
+
+### Done
+- Added `mannequinTwoInputWorkflowTemplateId` and `tryonGarmentNodeId2`, the `saree_step1_two_input` workflow type, admin configuration and auto-detection support, two-input mannequin job creation, and dispatcher pallu-node patching.
+- Added the Flat Saree studio workflow's gated "Full Saree / Body & Pallu" upload mode. The dropdown only appears when a two-input mannequin workflow is configured; selecting it requires separate Body and Pallu uploads and submits the pallu key as `secondGarmentKey`.
+- Added API and dispatcher integration coverage for two-input mannequin jobs, including the two-input-only workflow regression case and pallu-node patching.
+
+### Failed / Not Done
+- The required interactive studio smoke test could not be completed: local Docker, API, and web servers started successfully, but this environment has no controllable browser session. The typecheck and automated integration verification passed; the five UI checks still need a signed-in browser session.
+
+### Open Questions / Decisions
+- Retained the design's copy: "Full Saree" and "Body & Pallu", with upload boxes labelled "Body" and "Pallu".
+
+## 2026-07-29 - Sample video admin form: PixVerse prompt length cap was wrong
+
+### Done
+- User reported the admin "Add sample video" form's PixVerse prompt field had a character limit that PixVerse itself doesn't impose. Found the app-imposed cap was `500` chars in three places — `ConfirmSampleVideoBody`/`PatchSampleVideoBody` Zod schemas (`packages/types/src/admin.ts`) and the `maxLength` attribute on the prompt `<textarea>` (`apps/admin-web/src/components/SampleVideoUploadModal.tsx`) — with no corresponding constraint in the DB (`sample_videos.prompt` is unbounded `text`, `packages/db/src/schema/models.ts`). Confirmed via PixVerse's own API docs (`docs.platform.pixverse.ai/image-to-video-generation-13016633e0`) that their real limit is 5000 characters, not 500.
+- Raised the cap to `5000` in all three spots to match PixVerse's actual documented limit, rather than removing validation entirely.
+- Verified: `pnpm --filter @aivastra/types`/`@aivastra/admin` `tsc --noEmit` clean, biome clean, `admin-sample-videos.test.ts` integration test (2/2) still passes.
+
+## 2026-07-29 - Catalog Video: PixVerse generation length 5s → 8s
+
+### Done
+- Changed the hardcoded `duration` sent to PixVerse's `POST /openapi/v2/video/img/generate` from `5` to `8` in `apps/dispatcher/src/pixverse/client.ts` (`createVideoTask`), per user request. This is the only place in the codebase constructing that request body. Verified: dispatcher's `catalog-video.test.ts` integration test (2/2) still passes, `tsc --noEmit` and biome clean.
+
+### Failed / Not Done
+- Did not change the `PIXVERSE_VIDEO_COST` (150 credits) to reflect the longer clip — user didn't ask for a cost change here; flagging that PixVerse may bill more for 8s than 5s generations, worth revisiting if their pricing differs.
+
+## 2026-07-29 - Catalog Video 402 on production: surfaced insufficient-credits UX
+
+### Done
+- Investigated a production report that clicking "Generate video" on the Catalog Video wizard (`app.aivastra.com/catalog-video`) silently did nothing. Root-caused via the captured network trace (`POST /v1/jobs/catalog-video` → 402) plus git history: yesterday's `1eef716d` raised `PIXVERSE_VIDEO_COST` from 20 → 150 credits. `createCatalogVideoJob` (`apps/api/src/modules/jobs/create.ts`) → `atomicDeduct` (`apps/api/src/modules/credits/ledger.ts`) correctly rejects with `INSUFFICIENT_CREDITS`/402 when balance < cost — working as intended, not a bug — but the wizard only surfaced the failure as small red text on step 3, easy to miss.
+- Per user's choice ("improve the error UX", keep the 150 cost as-is): added `creditCost` to the `GET /v1/models/sample-videos` response (`apps/api/src/modules/models/routes.ts`, via the existing `getPixverseCreditCost()`), and wired the Catalog Video wizard (`apps/catalogues-web/src/app/(app)/catalog-video/CatalogVideoWizard.tsx`) to fetch it alongside `/v1/credits` balance, show a "{cost} credits required — you have {balance} credits" line from step 2 onward (mirrors the existing pattern in `studio/page.tsx`), and disable the Generate button with a `Tooltip` explanation when the balance is insufficient — so the user sees the blocker before submitting, not just after a failed POST.
+- Verified: `pnpm --filter @aivastra/api` integration tests for `sample-videos-public`, `catalog-video-create`, `catalog-video-access-gate` all pass (9/9, including a new assertion that `creditCost` is 150); `tsc --noEmit` clean on both changed packages (pre-existing, unrelated `shopify/token.ts` type errors from yesterday's token-refresh feature are untouched); biome clean on all 3 changed files.
+
+### Failed / Not Done
+- Did not check or change the actual production account's credit balance — no production DB access from this session; the user needs to top up or the account owner should check `/v1/credits` in the app.
+- Did not revisit the 150-credit price point itself — user explicitly chose the UX-improvement option over reverting the cost.
+
 ## 2026-07-28 - Investigated production garment-type mapping wipe (admin complaint)
 
 ### Done

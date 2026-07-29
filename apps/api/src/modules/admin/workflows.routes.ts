@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { requireAdmin } from './guard.js';
 import { detectTryonMappings } from './tryon-detect.js';
+import { detectTryonTwoInputMappings } from './tryon-two-input-detect.js';
 import { classifyNode, detectMappings, type NodeCategory } from './workflow-detect.js';
 
 type WorkflowNode = {
@@ -117,6 +118,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       resultNodeId: r.resultNodeId,
       tryonPersonNodeId: r.tryonPersonNodeId,
       tryonGarmentNodeId: r.tryonGarmentNodeId,
+      tryonGarmentNodeId2: r.tryonGarmentNodeId2,
       tryonOutputNodeId: r.tryonOutputNodeId,
       createdAt: r.createdAt,
     }));
@@ -141,6 +143,11 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       const parseWorkflowType = (req.body as { workflowType?: string }).workflowType;
       if (parseWorkflowType === 'tryon' || parseWorkflowType === 'saree_step1') {
         const { detected, allImageNodes, allPromptNodes } = detectTryonMappings(jsonContent);
+        return { detected, allImageNodes, allPromptNodes };
+      }
+      if (parseWorkflowType === 'saree_step1_two_input') {
+        const { detected, allImageNodes, allPromptNodes } =
+          detectTryonTwoInputMappings(jsonContent);
         return { detected, allImageNodes, allPromptNodes };
       }
 
@@ -181,6 +188,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         garmentPhasePromptNode?: string;
         tryonPersonNodeId?: string;
         tryonGarmentNodeId?: string;
+        tryonGarmentNodeId2?: string;
         tryonOutputNodeId?: string;
       };
 
@@ -193,6 +201,90 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       }
 
       const workflowType = body.workflowType ?? 'regular';
+
+      if (workflowType === 'saree_step1_two_input') {
+        const { detected: autoDetected } = detectTryonTwoInputMappings(body.jsonContent);
+        const personNodeId = body.tryonPersonNodeId ?? autoDetected.personNodeId ?? '';
+        const bodyNodeId = body.tryonGarmentNodeId ?? autoDetected.bodyNodeId ?? '';
+        const palluNodeId = body.tryonGarmentNodeId2 ?? autoDetected.palluNodeId ?? '';
+        const outputNodeId = body.tryonOutputNodeId ?? autoDetected.outputNodeId ?? '';
+        // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
+        const negNode = body.facePhasePromptNode!;
+        // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
+        const posNode = body.garmentPhasePromptNode!;
+        if (!bodyNodeId)
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'Could not detect body node — set tryonGarmentNodeId manually',
+          );
+        if (!palluNodeId)
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'Could not detect pallu node — set tryonGarmentNodeId2 manually',
+          );
+        if (!outputNodeId)
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'Could not detect output node — set tryonOutputNodeId manually',
+          );
+        if (personNodeId) {
+          validateNodeExists(body.jsonContent, personNodeId, 'person');
+          validateNodeType(body.jsonContent, personNodeId, 'image', 'person');
+        }
+        validateNodeExists(body.jsonContent, bodyNodeId, 'body');
+        validateNodeExists(body.jsonContent, palluNodeId, 'pallu');
+        validateNodeExists(body.jsonContent, outputNodeId, 'output');
+        validateNodeExists(body.jsonContent, negNode, 'negative prompt');
+        validateNodeExists(body.jsonContent, posNode, 'positive prompt');
+        validateNodeType(body.jsonContent, bodyNodeId, 'image', 'body');
+        validateNodeType(body.jsonContent, palluNodeId, 'image', 'pallu');
+        validateNodeType(body.jsonContent, negNode, 'prompt', 'negative prompt');
+        validateNodeType(body.jsonContent, posNode, 'prompt', 'positive prompt');
+        const { defaultFacePhasePrompt, defaultGarmentPhasePrompt } = extractDefaultPrompts(
+          body.jsonContent,
+          negNode,
+          posNode,
+        );
+        const [row] = await app.db
+          .insert(schema.workflowTemplates)
+          .values({
+            slug: body.slug,
+            label: body.label,
+            jsonContent: body.jsonContent,
+            workflowType,
+            faceNodeId: '',
+            poseNodeId: '',
+            bgNodeId: '',
+            upperNodeIds: [],
+            facePhasePromptNode: negNode,
+            garmentPhasePromptNode: posNode,
+            defaultFacePhasePrompt,
+            defaultGarmentPhasePrompt,
+            tryonPersonNodeId: personNodeId || null,
+            tryonGarmentNodeId: bodyNodeId,
+            tryonGarmentNodeId2: palluNodeId,
+            tryonOutputNodeId: outputNodeId,
+          })
+          .returning();
+        return {
+          id: row?.id,
+          slug: row?.slug,
+          label: row?.label,
+          workflowType: row?.workflowType,
+          isActive: row?.isActive,
+          poseCount: 0,
+          defaultFacePhasePrompt: row?.defaultFacePhasePrompt,
+          defaultGarmentPhasePrompt: row?.defaultGarmentPhasePrompt,
+          tryonPersonNodeId: row?.tryonPersonNodeId,
+          tryonGarmentNodeId: row?.tryonGarmentNodeId,
+          tryonGarmentNodeId2: row?.tryonGarmentNodeId2,
+          tryonOutputNodeId: row?.tryonOutputNodeId,
+          createdAt: row?.createdAt,
+        };
+      }
 
       if (workflowType === 'tryon' || workflowType === 'saree_step1') {
         // Auto-detect node IDs from JSON when not explicitly provided
@@ -431,6 +523,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         garmentPhasePromptNode?: string;
         tryonPersonNodeId?: string | null;
         tryonGarmentNodeId?: string | null;
+        tryonGarmentNodeId2?: string | null;
         tryonOutputNodeId?: string | null;
       };
 
@@ -561,6 +654,8 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         updateValues.tryonPersonNodeId = body.tryonPersonNodeId ?? null;
       if ('tryonGarmentNodeId' in body)
         updateValues.tryonGarmentNodeId = body.tryonGarmentNodeId ?? null;
+      if ('tryonGarmentNodeId2' in body)
+        updateValues.tryonGarmentNodeId2 = body.tryonGarmentNodeId2 ?? null;
       if ('tryonOutputNodeId' in body)
         updateValues.tryonOutputNodeId = body.tryonOutputNodeId ?? null;
 
