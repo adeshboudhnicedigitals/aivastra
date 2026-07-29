@@ -252,13 +252,13 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
         setError('Garment and output node IDs are required');
         return;
       }
+      if (!positivePromptNode || !negativePromptNode) {
+        setError('Positive and negative prompt nodes are required');
+        return;
+      }
     } else if (workflowType === 'saree_step1_two_input') {
       if (!tryonGarmentNodeId.trim() || !tryonGarmentNodeId2.trim() || !tryonOutputNodeId.trim()) {
         setError('Body, pallu, and output node IDs are required');
-        return;
-      }
-      if (!positivePromptNode || !negativePromptNode) {
-        setError('Positive and negative prompt nodes are required');
         return;
       }
       if (!positivePromptNode || !negativePromptNode) {
