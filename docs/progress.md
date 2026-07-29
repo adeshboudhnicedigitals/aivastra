@@ -1,3 +1,11 @@
+## 2026-07-29 - Catalog Video: PixVerse generation length 5s → 8s
+
+### Done
+- Changed the hardcoded `duration` sent to PixVerse's `POST /openapi/v2/video/img/generate` from `5` to `8` in `apps/dispatcher/src/pixverse/client.ts` (`createVideoTask`), per user request. This is the only place in the codebase constructing that request body. Verified: dispatcher's `catalog-video.test.ts` integration test (2/2) still passes, `tsc --noEmit` and biome clean.
+
+### Failed / Not Done
+- Did not change the `PIXVERSE_VIDEO_COST` (150 credits) to reflect the longer clip — user didn't ask for a cost change here; flagging that PixVerse may bill more for 8s than 5s generations, worth revisiting if their pricing differs.
+
 ## 2026-07-29 - Catalog Video 402 on production: surfaced insufficient-credits UX
 
 ### Done
