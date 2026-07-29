@@ -6,6 +6,7 @@ import { useState } from 'react';
 
 import { C } from '@/components/tokens';
 import { GradBtn } from '@/components/ui/grad-btn';
+import { Tooltip } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
 
 interface CatalogueImageOption {
@@ -47,12 +48,24 @@ export function CatalogVideoWizard({
   });
 
   const { data: sampleVideos, isLoading: sampleVideosLoading } = useQuery<{
+    creditCost: number;
     items: SampleVideoOption[];
   }>({
     queryKey: ['sample-videos'],
     queryFn: () => api.get('/v1/models/sample-videos'),
     enabled: step >= 2,
   });
+
+  const { data: creditsData } = useQuery<{ balance: number }>({
+    queryKey: ['credits'],
+    queryFn: () => api.get('/v1/credits'),
+    enabled: step >= 2,
+  });
+
+  const creditCost = sampleVideos?.creditCost;
+  const balance = creditsData?.balance;
+  const insufficientCredits =
+    typeof creditCost === 'number' && typeof balance === 'number' && balance < creditCost;
 
   const imageOptions: CatalogueImageOption[] = (catalogues ?? []).flatMap((catalogue) =>
     catalogue.jobs
@@ -67,7 +80,7 @@ export function CatalogVideoWizard({
   const selectedSample = sampleVideos?.items.find((option) => option.id === sampleVideoId);
 
   const handleSubmit = async () => {
-    if (!sourceJobId || !sampleVideoId) return;
+    if (!sourceJobId || !sampleVideoId || insufficientCredits) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -292,9 +305,23 @@ export function CatalogVideoWizard({
 
             {step === 2 && (
               <>
-                <p style={{ margin: '0 0 16px', color: C.mid, fontSize: 13 }}>
+                <p style={{ margin: '0 0 8px', color: C.mid, fontSize: 13 }}>
                   Choose the motion template for your video.
                 </p>
+                {typeof creditCost === 'number' && (
+                  <p
+                    style={{
+                      margin: '0 0 16px',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: insufficientCredits ? '#D63B4C' : C.mid,
+                    }}
+                  >
+                    {creditCost} credits required
+                    {typeof balance === 'number' ? ` — you have ${balance} credits` : ''}
+                    {insufficientCredits ? '. Top up to generate a video.' : ''}
+                  </p>
+                )}
                 {sampleVideosLoading ? (
                   <p style={{ color: C.mid, fontSize: 13 }}>Loading motion templates...</p>
                 ) : (sampleVideos?.items.length ?? 0) === 0 ? (
@@ -421,6 +448,12 @@ export function CatalogVideoWizard({
                     {selectedSample?.title ?? 'Motion template'}
                   </div>
                 </div>
+                {insufficientCredits && (
+                  <p style={{ gridColumn: '1 / -1', margin: 0, color: '#D63B4C', fontSize: 13 }}>
+                    This video costs {creditCost} credits and you have {balance} credits. Top up to
+                    generate this video.
+                  </p>
+                )}
                 {error && (
                   <p style={{ gridColumn: '1 / -1', margin: 0, color: '#D63B4C', fontSize: 13 }}>
                     {error}
@@ -471,9 +504,17 @@ export function CatalogVideoWizard({
                 Next
               </GradBtn>
             ) : (
-              <GradBtn disabled={submitting} onClick={handleSubmit}>
-                {submitting ? 'Starting...' : 'Generate video'}
-              </GradBtn>
+              <Tooltip
+                tip={
+                  insufficientCredits
+                    ? `You need ${creditCost} credits and have ${balance}. Top up to continue.`
+                    : undefined
+                }
+              >
+                <GradBtn disabled={submitting || insufficientCredits} onClick={handleSubmit}>
+                  {submitting ? 'Starting...' : 'Generate video'}
+                </GradBtn>
+              </Tooltip>
             )}
           </footer>
         </section>

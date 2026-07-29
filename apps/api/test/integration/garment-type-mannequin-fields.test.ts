@@ -83,4 +83,27 @@ describe('PATCH /admin/assets/garment-types/:id — mannequin-step fields', () =
     expect(row?.mannequinWorkflowTemplateId).toBe(step1Id);
     expect(row?.sareeStep2WorkflowTemplateId).toBe(step2Id);
   });
+
+  it('persists mannequinTwoInputWorkflowTemplateId', async () => {
+    const token = await registerAdmin('gt-mannequin-two-input-admin@x.com');
+    const twoInputId = await seedWorkflow('saree_step1_two_input');
+    const [gt] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({ genderSlug: 'women', slug: 'flat-saree-two-input-test', label: 'Flat Saree' })
+      .returning();
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/admin/assets/garment-types/${gt.id}`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { mannequinTwoInputWorkflowTemplateId: twoInputId },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const [row] = await app.db
+      .select()
+      .from(schema.garmentSubcategories)
+      .where(eq(schema.garmentSubcategories.id, gt.id));
+    expect(row?.mannequinTwoInputWorkflowTemplateId).toBe(twoInputId);
+  });
 });
