@@ -103,13 +103,30 @@ describe('POST /admin/workflows — saree_step1 workflowType', () => {
       '1': { class_type: 'LoadImage', inputs: {}, _meta: { title: 'person' } },
       '2': { class_type: 'LoadImage', inputs: {}, _meta: { title: 'body' } },
       '3': { class_type: 'LoadImage', inputs: {}, _meta: { title: 'pallu' } },
-      '4': { class_type: 'CLIPTextEncode', inputs: { text: 'pos' }, _meta: { title: 'positive_prompt' } },
-      '5': { class_type: 'CLIPTextEncode', inputs: { text: 'neg' }, _meta: { title: 'negative_prompt' } },
+      '4': {
+        class_type: 'CLIPTextEncode',
+        inputs: { text: 'pos' },
+        _meta: { title: 'positive_prompt' },
+      },
+      '5': {
+        class_type: 'CLIPTextEncode',
+        inputs: { text: 'neg' },
+        _meta: { title: 'negative_prompt' },
+      },
     };
 
     const res = await app.inject({
-      method: 'POST', url: '/admin/workflows', headers: { authorization: `Bearer ${token}` },
-      payload: { slug: `saree_two_input_${Date.now()}`, label: 'Saree Two Input', jsonContent, workflowType: 'saree_step1_two_input', facePhasePromptNode: '5', garmentPhasePromptNode: '4' },
+      method: 'POST',
+      url: '/admin/workflows',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        slug: `saree_two_input_${Date.now()}`,
+        label: 'Saree Two Input',
+        jsonContent,
+        workflowType: 'saree_step1_two_input',
+        facePhasePromptNode: '5',
+        garmentPhasePromptNode: '4',
+      },
     });
     expect(res.statusCode).toBe(200);
     const body = res.json();

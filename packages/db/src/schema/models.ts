@@ -126,9 +126,10 @@ export const garmentSubcategories = pgTable('garment_subcategories', {
   // instead of one. Presence of this column is what gates the studio wizard's
   // "Full Saree / Body & Pallu" upload-mode dropdown for this garment type.
   // See docs/superpowers/specs/2026-07-29-saree-two-input-upload-design.md.
-  mannequinTwoInputWorkflowTemplateId: uuid(
-    'mannequin_two_input_workflow_template_id',
-  ).references(() => workflowTemplates.id, { onDelete: 'set null' }),
+  mannequinTwoInputWorkflowTemplateId: uuid('mannequin_two_input_workflow_template_id').references(
+    () => workflowTemplates.id,
+    { onDelete: 'set null' },
+  ),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

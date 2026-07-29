@@ -76,7 +76,14 @@ describe('POST /v1/jobs/saree-mannequin', () => {
   ) {
     const [gt] = await app.db
       .insert(schema.garmentSubcategories)
-      .values({ genderSlug: 'women', slug: `flat-saree-two-input-${Date.now()}`, label: 'Flat Saree', requiresMannequinStep: true, mannequinWorkflowTemplateId, mannequinTwoInputWorkflowTemplateId })
+      .values({
+        genderSlug: 'women',
+        slug: `flat-saree-two-input-${Date.now()}`,
+        label: 'Flat Saree',
+        requiresMannequinStep: true,
+        mannequinWorkflowTemplateId,
+        mannequinTwoInputWorkflowTemplateId,
+      })
       .returning();
     return gt.id;
   }
@@ -230,25 +237,106 @@ describe('POST /v1/jobs/saree-mannequin', () => {
     const backgroundId = await seedActiveBackground();
     const poseId = await seedActivePose();
     const [wf, twoInputWf, step2Wf] = await Promise.all([
-      app.db.insert(schema.workflowTemplates).values({ slug: `saree-step1-${Date.now()}`, label: 'Step1', jsonContent: {}, workflowType: 'saree_step1', faceNodeId: '', poseNodeId: '', bgNodeId: '', upperNodeIds: [], facePhasePromptNode: '', garmentPhasePromptNode: '', tryonPersonNodeId: '1', tryonGarmentNodeId: '2', tryonOutputNodeId: '3' }).returning().then(([row]) => row),
-      app.db.insert(schema.workflowTemplates).values({ slug: `saree-step1-two-input-${Date.now()}`, label: 'Step1 Two Input', jsonContent: {}, workflowType: 'saree_step1_two_input', faceNodeId: '', poseNodeId: '', bgNodeId: '', upperNodeIds: [], facePhasePromptNode: '', garmentPhasePromptNode: '', tryonPersonNodeId: '1', tryonGarmentNodeId: '2', tryonGarmentNodeId2: '3', tryonOutputNodeId: '4' }).returning().then(([row]) => row),
-      app.db.insert(schema.workflowTemplates).values({ slug: `saree-step2-${Date.now()}`, label: 'Step2', jsonContent: {}, workflowType: 'saree_step2', faceNodeId: '', poseNodeId: '', bgNodeId: '', upperNodeIds: ['10'], facePhasePromptNode: '', garmentPhasePromptNode: '', tryonPersonNodeId: '1', tryonGarmentNodeId: '2', tryonOutputNodeId: '3' }).returning().then(([row]) => row),
+      app.db
+        .insert(schema.workflowTemplates)
+        .values({
+          slug: `saree-step1-${Date.now()}`,
+          label: 'Step1',
+          jsonContent: {},
+          workflowType: 'saree_step1',
+          faceNodeId: '',
+          poseNodeId: '',
+          bgNodeId: '',
+          upperNodeIds: [],
+          facePhasePromptNode: '',
+          garmentPhasePromptNode: '',
+          tryonPersonNodeId: '1',
+          tryonGarmentNodeId: '2',
+          tryonOutputNodeId: '3',
+        })
+        .returning()
+        .then(([row]) => row),
+      app.db
+        .insert(schema.workflowTemplates)
+        .values({
+          slug: `saree-step1-two-input-${Date.now()}`,
+          label: 'Step1 Two Input',
+          jsonContent: {},
+          workflowType: 'saree_step1_two_input',
+          faceNodeId: '',
+          poseNodeId: '',
+          bgNodeId: '',
+          upperNodeIds: [],
+          facePhasePromptNode: '',
+          garmentPhasePromptNode: '',
+          tryonPersonNodeId: '1',
+          tryonGarmentNodeId: '2',
+          tryonGarmentNodeId2: '3',
+          tryonOutputNodeId: '4',
+        })
+        .returning()
+        .then(([row]) => row),
+      app.db
+        .insert(schema.workflowTemplates)
+        .values({
+          slug: `saree-step2-${Date.now()}`,
+          label: 'Step2',
+          jsonContent: {},
+          workflowType: 'saree_step2',
+          faceNodeId: '',
+          poseNodeId: '',
+          bgNodeId: '',
+          upperNodeIds: ['10'],
+          facePhasePromptNode: '',
+          garmentPhasePromptNode: '',
+          tryonPersonNodeId: '1',
+          tryonGarmentNodeId: '2',
+          tryonOutputNodeId: '3',
+        })
+        .returning()
+        .then(([row]) => row),
     ]);
     const garmentTypeId = await seedFlatSareeGarmentTypeTwoInput(wf.id, twoInputWf.id);
-    await app.db.update(schema.garmentSubcategories).set({ sareeStep2WorkflowTemplateId: step2Wf.id }).where(eq(schema.garmentSubcategories.id, garmentTypeId));
+    await app.db
+      .update(schema.garmentSubcategories)
+      .set({ sareeStep2WorkflowTemplateId: step2Wf.id })
+      .where(eq(schema.garmentSubcategories.id, garmentTypeId));
     const garmentKey = `inputs/${userId}/garment.jpg`;
     const secondGarmentKey = `inputs/${randomUUID()}/garment.jpg`;
     await bindUploadKey(userId, garmentKey);
     await bindUploadKey(userId, secondGarmentKey);
-    const res = await app.inject({ method: 'POST', url: '/v1/jobs/saree-mannequin', headers: { authorization: `Bearer ${token}` }, payload: { garmentTypeId, garmentKey, secondGarmentKey, faceId, step2: { inputs: { faceId, backgroundId, poseIds: [poseId], garmentTypeId }, aspectRatio: '1:1', resolution: 'HD' } } });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/saree-mannequin',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        garmentTypeId,
+        garmentKey,
+        secondGarmentKey,
+        faceId,
+        step2: {
+          inputs: { faceId, backgroundId, poseIds: [poseId], garmentTypeId },
+          aspectRatio: '1:1',
+          resolution: 'HD',
+        },
+      },
+    });
     expect(res.statusCode).toBe(201);
     const { jobIds } = res.json();
-    const [step2Inputs] = await app.db.select().from(schema.jobInputs).where(eq(schema.jobInputs.jobId, jobIds[0]));
+    const [step2Inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, jobIds[0]));
     const step2Params = step2Inputs?.params as { mannequinJobId?: string };
-    const [mannequinInputs] = await app.db.select().from(schema.jobInputs).where(eq(schema.jobInputs.jobId, step2Params.mannequinJobId as string));
+    const [mannequinInputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, step2Params.mannequinJobId as string));
     expect(mannequinInputs?.upperGarmentKey).toBe(garmentKey);
     expect(mannequinInputs?.thirdGarmentKey).toBe(secondGarmentKey);
-    expect((mannequinInputs?.params as { workflowTemplateId?: string }).workflowTemplateId).toBe(twoInputWf.id);
+    expect((mannequinInputs?.params as { workflowTemplateId?: string }).workflowTemplateId).toBe(
+      twoInputWf.id,
+    );
   });
 
   it('rejects secondGarmentKey when the garment type has no two-input workflow configured', async () => {
@@ -256,13 +344,49 @@ describe('POST /v1/jobs/saree-mannequin', () => {
     const { token, userId } = await registerUser('mannequin-two-input-noconf@x.com');
     const faceId = await seedFace();
     const garmentTypeId = await seedFlatSareeGarmentTypeTwoInput(null, null);
-    const [wf] = await app.db.insert(schema.workflowTemplates).values({ slug: `saree-step1-noconf-${Date.now()}`, label: 'Step1', jsonContent: {}, workflowType: 'saree_step1', faceNodeId: '', poseNodeId: '', bgNodeId: '', upperNodeIds: [], facePhasePromptNode: '', garmentPhasePromptNode: '' }).returning();
-    await app.db.update(schema.garmentSubcategories).set({ mannequinWorkflowTemplateId: wf.id }).where(eq(schema.garmentSubcategories.id, garmentTypeId));
+    const [wf] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `saree-step1-noconf-${Date.now()}`,
+        label: 'Step1',
+        jsonContent: {},
+        workflowType: 'saree_step1',
+        faceNodeId: '',
+        poseNodeId: '',
+        bgNodeId: '',
+        upperNodeIds: [],
+        facePhasePromptNode: '',
+        garmentPhasePromptNode: '',
+      })
+      .returning();
+    await app.db
+      .update(schema.garmentSubcategories)
+      .set({ mannequinWorkflowTemplateId: wf.id })
+      .where(eq(schema.garmentSubcategories.id, garmentTypeId));
     const garmentKey = `inputs/${userId}/garment.jpg`;
     const secondGarmentKey = `inputs/${randomUUID()}/garment.jpg`;
     await bindUploadKey(userId, garmentKey);
     await bindUploadKey(userId, secondGarmentKey);
-    const res = await app.inject({ method: 'POST', url: '/v1/jobs/saree-mannequin', headers: { authorization: `Bearer ${token}` }, payload: { garmentTypeId, garmentKey, secondGarmentKey, faceId, step2: { inputs: { faceId, backgroundId: '00000000-0000-0000-0000-000000000000', poseIds: ['00000000-0000-0000-0000-000000000000'] }, aspectRatio: '1:1', resolution: 'HD' } } });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/saree-mannequin',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        garmentTypeId,
+        garmentKey,
+        secondGarmentKey,
+        faceId,
+        step2: {
+          inputs: {
+            faceId,
+            backgroundId: '00000000-0000-0000-0000-000000000000',
+            poseIds: ['00000000-0000-0000-0000-000000000000'],
+          },
+          aspectRatio: '1:1',
+          resolution: 'HD',
+        },
+      },
+    });
     expect(res.statusCode).toBe(400);
   });
 
@@ -274,16 +398,71 @@ describe('POST /v1/jobs/saree-mannequin', () => {
     const backgroundId = await seedActiveBackground();
     const poseId = await seedActivePose();
     const [twoInputWf, step2Wf] = await Promise.all([
-      app.db.insert(schema.workflowTemplates).values({ slug: `saree-step1-two-input-only-${Date.now()}`, label: 'Step1 Two Input Only', jsonContent: {}, workflowType: 'saree_step1_two_input', faceNodeId: '', poseNodeId: '', bgNodeId: '', upperNodeIds: [], facePhasePromptNode: '', garmentPhasePromptNode: '', tryonPersonNodeId: '1', tryonGarmentNodeId: '2', tryonGarmentNodeId2: '3', tryonOutputNodeId: '4' }).returning().then(([row]) => row),
-      app.db.insert(schema.workflowTemplates).values({ slug: `saree-step2-two-input-only-${Date.now()}`, label: 'Step2', jsonContent: {}, workflowType: 'saree_step2', faceNodeId: '', poseNodeId: '', bgNodeId: '', upperNodeIds: ['10'], facePhasePromptNode: '', garmentPhasePromptNode: '', tryonPersonNodeId: '1', tryonGarmentNodeId: '2', tryonOutputNodeId: '3' }).returning().then(([row]) => row),
+      app.db
+        .insert(schema.workflowTemplates)
+        .values({
+          slug: `saree-step1-two-input-only-${Date.now()}`,
+          label: 'Step1 Two Input Only',
+          jsonContent: {},
+          workflowType: 'saree_step1_two_input',
+          faceNodeId: '',
+          poseNodeId: '',
+          bgNodeId: '',
+          upperNodeIds: [],
+          facePhasePromptNode: '',
+          garmentPhasePromptNode: '',
+          tryonPersonNodeId: '1',
+          tryonGarmentNodeId: '2',
+          tryonGarmentNodeId2: '3',
+          tryonOutputNodeId: '4',
+        })
+        .returning()
+        .then(([row]) => row),
+      app.db
+        .insert(schema.workflowTemplates)
+        .values({
+          slug: `saree-step2-two-input-only-${Date.now()}`,
+          label: 'Step2',
+          jsonContent: {},
+          workflowType: 'saree_step2',
+          faceNodeId: '',
+          poseNodeId: '',
+          bgNodeId: '',
+          upperNodeIds: ['10'],
+          facePhasePromptNode: '',
+          garmentPhasePromptNode: '',
+          tryonPersonNodeId: '1',
+          tryonGarmentNodeId: '2',
+          tryonOutputNodeId: '3',
+        })
+        .returning()
+        .then(([row]) => row),
     ]);
     const garmentTypeId = await seedFlatSareeGarmentTypeTwoInput(null, twoInputWf.id);
-    await app.db.update(schema.garmentSubcategories).set({ sareeStep2WorkflowTemplateId: step2Wf.id }).where(eq(schema.garmentSubcategories.id, garmentTypeId));
+    await app.db
+      .update(schema.garmentSubcategories)
+      .set({ sareeStep2WorkflowTemplateId: step2Wf.id })
+      .where(eq(schema.garmentSubcategories.id, garmentTypeId));
     const garmentKey = `inputs/${userId}/garment.jpg`;
     const secondGarmentKey = `inputs/${randomUUID()}/garment.jpg`;
     await bindUploadKey(userId, garmentKey);
     await bindUploadKey(userId, secondGarmentKey);
-    const res = await app.inject({ method: 'POST', url: '/v1/jobs/saree-mannequin', headers: { authorization: `Bearer ${token}` }, payload: { garmentTypeId, garmentKey, secondGarmentKey, faceId, step2: { inputs: { faceId, backgroundId, poseIds: [poseId], garmentTypeId }, aspectRatio: '1:1', resolution: 'HD' } } });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/saree-mannequin',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        garmentTypeId,
+        garmentKey,
+        secondGarmentKey,
+        faceId,
+        step2: {
+          inputs: { faceId, backgroundId, poseIds: [poseId], garmentTypeId },
+          aspectRatio: '1:1',
+          resolution: 'HD',
+        },
+      },
+    });
     expect(res.statusCode).toBe(201);
   });
 
