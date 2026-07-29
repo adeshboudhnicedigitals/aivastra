@@ -200,9 +200,9 @@ export const sareeMannequinStyles = pgTable('saree_mannequin_styles', {
   // when set, this style can be picked for either mode; when null, the style
   // is single-input only and two-input requests must fall back to the
   // garment type's own mannequinTwoInputWorkflowTemplateId instead.
-  mannequinTwoInputWorkflowTemplateId: uuid(
-    'mannequin_two_input_workflow_template_id',
-  ).references(() => workflowTemplates.id),
+  mannequinTwoInputWorkflowTemplateId: uuid('mannequin_two_input_workflow_template_id').references(
+    () => workflowTemplates.id,
+  ),
   sortOrder: integer('sort_order').notNull().default(0),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
