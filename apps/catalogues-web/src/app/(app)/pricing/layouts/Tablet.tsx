@@ -43,9 +43,10 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  gap: 8,
-                  padding: 8,
-                  width: 130,
+                  gap: 6,
+                  padding: '0 8px',
+                  width: 'auto',
+                  maxWidth: 120,
                   height: 40,
                   borderRadius: 8,
                   border: `1px solid ${C.border}`,
@@ -56,6 +57,7 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
                   color: C.text,
                   cursor: 'pointer',
                   boxSizing: 'border-box',
+                  flexShrink: 0,
                 }}
               >
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -123,6 +125,7 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
           <div
             style={{
               margin: '24px auto 0',
+              width: 'calc(100% - 32px)',
               maxWidth: 1080,
               borderRadius: 16,
               background: grad,

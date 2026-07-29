@@ -29,12 +29,9 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', background: C.bg }}>
-      {/* Topbar — country selector moved below, out of TopBar's cramped right slot */}
+      {/* Topbar — clean mobile topbar without title/subtitle header text */}
       <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
-        <TopBar
-          title="Pricing & Plan"
-          subtitle="Create professional fashion catalogues without photoshoots, models, or editing headaches."
-        />
+        <TopBar title="Pricing & Plan" />
         <div
           ref={countryRef}
           style={{
@@ -129,7 +126,8 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
         return (
           <div
             style={{
-              margin: '24px auto 0',
+              margin: '16px auto 0',
+              width: 'calc(100% - 32px)',
               maxWidth: 1080,
               borderRadius: 16,
               background: grad,
@@ -141,23 +139,23 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
             {/* Plan info */}
             <div
               style={{
-                padding: '24px 20px',
+                padding: '20px 16px',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 16,
+                gap: 14,
               }}
             >
               <div>
                 <span
                   style={{
                     display: 'inline-block',
-                    padding: '3px 12px',
+                    padding: '3px 10px',
                     borderRadius: 20,
                     background: 'rgba(255,255,255,0.25)',
                     color: C.white,
                     fontSize: 11,
                     fontWeight: 700,
-                    marginBottom: 12,
+                    marginBottom: 10,
                     letterSpacing: '0.3px',
                   }}
                 >
@@ -165,20 +163,20 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                 </span>
                 <div
                   style={{
-                    fontSize: 26,
+                    fontSize: 22,
                     fontWeight: 800,
                     color: '#ffffff',
                     lineHeight: 1.2,
-                    marginBottom: 8,
+                    marginBottom: 6,
                   }}
                 >
                   {planName}
                 </div>
                 <div
                   style={{
-                    fontSize: 13,
+                    fontSize: 12,
                     color: 'rgba(255,255,255,0.82)',
-                    lineHeight: '20px',
+                    lineHeight: '18px',
                   }}
                 >
                   Designed for growing brands creating AI powered fashion catalogues and virtual
@@ -197,15 +195,15 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                   alignSelf: 'flex-start',
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: 8,
-                  padding: '10px 20px',
-                  borderRadius: 10,
+                  gap: 6,
+                  padding: '8px 16px',
+                  borderRadius: 8,
                   border: 'none',
                   background: '#ffffff',
                   color: '#141414',
                   fontFamily: 'inherit',
                   fontWeight: 700,
-                  fontSize: 14,
+                  fontSize: 13,
                   cursor: 'pointer',
                 }}
               >
@@ -214,20 +212,20 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
             </div>
 
             {/* Divider — horizontal, stacked layout */}
-            <div style={{ height: 1, background: 'rgba(255,255,255,0.2)', margin: '0 20px' }} />
+            <div style={{ height: 1, background: 'rgba(255,255,255,0.2)', margin: '0 16px' }} />
 
             {/* Credits */}
             <div
               style={{
-                padding: '24px 20px',
+                padding: '20px 16px',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 10,
+                gap: 8,
               }}
             >
               <div
                 style={{
-                  fontSize: 12,
+                  fontSize: 11,
                   color: 'rgba(255,255,255,0.7)',
                   fontWeight: 600,
                   letterSpacing: '0.3px',
@@ -236,11 +234,11 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                 Credits Remaining
               </div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 2 }}>
-                <span style={{ fontSize: 40, fontWeight: 800, color: '#ffffff', lineHeight: 1 }}>
+                <span style={{ fontSize: 32, fontWeight: 800, color: '#ffffff', lineHeight: 1 }}>
                   {balance.toLocaleString('en-IN')}
                 </span>
                 {planCredits !== null && (
-                  <span style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)', marginLeft: 2 }}>
+                  <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)', marginLeft: 2 }}>
                     /{planCredits.toLocaleString('en-IN')}
                   </span>
                 )}
@@ -248,7 +246,7 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
               {planCredits !== null && (
                 <div
                   style={{
-                    height: 8,
+                    height: 6,
                     borderRadius: 100,
                     background: 'rgba(255,255,255,0.25)',
                     overflow: 'hidden',
@@ -274,17 +272,18 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
       })()}
 
       {/* Tab toggle */}
-      <div style={{ display: 'flex', justifyContent: 'center', padding: '40px 24px 32px' }}>
+      <div style={{ display: 'flex', justifyContent: 'center', padding: '20px 16px' }}>
         <div
           style={{
             display: 'grid',
             // Single column while the Virtual Try-On tab below is commented out.
             gridTemplateColumns: '1fr',
-            borderRadius: 14,
+            borderRadius: 12,
             border: `1px solid ${C.border}`,
             background: C.white,
             padding: 4,
             gap: 4,
+            width: '100%',
           }}
         >
           {(
@@ -338,15 +337,15 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: 8,
-                  padding: '10px 20px',
-                  borderRadius: 10,
+                  gap: 6,
+                  padding: '8px 14px',
+                  borderRadius: 8,
                   border: 'none',
                   background: isActive ? C.dark : 'transparent',
                   color: isActive ? C.onDark : C.mid,
                   fontFamily: 'inherit',
                   fontWeight: 600,
-                  fontSize: 14,
+                  fontSize: 13,
                   cursor: 'pointer',
                   transition: 'background 0.18s, color 0.18s',
                   whiteSpace: 'nowrap',
@@ -361,13 +360,13 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
       </div>
 
       {/* Pricing cards */}
-      <div style={{ background: C.bg }}>
+      <div style={{ background: C.bg, paddingBottom: 24 }}>
         {activeTab === 'catalogue' && (
           <div
             style={{
               display: 'grid',
               gridTemplateColumns: '1fr',
-              gap: 20,
+              gap: 16,
               maxWidth: 1080,
               margin: '0 auto',
               padding: '0 16px',
@@ -406,7 +405,7 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                       }}
                     >
                       {/* Card header */}
-                      <div style={{ padding: '24px 24px 0' }}>
+                      <div style={{ padding: '20px 16px 0' }}>
                         {/* Most Popular badge — absolutely positioned so it doesn't shift card height */}
                         {highlighted && plan.badge && (
                           <span
@@ -418,11 +417,11 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                               display: 'inline-flex',
                               alignItems: 'center',
                               gap: 4,
-                              padding: '5px 14px',
+                              padding: '4px 12px',
                               borderRadius: 20,
                               background: grad,
                               color: C.white,
-                              fontSize: 11,
+                              fontSize: 10,
                               fontWeight: 700,
                               whiteSpace: 'nowrap',
                               boxShadow: '0 2px 10px rgba(245,92,122,0.35)',
@@ -437,20 +436,20 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                           style={{
                             display: 'flex',
                             alignItems: 'center',
-                            gap: 12,
-                            marginBottom: 22,
+                            gap: 10,
+                            marginBottom: 16,
                           }}
                         >
                           <span
                             style={{
-                              width: 44,
-                              height: 44,
-                              borderRadius: 12,
+                              width: 38,
+                              height: 38,
+                              borderRadius: 10,
                               background: `color-mix(in srgb, ${meta.iconBg} 14%, transparent)`,
                               display: 'inline-flex',
                               alignItems: 'center',
                               justifyContent: 'center',
-                              fontSize: 22,
+                              fontSize: 18,
                               flexShrink: 0,
                             }}
                           >
@@ -459,41 +458,41 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                               <img
                                 src={meta.iconSrc}
                                 alt=""
-                                width={22}
-                                height={22}
+                                width={18}
+                                height={18}
                                 style={
                                   meta.invertUsage ? { filter: 'var(--icon-invert)' } : undefined
                                 }
                               />
                             ) : (
-                              <meta.Icon size={22} color={meta.iconColor ?? accent} />
+                              <meta.Icon size={18} color={meta.iconColor ?? accent} />
                             )}
                           </span>
                           <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                            <span style={{ fontSize: 22, fontWeight: 700, color: C.text }}>
+                            <span style={{ fontSize: 18, fontWeight: 700, color: C.text }}>
                               {plan.name}
                             </span>
-                            <span style={{ fontSize: 11, fontWeight: 600, color: C.mid }}>
+                            <span style={{ fontSize: 10, fontWeight: 600, color: C.mid }}>
                               {meta.subtext}
                             </span>
                           </span>
                         </div>
 
                         {/* Price */}
-                        <div style={{ marginBottom: 20 }}>
+                        <div style={{ marginBottom: 16 }}>
                           <span
                             style={{
-                              fontSize: 40,
+                              fontSize: 30,
                               fontWeight: 800,
                               color: C.text,
-                              letterSpacing: '-1.5px',
+                              letterSpacing: '-1px',
                               opacity: ratesLoading && isNonIn ? 0.5 : 1,
                               transition: 'opacity 0.2s',
                             }}
                           >
                             {displayBase(plan.basePaise)}
                           </span>
-                          <span style={{ fontSize: 14, color: C.mid, marginLeft: 4 }}>+ Taxes</span>
+                          <span style={{ fontSize: 12, color: C.mid, marginLeft: 4 }}>+ Taxes</span>
                         </div>
 
                         {/* Usage overview — 2K / 4K image counts */}
@@ -510,7 +509,7 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                                 border: `1px solid ${C.border}`,
                                 borderRadius: 10,
                                 overflow: 'hidden',
-                                marginBottom: 20,
+                                marginBottom: 16,
                               }}
                             >
                               <div
@@ -519,46 +518,46 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                                   display: 'flex',
                                   flexDirection: 'column',
                                   alignItems: 'center',
-                                  gap: 6,
-                                  padding: '14px 12px',
+                                  gap: 4,
+                                  padding: '10px 8px',
                                 }}
                               >
                                 {/* biome-ignore lint/performance/noImgElement: local SVG asset */}
                                 <img
                                   src={meta.icon2k}
                                   alt="2K"
-                                  width={24}
-                                  height={24}
+                                  width={20}
+                                  height={20}
                                   style={
                                     meta.invertUsage ? { filter: 'var(--icon-invert)' } : undefined
                                   }
                                 />
-                                <span style={{ fontSize: 15, fontWeight: 700, color: C.text }}>
+                                <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>
                                   {count2k.toLocaleString('en-IN')} Images
                                 </span>
                               </div>
-                              <div style={{ width: 1, background: C.border, margin: '12px 0' }} />
+                              <div style={{ width: 1, background: C.border, margin: '10px 0' }} />
                               <div
                                 style={{
                                   flex: 1,
                                   display: 'flex',
                                   flexDirection: 'column',
                                   alignItems: 'center',
-                                  gap: 6,
-                                  padding: '14px 12px',
+                                  gap: 4,
+                                  padding: '10px 8px',
                                 }}
                               >
                                 {/* biome-ignore lint/performance/noImgElement: local SVG asset */}
                                 <img
                                   src={meta.icon4k}
                                   alt="4K"
-                                  width={24}
-                                  height={24}
+                                  width={20}
+                                  height={20}
                                   style={
                                     meta.invertUsage ? { filter: 'var(--icon-invert)' } : undefined
                                   }
                                 />
-                                <span style={{ fontSize: 15, fontWeight: 700, color: C.text }}>
+                                <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>
                                   {count4k.toLocaleString('en-IN')} Images
                                 </span>
                               </div>
@@ -568,23 +567,23 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                       </div>
 
                       {/* Divider */}
-                      <div style={{ height: 1, background: C.border, margin: '0 24px' }} />
+                      <div style={{ height: 1, background: C.border, margin: '0 16px' }} />
 
                       {/* Feature list */}
-                      <div style={{ padding: '16px 24px', flex: 1 }}>
+                      <div style={{ padding: '14px 16px', flex: 1 }}>
                         {/* Dynamic credits line — same style as feature rows */}
                         <div
                           style={{
                             display: 'flex',
                             alignItems: 'center',
-                            gap: 10,
-                            marginBottom: 12,
+                            gap: 8,
+                            marginBottom: 10,
                           }}
                         >
                           <span
                             style={{
-                              width: 20,
-                              height: 20,
+                              width: 18,
+                              height: 18,
                               borderRadius: '50%',
                               background: meta.checkGrad
                                 ? grad
@@ -595,9 +594,9 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                               flexShrink: 0,
                             }}
                           >
-                            <CheckIcon size={11} color={meta.checkGrad ? '#fff' : accent} />
+                            <CheckIcon size={10} color={meta.checkGrad ? '#fff' : accent} />
                           </span>
-                          <span style={{ fontSize: 13, color: C.text, fontWeight: 500 }}>
+                          <span style={{ fontSize: 12, color: C.text, fontWeight: 500 }}>
                             {plan.credits.toLocaleString('en-IN')} Credits included
                           </span>
                         </div>
@@ -608,14 +607,14 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                             style={{
                               display: 'flex',
                               alignItems: 'center',
-                              gap: 10,
-                              marginBottom: 12,
+                              gap: 8,
+                              marginBottom: 10,
                             }}
                           >
                             <span
                               style={{
-                                width: 20,
-                                height: 20,
+                                width: 18,
+                                height: 18,
                                 borderRadius: '50%',
                                 background: meta.checkGrad
                                   ? grad
@@ -626,9 +625,9 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                                 flexShrink: 0,
                               }}
                             >
-                              <CheckIcon size={11} color={meta.checkGrad ? '#fff' : accent} />
+                              <CheckIcon size={10} color={meta.checkGrad ? '#fff' : accent} />
                             </span>
-                            <span style={{ fontSize: 13, color: C.text, fontWeight: 500 }}>
+                            <span style={{ fontSize: 12, color: C.text, fontWeight: 500 }}>
                               {feat}
                             </span>
                           </div>
@@ -636,7 +635,7 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                       </div>
 
                       {/* CTA button */}
-                      <div style={{ padding: '4px 24px 24px' }}>
+                      <div style={{ padding: '4px 16px 16px' }}>
                         <Tooltip
                           tip={
                             buying && buying !== plan.slug
@@ -654,24 +653,24 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                             disabled={!!buying}
                             style={{
                               width: '100%',
-                              padding: '13px 20px',
+                              padding: '11px 16px',
                               borderRadius: 10,
                               border: 'none',
                               background: highlighted ? grad : '#141414',
                               color: '#fff',
                               fontFamily: 'inherit',
                               fontWeight: 700,
-                              fontSize: 15,
+                              fontSize: 14,
                               cursor: buying ? 'not-allowed' : 'pointer',
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'center',
-                              gap: 8,
+                              gap: 6,
                               opacity: buying && buying !== plan.slug ? 0.45 : 1,
                             }}
                           >
                             {buying === plan.slug ? 'Processing…' : 'Upgrade'}
-                            {buying !== plan.slug && <ArrowRight size={18} />}
+                            {buying !== plan.slug && <ArrowRight size={16} />}
                           </button>
                         </Tooltip>
                       </div>
@@ -737,7 +736,7 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
               maxWidth: 1080,
               margin: '32px auto 0',
               borderTop: `1px solid ${C.border}`,
-              padding: '16px 24px',
+              padding: '16px 16px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -761,7 +760,7 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
               textAlign: 'center',
               fontSize: 11,
               color: C.light,
-              padding: '12px 24px 0',
+              padding: '12px 16px 0',
             }}
           >
             💳 Payment processed via Razorpay (India). International cards may not be supported.

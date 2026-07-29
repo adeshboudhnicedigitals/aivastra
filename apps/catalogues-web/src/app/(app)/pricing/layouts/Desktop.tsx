@@ -127,6 +127,7 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
           <div
             style={{
               margin: '24px auto 0',
+              width: 'calc(100% - 48px)',
               maxWidth: 1080,
               borderRadius: 16,
               background: grad,
