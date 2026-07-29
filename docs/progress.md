@@ -1,3 +1,10 @@
+## 2026-07-29 - Sample video admin form: PixVerse prompt length cap was wrong
+
+### Done
+- User reported the admin "Add sample video" form's PixVerse prompt field had a character limit that PixVerse itself doesn't impose. Found the app-imposed cap was `500` chars in three places — `ConfirmSampleVideoBody`/`PatchSampleVideoBody` Zod schemas (`packages/types/src/admin.ts`) and the `maxLength` attribute on the prompt `<textarea>` (`apps/admin-web/src/components/SampleVideoUploadModal.tsx`) — with no corresponding constraint in the DB (`sample_videos.prompt` is unbounded `text`, `packages/db/src/schema/models.ts`). Confirmed via PixVerse's own API docs (`docs.platform.pixverse.ai/image-to-video-generation-13016633e0`) that their real limit is 5000 characters, not 500.
+- Raised the cap to `5000` in all three spots to match PixVerse's actual documented limit, rather than removing validation entirely.
+- Verified: `pnpm --filter @aivastra/types`/`@aivastra/admin` `tsc --noEmit` clean, biome clean, `admin-sample-videos.test.ts` integration test (2/2) still passes.
+
 ## 2026-07-29 - Catalog Video: PixVerse generation length 5s → 8s
 
 ### Done
