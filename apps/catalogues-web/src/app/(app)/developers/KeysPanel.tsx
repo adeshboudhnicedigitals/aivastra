@@ -71,8 +71,8 @@ function RevealedKeyBox({ created, onDismiss }: { created: CreatedApiKey; onDism
         <code
           style={{
             flex: 1,
-            fontFamily: 'monospace',
-            fontSize: 13,
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+            fontSize: 12.5,
             color: C.text,
             wordBreak: 'break-all',
           }}
@@ -211,24 +211,26 @@ export function KeysPanel() {
         <div
           style={{
             display: 'flex',
-            gap: 10,
-            alignItems: 'flex-start',
+            flexDirection: 'column',
+            gap: 14,
             border: `1px solid ${C.border2}`,
             borderRadius: 10,
             padding: 16,
             marginBottom: 20,
             background: C.field,
+            width: '100%',
+            boxSizing: 'border-box',
           }}
         >
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <label htmlFor="new-key-label" style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
-              Label
+              API Key Label
             </label>
             <input
               id="new-key-label"
               value={label}
               onChange={(e) => setLabel(e.target.value)}
-              placeholder="e.g. production"
+              placeholder="e.g. production key"
               maxLength={64}
               style={{
                 height: 40,
@@ -237,18 +239,27 @@ export function KeysPanel() {
                 background: C.white,
                 padding: '0 12px',
                 fontFamily: 'inherit',
-                fontSize: 14,
+                fontSize: 13.5,
                 color: C.text,
                 outline: 'none',
+                width: '100%',
+                boxSizing: 'border-box',
               }}
             />
             {createMutation.isError && (
-              <p style={{ fontSize: 12, color: C.pink, margin: 0 }}>
+              <p style={{ fontSize: 12, color: C.pink, margin: '4px 0 0' }}>
                 {(createMutation.error as Error).message}
               </p>
             )}
           </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 22 }}>
+          <div
+            style={{
+              display: 'flex',
+              gap: 10,
+              justifyContent: 'flex-end',
+              alignItems: 'center',
+            }}
+          >
             <button
               type="button"
               onClick={() => {
@@ -258,16 +269,17 @@ export function KeysPanel() {
               }}
               disabled={createMutation.isPending}
               style={{
-                height: 40,
-                padding: '0 16px',
+                height: 38,
+                padding: '0 18px',
                 borderRadius: 8,
                 border: `1px solid ${C.border2}`,
                 background: C.white,
                 color: C.text,
                 fontFamily: 'inherit',
-                fontSize: 14,
+                fontSize: 13.5,
                 fontWeight: 600,
                 cursor: createMutation.isPending ? 'not-allowed' : 'pointer',
+                boxSizing: 'border-box',
               }}
             >
               Cancel
@@ -275,8 +287,9 @@ export function KeysPanel() {
             <GradBtn
               onClick={() => createMutation.mutate(label.trim())}
               disabled={createMutation.isPending || !label.trim()}
+              style={{ height: 38, fontSize: 13.5, padding: '0 18px' }}
             >
-              {createMutation.isPending ? 'Creating…' : 'Create'}
+              {createMutation.isPending ? 'Creating…' : 'Create Key'}
             </GradBtn>
           </div>
         </div>
@@ -309,67 +322,116 @@ export function KeysPanel() {
           </p>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1.4fr 1.2fr 1.2fr 1.2fr 0.6fr',
-              padding: '10px 14px',
-              borderBottom: `1px solid ${C.border}`,
-              fontSize: 12,
-              fontWeight: 600,
-              color: C.mid,
-              textTransform: 'uppercase',
-              letterSpacing: '0.4px',
-            }}
-          >
-            <span>Label</span>
-            <span>Key</span>
-            <span>Created</span>
-            <span>Last used</span>
-            <span />
-          </div>
-          {keys.map((k) => (
+        <div style={{ overflowX: 'auto', width: '100%', borderRadius: 8 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 540 }}>
             <div
-              key={k.id}
               style={{
                 display: 'grid',
-                gridTemplateColumns: '1.4fr 1.2fr 1.2fr 1.2fr 0.6fr',
-                padding: '14px',
+                gridTemplateColumns: '1.2fr 1fr 1.1fr 1.1fr 0.6fr',
+                padding: '10px 14px',
                 borderBottom: `1px solid ${C.border}`,
-                alignItems: 'center',
+                fontSize: 12,
+                fontWeight: 600,
+                color: C.mid,
+                textTransform: 'uppercase',
+                letterSpacing: '0.4px',
               }}
             >
-              <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{k.label}</span>
-              <span style={{ fontSize: 13, fontFamily: 'monospace', color: C.mid }}>
-                {k.keyPrefix}…
-              </span>
-              <span style={{ fontSize: 13, color: C.mid }}>{fmtDate(k.createdAt)}</span>
-              <span style={{ fontSize: 13, color: C.mid }}>{fmtDate(k.lastUsedAt)}</span>
-              <button
-                type="button"
-                onClick={() => setKeyToRevoke(k)}
-                title="Revoke key"
+              <span>Label</span>
+              <span>Key</span>
+              <span>Created</span>
+              <span>Last used</span>
+              <span />
+            </div>
+            {keys.map((k) => (
+              <div
+                key={k.id}
                 style={{
-                  justifySelf: 'end',
-                  display: 'flex',
+                  display: 'grid',
+                  gridTemplateColumns: '1.2fr 1fr 1.1fr 1.1fr 0.6fr',
+                  padding: '12px 14px',
+                  borderBottom: `1px solid ${C.border}`,
                   alignItems: 'center',
-                  gap: 6,
-                  padding: '6px 10px',
-                  borderRadius: 8,
-                  border: `1px solid ${C.border2}`,
-                  background: C.white,
-                  color: C.pink,
-                  fontFamily: 'inherit',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: 'pointer',
+                  gap: 8,
                 }}
               >
-                <TrashIcon /> Revoke
-              </button>
-            </div>
-          ))}
+                <span
+                  style={{
+                    fontSize: 13.5,
+                    fontWeight: 600,
+                    color: C.text,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    minWidth: 0,
+                  }}
+                >
+                  {k.label}
+                </span>
+                <span
+                  style={{
+                    fontSize: 12.5,
+                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                    color: C.mid,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    minWidth: 0,
+                  }}
+                >
+                  {k.keyPrefix}…
+                </span>
+                <span
+                  style={{
+                    fontSize: 12.5,
+                    color: C.mid,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    minWidth: 0,
+                  }}
+                >
+                  {fmtDate(k.createdAt)}
+                </span>
+                <span
+                  style={{
+                    fontSize: 12.5,
+                    color: C.mid,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    minWidth: 0,
+                  }}
+                >
+                  {fmtDate(k.lastUsedAt)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setKeyToRevoke(k)}
+                  title="Revoke key"
+                  style={{
+                    justifySelf: 'end',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '6px 10px',
+                    borderRadius: 8,
+                    border: `1px solid ${C.border2}`,
+                    background: C.white,
+                    color: C.pink,
+                    fontFamily: 'inherit',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                  }}
+                >
+                  <TrashIcon /> Revoke
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

@@ -7,6 +7,7 @@ import { TopBar } from '@/components/topbar';
 import { ErrorState } from '@/components/ui/error-state';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { Tooltip } from '@/components/ui/tooltip';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { api } from '@/lib/api';
 import { type GenerationJob, GenerationPanel } from './generation-panel';
 import { PreviewPanel } from './preview-panel';
@@ -29,6 +30,7 @@ interface GarmentType {
   requiresMannequinStep?: boolean;
   requiresThirdUpload?: boolean;
   thirdUploadLabel?: string | null;
+  mannequinTwoInputWorkflowTemplateId?: string | null;
 }
 interface FaceItem {
   id: string;
@@ -139,8 +141,8 @@ function _findNodeForItem(tree: CatalogNode[], itemId: string): CatalogNode | nu
 const GENDERS = [
   { value: 'women', label: 'Women', img: `${BASE}/assets/seg-women.png` },
   { value: 'men', label: 'Men', img: `${BASE}/assets/seg-men.png` },
-  { value: 'boys', label: 'Boy', img: `${BASE}/assets/seg-boy.png` },
-  { value: 'girls', label: 'Girl', img: `${BASE}/assets/seg-girl.png` },
+  { value: 'boys', label: 'Boys', img: `${BASE}/assets/seg-boy.png` },
+  { value: 'girls', label: 'Girls', img: `${BASE}/assets/seg-girl.png` },
 ];
 interface BrandConfig {
   ratios: string[];
@@ -502,6 +504,19 @@ export default function StudioPage(): React.ReactElement {
   }, [thirdGarmentPreviewUrl]);
   const [thirdGarmentKey, setThirdGarmentKey] = useState('');
   const [isUploadingThird, setIsUploadingThird] = useState(false);
+  const [palluGarmentFile, setPalluGarmentFile] = useState<File | null>(null);
+  const palluGarmentPreviewUrl = useMemo(
+    () => (palluGarmentFile ? URL.createObjectURL(palluGarmentFile) : ''),
+    [palluGarmentFile],
+  );
+  useEffect(() => {
+    return () => {
+      if (palluGarmentPreviewUrl) URL.revokeObjectURL(palluGarmentPreviewUrl);
+    };
+  }, [palluGarmentPreviewUrl]);
+  const [palluGarmentKey, setPalluGarmentKey] = useState('');
+  const [isUploadingPallu, setIsUploadingPallu] = useState(false);
+  const [sareeUploadMode, setSareeUploadMode] = useState<'single' | 'two_input'>('single');
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -510,6 +525,8 @@ export default function StudioPage(): React.ReactElement {
   const uploadAbortRef = useRef<AbortController | null>(null);
   const lowerUploadAbortRef = useRef<AbortController | null>(null);
   const thirdUploadAbortRef = useRef<AbortController | null>(null);
+  const palluFileInputRef = useRef<HTMLInputElement>(null);
+  const palluUploadAbortRef = useRef<AbortController | null>(null);
 
   // Abort any in-flight XHR uploads when the component unmounts (user navigates away)
   useEffect(() => {
@@ -517,19 +534,47 @@ export default function StudioPage(): React.ReactElement {
       uploadAbortRef.current?.abort();
       lowerUploadAbortRef.current?.abort();
       thirdUploadAbortRef.current?.abort();
+      palluUploadAbortRef.current?.abort();
     };
   }, []);
-  const garmentVisibleCount = 5;
-  const modelVisibleCount = 5;
+
+  const [isMobileParam, setIsMobileParam] = useState(false);
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development' && typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('view') === 'mobile') {
+        setIsMobileParam(true);
+      }
+    }
+  }, []);
+
+  const rawBreakpoint = useBreakpoint();
+  const breakpoint = isMobileParam ? 'mobile' : rawBreakpoint;
+  const _isMobile = breakpoint === 'mobile';
+  const isTablet = breakpoint === 'tablet';
+  const isSmallLaptop = breakpoint === 'small-laptop';
+  const isDesktopView = breakpoint === 'laptop' || breakpoint === 'desktop' || breakpoint === null;
+
+  // Exact 2-row visible count per tier below laptop (≥1280px):
+  // Desktop / Laptop (≥1280px): 5 items (1 row of 5 columns)
+  // Small Laptop (1024–1279px): 10 items (2 rows of 5 columns)
+  // Tablet (640–1023px): 8 items (2 rows of 4 columns)
+  // Mobile (<640px): 6 items (2 rows of 3 columns)
+  const categoryVisibleCount = isDesktopView ? 5 : isSmallLaptop ? 10 : isTablet ? 8 : 6;
+
+  const garmentVisibleCount = categoryVisibleCount;
+  const modelVisibleCount = categoryVisibleCount;
+  const backgroundVisibleCount = categoryVisibleCount;
+  const templateVisibleCount = categoryVisibleCount;
+  const poseVisibleCount = categoryVisibleCount;
+  const lowerVisibleCount = categoryVisibleCount;
+  const shoeVisibleCount = categoryVisibleCount;
   const [modelModalOpen, setModelModalOpen] = useState(false);
-  const backgroundVisibleCount = 5;
   const [backgroundModalOpen, setBackgroundModalOpen] = useState(false);
   const [backgroundItemFilter, setBackgroundItemFilter] = useState<number | ''>('');
   const [backgroundTagFilter, setBackgroundTagFilter] = useState<string>('');
-  const templateVisibleCount = 5;
   const [catalogueTemplateId, setCatalogueTemplateId] = useState('custom');
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
-  const poseVisibleCount = 5;
   const [poseModalOpen, setPoseModalOpen] = useState(false);
 
   const [faceId, setFaceId] = useState('');
@@ -540,8 +585,6 @@ export default function StudioPage(): React.ReactElement {
   const [shoeCatalogId, setShoeCatalogId] = useState('');
   const [lowerItemsOpen, setLowerItemsOpen] = useState(false);
   const [shoeItemsOpen, setShoeItemsOpen] = useState(false);
-  const lowerVisibleCount = 5;
-  const shoeVisibleCount = 5;
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isSubmittingRef = useRef(false);
@@ -857,7 +900,7 @@ export default function StudioPage(): React.ReactElement {
       flattenNode,
     );
     return [...allItems].sort(() => Math.random() - 0.5).slice(0, lowerVisibleCount);
-  }, [lowerCatalog]);
+  }, [lowerCatalog, lowerVisibleCount]);
   const { data: shoesCatalog } = useQuery<{ type: string; tree: CatalogNode[] }>({
     queryKey: ['catalog', 'shoe', gender, garmentTypeId, effectivePoseIds.join(',')],
     queryFn: () => {
@@ -878,7 +921,7 @@ export default function StudioPage(): React.ReactElement {
       flattenNode,
     );
     return [...allItems].sort(() => Math.random() - 0.5).slice(0, shoeVisibleCount);
-  }, [shoesCatalog]);
+  }, [shoesCatalog, shoeVisibleCount]);
   const lowerNodes = useMemo(
     () => lowerCatalog?.tree.filter((node) => node.slug !== 'other') ?? [],
     [lowerCatalog],
@@ -1026,6 +1069,43 @@ export default function StudioPage(): React.ReactElement {
     }
   }
 
+  async function handlePalluGarmentUpload(file: File) {
+    if (isUploadingPallu) return;
+    if (file.size > 10 * 1024 * 1024) {
+      showToast('File exceeds 10 MB. Please choose a smaller image.');
+      return;
+    }
+    if (!(await isSupportedImageBytes(file))) {
+      showToast('Unsupported file type. Please upload a JPEG, PNG, or WebP image.');
+      return;
+    }
+    setPalluGarmentFile(file);
+    setIsUploadingPallu(true);
+    const palluAbort = new AbortController();
+    palluUploadAbortRef.current = palluAbort;
+    try {
+      const { uploadUrl, r2Key } = await api.post<{
+        uploadUrl: string;
+        r2Key: string;
+        expiresIn: number;
+      }>('/v1/uploads/presign', { contentType: file.type, contentLength: file.size });
+      await api.uploadToR2WithProgress(uploadUrl, file, () => {}, palluAbort.signal);
+      setPalluGarmentKey(r2Key);
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return;
+      const msg = (e as Error).message ?? '';
+      showToast(
+        msg.includes('403')
+          ? 'Upload session expired. Please re-select your image and try again.'
+          : `Pallu upload failed: ${msg}`,
+      );
+      setPalluGarmentFile(null);
+      setPalluGarmentKey('');
+    } finally {
+      setIsUploadingPallu(false);
+    }
+  }
+
   function handleFaceSelect(id: string) {
     setFaceId(id);
     setCatalogueTemplateId('custom');
@@ -1075,6 +1155,7 @@ export default function StudioPage(): React.ReactElement {
   async function handleSubmit() {
     if (isSubmittingRef.current) return;
     if (!garmentKey || !faceId || !resolution) return;
+    if (sareeTwoInputActive && !palluGarmentKey) return;
     if (catalogueTemplateId === 'custom') {
       if (!backgroundId || poseIds.length === 0) return;
     } else {
@@ -1134,7 +1215,13 @@ export default function StudioPage(): React.ReactElement {
       if (selectedGarmentType?.requiresMannequinStep) {
         ({ catalogueId, jobIds } = await api.post<{ catalogueId: string; jobIds: string[] }>(
           '/v1/jobs/saree-mannequin',
-          { garmentTypeId, garmentKey, faceId, step2: step2Body },
+          {
+            garmentTypeId,
+            garmentKey,
+            ...(sareeTwoInputActive ? { secondGarmentKey: palluGarmentKey } : {}),
+            faceId,
+            step2: step2Body,
+          },
         ));
       } else {
         const inputs = {
@@ -1175,6 +1262,11 @@ export default function StudioPage(): React.ReactElement {
         })),
       });
       setGenerationInProgress(true);
+      if (typeof window !== 'undefined' && window.innerWidth < 1280) {
+        setTimeout(() => {
+          document.getElementById('studio-right-column')?.scrollIntoView({ behavior: 'smooth' });
+        }, 100);
+      }
       isSubmittingRef.current = false;
       setIsSubmitting(false);
     } catch (e) {
@@ -1273,7 +1365,11 @@ export default function StudioPage(): React.ReactElement {
 
   const requiresLowerUpload = selectedGarmentType?.requiresLowerUpload ?? false;
   const requiresThirdUpload = selectedGarmentType?.requiresThirdUpload ?? false;
-  const hasMultipleUploadBoxes = requiresLowerUpload || requiresThirdUpload;
+  const sareeTwoInputCapable =
+    !!selectedGarmentType?.requiresMannequinStep &&
+    !!selectedGarmentType?.mannequinTwoInputWorkflowTemplateId;
+  const sareeTwoInputActive = sareeTwoInputCapable && sareeUploadMode === 'two_input';
+  const hasMultipleUploadBoxes = requiresLowerUpload || requiresThirdUpload || sareeTwoInputActive;
 
   const creditCost = resolution ? RESOLUTION_COSTS[resolution] * selectedCount : 0;
   const canGenerate =
@@ -1281,6 +1377,7 @@ export default function StudioPage(): React.ReactElement {
     !!garmentKey &&
     (!requiresLowerUpload || !!lowerGarmentKey) &&
     (!requiresThirdUpload || !!thirdGarmentKey) &&
+    (!sareeTwoInputActive || !!palluGarmentKey) &&
     !!faceId &&
     (catalogueTemplateId === 'custom' ? !!backgroundId : true) &&
     customDimsReady &&
@@ -1288,12 +1385,13 @@ export default function StudioPage(): React.ReactElement {
     !isUploading &&
     !isUploadingLower &&
     !isUploadingThird &&
+    !isUploadingPallu &&
     !isSubmitting &&
     !generationInProgress;
 
   const generateBlocker = generationInProgress
     ? 'Generation in progress…'
-    : isUploading || isUploadingLower || isUploadingThird
+    : isUploading || isUploadingLower || isUploadingThird || isUploadingPallu
       ? 'Waiting for upload to finish…'
       : !garmentKey
         ? 'Upload a garment image first'
@@ -1301,13 +1399,15 @@ export default function StudioPage(): React.ReactElement {
           ? 'Upload the lower garment image first'
           : requiresThirdUpload && !thirdGarmentKey
             ? 'Upload the third garment image first'
-            : selectedCount === 0
-              ? catalogueTemplateId === 'custom'
-                ? 'Select at least one pose'
-                : 'Select at least one look'
-              : !customDimsReady
-                ? 'Enter valid width and height for custom size'
-                : '';
+            : sareeTwoInputActive && !palluGarmentKey
+              ? 'Upload the pallu image first'
+              : selectedCount === 0
+                ? catalogueTemplateId === 'custom'
+                  ? 'Select at least one pose'
+                  : 'Select at least one look'
+                : !customDimsReady
+                  ? 'Enter valid width and height for custom size'
+                  : '';
 
   // Sections 1-4 (Create Catalogue For / Outfit Type / Upload / Choose AI Model)
   // are always visible and keep their static stepNumber. Everything after that is
@@ -1396,6 +1496,189 @@ export default function StudioPage(): React.ReactElement {
           }
         }
 
+        .studio-layout-wrapper {
+          flex: 1;
+          min-height: 0;
+          display: flex;
+          gap: 20px;
+          padding: 24px 28px;
+          background: var(--c-studio-bg);
+          box-sizing: border-box;
+          overflow-y: auto;
+        }
+        .studio-left-column {
+          flex: 1 1 0;
+          min-width: 0;
+          max-width: 880px;
+          display: flex;
+          flex-direction: column;
+        }
+        .studio-right-column {
+          flex: 1 1 0;
+          min-width: 0;
+          max-width: 880px;
+          overflow-y: auto;
+          max-height: 100%;
+          padding-right: 4px;
+        }
+        .studio-generate-card {
+          background: var(--c-card, #FFFFFF);
+          border: 1.5px solid var(--c-border, #E5E7EB);
+          border-radius: 16px;
+          box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+          padding: 16px 20px;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          flex-shrink: 0;
+          margin-top: 16px;
+        }
+        .studio-5col-grid {
+          display: grid;
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+          gap: 16px;
+        }
+        .studio-platforms-grid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 12px;
+        }
+        .studio-platforms-grid > button:nth-child(7) {
+          grid-column: 2;
+        }
+        .studio-force-mobile-frame {
+          max-width: 390px !important;
+          margin: 20px auto !important;
+          border-radius: 24px !important;
+          box-shadow: 0 16px 48px rgba(0, 0, 0, 0.25) !important;
+          border: 8px solid #1f2937 !important;
+          background: var(--c-studio-bg) !important;
+          box-sizing: border-box !important;
+        }
+        @media (max-width: 1279px) {
+          .studio-layout-wrapper {
+            flex-direction: column;
+            padding: 16px;
+            gap: 20px;
+          }
+          .studio-left-column {
+            max-width: 100%;
+            width: 100%;
+          }
+          .studio-right-column {
+            max-width: 100%;
+            width: 100%;
+            max-height: none;
+            overflow-y: visible;
+            margin-top: 8px;
+            padding-top: 20px;
+            border-top: 1.5px dashed var(--c-border);
+            scroll-margin-top: 20px;
+          }
+          .studio-generate-card {
+            margin-bottom: 12px;
+          }
+          .studio-5col-grid {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 10px;
+          }
+          .garment-card, .visual-card-wrapper {
+            max-width: 125px;
+            margin: 0 auto;
+            width: 100%;
+          }
+          .garment-card .sel-card-image {
+            max-height: 110px;
+          }
+          .gender-card-hover {
+            height: 56px !important;
+          }
+          .gender-card-content {
+            gap: 8px !important;
+            padding: 0 10px !important;
+          }
+          .gender-card-content > div:first-child {
+            width: 36px !important;
+            height: 36px !important;
+          }
+          .gender-card-content span, .gender-card-label {
+            font-size: 13.5px !important;
+            font-weight: 600 !important;
+          }
+        }
+        @media (max-width: 768px) {
+          .studio-layout-wrapper {
+            padding: 12px;
+            gap: 16px;
+          }
+          .studio-generate-card {
+            margin-top: 16px;
+            margin-bottom: 16px;
+            padding: 14px 16px;
+          }
+          .studio-5col-grid {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 8px;
+          }
+          .garment-card, .visual-card-wrapper {
+            max-width: 115px;
+          }
+          .garment-card .sel-card-image {
+            max-height: 100px;
+          }
+        }
+        @media (max-width: 480px) {
+          .studio-layout-wrapper {
+            padding: 10px;
+            gap: 12px;
+          }
+          .studio-generate-card {
+            padding: 12px 14px;
+            border-radius: 14px;
+          }
+          .studio-generate-card-row {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 10px !important;
+          }
+          .studio-generate-card-row > div {
+            justify-content: space-between;
+          }
+          .studio-generate-btn-wrap {
+            width: 100%;
+          }
+          .studio-generate-btn-wrap button {
+            width: 100%;
+            justify-content: center;
+          }
+          .studio-5col-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 6px;
+          }
+          .garment-card, .visual-card-wrapper {
+            max-width: 100px;
+          }
+          .garment-card .sel-card-image {
+            max-height: 90px;
+          }
+          .gender-card-hover {
+            height: 52px !important;
+          }
+          .gender-card-content {
+            gap: 6px !important;
+            padding: 0 8px !important;
+          }
+          .gender-card-content > div:first-child {
+            width: 32px !important;
+            height: 32px !important;
+          }
+          .gender-card-content span, .gender-card-label {
+            font-size: 13px !important;
+            font-weight: 600 !important;
+          }
+        }
+
         *:focus,
         *:focus-visible,
         button:focus,
@@ -1413,25 +1696,8 @@ export default function StudioPage(): React.ReactElement {
         title="Studio"
         subtitle="Create premium AI catalogue shoots from flat lay garments in minutes."
       />
-      <div
-        style={{
-          flex: 1,
-          minHeight: 0,
-          display: 'flex',
-          gap: 20,
-          padding: '24px 28px',
-          background: 'var(--c-studio-bg)',
-        }}
-      >
-        <div
-          style={{
-            flex: '1 1 0',
-            minWidth: 0,
-            maxWidth: 880,
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
+      <div className={`studio-layout-wrapper ${isMobileParam ? 'studio-force-mobile-frame' : ''}`}>
+        <div className="studio-left-column">
           <div
             style={{
               flex: 1,
@@ -1524,7 +1790,7 @@ export default function StudioPage(): React.ReactElement {
                   <SpinnerIcon size={16} /> Loading…
                 </div>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 20 }}>
+                <div className="studio-5col-grid">
                   {(() => {
                     const all = garmentTypes.items;
                     const inFirstN = all
@@ -1565,6 +1831,9 @@ export default function StudioPage(): React.ReactElement {
                               setPoseIds([]);
                               setLowerCatalogId('');
                               setShoeCatalogId('');
+                              setSareeUploadMode('single');
+                              setPalluGarmentFile(null);
+                              setPalluGarmentKey('');
                             }
                           }}
                         />
@@ -1581,6 +1850,46 @@ export default function StudioPage(): React.ReactElement {
                 subtitle="Upload a clean flat lay garment image"
                 stepNumber={3}
               />
+              {sareeTwoInputCapable && (
+                <div style={{ marginBottom: 12 }}>
+                  <label
+                    htmlFor="saree-upload-mode"
+                    style={{
+                      display: 'block',
+                      fontSize: 12,
+                      fontWeight: 500,
+                      color: C.mid,
+                      marginBottom: 6,
+                    }}
+                  >
+                    Upload type
+                  </label>
+                  <select
+                    id="saree-upload-mode"
+                    value={sareeUploadMode}
+                    onChange={(e) => {
+                      const mode = e.target.value as 'single' | 'two_input';
+                      setSareeUploadMode(mode);
+                      if (mode === 'single') {
+                        setPalluGarmentFile(null);
+                        setPalluGarmentKey('');
+                      }
+                    }}
+                    style={{
+                      background: C.field,
+                      color: C.text,
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 8,
+                      padding: '8px 12px',
+                      fontSize: 13,
+                      minWidth: 220,
+                    }}
+                  >
+                    <option value="single">Full Saree</option>
+                    <option value="two_input">Body & Pallu</option>
+                  </select>
+                </div>
+              )}
               <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
                 {/* Dashed upload box — single zone or split into two */}
                 <div
@@ -1760,10 +2069,12 @@ export default function StudioPage(): React.ReactElement {
                                 textAlign: 'center',
                               }}
                             >
-                              {hasMultipleUploadBoxes
-                                ? selectedGarmentType?.upperUploadLabel ||
-                                  `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`
-                                : `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`}
+                              {sareeTwoInputActive
+                                ? 'Body'
+                                : hasMultipleUploadBoxes
+                                  ? selectedGarmentType?.upperUploadLabel ||
+                                    `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`
+                                  : `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`}
                             </span>
                             <span
                               style={{
@@ -1813,6 +2124,187 @@ export default function StudioPage(): React.ReactElement {
                         }}
                       />
                     </label>
+
+                    {sareeTwoInputActive && (
+                      <label
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 12,
+                          background: C.card,
+                          border: `1px solid ${C.border}`,
+                          borderRadius: 8,
+                          padding: 12,
+                          cursor: 'pointer',
+                          boxSizing: 'border-box',
+                          overflow: 'hidden',
+                        }}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const f = e.dataTransfer.files?.[0];
+                          if (f && ['image/jpeg', 'image/png', 'image/webp'].includes(f.type))
+                            handlePalluGarmentUpload(f);
+                        }}
+                      >
+                        {palluGarmentFile ? (
+                          <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
+                            <img
+                              src={palluGarmentPreviewUrl}
+                              alt={palluGarmentFile.name}
+                              style={{
+                                width: '100%',
+                                height: '100%',
+                                objectFit: 'contain',
+                                borderRadius: 6,
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                setPalluGarmentFile(null);
+                                setPalluGarmentKey('');
+                              }}
+                              style={{
+                                position: 'absolute',
+                                top: 6,
+                                right: 6,
+                                width: 24,
+                                height: 24,
+                                borderRadius: '50%',
+                                background: 'rgba(0,0,0,0.5)',
+                                border: 'none',
+                                color: 'white',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                            >
+                              <XIcon size={14} />
+                            </button>
+                            {isUploadingPallu && (
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  bottom: 8,
+                                  left: 8,
+                                  right: 8,
+                                  background: 'rgba(255,255,255,0.95)',
+                                  borderRadius: 8,
+                                  padding: '6px 10px',
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 8,
+                                    fontSize: 12,
+                                    color: C.text,
+                                  }}
+                                >
+                                  <SpinnerIcon size={14} /> Uploading…
+                                </div>
+                              </div>
+                            )}
+                            {palluGarmentKey && (
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  top: 8,
+                                  left: 8,
+                                  background: C.mint,
+                                  color: 'white',
+                                  borderRadius: 6,
+                                  padding: '3px 8px',
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                }}
+                              >
+                                <CheckIcon color="#fff" size={10} /> Uploaded
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <>
+                            <div
+                              style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                gap: 4,
+                              }}
+                            >
+                              <span
+                                style={{
+                                  width: '100%',
+                                  fontSize: 11,
+                                  fontWeight: 500,
+                                  lineHeight: '100%',
+                                  color: C.text,
+                                  textAlign: 'center',
+                                }}
+                              >
+                                Pallu
+                              </span>
+                              <span
+                                style={{
+                                  width: '100%',
+                                  fontSize: 10,
+                                  fontWeight: 500,
+                                  lineHeight: '140%',
+                                  color: C.mid,
+                                  textAlign: 'center',
+                                }}
+                              >
+                                JPG, PNG · Max 10MB
+                              </span>
+                            </div>
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 6,
+                              }}
+                            >
+                              <ImagePlusIcon size={14} />
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 500,
+                                  lineHeight: '18px',
+                                  color: C.text,
+                                }}
+                              >
+                                Browse
+                              </span>
+                            </div>
+                          </>
+                        )}
+                        <input
+                          ref={palluFileInputRef}
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          style={{ display: 'none' }}
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) handlePalluGarmentUpload(f);
+                          }}
+                        />
+                      </label>
+                    )}
 
                     {requiresLowerUpload && (
                       <label
@@ -2255,7 +2747,7 @@ export default function StudioPage(): React.ReactElement {
                   <SpinnerIcon />
                 </div>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}>
+                <div className="studio-5col-grid">
                   {(() => {
                     const inFirstN = filteredFaces
                       .slice(0, modelVisibleCount)
@@ -2331,7 +2823,7 @@ export default function StudioPage(): React.ReactElement {
                     )
                   }
                 />
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}>
+                <div className="studio-5col-grid">
                   {(() => {
                     // "Create your own look" (catalogueTemplates[0], id 'custom') is always
                     // pinned first - a selected template that isn't already visible is
@@ -2439,9 +2931,7 @@ export default function StudioPage(): React.ReactElement {
                         No looks available for this garment type yet.
                       </p>
                     ) : (
-                      <div
-                        style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}
-                      >
+                      <div className="studio-5col-grid">
                         {(activeTemplate?.looks ?? []).map((look) => (
                           <SelCard
                             key={look.id}
@@ -2497,7 +2987,7 @@ export default function StudioPage(): React.ReactElement {
                   <p style={{ fontSize: 12, fontWeight: 600, color: C.mid, marginBottom: 8 }}>
                     My backgrounds
                   </p>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}>
+                  <div className="studio-5col-grid">
                     <button
                       type="button"
                       onClick={() => setUploadModalOpen(true)}
@@ -2761,7 +3251,7 @@ export default function StudioPage(): React.ReactElement {
                     No backgrounds available for this model yet. Try a different model.
                   </p>
                 ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}>
+                  <div className="studio-5col-grid">
                     {(() => {
                       const frontIds = new Set(
                         backgrounds.items.filter((b) => b.specialTag).map((b) => b.id),
@@ -2928,13 +3418,7 @@ export default function StudioPage(): React.ReactElement {
                               No backgrounds in this category yet.
                             </p>
                           ) : (
-                            <div
-                              style={{
-                                display: 'grid',
-                                gridTemplateColumns: 'repeat(5, 1fr)',
-                                gap: 16,
-                              }}
-                            >
+                            <div className="studio-5col-grid">
                               {filteredItems.map((i) => (
                                 <SelCard
                                   key={i.id}
@@ -3019,7 +3503,7 @@ export default function StudioPage(): React.ReactElement {
                     No poses for this combination. Go back and try a different background.
                   </p>
                 ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}>
+                  <div className="studio-5col-grid">
                     {(() => {
                       const firstN = poses.items.slice(0, poseVisibleCount);
                       const offScreenSelected = poseIds
@@ -3247,8 +3731,8 @@ export default function StudioPage(): React.ReactElement {
 
             <section className="studio-section-card" style={sectionCardStyle}>
               <SectionHead title="Publishing Platform" stepNumber={stepNumberOf('platform')} />
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                {PLATFORMS.map((p) => (
+              <div className="studio-platforms-grid">
+                {PLATFORMS.map((p, idx) => (
                   <button
                     type="button"
                     key={p}
@@ -3258,8 +3742,11 @@ export default function StudioPage(): React.ReactElement {
                       display: 'flex',
                       alignItems: 'center',
                       gap: 6,
-                      minWidth: 80,
+                      width: '100%',
+                      height: 44,
+                      boxSizing: 'border-box',
                       justifyContent: 'center',
+                      ...(idx === 6 ? { gridColumn: 2 } : {}),
                     }}
                   >
                     {PLATFORM_LOGOS[p] ? (
@@ -3271,7 +3758,7 @@ export default function StudioPage(): React.ReactElement {
                         style={{
                           height: PLATFORM_LOGOS[p].h,
                           width: 'auto',
-                          maxWidth: 72,
+                          maxWidth: 80,
                           objectFit: 'contain',
                           display: 'block',
                         }}
@@ -3526,20 +4013,7 @@ export default function StudioPage(): React.ReactElement {
           </div>
 
           {/* Footer (pinned, left column only, block effect) */}
-          <div
-            style={{
-              background: C.card,
-              border: `1.5px solid ${C.border}`,
-              borderRadius: 16,
-              boxShadow: '0 4px 20px rgba(0,0,0,0.06)',
-              padding: '16px 20px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 12,
-              flexShrink: 0,
-              marginTop: 16,
-            }}
-          >
+          <div className="studio-generate-card">
             {submitError && (
               <div
                 style={{
@@ -3555,6 +4029,7 @@ export default function StudioPage(): React.ReactElement {
               </div>
             )}
             <div
+              className="studio-generate-card-row"
               style={{
                 display: 'flex',
                 justifyContent: 'space-between',
@@ -3595,6 +4070,7 @@ export default function StudioPage(): React.ReactElement {
 
               {/* Right side: Button + ETA */}
               <div
+                className="studio-generate-btn-wrap"
                 style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}
               >
                 <Tooltip tip={generateBlocker || undefined}>
@@ -3633,16 +4109,7 @@ export default function StudioPage(): React.ReactElement {
           </div>
         </div>
 
-        <div
-          style={{
-            flex: '1 1 0',
-            minWidth: 0,
-            maxWidth: 880,
-            overflowY: 'auto',
-            maxHeight: '100%',
-            paddingRight: 4,
-          }}
-        >
+        <div className="studio-right-column" id="studio-right-column">
           {activeGeneration ? (
             <GenerationPanel
               catalogueId={activeGeneration.catalogueId}
@@ -3796,13 +4263,7 @@ export default function StudioPage(): React.ReactElement {
                 {filteredItems.length === 0 ? (
                   <p style={{ fontSize: 14, color: C.mid }}>No items in this category yet.</p>
                 ) : (
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(5, 1fr)',
-                      gap: 16,
-                    }}
-                  >
+                  <div className="studio-5col-grid">
                     {filteredItems.map((i) => (
                       <SelCard
                         key={i.id}
@@ -3924,13 +4385,7 @@ export default function StudioPage(): React.ReactElement {
                 {filteredItems.length === 0 ? (
                   <p style={{ fontSize: 14, color: C.mid }}>No items in this category yet.</p>
                 ) : (
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(5, 1fr)',
-                      gap: 16,
-                    }}
-                  >
+                  <div className="studio-5col-grid">
                     {filteredItems.map((i) => (
                       <SelCard
                         key={i.id}

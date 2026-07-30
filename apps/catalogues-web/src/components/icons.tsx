@@ -553,6 +553,24 @@ export const FlagGB = ({ size = 16 }: { size?: number }) => (
     <path d="M8 3v4h4v1H9v4H8V8H3v-.5l4.5-4.5H8z" fill="#C8102E" opacity="0.7" />
   </svg>
 );
+export const CameraIcon = ({ size = 16 }: { size?: number }) => (
+  <svg
+    aria-hidden="true"
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
+    <circle cx="12" cy="13" r="3.5" />
+  </svg>
+);
+
 export const InfoIcon = ({
   size = 16,
   color = 'currentColor',

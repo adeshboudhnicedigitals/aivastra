@@ -62,7 +62,9 @@ describe('GET /v1/models/sample-videos', () => {
       headers: await authHeader(),
     });
     expect(res.statusCode).toBe(200);
-    const items = res.json().items as Array<{
+    const body = res.json();
+    expect(body.creditCost).toBe(150);
+    const items = body.items as Array<{
       id: string;
       thumbnailUrl: string;
       previewVideoUrl: string;
