@@ -27,6 +27,11 @@ export default defineConfig({
       R2_SECRET_ACCESS_KEY: 'minioadmin_dev_pw',
       R2_BUCKET: 'placeholder',
       R2_PUBLIC_URL: 'http://127.0.0.1:9000/placeholder',
+      // processVideoJob fails fast with PIXVERSE_NOT_CONFIGURED when this is unset,
+      // so the catalog-video tests need a value to reach their mocked fetch.
+      PIXVERSE_API_KEY: 'test-key',
+      // Keep the poll loop tight so failure-path tests don't wait on real backoff.
+      PIXVERSE_POLL_INTERVAL_MS: '10',
     },
   },
 });

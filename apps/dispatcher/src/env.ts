@@ -29,6 +29,10 @@ const Env = z.object({
   PIXVERSE_API_BASE_URL: z.string().url().default('https://app-api.pixverse.ai'),
   PIXVERSE_POLL_INTERVAL_MS: z.coerce.number().default(5_000),
   PIXVERSE_POLL_TIMEOUT_MS: z.coerce.number().default(180_000),
+  /** In-flight cap for the PixVerse video lane (jobs:video). Independent of the GPU
+   *  worker registry — catalog-video jobs never touch ComfyUI. Should match the
+   *  concurrency limit of the PixVerse plan. Restart the dispatcher to change it. */
+  VIDEO_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(5),
 });
 
 export type Env = z.infer<typeof Env>;

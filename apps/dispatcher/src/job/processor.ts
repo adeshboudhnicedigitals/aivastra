@@ -661,16 +661,33 @@ async function processVideoJob(
   const sourceImageKey = rawParams.sourceImageKey as string;
   const prompt = rawParams.prompt as string;
 
+  const env = loadEnv();
+  // Fail fast rather than sending an empty key: PixVerse would 401, handleFailure
+  // would retry, and the job would burn both attempts (~5 min) before refunding.
+  if (!env.PIXVERSE_API_KEY) {
+    jobLog.error('PIXVERSE_API_KEY is not configured — cannot process catalog-video job');
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'PIXVERSE_NOT_CONFIGURED',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
 
   try {
-    const env = loadEnv();
     const { url: imageUrl } = await storage.presignGet(sourceImageKey, 900);
 
     await transitionJob(db, pub, jobId, userId, 'GENERATING', {}, jobLog);
     const { taskId } = await createVideoTask(
       env.PIXVERSE_API_BASE_URL,
-      env.PIXVERSE_API_KEY ?? '',
+      env.PIXVERSE_API_KEY,
       imageUrl,
       prompt,
       jobLog,
@@ -683,7 +700,7 @@ async function processVideoJob(
 
     const videoUrl = await pollVideoTask(
       env.PIXVERSE_API_BASE_URL,
-      env.PIXVERSE_API_KEY ?? '',
+      env.PIXVERSE_API_KEY,
       taskId,
       env.PIXVERSE_POLL_INTERVAL_MS,
       env.PIXVERSE_POLL_TIMEOUT_MS,
