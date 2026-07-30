@@ -35,6 +35,100 @@ export const DevCategoriesResponse = z.object({
   categories: z.array(z.object({ slug: z.string(), name: z.string() })),
 });
 
+// ---------------------------------------------------------------------------
+// Catalog generation — admin-curated asset selection over the public dev API.
+//
+// Assets are addressed by SLUG, never by internal UUID: the slug is a stable
+// public contract that survives an admin deleting and recreating the underlying
+// row, and it reads intelligibly in a third party's own code. See the
+// public_api_slug column added in migration 0130.
+// ---------------------------------------------------------------------------
+
+const PUBLIC_SLUG = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'must be lowercase alphanumeric words separated by hyphens');
+
+export const DevCatalogOptionsQuery = z.object({
+  gender: z.enum(['men', 'women', 'boys', 'girls']),
+  /** Public slug of a garment type. Narrows poses, lower garments and shoes to the
+   *  ones configured for it — omit to see the unfiltered pool for this gender. */
+  garmentType: PUBLIC_SLUG.optional(),
+});
+
+const DevCatalogAsset = z.object({
+  slug: z.string(),
+  label: z.string(),
+  thumbnailUrl: z.string(),
+});
+
+const DevCatalogPose = DevCatalogAsset.extend({
+  /** True when this pose's workflow accepts a lower garment; if false, passing
+   *  `lower` on /v1/dev/catalog/generate has no effect for looks using this pose. */
+  hasLower: z.boolean(),
+  hasShoes: z.boolean(),
+});
+
+export const DevCatalogOptionsResponse = z.object({
+  garmentTypes: z.array(z.object({ slug: z.string(), label: z.string() })),
+  faces: z.array(DevCatalogAsset),
+  backgrounds: z.array(DevCatalogAsset),
+  poses: z.array(DevCatalogPose),
+  lowerItems: z.array(DevCatalogAsset),
+  shoeItems: z.array(DevCatalogAsset),
+});
+
+/** JSON/base64 body for catalog generation. The multipart form accepts the same
+ *  field names, with `looks` as a JSON-encoded string. */
+export const DevCatalogGenerateJsonBody = z.object({
+  /** Raw base64 or a `data:image/...;base64,` URI. */
+  garment: z.string().min(1),
+  // Required even though slugs are globally unique: it scopes slug resolution to
+  // one gender's asset pool, so a men's face paired with women's poses is rejected
+  // as an unknown slug instead of silently producing a nonsense render.
+  gender: z.enum(['men', 'women', 'boys', 'girls']),
+  face: PUBLIC_SLUG,
+  // Capped at 12 to match the Shopify catalog surface: each look is a separate
+  // GPU job and a separate credit charge, so an unbounded array would let one
+  // request drain a merchant's balance and monopolise the worker pool.
+  looks: z
+    .array(z.object({ pose: PUBLIC_SLUG, background: PUBLIC_SLUG }))
+    .min(1)
+    .max(12),
+  garmentType: PUBLIC_SLUG.optional(),
+  lower: PUBLIC_SLUG.optional(),
+  shoe: PUBLIC_SLUG.optional(),
+  aspectRatio: z.enum(['1:1', '2:3', '3:4', '4:5']),
+  resolution: z.enum(['HD', '2K', '4K']),
+});
+
+export const DevCatalogGenerateResponse = z.object({
+  /** Groups every job from this request; pass to GET /v1/dev/catalogues/:id. */
+  catalogueId: z.string().uuid(),
+  jobs: z.array(
+    z.object({
+      jobId: z.string().uuid(),
+      pose: z.string(),
+      background: z.string(),
+    }),
+  ),
+});
+
+export const DevCatalogueParams = z.object({ id: z.string().uuid() });
+
+export const DevCatalogueResponse = z.object({
+  catalogueId: z.string().uuid(),
+  jobs: z.array(
+    z.object({
+      jobId: z.string().uuid(),
+      status: DevJobStatus,
+      imageUrl: z.string().url().optional(),
+      error: z.string().optional(),
+    }),
+  ),
+});
+
 export const DevMeResponse = z.object({
   merchantId: z.string().uuid(),
   companyName: z.string(),

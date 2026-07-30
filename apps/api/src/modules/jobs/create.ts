@@ -627,7 +627,15 @@ export async function createJob(
   app: FastifyInstance,
   userId: string,
   body: z.infer<typeof CreateTryOnJobRequest>,
-  opts?: { trustedGarmentKeys?: Set<string> },
+  opts?: {
+    trustedGarmentKeys?: Set<string>;
+    /** Set by the public developer API so the resulting jobs are readable through
+     *  /v1/dev/jobs/:id and /v1/dev/catalogues/:id, which scope by merchant via a
+     *  join on api_keys and filter jobs.source = 'api'. Omitting either field there
+     *  makes every generated job 404 on its own status endpoint. */
+    apiKeyId?: string;
+    source?: string;
+  },
 ) {
   const {
     faceId,
@@ -708,13 +716,14 @@ export async function createJob(
         .insert(schema.jobs)
         .values({
           userId,
+          apiKeyId: opts?.apiKeyId,
           catalogueId: plan.catalogueId,
           status: 'QUEUED',
           priority,
           queueStream,
           watermark,
           creditsCharged: plan.cost,
-          source: 'catalog',
+          source: opts?.source ?? 'catalog',
         })
         .returning();
       await atomicDeduct(tx as unknown as DB, userId, plan.cost, job.id);
