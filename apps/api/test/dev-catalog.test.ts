@@ -122,30 +122,54 @@ beforeAll(async () => {
     })
     .returning();
 
-  await app.db.insert(schema.modelPoseAssets).values([
-    {
+  const [, sideProfile] = await app.db
+    .insert(schema.modelPoseAssets)
+    .values([
+      {
+        genderSlug: 'women',
+        label: 'Front Standing',
+        displayName: 'Front Standing',
+        r2Key: 'pose.jpg',
+        thumbnailKey: 'pose-t.jpg',
+        isActive: true,
+        scope: 'general',
+        workflowTemplateId: wf.id,
+        publicApiSlug: 'front-standing',
+      },
+      {
+        genderSlug: 'women',
+        label: 'Side Profile',
+        displayName: 'Side Profile',
+        r2Key: 'pose2.jpg',
+        thumbnailKey: 'pose2-t.jpg',
+        isActive: true,
+        scope: 'general',
+        workflowTemplateId: wf.id,
+        publicApiSlug: 'side-profile',
+      },
+    ])
+    .returning();
+
+  // A garment type that disables `side-profile` via a per-(pose, garmentType)
+  // override — reproducing the real prod gotcha: a pose visible in the unfiltered
+  // /v1/dev/catalog/options list can still be rejected by /generate once a
+  // garmentType narrows it out.
+  const [dress] = await app.db
+    .insert(schema.garmentSubcategories)
+    .values({
       genderSlug: 'women',
-      label: 'Front Standing',
-      displayName: 'Front Standing',
-      r2Key: 'pose.jpg',
-      thumbnailKey: 'pose-t.jpg',
+      slug: 'dress',
+      label: 'Dress',
       isActive: true,
-      scope: 'general',
-      workflowTemplateId: wf.id,
-      publicApiSlug: 'front-standing',
-    },
-    {
-      genderSlug: 'women',
-      label: 'Side Profile',
-      displayName: 'Side Profile',
-      r2Key: 'pose2.jpg',
-      thumbnailKey: 'pose2-t.jpg',
-      isActive: true,
-      scope: 'general',
-      workflowTemplateId: wf.id,
-      publicApiSlug: 'side-profile',
-    },
-  ]);
+      publicApiSlug: 'dress',
+    })
+    .returning();
+
+  await app.db.insert(schema.poseGarmentConfigs).values({
+    poseAssetId: sideProfile.id,
+    subcategoryId: dress.id,
+    isActive: false,
+  });
 
   // Seeded straight into Postgres, so the /admin/* onResponse hook that normally
   // invalidates never fired — see plugins/catalog-cache-invalidation.ts.
@@ -247,6 +271,26 @@ describe('POST /v1/dev/catalog/generate', () => {
     const body = (await res.json()) as { error: { code: string; message: string } };
     expect(body.error.code).toBe('BAD_SLUG');
     expect(body.error.message).toContain('no-such-model');
+
+    const [credits] = await app.db
+      .select()
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, userId));
+    expect(credits.balance).toBe(1000);
+  });
+
+  it('rejects a pose disabled for the given garmentType, naming the garmentType in the message', async () => {
+    await setCredits(1000);
+    const res = await postGenerate(
+      generateBody({
+        garmentType: 'dress',
+        looks: [{ pose: 'side-profile', background: 'studio-white' }],
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe('BAD_SLUG');
+    expect(body.error.message).toContain('garmentType "dress"');
 
     const [credits] = await app.db
       .select()
