@@ -130,6 +130,10 @@ export const MerchantCatalogItem = z.object({
   sortOrder: z.number().int(),
   createdAt: z.string(),
   updatedAt: z.string(),
+  // Present and true only for admin-authored demo rows appended by the demo
+  // catalog reader. Absent on the merchant's own rows.
+  isDemo: z.boolean().optional(),
+  readOnly: z.boolean().optional(),
 });
 export type MerchantCatalogItem = z.infer<typeof MerchantCatalogItem>;
 
@@ -177,6 +181,10 @@ export const MerchantCatalogSubcategory = z.object({
   productCount: z.number().int(),
   createdAt: z.string(),
   updatedAt: z.string(),
+  // Present and true only for admin-authored demo rows appended by the demo
+  // catalog reader. Absent on the merchant's own rows.
+  isDemo: z.boolean().optional(),
+  readOnly: z.boolean().optional(),
 });
 export type MerchantCatalogSubcategory = z.infer<typeof MerchantCatalogSubcategory>;
 
