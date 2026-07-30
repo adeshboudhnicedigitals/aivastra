@@ -226,6 +226,7 @@ async function issueDeviceSession(
     input.userId,
     { kind: 'access' },
     app.env.JWT_EXPIRY,
+    'device',
   );
   const r = newRefreshToken();
   const expiresAt = new Date(Date.now() + parseDuration(app.env.REFRESH_TOKEN_EXPIRY));
