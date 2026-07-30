@@ -1,27 +1,54 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
+import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { setGoogleKeyGetterForTests } from '../src/modules/auth/google-id-token.js';
 import { signAccess } from '../src/modules/auth/service.js';
 import { adminAuthHeader } from './helpers/admin.js';
 import { buildTestApp, type TestApp } from './helpers/api.js';
 import { type Containers, startContainers } from './helpers/containers.js';
 import { createTestMerchant } from './helpers/merchant.js';
 
+const GOOGLE_AUD = 'web-client.apps.googleusercontent.com';
+let googlePrivateKey: CryptoKey;
+
 let c: Containers;
 let app: TestApp;
 
 beforeAll(async () => {
   c = await startContainers();
-  app = await buildTestApp(c);
+  app = await buildTestApp(c, { GOOGLE_CLIENT_ID: GOOGLE_AUD });
+
+  const pair = await generateKeyPair('RS256');
+  googlePrivateKey = pair.privateKey;
+  const jwk = await exportJWK(pair.publicKey);
+  jwk.kid = 'test-kid';
+  jwk.alg = 'RS256';
+  setGoogleKeyGetterForTests(createLocalJWKSet({ keys: [jwk] }));
 });
 
 afterAll(async () => {
+  setGoogleKeyGetterForTests(undefined);
   await app?.close();
   await c?.stop();
 });
 
+// Represents a real device-app session (Android app: password device-login,
+// force-login, or Google device-login all mint this audience uniformly).
 async function tokenFor(userId: string) {
+  return signAccess(
+    new TextEncoder().encode(app.env.JWT_SECRET),
+    userId,
+    { kind: 'access' },
+    app.env.JWT_EXPIRY,
+    'device',
+  );
+}
+
+// Represents a plain web-browser session (password login or web Google OAuth) —
+// no audience claim, exactly as createSessionTokens(..., 'web') mints it.
+async function webTokenFor(userId: string) {
   return signAccess(
     new TextEncoder().encode(app.env.JWT_SECRET),
     userId,
@@ -75,6 +102,16 @@ describe('GET /v1/merchant/onboarding', () => {
 
   it('401s without a bearer token', async () => {
     const res = await app.inject({ method: 'GET', url: '/v1/merchant/onboarding' });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('401s for a plain web session (no device audience)', async () => {
+    const { userId } = await createGoogleUser('Web Session Person');
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/merchant/onboarding',
+      headers: auth(await webTokenFor(userId)),
+    });
     expect(res.statusCode).toBe(401);
   });
 });
@@ -225,6 +262,87 @@ describe('POST /v1/merchant/onboarding', () => {
       });
       expect(res.statusCode).toBe(400);
     }
+  });
+
+  it('401s for a plain web session (no device audience)', async () => {
+    const { userId } = await createGoogleUser('Web Session Person');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/onboarding',
+      headers: auth(await webTokenFor(userId)),
+      payload: { phone: '9000000007' },
+    });
+    expect(res.statusCode).toBe(401);
+
+    const [merchant] = await app.db
+      .select()
+      .from(schema.merchants)
+      .where(eq(schema.merchants.userId, userId));
+    expect(merchant).toBeUndefined();
+  });
+});
+
+describe('device-session boundary (end-to-end)', () => {
+  it('a real device-login/google session can reach onboarding', async () => {
+    const email = `real-google-${randomUUID()}@example.com`;
+    const idToken = await new SignJWT({
+      sub: randomUUID(),
+      email,
+      email_verified: true,
+      name: 'Real Google Person',
+    })
+      .setProtectedHeader({ alg: 'RS256', kid: 'test-kid' })
+      .setIssuer('https://accounts.google.com')
+      .setAudience(GOOGLE_AUD)
+      .setIssuedAt()
+      .setExpirationTime('5m')
+      .sign(googlePrivateKey);
+
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/device-login/google',
+      payload: { idToken, deviceId: randomUUID(), platform: 'mobile' },
+    });
+    expect(loginRes.statusCode).toBe(200);
+    const { accessToken } = loginRes.json();
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/merchant/onboarding',
+      headers: auth(accessToken),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().merchantStatus).toBe('ONBOARDING_REQUIRED');
+  });
+
+  it('a real plain web login cannot reach onboarding', async () => {
+    const email = `real-web-${randomUUID()}@example.com`;
+    const password = 'correct-horse-battery-1';
+    const registerRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: { email, password, displayName: 'Real Web Person' },
+    });
+    expect(registerRes.statusCode).toBe(201);
+    await app.db
+      .update(schema.users)
+      .set({ emailVerified: true })
+      .where(eq(schema.users.email, email));
+
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: { email, password },
+    });
+    expect(loginRes.statusCode).toBe(200);
+    const { accessToken } = loginRes.json();
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/merchant/onboarding',
+      headers: auth(accessToken),
+    });
+    expect(res.statusCode).toBe(401);
   });
 });
 

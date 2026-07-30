@@ -11,11 +11,14 @@ function fallbackContactName(displayName: string | null, email: string | null): 
 }
 
 /**
- * Guarded by requireUser, NOT requireMerchant — the entire point is that no
- * merchants row exists yet, so requireMerchant would 403 every caller.
+ * Guarded by requireDeviceUser, NOT requireMerchant — the entire point is that no
+ * merchants row exists yet, so requireMerchant would 403 every caller. Restricted
+ * to device-app sessions (not requireUser) because this is an Android-app-only
+ * flow: onboarding creates an active, zero-review, 0-credit merchant, so a plain
+ * web session must not be able to reach it.
  */
 export async function merchantOnboardingRoutes(app: FastifyInstance) {
-  app.get('/v1/merchant/onboarding', { preHandler: app.requireUser }, async (req) => {
+  app.get('/v1/merchant/onboarding', { preHandler: app.requireDeviceUser }, async (req) => {
     const [user] = await app.db
       .select({
         displayName: schema.users.displayName,
@@ -35,7 +38,7 @@ export async function merchantOnboardingRoutes(app: FastifyInstance) {
 
   app.post(
     '/v1/merchant/onboarding',
-    { preHandler: app.requireUser, schema: { body: MerchantOnboardingBody } },
+    { preHandler: app.requireDeviceUser, schema: { body: MerchantOnboardingBody } },
     async (req, reply) => {
       const body = req.body as z.infer<typeof MerchantOnboardingBody>;
 
