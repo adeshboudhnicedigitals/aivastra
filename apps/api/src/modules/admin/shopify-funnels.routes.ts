@@ -14,6 +14,7 @@ const CreateFunnelTemplateBody = z.object({
   label: z.string().min(1).max(120),
   workflowTemplateId: z.string().uuid(),
   sortOrder: z.number().int().default(0),
+  isDefault: z.boolean().default(false),
 });
 
 const PatchFunnelTemplateBody = z.object({
@@ -21,6 +22,7 @@ const PatchFunnelTemplateBody = z.object({
   workflowTemplateId: z.string().uuid().optional(),
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
+  isDefault: z.boolean().optional(),
 });
 
 const ReassignFunnelTemplateBody = z.object({
@@ -36,7 +38,10 @@ export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
       .select()
       .from(schema.shopifyFunnelTemplates)
       .orderBy(asc(schema.shopifyFunnelTemplates.sortOrder));
-    return { items };
+    // Surfaced so the admin list can warn on it. With no default, every Shopify
+    // try-on is refused at creation and nothing else reveals why until a shopper
+    // hits it.
+    return { items, hasDefault: items.some((i) => i.isDefault) };
   });
 
   app.post(
@@ -45,8 +50,18 @@ export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
     async (req) => {
       const body = req.body as z.infer<typeof CreateFunnelTemplateBody>;
       try {
-        const [row] = await app.db.insert(schema.shopifyFunnelTemplates).values(body).returning();
-        return row;
+        return await app.db.transaction(async (tx) => {
+          // Demote first: the partial unique index rejects a second default, so
+          // insert-then-demote would fail on the constraint rather than swap.
+          if (body.isDefault) {
+            await tx
+              .update(schema.shopifyFunnelTemplates)
+              .set({ isDefault: false, updatedAt: new Date() })
+              .where(eq(schema.shopifyFunnelTemplates.isDefault, true));
+          }
+          const [row] = await tx.insert(schema.shopifyFunnelTemplates).values(body).returning();
+          return row;
+        });
       } catch (err) {
         if ((err as { code?: string }).code === '23505') {
           throw new AppError('CONFLICT', 409, `slug "${body.slug}" already exists`);
@@ -62,11 +77,37 @@ export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
     async (req) => {
       const { id } = req.params as { id: string };
       const body = req.body as z.infer<typeof PatchFunnelTemplateBody>;
-      const [updated] = await app.db
-        .update(schema.shopifyFunnelTemplates)
-        .set({ ...body, updatedAt: new Date() })
-        .where(eq(schema.shopifyFunnelTemplates.id, id))
-        .returning({ id: schema.shopifyFunnelTemplates.id });
+
+      if (body.isDefault === false) {
+        const [row] = await app.db
+          .select({ isDefault: schema.shopifyFunnelTemplates.isDefault })
+          .from(schema.shopifyFunnelTemplates)
+          .where(eq(schema.shopifyFunnelTemplates.id, id))
+          .limit(1);
+        if (!row) throw new AppError('NOT_FOUND', 404, 'funnel template not found');
+        if (row.isDefault) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'Cannot clear the default funnel template. Promote another template instead — with no default, every Shopify try-on is refused.',
+          );
+        }
+      }
+
+      const updated = await app.db.transaction(async (tx) => {
+        if (body.isDefault === true) {
+          await tx
+            .update(schema.shopifyFunnelTemplates)
+            .set({ isDefault: false, updatedAt: new Date() })
+            .where(eq(schema.shopifyFunnelTemplates.isDefault, true));
+        }
+        const [row] = await tx
+          .update(schema.shopifyFunnelTemplates)
+          .set({ ...body, updatedAt: new Date() })
+          .where(eq(schema.shopifyFunnelTemplates.id, id))
+          .returning({ id: schema.shopifyFunnelTemplates.id });
+        return row;
+      });
       if (!updated) throw new AppError('NOT_FOUND', 404, 'funnel template not found');
       return { ok: true };
     },
