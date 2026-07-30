@@ -1651,7 +1651,7 @@ git commit -m "feat(admin): assign demo catalog sets to merchants"
   - `loadDemoItems(app, merchantId, opts: { subcategoryId?: string; search?: string }): Promise<SerializedDemoItem[]>`
   - `isDemo` / `readOnly` optional booleans on `MerchantCatalogItem` and `MerchantCatalogSubcategory`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `apps/api/test/demo-catalog-merchant.test.ts`:
 
@@ -1933,12 +1933,12 @@ describe('merchant catalog reads with demo data', () => {
 `presignGet` against MinIO works without the object existing, so these tests do not need to PUT
 bytes — only Task 3's guard tests do.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @aivastra/api test -- demo-catalog-merchant`
 Expected: FAIL — the first assertion finds no demo subcategory in the response.
 
-- [ ] **Step 3: Add the two optional response fields**
+- [x] **Step 3: Add the two optional response fields**
 
 In `packages/types/src/widget.ts`, add to **both** `MerchantCatalogItem` (line 96) and
 `MerchantCatalogSubcategory` (line 154):
@@ -1950,7 +1950,7 @@ In `packages/types/src/widget.ts`, add to **both** `MerchantCatalogItem` (line 9
   readOnly: z.boolean().optional(),
 ```
 
-- [ ] **Step 4: Write the reader**
+- [x] **Step 4: Write the reader**
 
 Create `apps/api/src/modules/merchant/demo-catalog-read.ts`:
 
@@ -2157,7 +2157,7 @@ If `.$dynamic()` is not available on this Drizzle version, drop the conditional 
 always `innerJoin` `garmentSubcategories` (the FK is NOT NULL so the join never drops a row), then
 only add the `requiresMannequinStep` condition when `mannequinOnly` is set.
 
-- [ ] **Step 5: Wire the three merchant read routes**
+- [x] **Step 5: Wire the three merchant read routes**
 
 In `apps/api/src/modules/merchant/catalog.routes.ts`, add:
 
@@ -2203,7 +2203,7 @@ then, replacing the existing `return`:
       return { items: [...own, ...demo] };
 ```
 
-- [ ] **Step 6: Run the tests**
+- [x] **Step 6: Run the tests**
 
 Run: `pnpm --filter @aivastra/api test -- demo-catalog-merchant`
 Expected: PASS, 9 tests.
@@ -2211,7 +2211,7 @@ Expected: PASS, 9 tests.
 Run: `pnpm --filter @aivastra/api test`
 Expected: whole suite green — `includeDemo` is additive and existing callers pass nothing.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/types/src/widget.ts apps/api/src/modules/merchant/demo-catalog-read.ts \
