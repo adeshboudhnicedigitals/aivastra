@@ -68,6 +68,15 @@ export const jobSourceSchema = z.enum(
   Object.values(JOB_SOURCE) as [JobSource, ...JobSource[]],
 );
 
+// Not part of JobSource — deliberately excluded from jobSourceSchema and every
+// exhaustiveness check over JOB_SOURCE, so a switch/map keyed by JobSource can't
+// accidentally treat 'api' as a live value a writer might still produce. Exists
+// solely so the three permanent read filters (§5, §6) reference a named export
+// instead of a repeated raw string literal.
+export const LEGACY_JOB_SOURCE = {
+  API: 'api',
+} as const;
+
 export const WORKER_POOL = {
   CATALOGUE: 'catalogue',
   TRYON: 'tryon',
@@ -103,7 +112,7 @@ Each of the three maps to exactly one pool with no conditional branching — unl
 - `apps/api/src/modules/dev/catalog.routes.ts:349` (catalogue ownership scoping)
 - `apps/api/src/modules/merchant/api-keys.routes.ts:132` (usage-stats query)
 
-All three change from `eq(schema.jobs.source, 'api')` to `inArray(schema.jobs.source, [JOB_SOURCE.API_TRYON, JOB_SOURCE.API_SAREE_MANNEQUIN, JOB_SOURCE.API_CATALOG, 'api'])` — the trailing legacy literal is permanent, not transitional; see §6 for why. `createDevJobCore` (`create-job.ts:16-40`) changes to accept `source: JobSource` as a required parameter instead of hardcoding `source: 'api'` internally; its two callers (`createDevTryonJob`, `createDevSareeMannequinJob`) pass `JOB_SOURCE.API_TRYON` / `JOB_SOURCE.API_SAREE_MANNEQUIN`. `dev/catalog.routes.ts:292` passes `JOB_SOURCE.API_CATALOG` directly to `createJob`'s (now-typed) `opts.source`.
+All three change from `eq(schema.jobs.source, 'api')` to `inArray(schema.jobs.source, [JOB_SOURCE.API_TRYON, JOB_SOURCE.API_SAREE_MANNEQUIN, JOB_SOURCE.API_CATALOG, LEGACY_JOB_SOURCE.API])` — the trailing legacy value is permanent, not transitional; see §6 for why. `createDevJobCore` (`create-job.ts:16-40`) changes to accept `source: JobSource` as a required parameter instead of hardcoding `source: 'api'` internally; its two callers (`createDevTryonJob`, `createDevSareeMannequinJob`) pass `JOB_SOURCE.API_TRYON` / `JOB_SOURCE.API_SAREE_MANNEQUIN`. `dev/catalog.routes.ts:292` passes `JOB_SOURCE.API_CATALOG` directly to `createJob`'s (now-typed) `opts.source`.
 
 ## 6. Migration & Deploy-Race Handling for `source = 'api'` Rows
 
@@ -132,7 +141,7 @@ WHERE source = 'api';
 
 **Deploy race — verified, not assumed.** The actual deploy sequence (`.github/workflows/ci.yml:279-321`) is: build new images → run `db:migrate:prod` as a one-off `docker compose run --rm api` (line 307) → only *then* `docker compose up -d --no-deps --force-recreate ${SERVICES}` (line 316). The previously-running `api`/`dispatcher` containers are not stopped before the migration step — they keep serving requests, on old code, until the force-recreate on line 316. Any dev-API request handled by that still-old container between lines 307 and 316 inserts a fresh `source = 'api'` row *after* the one-time backfill already ran, and once line 316 completes, the new code's read filters (§5, `inArray([...three new values])`) would never look for `'api'` again — that row becomes permanently invisible.
 
-This repo has no blue-green or feature-flag infrastructure to quiesce writers during that window (`CLAUDE.md`'s only documented deploy path is `db:generate` → PR → CI/CD → `db:migrate:prod`, exactly what's used here), and building one for a single migration would be disproportionate. Instead: **the three read filters in §5 permanently include the legacy literal alongside the three new values** — `inArray(schema.jobs.source, [JOB_SOURCE.API_TRYON, JOB_SOURCE.API_SAREE_MANNEQUIN, JOB_SOURCE.API_CATALOG, 'api'])`. This isn't a temporary shim requiring a follow-up cleanup PR: once every writer in §7 is converted to pass a typed `JobSource` (no writer left defaults to, or can pass, the bare string `'api'`), the literal `'api'` can never be written again after this deploy completes — so the extra filter value only ever matches the bounded, one-time set of rows written during this one deploy's race window (plus any pre-migration rows the backfill's own execution happened not to reach yet at the instant it ran — same bounded set, same reasoning). None of the three filter routes behave differently by dev-API sub-kind (they resolve ownership/status only), so a residual, permanently-unclassified `'api'` row stays fully functional forever at zero ongoing cost — cheaper and more robust than a time-boxed dual-read that needs someone to remember to remove it.
+This repo has no blue-green or feature-flag infrastructure to quiesce writers during that window (`CLAUDE.md`'s only documented deploy path is `db:generate` → PR → CI/CD → `db:migrate:prod`, exactly what's used here), and building one for a single migration would be disproportionate. Instead: **the three read filters in §5 permanently include the legacy value alongside the three new values** — `inArray(schema.jobs.source, [JOB_SOURCE.API_TRYON, JOB_SOURCE.API_SAREE_MANNEQUIN, JOB_SOURCE.API_CATALOG, LEGACY_JOB_SOURCE.API])`, importing the named `LEGACY_JOB_SOURCE.API` constant (§4) rather than repeating the raw string — the registry's own rule ("nothing else hardcodes any part of it," §3) applies to this legacy value too, not just the 13 live ones. This isn't a temporary shim requiring a follow-up cleanup PR: once every writer in §7 is converted to pass a typed `JobSource` (no writer left defaults to, or can pass, the bare string `'api'`), that value can never be written again after this deploy completes — so the extra filter entry only ever matches the bounded, one-time set of rows written during this one deploy's race window (plus any pre-migration rows the backfill's own execution happened not to reach yet at the instant it ran — same bounded set, same reasoning). None of the three filter routes behave differently by dev-API sub-kind (they resolve ownership/status only), so a residual, permanently-unclassified legacy row stays fully functional forever at zero ongoing cost — cheaper and more robust than a time-boxed dual-read that needs someone to remember to remove it.
 
 **Test fixtures.** `apps/api/test/merchant-api-keys.test.ts:181,210` and `apps/api/test/dev-read-routes.test.ts:59` insert bare `source: 'api'` rows directly, with no `job_inputs` row at all (verified — neither test creates one). Under the classification signals above these would fall through to the `api_tryon` default; since both tests exercise generic ownership/status logic, not tryon-specific behavior, update both to insert `JOB_SOURCE.API_TRYON` directly instead — they're new test writes stating deliberate intent, not historical data depending on backfill precedence.
 
@@ -194,7 +203,7 @@ If a real second use case for a source→pool(s) relationship appears later (e.g
 - `pnpm --filter @aivastra/api test` — full suite green, plus new/updated tests:
   - `POST /admin/workers` accepts `merchant` (regression test for the fixed gap)
   - `GET /admin/workers/job-types` returns all 5 pools; `GET /admin/jobs/sources` (guarded by `R` in `adminJobsRoutes`, §7 item 9) returns all 13 sources
-  - the three dev-API read filters find all of `api_tryon`/`api_saree_mannequin`/`api_catalog`-sourced jobs after the split, **and** still find a job seeded with the raw legacy literal `source: 'api'` (§6's permanent-inclusion fix — this is the regression test for the deploy-race gap)
+  - the three dev-API read filters find all of `api_tryon`/`api_saree_mannequin`/`api_catalog`-sourced jobs after the split, **and** still find a job seeded with `source: LEGACY_JOB_SOURCE.API` (§6's permanent-inclusion fix — this is the regression test for the deploy-race gap)
   - the §6 migration-classification test: seed `source: 'api'` rows with each of the three distinguishing `job_inputs` shapes (`params.kind = 'saree_mannequin'`; `face_id IS NOT NULL`; neither) directly into an already-migrated test DB, execute the real migration `.sql` file's statements (read from disk, not duplicated) against them, assert each row lands on the correct new `source` value
 - `pnpm --filter @aivastra/dispatcher test` — existing integration suites (`shopify.test.ts`, `saree-mannequin.test.ts`, `merchant-catalog-mannequin.test.ts`, sweeper tests, etc.) pass unchanged, since registry values are byte-identical to today's literals
 - Manual: Workers page → Add Worker → `merchant` checkbox present and savable; Jobs page badges unchanged for existing job records; browser console shows a warning if any job's badge falls through (should not occur post-migration)
