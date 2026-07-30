@@ -1,4 +1,5 @@
 import { schema } from '@aivastra/db';
+import { JOB_SOURCE } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
@@ -64,7 +65,7 @@ export async function createDevSareeMannequinJob(
     apiKeyId: params.apiKeyId,
     cost,
     watermark: false,
-    metricKind: 'saree_mannequin',
+    source: JOB_SOURCE.API_SAREE_MANNEQUIN,
     buildJobInputs: () => ({
       upperGarmentKey: params.garmentKey,
       garmentTypeId: null,

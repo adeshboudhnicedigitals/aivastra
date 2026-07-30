@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import {
+  JOB_SOURCE,
   ShopifyCustomerJobRequest,
   ShopifyCustomerPhotoPreviewRequest,
   ShopifyCustomerPresignRequest,
@@ -215,7 +216,7 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
           customerPhotoKey,
           status: 'QUEUED',
           creditsCharged: jobCost,
-          source: 'shopify',
+          source: JOB_SOURCE.SHOPIFY,
         });
         // biome-ignore lint/suspicious/noExplicitAny: Drizzle infers non-null for nullable FKs. The plan explicitly notes this is the intended pattern.
         await (tx.insert(schema.jobInputs).values as any)({

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import type { FastifyInstance } from 'fastify';
+import { JOB_SOURCE } from '@aivastra/types';
 
 interface CreateMerchantTryonJobInput {
   merchantId: string;
@@ -27,7 +28,7 @@ export async function createMerchantTryonJob(
       customerPhotoKey: input.customerPhotoKey,
       status: 'QUEUED',
       creditsCharged: 0,
-      source: 'merchant_tryon',
+      source: JOB_SOURCE.MERCHANT_TRYON,
     });
 
     // biome-ignore lint/suspicious/noExplicitAny: nullable widget inputs are wider than Drizzle's inferred insert type.
