@@ -1,6 +1,6 @@
 import { type DB, schema } from '@aivastra/db';
 import { jobsCreatedTotal } from '@aivastra/observability';
-import type { CreateSareeMannequinJobRequest } from '@aivastra/types';
+import { JOB_SOURCE, type CreateSareeMannequinJobRequest } from '@aivastra/types';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
@@ -83,7 +83,7 @@ export async function createSareeMannequinJob(
         queueStream,
         watermark,
         creditsCharged: 0,
-        source: 'saree_mannequin',
+        source: JOB_SOURCE.SAREE_MANNEQUIN,
       })
       .returning();
     await tx.insert(schema.jobInputs).values({
@@ -112,7 +112,7 @@ export async function createSareeMannequinJob(
           queueStream,
           watermark,
           creditsCharged: plan.cost,
-          source: 'catalog',
+          source: JOB_SOURCE.CATALOG,
         })
         .returning();
       await atomicDeduct(tx as unknown as DB, userId, plan.cost, step2Job.id);
@@ -147,7 +147,7 @@ export async function createSareeMannequinJob(
       'userId',
       userId,
     );
-    jobsCreatedTotal.inc({ priority: queueStream, kind: 'saree_mannequin' });
+    jobsCreatedTotal.inc({ priority: queueStream, kind: JOB_SOURCE.SAREE_MANNEQUIN });
   } catch (err) {
     app.log.error(
       { err, jobId: mannequinJobId },
