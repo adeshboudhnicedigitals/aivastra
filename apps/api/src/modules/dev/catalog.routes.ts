@@ -8,6 +8,7 @@ import {
   DevCatalogOptionsResponse,
   DevCatalogueParams,
   DevCatalogueResponse,
+  DevErrorResponse,
 } from '@aivastra/types';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
@@ -65,12 +66,23 @@ export async function devCatalogRoutes(app: FastifyInstance) {
           'Returns the admin-curated models, backgrounds, poses, lower garments and ' +
           'shoes available to your account, addressed by stable slug. Feed those slugs ' +
           'to POST /v1/dev/catalog/generate. Responses carry an ETag — send it back as ' +
-          'If-None-Match to get a 304 when nothing has changed.',
+          'If-None-Match to get a 304 when nothing has changed.\n\n' +
+          'Pass `garmentType` to narrow poses, lower garments and shoes to the ones ' +
+          'configured for that garment type — some poses are disabled per garment type ' +
+          'and will not resolve on /v1/dev/catalog/generate even though they appear in ' +
+          'the unfiltered (no `garmentType`) list. If you plan to submit a `garmentType` ' +
+          'to generate, fetch options with that same `garmentType` first.',
         querystring: DevCatalogOptionsQuery,
         // 304 is declared so the zod type provider allows reply.code(304). Node
         // suppresses the body for that status, so the declared shape is never
         // actually serialized.
-        response: { 200: DevCatalogOptionsResponse, 304: z.null() },
+        response: {
+          200: DevCatalogOptionsResponse,
+          304: z.null(),
+          400: DevErrorResponse,
+          401: DevErrorResponse,
+          429: DevErrorResponse,
+        },
       },
     },
     async (req, reply) => {
@@ -129,10 +141,23 @@ export async function devCatalogRoutes(app: FastifyInstance) {
           'becomes its own job and its own credit charge, so each pose/background pair ' +
           'must be unique within a request. Accepts multipart/form-data ' +
           '(with `looks` as a JSON-encoded string) or a JSON body with a base64 garment. ' +
-          'Poll the returned catalogueId via GET /v1/dev/catalogues/{id}.',
+          'Poll the returned catalogueId via GET /v1/dev/catalogues/{id}.\n\n' +
+          'If `garmentType` is set, pose/lower/shoe slugs are validated against that ' +
+          "garment type's narrowed set, not the full gender list — a slug from an " +
+          'unfiltered GET /v1/dev/catalog/options call can be rejected as BAD_SLUG here ' +
+          'if it is disabled for the garmentType you send. Fetch options with the same ' +
+          '`garmentType` first to avoid this.',
         consumes: ['multipart/form-data', 'application/json'],
         body: DevCatalogGenerateJsonBody,
-        response: { 202: DevCatalogGenerateResponse },
+        response: {
+          202: DevCatalogGenerateResponse,
+          400: DevErrorResponse,
+          401: DevErrorResponse,
+          402: DevErrorResponse,
+          403: DevErrorResponse,
+          429: DevErrorResponse,
+          503: DevErrorResponse,
+        },
       },
     },
     async (req, reply) => {
@@ -296,7 +321,12 @@ export async function devCatalogRoutes(app: FastifyInstance) {
           'Returns all jobs created by one /v1/dev/catalog/generate call. Poll this ' +
           'instead of polling each job individually.',
         params: DevCatalogueParams,
-        response: { 200: DevCatalogueResponse },
+        response: {
+          200: DevCatalogueResponse,
+          401: DevErrorResponse,
+          404: DevErrorResponse,
+          429: DevErrorResponse,
+        },
       },
     },
     async (req) => {
