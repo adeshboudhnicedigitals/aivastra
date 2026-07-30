@@ -1,3 +1,20 @@
+## 2026-07-31 - Merchant onboarding: restricted to device-app sessions (post-hoc audit fix)
+
+### Done
+- Independent post-hoc audit of the Android Google sign-in + merchant onboarding plan found `POST/GET /v1/merchant/onboarding` guarded by `requireUser`, which accepts any authenticated session (plain web password login, web Google OAuth, or Android device login) with no restriction to the Android-app flow it was designed for. Since onboarding creates an active, zero-admin-review, 0-credit merchant row, this meant any web account — not just "anyone with a Google account" as the plan's own Flagged Risk section assumed — could reach the same unbounded-free-tryon exposure the plan explicitly accepted as a known risk. It also broke the plan's own stated mitigation: the route unconditionally wrote `signupSource: 'android_google'` regardless of how the caller actually authenticated, so a plain web account exploiting the gap would be mislabeled identically to a genuine Android signup in the Task 6 admin audit trail.
+- Root cause: access tokens minted by `issueDeviceSession` (shared by all three device-login routes — password, force-login, Google) carried no `aud` claim, making them structurally identical to a plain web-session token.
+- Fix: `issueDeviceSession` now mints tokens with `aud: 'device'` (`apps/api/src/modules/auth/routes.ts`). Added a `requireDeviceUser` guard (`apps/api/src/plugins/auth.ts`), modeled on the existing `requireUser`, requiring that audience. Both onboarding routes now use it instead of `requireUser`.
+- Verified before implementing: `verifyAccess` applies no audience restriction, and none of `requireMerchant`, `requireKioskDevice`, `requireUserOrCatalogApp`, or `requireResultsUser` inspect `aud` at all — only `requireUser`'s explicit `catalog-app` rejection touches audience, which is orthogonal to the new `'device'` value. Zero collateral impact confirmed by both spec-compliance and code-quality review passes.
+- Added 4 tests to `apps/api/test/merchant-onboarding.test.ts` (12 → 16): GET/POST 401 for a plain web-session token (POST case also confirms no merchant row is created), an end-to-end test through the real `/v1/auth/device-login/google` route proving a genuine Android session reaches onboarding, and an end-to-end test through real `/v1/auth/register` + `/v1/auth/login` proving a genuine web session is rejected.
+- Isolated run: 16/16 passing (verified independently, twice). Full API suite: 407/407 passing (verified independently). `pnpm --filter @aivastra/api typecheck` clean. Both a spec-compliance review and a code-quality review (held to a higher bar as a security-relevant fix) returned zero Critical/Important findings — code-quality review returned "Ready to merge: Yes" on the first pass, no rework needed. Committed as `c0a4bf8c`.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- Deliberately left the `signupSource` enum/labeling as-is: a user who onboards via *password* device-login (not Google) will still get `signupSource: 'android_google'`, a residual imprecision much narrower than the original gap (which affected any web account, any auth method). Fixing this would require touching the already-shipped DB CHECK constraint, migration, and admin UI badge logic for comparatively little benefit — flagged as a known, accepted minor inaccuracy rather than silently left unmentioned.
+- `/v1/merchant/onboarding` had shipped only on this unmerged feature branch with no production callers, so no deploy-coordination note or migration is needed for existing sessions.
+
 ## 2026-07-31 - Kiosk demo catalog data: post-hoc test-coverage gap closed
 
 ### Done
