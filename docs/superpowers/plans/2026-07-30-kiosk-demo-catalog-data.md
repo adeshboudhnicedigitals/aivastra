@@ -63,7 +63,7 @@
   - `schema.demoCatalogSets`, `schema.demoCatalogSubcategories`, `schema.demoCatalogItems`, `schema.demoCatalogAssignments`
   - `keys.demoCatalogItem(id: string): string`, `keys.demoCatalogItemThumb(id: string): string`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `apps/api/test/demo-catalog-admin.test.ts` with the schema round-trip cases:
 
@@ -207,12 +207,12 @@ describe('storage keys', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @aivastra/api test -- demo-catalog-admin`
 Expected: FAIL — `schema.demoCatalogSets` is undefined.
 
-- [ ] **Step 3: Write the schema**
+- [x] **Step 3: Write the schema**
 
 Create `packages/db/src/schema/demo-catalog.ts`. Columns deliberately mirror
 `merchantCatalogSubcategories` / `merchantCatalogItems` (`packages/db/src/schema/merchant.ts:42,99`)
@@ -322,7 +322,7 @@ Add to `packages/db/src/schema/index.ts`, keeping alphabetical order (after `./c
 export * from './demo-catalog.js';
 ```
 
-- [ ] **Step 4: Add the storage keys**
+- [x] **Step 4: Add the storage keys**
 
 In `packages/storage/src/keys.ts`, after `merchantCatalogFlatGarment` (line 11):
 
@@ -332,7 +332,7 @@ In `packages/storage/src/keys.ts`, after `merchantCatalogFlatGarment` (line 11):
   demoCatalogItemThumb: (id: string) => `demo-catalog/${id}/thumb.jpg`,
 ```
 
-- [ ] **Step 5: Generate and apply the migration**
+- [x] **Step 5: Generate and apply the migration**
 
 ```bash
 pnpm db:generate
@@ -343,12 +343,12 @@ Confirm the emitted file is `0134_*.sql` and appears in `packages/db/src/migrati
 If drizzle-kit picked a different index because `origin/main` moved, take the server's index as
 canonical and renumber upward — never below.
 
-- [ ] **Step 6: Run test to verify it passes**
+- [x] **Step 6: Run test to verify it passes**
 
 Run: `pnpm --filter @aivastra/api test -- demo-catalog-admin`
 Expected: PASS, 5 tests.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/db/src/schema/demo-catalog.ts packages/db/src/schema/index.ts \
@@ -372,7 +372,7 @@ git commit -m "feat(db): add demo catalog tables and storage keys"
   - Routes: `GET|POST /admin/demo-catalog/sets`, `PATCH|DELETE /admin/demo-catalog/sets/:id`, `GET /admin/demo-catalog/sets/:id/subcategories`, `POST /admin/demo-catalog/subcategories`, `PATCH|DELETE /admin/demo-catalog/subcategories/:id`
   - `adminDemoCatalogRoutes(app: FastifyInstance): Promise<void>`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `apps/api/test/demo-catalog-admin.test.ts`. Use the existing admin-token helper from
 `./helpers/admin.js` — read that file first for its exact name and signature:
@@ -528,12 +528,12 @@ describe('admin demo set + subcategory routes', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @aivastra/api test -- demo-catalog-admin`
 Expected: FAIL — 404 on `/admin/demo-catalog/sets`.
 
-- [ ] **Step 3: Write the types**
+- [x] **Step 3: Write the types**
 
 Create `packages/types/src/demo-catalog.ts`:
 
@@ -584,7 +584,7 @@ export type DemoCatalogSubcategoryUpdateBody = z.infer<typeof DemoCatalogSubcate
 
 Add `export * from './demo-catalog.js';` to `packages/types/src/index.ts` after `./credits.js`.
 
-- [ ] **Step 4: Write the routes**
+- [x] **Step 4: Write the routes**
 
 Create `apps/api/src/modules/admin/demo-catalog.routes.ts`:
 
@@ -891,12 +891,12 @@ plus the import alongside the other admin imports.
 `requireAdmin` sets `req.userId` — confirm that in `apps/api/src/modules/admin/guard.ts` before
 relying on it for the audit logs; if it uses a different property name, use that one.
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `pnpm --filter @aivastra/api test -- demo-catalog-admin`
 Expected: PASS, 11 tests.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/types/src/demo-catalog.ts packages/types/src/index.ts \
@@ -921,7 +921,7 @@ git commit -m "feat(admin): CRUD for demo catalog sets and subcategories"
   - `assertDemoUploadKey(app, adminUserId, key, label): Promise<void>`
   - Routes: `POST /admin/demo-catalog/presign`, `GET /admin/demo-catalog/items`, `POST /admin/demo-catalog/items`, `PATCH|DELETE /admin/demo-catalog/items/:id`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `apps/api/test/demo-catalog-admin.test.ts`. Uploading real bytes to the test MinIO bucket
 is what makes `assertDemoUploadKey` meaningful, so do the PUT for real:
@@ -1113,12 +1113,12 @@ const JPEG_1X1 = Buffer.from(
 );
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @aivastra/api test -- demo-catalog-admin`
 Expected: FAIL — 404 on `/admin/demo-catalog/presign`.
 
-- [ ] **Step 3: Add the item types**
+- [x] **Step 3: Add the item types**
 
 Append to `packages/types/src/demo-catalog.ts`:
 
@@ -1163,7 +1163,7 @@ export const DemoCatalogItemUpdateBody = z
 export type DemoCatalogItemUpdateBody = z.infer<typeof DemoCatalogItemUpdateBody>;
 ```
 
-- [ ] **Step 4: Write the upload guard**
+- [x] **Step 4: Write the upload guard**
 
 Create `apps/api/src/modules/admin/demo-upload-guard.ts`, mirroring
 `apps/api/src/modules/merchant/upload-guard.ts:7`:
@@ -1213,7 +1213,7 @@ export async function assertDemoUploadKey(
 }
 ```
 
-- [ ] **Step 5: Add the item routes**
+- [x] **Step 5: Add the item routes**
 
 In `apps/api/src/modules/admin/demo-catalog.routes.ts`, add imports:
 
@@ -1394,12 +1394,12 @@ and inside `adminDemoCatalogRoutes`:
   );
 ```
 
-- [ ] **Step 6: Run test to verify it passes**
+- [x] **Step 6: Run test to verify it passes**
 
 Run: `pnpm --filter @aivastra/api test -- demo-catalog-admin`
 Expected: PASS, 18 tests.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/types/src/demo-catalog.ts apps/api/src/modules/admin/demo-upload-guard.ts \
