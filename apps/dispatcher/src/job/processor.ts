@@ -8,10 +8,10 @@ import {
   jobsProcessedTotal,
 } from '@aivastra/observability';
 import { keys, type StorageProvider } from '@aivastra/storage';
+import { WORKER_POOL } from '@aivastra/types';
 import type { S3Client } from '@aws-sdk/client-s3';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { and, eq, sql } from 'drizzle-orm';
-import { WORKER_POOL } from '@aivastra/types';
 import type { Redis } from 'ioredis';
 import sharp from 'sharp';
 

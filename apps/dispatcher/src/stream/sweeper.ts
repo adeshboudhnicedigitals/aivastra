@@ -1,9 +1,9 @@
 import { type DB, schema } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
+import { JOB_SOURCE } from '@aivastra/types';
 import { and, eq, inArray, lte, or, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 import { transitionJob } from '../job/state.js';
-import { JOB_SOURCE } from '@aivastra/types';
 
 // QUEUED jobs older than this were never picked up by a worker (orphaned at enqueue).
 const QUEUED_SLA_MS = 10 * 60 * 1000;

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import type { FastifyInstance } from 'fastify';
 import { JOB_SOURCE } from '@aivastra/types';
+import type { FastifyInstance } from 'fastify';
 
 interface CreateMerchantTryonJobInput {
   merchantId: string;
