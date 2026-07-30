@@ -21,6 +21,11 @@ export const modelFaces = pgTable('model_faces', {
   r2Key: text('r2_key').notNull(),
   thumbnailKey: text('thumbnail_key').notNull(),
   faceSideR2Key: text('face_side_r2_key'), // ComfyUI-specific face image (moved from model_pose_assets)
+  // Public developer-API exposure. NULL = not reachable from /v1/dev/*; non-null =
+  // exposed to third-party API callers under this slug. Curation flag and public
+  // identifier in one column so they cannot drift apart. Partial-unique among
+  // non-null values only — see migration 0130.
+  publicApiSlug: text('public_api_slug'),
   isActive: boolean('is_active').notNull().default(true),
   sortOrder: integer('sort_order').notNull().default(0),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -51,6 +56,8 @@ export const modelBackgrounds = pgTable(
     // Only set when scope='user' — the owning user. ON DELETE CASCADE so a deleted user's
     // private backgrounds are cleaned up automatically.
     userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    // See modelFaces.publicApiSlug.
+    publicApiSlug: text('public_api_slug'),
     isActive: boolean('is_active').notNull().default(true),
     isWhiteBg: boolean('is_white_bg').notNull().default(false),
     sortOrder: integer('sort_order').notNull().default(0),
@@ -85,6 +92,10 @@ export const garmentSubcategories = pgTable('garment_subcategories', {
   id: uuid('id').primaryKey().defaultRandom(),
   genderSlug: text('gender_slug').notNull(),
   slug: text('slug').notNull(),
+  // Deliberately NOT the `slug` above: that one is internal, non-unique (per-gender),
+  // and Studio-facing, so an internal rename would silently break a third-party
+  // integration. See modelFaces.publicApiSlug.
+  publicApiSlug: text('public_api_slug'),
   label: text('label').notNull(),
   thumbnailKey: text('thumbnail_key'),
   instructionImageKey: text('instruction_image_key'),
@@ -233,6 +244,8 @@ export const modelPoseAssets = pgTable('model_pose_assets', {
   // 'template' = uploaded from within a catalogue template's looks builder, hidden from
   // both (managed only via the template that owns it).
   scope: text('scope').notNull().default('general'),
+  // See modelFaces.publicApiSlug.
+  publicApiSlug: text('public_api_slug'),
   isActive: boolean('is_active').notNull().default(true),
   sortOrder: integer('sort_order').notNull().default(0),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),

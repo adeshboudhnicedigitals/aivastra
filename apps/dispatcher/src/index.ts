@@ -22,6 +22,7 @@ import { makeStorage } from './lib/storage.js';
 import { runConsumer } from './stream/consumer.js';
 import { recoverPendingJobs } from './stream/recovery.js';
 import { runSweeper } from './stream/sweeper.js';
+import { runVideoConsumer } from './stream/video-consumer.js';
 import { runWebhooksConsumer } from './stream/webhooks.js';
 import { startHealthMonitor } from './worker/health-monitor.js';
 import { registerWorkers } from './worker/registry.js';
@@ -52,6 +53,12 @@ async function main(): Promise<void> {
       );
       process.exit(1);
     }
+  }
+
+  if (!env.PIXVERSE_API_KEY) {
+    log.warn(
+      'PIXVERSE_API_KEY is not set — catalog-video jobs will fail fast with PIXVERSE_NOT_CONFIGURED',
+    );
   }
 
   const { db, close: closeDb } = makeDb(env);
@@ -120,6 +127,11 @@ async function main(): Promise<void> {
   // Start subsystems
   const stopHealthMonitor = startHealthMonitor(redis, log);
   const stopConsumer = await runConsumer(redis, processorCfg, log);
+  // Separate lane: PixVerse video jobs need no GPU worker, so they must not be
+  // gated by the GPU consumer's registry-derived in-flight cap.
+  const stopVideoConsumer = await runVideoConsumer(redis, processorCfg, log, {
+    concurrency: env.VIDEO_CONCURRENCY,
+  });
   const stopWebhooks = await runWebhooksConsumer(db, redis, log);
   const stopHealthServer = startHealthServer(env.DISPATCHER_HEALTH_PORT, log);
 
@@ -146,6 +158,7 @@ async function main(): Promise<void> {
     clearInterval(recoveryInterval);
     clearInterval(sareeStep2Interval);
     stopConsumer();
+    stopVideoConsumer();
     stopWebhooks();
     stopHealthMonitor();
     stopHealthServer();

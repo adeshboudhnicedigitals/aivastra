@@ -12,6 +12,7 @@ import {
   PresignModelBackgroundBody,
   PresignModelFaceBody,
   PresignSampleVideoBody,
+  PublicApiSlugField,
 } from '@aivastra/types';
 import AdmZip from 'adm-zip';
 import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
@@ -532,6 +533,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           poseVariant: schema.modelPoseAssets.poseVariant,
           shotType: schema.modelPoseAssets.shotType,
           displayName: schema.modelPoseAssets.displayName,
+          publicApiSlug: schema.modelPoseAssets.publicApiSlug,
           isActive: schema.modelPoseAssets.isActive,
           sortOrder: schema.modelPoseAssets.sortOrder,
           createdAt: schema.modelPoseAssets.createdAt,
@@ -681,6 +683,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           promptFacePhase: z.string().nullable().optional(),
           isActive: z.boolean().optional(),
           sortOrder: z.number().int().optional(),
+          publicApiSlug: PublicApiSlugField,
         }),
       },
     },
@@ -697,6 +700,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         promptFacePhase?: string | null;
         isActive?: boolean;
         sortOrder?: number;
+        publicApiSlug?: string | null;
       };
 
       const set: Record<string, unknown> = {};
@@ -711,6 +715,8 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       if (body.promptFacePhase !== undefined) set.promptFacePhase = body.promptFacePhase || null;
       if (body.isActive !== undefined) set.isActive = body.isActive;
       if (body.sortOrder !== undefined) set.sortOrder = body.sortOrder;
+      // Already normalized ('' -> null) by PublicApiSlugField.
+      if (body.publicApiSlug !== undefined) set.publicApiSlug = body.publicApiSlug;
 
       const [updated] = await app.db
         .update(schema.modelPoseAssets)

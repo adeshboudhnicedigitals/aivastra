@@ -8,7 +8,7 @@ Compact guidance for OpenCode sessions in this repo.
 - **Runtime:** Node 20+, TypeScript 5.6, ESM only (`"type": "module`)
 - **API:** Fastify 5 + `fastify-type-provider-zod` + ioredis + Drizzle ORM
 - **DB:** PostgreSQL 16, migrations in `packages/db/src/migrations`
-- **Cache/Queue:** Redis 7 Streams (`jobs:priority`, `jobs:normal`)
+- **Cache/Queue:** Redis 7 Streams (`jobs:priority`, `jobs:normal`, `jobs:low`, `jobs:video`)
 - **Storage:** S3-compatible (Cloudflare R2), local stub = MinIO
 - **Tests:** Vitest + testcontainers-free harness (see below)
 

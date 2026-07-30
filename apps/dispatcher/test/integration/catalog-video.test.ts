@@ -170,4 +170,36 @@ describe('catalog video job (PixVerse)', () => {
       .where(eq(schema.userCredits.userId, userId));
     expect(bal.balance).toBe(20);
   });
+
+  it('fails fast with PIXVERSE_NOT_CONFIGURED when the API key is missing', async () => {
+    const { jobId, userId } = await seedVideoJob();
+    const log = createLogger('test');
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const prevKey = process.env.PIXVERSE_API_KEY;
+    process.env.PIXVERSE_API_KEY = '';
+    try {
+      await processJob(
+        { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+        jobId,
+        userId,
+        'jobs:video',
+        '1-0',
+      );
+    } finally {
+      process.env.PIXVERSE_API_KEY = prevKey;
+    }
+
+    const [updated] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+    expect(updated.status).toBe('FAILED');
+    expect(updated.errorCode).toBe('PIXVERSE_NOT_CONFIGURED');
+    // Terminal on the first pass — no retry attempt is burned against PixVerse.
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    const [bal] = await env.db
+      .select()
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, userId));
+    expect(bal.balance).toBe(20);
+  });
 });

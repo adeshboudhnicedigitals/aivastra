@@ -3,6 +3,7 @@ import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import {
   DevCategoriesResponse,
+  DevErrorResponse,
   DevJobParams,
   DevJobResponse,
   DevMeResponse,
@@ -49,7 +50,7 @@ export async function devRoutes(app: FastifyInstance) {
       schema: {
         tags: ['dev'],
         summary: 'List try-on categories',
-        response: { 200: DevCategoriesResponse },
+        response: { 200: DevCategoriesResponse, 401: DevErrorResponse, 429: DevErrorResponse },
       },
     },
     async () => {
@@ -67,7 +68,16 @@ export async function devRoutes(app: FastifyInstance) {
     {
       preHandler: app.requireApiKey,
       config: rateLimitConfig,
-      schema: { tags: ['dev'], summary: 'Get account info', response: { 200: DevMeResponse } },
+      schema: {
+        tags: ['dev'],
+        summary: 'Get account info',
+        response: {
+          200: DevMeResponse,
+          401: DevErrorResponse,
+          404: DevErrorResponse,
+          429: DevErrorResponse,
+        },
+      },
     },
     async (req) => {
       const [row] = await app.db
@@ -115,7 +125,15 @@ export async function devRoutes(app: FastifyInstance) {
           'Returns a job id to poll.',
         consumes: ['multipart/form-data', 'application/json'],
         body: DevTryonJsonBody,
-        response: { 202: DevTryonResponse },
+        response: {
+          202: DevTryonResponse,
+          400: DevErrorResponse,
+          401: DevErrorResponse,
+          402: DevErrorResponse,
+          403: DevErrorResponse,
+          429: DevErrorResponse,
+          503: DevErrorResponse,
+        },
       },
     },
     async (req, reply) => {
@@ -253,7 +271,15 @@ export async function devRoutes(app: FastifyInstance) {
           'Returns a job id to poll.',
         consumes: ['multipart/form-data', 'application/json'],
         body: DevSareeMannequinJsonBody,
-        response: { 202: DevTryonResponse },
+        response: {
+          202: DevTryonResponse,
+          400: DevErrorResponse,
+          401: DevErrorResponse,
+          402: DevErrorResponse,
+          403: DevErrorResponse,
+          429: DevErrorResponse,
+          503: DevErrorResponse,
+        },
       },
     },
     async (req, reply) => {
@@ -346,7 +372,12 @@ export async function devRoutes(app: FastifyInstance) {
         tags: ['dev'],
         summary: 'Get try-on job status and result',
         params: DevJobParams,
-        response: { 200: DevJobResponse },
+        response: {
+          200: DevJobResponse,
+          401: DevErrorResponse,
+          404: DevErrorResponse,
+          429: DevErrorResponse,
+        },
       },
     },
     async (req) => {

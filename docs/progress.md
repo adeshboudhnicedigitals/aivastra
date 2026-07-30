@@ -9,6 +9,118 @@
 
 ### Open Questions / Decisions
 - None.
+## 2026-07-30 - Bulk backfill for public_api_slug + admin panel button
+
+### Done
+- Root cause of the empty prod `/v1/dev/catalog/options` (confirmed via read-only VPS queries):
+  not a bug. `public_api_slug` was deliberately shipped with no backfill — every asset starts
+  unpublished, admin opts each one in. Prod has hundreds of active, well-curated assets per
+  gender; none had ever been opted in.
+- Added `POST /admin/dev-api/catalog/backfill-slugs` (`apps/api/src/modules/admin/dev-api.routes.ts`) —
+  a one-time bulk opt-in. For each of the 5 asset tables, selects active rows (matching
+  `buildCatalogOptions()`'s own WHERE clauses exactly — same scope/deleted-at/is-active filters, so
+  it never publishes a row that query could never surface anyway) with `public_api_slug IS NULL`,
+  assigns each a slug derived from its label, and bumps the options cache. Safe to re-run: every
+  clause excludes already-slugged rows, so a second run is a no-op.
+- New `apps/api/src/lib/slugify.ts`: `slugify()` (NFKD-normalize, strip diacritics, hyphenate) +
+  `makeUniqueSlug()`, which widens a candidate (bare label -> + gender/type discriminator -> + a
+  short id suffix) until it clears a per-table `usedSlugs` set. Needed because raw labels collide
+  constantly against the partial-unique index (same pose label across genders, lower vs shoe items
+  sharing a name) and at least one real prod row's label is itself a UUID.
+- Admin-web: "Public Catalog" card in `DevApiPage.tsx` with a confirm-gated "Backfill public
+  slugs" button (surfaces per-table counts in the success toast) and a "Rebuild cache" button —
+  the rebuild-cache API route existed from the original feature but had no UI trigger until now.
+- Tests: `apps/api/test/slugify.test.ts` (11, pure-function), 4 new cases in
+  `apps/api/test/admin-dev-api.test.ts` covering: publishes eligible rows, skips inactive/wrong-scope/
+  already-published rows, same-label-same-gender collision resolves without colliding (poses),
+  same-label-different-type collision resolves (catalog items), cache version bumps, and re-running
+  is a no-op. Full API suite: 322 passed (41 files, up from 302/40 — 11 slugify + 4 backfill, plus 5
+  more from unrelated in-flight funnel work now green). `pnpm lint` 0 errors. `@aivastra/api` and
+  `@aivastra/admin` build and typecheck clean.
+
+### Failed / Not Done
+- Not run against prod. This was built and verified against local dev infra only; running the
+  actual backfill on the VPS is a separate, explicit decision for whoever has admin access there —
+  per the standing rule, no ad-hoc writes were made to the production DB.
+- Not committed or pushed — this session's branch (`feat/dev-api-catalog-generation`) already has an
+  unrelated in-progress Shopify funnel WIP mixed into the working tree; committing needs to stay
+  scoped to only the backfill files.
+
+### Open Questions / Decisions
+- Slug uniqueness is enforced per-table, not globally — the same slug string can exist as e.g. both
+  a face slug and a garment-type slug with no DB conflict, since each is a separate partial unique
+  index and callers look each one up in its own field. Confirmed this is fine: `resolveCatalogSelection`
+  resolves face/pose/background/lower/shoe/garmentType each against their own array, never a shared
+  namespace.
+- Auto-generated slugs from garbage labels (e.g. the UUID-named catalog item seen on prod) will be
+  ugly but valid. No attempt was made to make them pretty — an admin can still rename any of them
+  through the existing per-asset editors after the fact; renaming is a real action for third-party
+  callers (breaks anyone who hard-coded the old slug), so it's deliberately not automated.
+
+
+- Exercised all three new routes against the running `aivastra-api` container with a real API key (merchant `scvx`), not just the test harness. Confirmed: `options` returns 200 with a weak `ETag` and `304` on `If-None-Match`; 401 without a key; 400 on an unknown `gender`; `generate` returns 202 with N jobIds under one `catalogueId`; `catalogues/:id` returns batch status and 404s for an id the caller does not own; all three routes present in `/v1/dev/openapi.json`.
+- Confirmed the credit path end-to-end on real jobs: 7160 -> 7090 for two HD looks (35 each), then +35 refunded when one job failed. The transactional deduct/refund invariant holds against live data, and `BAD_SLUG` rejects before any credit or R2 write.
+- Confirmed the `source`/`apiKeyId` fix in `createJob` on a live job: a catalog-generated job resolves through `GET /v1/dev/jobs/:id` (it would have 404'd before).
+- Verified `apps/dispatcher/src/stream/sweeper.ts` as the backstop: a job the dispatcher never processed sat `QUEUED`, then the sweeper caught it past the 10-minute SLA, marked it `STUCK_IN_QUEUE` and refunded. No job stranded and no credit leaked across ~6 test jobs.
+
+### Failed / Not Done
+- **Could not observe a `COMPLETED` render.** The local `aivastra-dispatcher` container fails *every* job at consume time with `PostgresError: column "widget_client_id" does not exist` (code 42703). Its bundled `packages/db/src/schema/jobs.ts` still declares `widgetClientId`, which migration `0096_drop_widget_embed_columns.sql` removed as part of the widget -> shopify rename in `0095`. The image predates that rename and was never rebuilt. This breaks all job processing on this box, is unrelated to this branch, and needs `docker compose build dispatcher && docker compose up -d dispatcher`. The same stale schema also makes the sweeper's own query fail on some paths ("failed to sweep stuck jobs").
+- The one job that did reach a GPU worker failed inside ComfyUI (`LoadImage (node 686): Invalid argument returned 22`) because the first fixture was a 1x1 PNG. Re-running with a real 384x512 JPEG got past that; the dispatcher bug above then blocked it.
+
+### Open Questions / Decisions
+- **`gender` is required on `/generate`, and `garmentType` narrows lower/shoe to that type's `catalog_item_subcategories` mapping.** Passing a `garmentType` whose mapping does not include the chosen lower/shoe yields `BAD_SLUG` — correct behaviour, but easy to misread as a bug. Third-party integrators will hit this; the endpoint description should probably say so explicitly.
+- Local dev data has real gaps that are content, not code: `model_pose_assets` had rows for `women` only (zero for men/boys/girls), and `catalog_items` likewise. Poses are required by `/generate`, so those genders could not generate at all. Worked around for testing by cloning two women poses and one lower/shoe into each gender (labels prefixed `test-clone-`) and publishing one existing face + garment type per gender. Backgrounds needed nothing — they are gender-agnostic (`gender_slug IS NULL` matches every gender). Undo script: `scratchpad/undo-catalog-test-seed.sql`. Real per-gender poses still need curating before this API is useful to anyone outside `women`.
+- Publishing assets by direct SQL does not fire the `/admin/*` invalidation hook, so the options cache must be bumped manually (`INCR catalog:options:<ns>:ver`). Same caveat already noted for `scripts/seed-catalog.ts`.
+
+## 2026-07-29 - Public developer API: catalog generation from admin-curated assets
+
+### Done
+- Extended the public developer API (`/v1/dev/*`, API-key authed, already OpenAPI'd at `/v1/dev/openapi.json`) with catalog generation off admin-curated assets, on branch `feat/dev-api-catalog-generation`. Three new routes, all live in the Scalar spec: `GET /v1/dev/catalog/options` (asset discovery), `POST /v1/dev/catalog/generate` (garment + slug selection -> N jobs under one `catalogueId`), `GET /v1/dev/catalogues/:id` (batch status). Previously the only generation route was `/v1/dev/tryon`, where the caller supplies both person and garment images and no admin asset is reachable.
+- Assets are addressed by **public slug**, never internal UUID. Migration `0130_dev_public_catalog_slugs.sql` adds a nullable `public_api_slug` to `model_faces`, `model_backgrounds`, `model_pose_assets`, `catalog_items` and `garment_subcategories`, each with a partial unique index (`WHERE public_api_slug IS NOT NULL`). The one column carries **both** the curation flag and the public identifier — NULL means "not reachable from /v1/dev/*" — so there is no separate boolean to drift out of sync with the name. No backfill: every asset starts unexposed and an admin opts each one in. Rationale for slugs over UUIDs: a slug survives an admin deleting and recreating a row, which a UUID does not, and third-party integrations hard-code these values for months.
+- Extracted the Shopify options query body into a shared `buildCatalogOptions(app, { gender, garmentTypeId, publicOnly })` (`apps/api/src/modules/catalog-options/build.ts`), moved verbatim so the `pose_garment_configs` overlay (per-garment-type `hasLower`/`hasShoes` and per-type `isActive` suppression) has exactly one implementation. `publicOnly` is the only behavioural difference between the two surfaces.
+- Added a Redis cache in front of it (`apps/api/src/lib/catalog-options-cache.ts`), following the existing `config:system` pattern from `lib/resolution-config.ts`. Version-counter invalidation (`INCR`) rather than key deletion, 1h TTL as a self-heal, and a fall-through to a direct DB build on any Redis failure so a cache outage degrades throughput, not availability. The cache generation doubles as a weak `ETag`, with `304` on `If-None-Match`.
+- Invalidation is a **single** `onResponse` hook (`apps/api/src/plugins/catalog-cache-invalidation.ts`) keyed on 2xx + mutating method + `/admin/assets` or `/admin/catalog` prefix. `admin/models.routes.ts` alone has 28 mutating routes; per-route bumps would guarantee route #29 silently ships without one. Audited every writer of the five tables — the only non-admin path is `/v1/backgrounds/mine/:id`, which writes `scope: 'user'` rows the builder filters out, so the prefix list is complete. `POST /admin/dev-api/catalog/rebuild-cache` added as a manual escape hatch.
+- Cache keys are namespaced by a hash of `app.env.DATABASE_URL`. The API test harness points every test file at `redis://127.0.0.1:6379/15` while giving each its own Postgres database (`test/helpers/containers.ts` already flagged this cross-file race), and the same hazard exists for any two deployments on different databases sharing a Redis.
+- Fixed a latent blocker in `createJob` (`apps/api/src/modules/jobs/create.ts`): it hardcoded `source: 'catalog'` and never set `apiKeyId`. `/v1/dev/jobs/:id` filters `source = 'api'` and joins `api_keys` on `jobs.apiKeyId`, so without this every catalog-generated job would 404 on its own status endpoint. Both are now optional `opts` fields defaulting to the previous behaviour, so no existing caller changes.
+- Mapped Postgres `23505` (unique_violation) to a `409 CONFLICT` naming the constraint in the global error handler, instead of a bare 500 — the concrete case is two assets given the same `public_api_slug`.
+- Admin surface: `publicApiSlug` accepted on the face/background/pose/catalog-item/garment-type patch bodies (shared `PublicApiSlugField` zod in `packages/types/src/admin.ts`, which normalizes `''` -> `null` so a cleared form field withdraws the asset), returned by the corresponding list routes, and exposed in `apps/admin-web` via a shared `PublicApiSlugField` component wired into all five editors.
+- Verification: new `apps/api/test/dev-catalog.test.ts` (13 tests) covering public-only filtering, non-leakage of internal UUIDs, cache-serving, generation bump, `304`, `BAD_SLUG` with no credit movement, gender-scoped slug resolution, the 12-look cap, `source`/`apiKeyId` tagging, per-job readability, batch status, and cross-merchant 404. Full API suite `302 passed (39 files)`. `pnpm lint` 0 errors. Builds clean for api/admin-web/types/db. Confirmed the three routes render in `/v1/dev/openapi.json`.
+
+### Failed / Not Done
+- Deferred, as agreed during design: a dispatcher-written Redis job-status mirror (would take polling off the DB budget entirely) and a merchant-configurable job-completion webhook (none exists today — `merchant/payments.routes.ts` is Razorpay-only). The batch status route was shipped instead as the cheap ~12x cut; the other two are only worth building once real traffic justifies them.
+- `pnpm typecheck` fails in `apps/admin-mobile` on three pre-existing `TS7031` errors in `src/app/(tabs)/_layout.tsx`, untouched by this work and out of scope per CLAUDE.md's "Admin Mobile Paused". Every in-scope package passes.
+- Nothing committed or pushed — awaiting review.
+
+### Open Questions / Decisions
+- Extracting the shared options builder puts the **Shopify** options route behind the same cache. That is intended (it currently refetches on every gender/garment-type change — `CatalogGeneratePage.tsx:226`), but it means a broken invalidation hook would now surface in the Shopify app too. Covered by a test; worth a manual regression pass on the Shopify catalog generate page before merge.
+- Offline writers (`scripts/seed-catalog.ts`, direct psql) do not invalidate and will serve stale options for up to the 1h TTL. Acceptable for now; the manual rebuild endpoint covers it. Revisit if seeding becomes routine.
+- No admin UI yet lists which assets are currently published to the public API — an admin has to open each editor to check. A filter or badge on the asset tabs would be the natural follow-up.
+
+## 2026-07-30 — Catalog video: dedicated `jobs:video` lane (decoupled from GPU capacity)
+
+### Done
+- **Root cause found:** catalog-video jobs are generated by PixVerse over HTTP and never touch ComfyUI or claim a GPU worker, but they were enqueued onto the shared `jobs:{priority|normal|low}` streams. The dispatcher consumer gates *every* stream read on `inFlight < concurrency`, where `concurrency = (await getWorkers(redis)).size` (registered GPU workers). With zero workers registered, `waitForSlot()` blocks forever and the message is **never even read** — the job sits `QUEUED` until `sweeper.ts` fails it with `STUCK_IN_QUEUE` after 10 min and refunds. With N workers, a video job instead burns one of N global in-flight slots for up to ~5 min while the GPU idles.
+- **Fix — separate lane:**
+  - `apps/dispatcher/src/stream/loop.ts` (new): extracted `runStreamLoop` (shared read→dispatch loop, in-flight accounting, crash-resume) plus `parseMessage`/`DISPATCHER_GROUP`. The GPU read ladder (priority → normal → low) was deliberately *not* touched — it has no test coverage.
+  - `apps/dispatcher/src/stream/consumer.ts`: rewired to `runStreamLoop` with registry-derived concurrency. Behaviour identical.
+  - `apps/dispatcher/src/stream/video-consumer.ts` (new): `runVideoConsumer` reads `jobs:video` with a fixed `VIDEO_CONCURRENCY` cap. Uses `redis.duplicate()` (the shared `main` connection already carries two blocking `XREADGROUP` loops). Group created at **`'0'` not `'$'`** so jobs the API enqueues before the dispatcher boots aren't silently skipped.
+  - `apps/api/src/modules/jobs/create.ts`: `createCatalogVideoJob` now XADDs to `jobs:video`, stamps `queueStream: 'video'` / `priority: false`, drops the dead `creditPlans` join. The column value matters — `admin/jobs.routes.ts:299` derives the retry stream from it, so admin retry lands back in the video lane.
+  - `recovery.ts` `DEFAULT_STREAMS` and `health-monitor.ts` `JOB_STREAMS` gained `jobs:video` (recovery appends it **last**: that loop awaits each `processJob` serially and a video job runs for minutes).
+- **Hardening:**
+  - `processVideoJob` fails fast with `PIXVERSE_NOT_CONFIGURED` when the key is unset, instead of sending `''`, taking a 401, and burning both retry attempts (~5 min) before refunding. Boot logs a warning too. Zod field stays optional so non-video deploys still start.
+  - `sweeper.ts`: video jobs get a 30-min QUEUED SLA vs the standard 10. At `VIDEO_CONCURRENCY=5` and ~3-5 min/job, a burst of ≥16 legitimately queues past 10 min and would otherwise be failed + refunded mid-flight. The non-video branch uses `coalesce(source,'') <> 'catalog_video'` because `jobs.source` is nullable — a bare `<>` is NULL on legacy rows and would silently stop sweeping them.
+  - `catalog-video/page.tsx`: `statusLabel()` collapses PREPROCESSING/GENERATING/UPLOADING into "Generating" instead of showing raw pipeline statuses.
+- **Tests:** new `video-lane.test.ts` (zero-GPU-workers regression — the test that would have caught this; concurrency cap; retry stays in-lane; pre-existing-message delivery guarding the `'0'` start-id) and `sweeper-video-sla.test.ts` (per-source SLA incl. the nullable-`source` branch). Added a `PIXVERSE_NOT_CONFIGURED` case to `catalog-video.test.ts`, `PIXVERSE_API_KEY` to `vitest.integration.config.ts`, and `jobs:video` assertions to `catalog-video-create.test.ts`.
+- **Verified:** `pnpm typecheck` clean (incl. dispatcher `tsc --noEmit`); `pnpm lint` 0 errors (the 3 it reported were mine, now fixed); API suite 289/289 across 39 files; dispatcher integration 35/38 with all 9 video/sweeper/catalog-video tests green.
+
+### Failed / Not Done
+- `happy-path.test.ts`, `recovery.test.ts`, `retry.test.ts` fail with `null value in column "type" of relation "catalog_items" violates not-null constraint`. **Pre-existing and unrelated** — `catalog_items.type` became `NOT NULL` in `20877960` (2026-05-28) and those fixtures' `mkItem` helper never passed `type`; the files were last touched 2026-07-03 (format-only) and are not in this diff. Not fixed here to keep the change scoped.
+- Manual end-to-end against real PixVerse not run (needs a live `PIXVERSE_API_KEY`). See below.
+
+### Open Questions / Decisions
+- `VIDEO_CONCURRENCY=5` chosen to match the PixVerse **starter** plan's 5 concurrent generations. Revisit on plan upgrade; requires a dispatcher restart (no live refresh, unlike GPU concurrency).
+- Deliberately did **not** write a drain script for video jobs already QUEUED on `jobs:normal`. Double delivery is unsafe: the second `processJob` sees `status !== 'QUEUED'`, takes the `IN_PROGRESS` branch and calls `handleFailure('DISPATCHER_CRASH')`, clobbering a running job. The `processJob` video routing branch is retained so legacy messages still process; deploy during a quiet window.
+- Rollback order matters: revert the **API first**. API-only rollback is safe; dispatcher-only rollback is not — `jobs:video` would accumulate unread and every video job would be swept + refunded.
 
 ## 2026-07-29 — Virtual TryOn: Refactored Upload Person dropzone & enhanced Download/Share buttons
 

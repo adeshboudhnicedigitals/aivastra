@@ -4,6 +4,7 @@ import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data'
 import { makeThumbnail } from '../lib/thumbnail';
 import type { GenderSlug, ModelPoseAsset, WorkflowOption } from '../types';
 import { Icon } from './Icons';
+import { PublicApiSlugField } from './PublicApiSlugField';
 import { SearchableSelect } from './SearchableSelect';
 
 async function putFile(url: string, file: Blob): Promise<void> {
@@ -179,6 +180,7 @@ export function EditPoseAssetModal({ asset, workflows, onSaved, onClose, toast }
       '',
   );
   const [sortOrder, setSortOrder] = useState(asset.sortOrder ?? 0);
+  const [publicApiSlug, setPublicApiSlug] = useState(asset.publicApiSlug ?? '');
   const [poseFile, setPoseFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -191,6 +193,7 @@ export function EditPoseAssetModal({ asset, workflows, onSaved, onClose, toast }
         workflowTemplateId: workflowTemplateId || null,
         promptGarmentPhase: prompt.trim() || null,
         sortOrder,
+        publicApiSlug,
       };
 
       if (poseFile) {
@@ -309,6 +312,13 @@ export function EditPoseAssetModal({ asset, workflows, onSaved, onClose, toast }
               style={{ width: 120 }}
             />
           </div>
+
+          <PublicApiSlugField
+            value={publicApiSlug}
+            disabled={saving}
+            kind="pose"
+            onChange={setPublicApiSlug}
+          />
 
           <div className="field">
             <label>Category</label>

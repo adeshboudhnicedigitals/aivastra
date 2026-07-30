@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import type { CatalogCategory, CategoryTag, ModelBackground } from '../types';
 import { Icon } from './Icons';
+import { PublicApiSlugField } from './PublicApiSlugField';
 import { SearchableSelect } from './SearchableSelect';
 
 const SPECIAL_TAG_OPTIONS: { value: CategoryTag; label: string }[] = [
@@ -34,6 +35,7 @@ export function EditBackgroundModal({
     categoryId: background.categoryId,
     tagsInput: (background.tags ?? []).join(', '),
     specialTag: background.specialTag ?? ('' as CategoryTag | ''),
+    publicApiSlug: background.publicApiSlug ?? '',
   });
   const [saving, setSaving] = useState(false);
   const [replaceFile, setReplaceFile] = useState<File | null>(null);
@@ -55,6 +57,7 @@ export function EditBackgroundModal({
         categoryId: form.categoryId,
         tags,
         specialTag: form.specialTag || null,
+        publicApiSlug: form.publicApiSlug,
       };
       await apiFetch(`/admin/assets/backgrounds/${background.id}`, {
         method: 'PATCH',
@@ -180,6 +183,12 @@ export function EditBackgroundModal({
                 onChange={(e) => setForm((f) => ({ ...f, sortOrder: Number(e.target.value) }))}
               />
             </div>
+            <PublicApiSlugField
+              value={form.publicApiSlug}
+              disabled={saving}
+              kind="backdrop"
+              onChange={(v) => setForm((f) => ({ ...f, publicApiSlug: v }))}
+            />
             <div className="field">
               <label>Gender</label>
               <select
