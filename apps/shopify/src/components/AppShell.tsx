@@ -1,21 +1,11 @@
 import type { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { BRAND, FONT_STACK } from '../theme';
-import {
-  CatalogGenerateIcon,
-  ChevronDownIcon,
-  DashboardIcon,
-  FunnelIcon,
-  GeneratedImagesIcon,
-  ProductsIcon,
-} from './icons';
+import { ChevronDownIcon, DashboardIcon, ProductsIcon } from './icons';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: DashboardIcon },
   { to: '/products', label: 'Products', icon: ProductsIcon },
-  { to: '/funnel-setup', label: 'Funnel Setup', icon: FunnelIcon },
-  { to: '/catalog-generate', label: 'Catalog Generate', icon: CatalogGenerateIcon },
-  { to: '/generated-images', label: 'Generated Images', icon: GeneratedImagesIcon },
 ];
 
 export function AppShell({ children, shopDomain }: { children: ReactNode; shopDomain: string }) {
