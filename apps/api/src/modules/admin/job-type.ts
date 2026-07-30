@@ -1,6 +1,6 @@
 import { schema } from '@aivastra/db';
-import { sql } from 'drizzle-orm';
 import { JOB_SOURCE } from '@aivastra/types';
+import { sql } from 'drizzle-orm';
 
 // jobs.source is set by every job-creation path (see packages/db/src/schema/jobs.ts).
 // Only rows predating that column (or a since-fixed gap in it) have source IS NULL —

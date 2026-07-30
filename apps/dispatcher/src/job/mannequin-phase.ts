@@ -3,6 +3,7 @@ import { type DB, schema } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
 import { comfyRequestDuration } from '@aivastra/observability';
 import { keys } from '@aivastra/storage';
+import { WORKER_POOL } from '@aivastra/types';
 import type { S3Client } from '@aws-sdk/client-s3';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { eq } from 'drizzle-orm';
@@ -16,7 +17,6 @@ import {
 import { waitForCompletion } from '../comfyui/progress.js';
 import { setWorkerStatus } from '../worker/registry.js';
 import { selectWorker } from '../worker/selector.js';
-import { WORKER_POOL } from '@aivastra/types';
 
 export interface MannequinPhaseConfig {
   db: DB;

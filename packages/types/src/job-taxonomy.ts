@@ -18,9 +18,7 @@ export const JOB_SOURCE = {
   API_CATALOG: 'api_catalog',
 } as const;
 export type JobSource = (typeof JOB_SOURCE)[keyof typeof JOB_SOURCE];
-export const jobSourceSchema = z.enum(
-  Object.values(JOB_SOURCE) as [JobSource, ...JobSource[]],
-);
+export const jobSourceSchema = z.enum(Object.values(JOB_SOURCE) as [JobSource, ...JobSource[]]);
 
 // Not part of JobSource — deliberately excluded from jobSourceSchema and every
 // exhaustiveness check over JOB_SOURCE, so a switch/map keyed by JobSource can't
@@ -49,6 +47,4 @@ export const WORKER_POOL = {
   MERCHANT: 'merchant',
 } as const;
 export type WorkerPool = (typeof WORKER_POOL)[keyof typeof WORKER_POOL];
-export const workerPoolSchema = z.enum(
-  Object.values(WORKER_POOL) as [WorkerPool, ...WorkerPool[]],
-);
+export const workerPoolSchema = z.enum(Object.values(WORKER_POOL) as [WorkerPool, ...WorkerPool[]]);

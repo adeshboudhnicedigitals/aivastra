@@ -10,12 +10,13 @@ import {
   DevSareeMannequinJsonBody,
   DevTryonJsonBody,
   DevTryonResponse,
+  JOB_SOURCE,
+  LEGACY_JOB_SOURCE,
 } from '@aivastra/types';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
-import { JOB_SOURCE, LEGACY_JOB_SOURCE } from '@aivastra/types';
 import { createDevTryonJob } from './create-job.js';
 import { createDevSareeMannequinJob } from './create-saree-mannequin-job.js';
 import { sniffImageMime } from './image-sniff.js';
