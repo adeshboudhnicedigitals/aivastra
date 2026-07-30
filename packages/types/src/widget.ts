@@ -1,5 +1,21 @@
 import { z } from 'zod';
 
+export const MerchantStatusSchema = z.enum(['ONBOARDING_REQUIRED', 'PENDING_ACTIVATION', 'ACTIVE']);
+export type MerchantStatusSchema = z.infer<typeof MerchantStatusSchema>;
+
+// Phone is the only mandatory field: contactName falls back to the Google
+// display name, companyName to contactName, businessAddress to 'Not Provided'.
+export const MerchantOnboardingBody = z.object({
+  phone: z
+    .string()
+    .trim()
+    .regex(/^\+?[0-9]{10,15}$/, 'Enter a valid mobile number'),
+  contactName: z.string().max(120).optional(),
+  companyName: z.string().max(200).optional(),
+  businessAddress: z.string().max(500).optional(),
+});
+export type MerchantOnboardingBody = z.infer<typeof MerchantOnboardingBody>;
+
 /**
  * Authoritative merchant plan billing data — the single source of truth for
  * money. The API computes order amounts from THIS, never from client input.

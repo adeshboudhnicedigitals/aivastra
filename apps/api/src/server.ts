@@ -61,6 +61,7 @@ import { merchantApiKeysRoutes } from './modules/merchant/api-keys.routes.js';
 import { merchantCatalogRoutes } from './modules/merchant/catalog.routes.js';
 import { merchantKioskDevicesRoutes } from './modules/merchant/kiosk-devices.routes.js';
 import { merchantMeRoutes } from './modules/merchant/me.routes.js';
+import { merchantOnboardingRoutes } from './modules/merchant/onboarding.routes.js';
 import { merchantPaymentsRoutes } from './modules/merchant/payments.routes.js';
 import { merchantTryonRoutes } from './modules/merchant/tryon.routes.js';
 import { merchantTryonResultsRoutes } from './modules/merchant/tryon-results.routes.js';
@@ -291,6 +292,7 @@ export async function buildServer(env: Env) {
   await app.register(kioskJobsRoutes);
   await app.register(kioskResultsRoutes);
   await app.register(merchantCatalogRoutes);
+  await app.register(merchantOnboardingRoutes);
   await app.register(merchantKioskDevicesRoutes);
   await app.register(merchantTryonRoutes);
   await app.register(merchantMeRoutes);

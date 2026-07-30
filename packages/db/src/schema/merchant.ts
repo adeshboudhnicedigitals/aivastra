@@ -29,6 +29,11 @@ export const merchants = pgTable('merchants', {
   // Aivastra default. Null means "no merchant logo, app uses its own default" --
   // see /v1/auth/device-login's logoUrl field in apps/api/src/modules/auth/routes.ts.
   logoKey: text('logo_key'),
+  // 'admin'          -- created through POST /admin/merchants (an admin IS the approval)
+  // 'android_google' -- self-serve Google signup from the Android app via
+  //                    POST /v1/merchant/onboarding. Try-ons are free, so these
+  //                    accounts are the ones to watch for GPU abuse.
+  signupSource: text('signup_source').notNull().default('admin'),
   // Login credentials live on `users` — a merchant IS a user with a merchants
   // profile attached (same pattern as admin_users). One merchant account per user.
   userId: uuid('user_id')
