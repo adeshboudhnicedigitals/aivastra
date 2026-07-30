@@ -1,5 +1,6 @@
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
+import { JOB_SOURCE } from '@aivastra/types';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { signAccess } from '../src/modules/auth/service.js';
 import { buildTestApp, type TestApp } from './helpers/api.js';
@@ -178,7 +179,7 @@ describe('GET /v1/merchant/api-usage', () => {
       .values({
         apiKeyId: created.id,
         status: 'COMPLETED',
-        source: 'api',
+        source: JOB_SOURCE.API_TRYON,
         creditsCharged: 3,
       })
       .returning();
@@ -207,14 +208,14 @@ describe('GET /v1/merchant/api-usage', () => {
     await app.db.insert(schema.jobs).values({
       apiKeyId: otherKey.id,
       status: 'COMPLETED',
-      source: 'api',
+      source: JOB_SOURCE.API_TRYON,
       creditsCharged: 1,
     });
 
     // Same merchant/key as the "usage-test" job above, but created via the
     // catalog flow rather than the dev API — must be excluded by the
-    // route's `eq(schema.jobs.source, 'api')` filter, not just the
-    // merchantId scoping exercised above.
+    // route's dev-API-source `inArray` filter, not just the merchantId
+    // scoping exercised above.
     const own = await (
       await call('/v1/merchant/api-keys', {
         method: 'POST',

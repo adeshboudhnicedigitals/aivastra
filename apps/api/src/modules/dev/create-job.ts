@@ -6,6 +6,7 @@ import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
+import { JOB_SOURCE, type JobSource } from '@aivastra/types';
 import { atomicDeduct, refund } from '../credits/ledger.js';
 
 /**
@@ -21,6 +22,7 @@ export async function createDevJobCore(
     cost: number;
     watermark: boolean;
     metricKind: string;
+    source: JobSource;
     buildJobInputs: () => Omit<typeof schema.jobInputs.$inferInsert, 'jobId'>;
   },
 ): Promise<{ jobId: string }> {
@@ -37,7 +39,7 @@ export async function createDevJobCore(
         queueStream: 'normal',
         watermark: params.watermark,
         creditsCharged: params.cost,
-        source: 'api',
+        source: params.source,
       })
       .returning();
     if (!newJob) throw new AppError('INTERNAL', 500, 'failed to create job');
@@ -152,6 +154,7 @@ export async function createDevTryonJob(
     cost,
     watermark: false,
     metricKind: 'tryon',
+    source: JOB_SOURCE.API_TRYON,
     buildJobInputs: () => ({
       upperGarmentKey: params.garmentKey,
       params: { personKey: params.personKey, workflowTemplateId: category.workflowTemplateId },
