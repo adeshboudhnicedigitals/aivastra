@@ -35,6 +35,17 @@ export const DevCategoriesResponse = z.object({
   categories: z.array(z.object({ slug: z.string(), name: z.string() })),
 });
 
+// Shape of every error the dev API returns, from the global error handler in
+// server.ts (`{ error: { code, message } }`). Declared once and reused across
+// every dev route's 4xx response entries so Scalar shows real error examples
+// instead of the routes appearing to only ever fail with a framework default.
+export const DevErrorResponse = z.object({
+  error: z.object({
+    code: z.string(),
+    message: z.string(),
+  }),
+});
+
 // ---------------------------------------------------------------------------
 // Catalog generation — admin-curated asset selection over the public dev API.
 //
