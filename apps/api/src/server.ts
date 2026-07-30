@@ -50,6 +50,7 @@ import { authRoutes } from './modules/auth/routes.js';
 import { backgroundsRoutes } from './modules/backgrounds/routes.js';
 import { catalogRoutes } from './modules/catalog/routes.js';
 import { creditsRoutes } from './modules/credits/routes.js';
+import { devCatalogRoutes } from './modules/dev/catalog.routes.js';
 import { devRoutes } from './modules/dev/routes.js';
 import { jobsRoutes } from './modules/jobs/routes.js';
 import { kioskAuthRoutes } from './modules/kiosk/auth.routes.js';
@@ -72,6 +73,7 @@ import { shopifyRoutes } from './modules/shopify/routes.js';
 import { supportRoutes } from './modules/support/routes.js';
 import { uploadsRoutes } from './modules/uploads/routes.js';
 import { authPlugin } from './plugins/auth.js';
+import { catalogCacheInvalidationPlugin } from './plugins/catalog-cache-invalidation.js';
 import { dbPlugin } from './plugins/db.js';
 import { devApiAuthPlugin } from './plugins/dev-api-auth.js';
 import { metricsPlugin } from './plugins/metrics.js';
@@ -159,6 +161,10 @@ export async function buildServer(env: Env) {
   });
   await app.register(cookie, { secret: env.COOKIE_SECRET });
   await app.register(redisPlugin);
+  // After redisPlugin — the hook bumps a Redis counter. Before the admin routes it
+  // watches, though ordering against them is not strictly required since it is
+  // registered with fastify-plugin and therefore applies app-wide.
+  await app.register(catalogCacheInvalidationPlugin);
   await app.register(rateLimit, {
     max: 200,
     timeWindow: '1 minute',
@@ -242,6 +248,20 @@ export async function buildServer(env: Env) {
         .code(400)
         .send({ error: { code: 'VALIDATION', message: (err as Error).message } });
     }
+    // Postgres unique_violation. A duplicate value the caller supplied is a client
+    // error, not a 500 — the concrete case this exists for is two assets given the
+    // same public_api_slug (migration 0130), where the admin needs to be told which
+    // constraint they hit rather than seeing "internal error".
+    if ((err as { code?: unknown }).code === '23505') {
+      const constraint = (err as { constraint_name?: string }).constraint_name;
+      app.log.warn({ err, constraint, url: _req.url }, 'unique violation');
+      return reply.code(409).send({
+        error: {
+          code: 'CONFLICT',
+          message: constraint ? `value already in use (${constraint})` : 'value already in use',
+        },
+      });
+    }
     // Generic framework 4xx (e.g. @fastify/rate-limit's 429) — must come AFTER the
     // validation branch, which also carries statusCode 400 but has its own contract.
     const statusCode = (err as { statusCode?: unknown }).statusCode;
@@ -279,6 +299,7 @@ export async function buildServer(env: Env) {
   await app.register(merchantPaymentsRoutes);
   await app.register(merchantApiKeysRoutes);
   await app.register(devRoutes);
+  await app.register(devCatalogRoutes);
   await app.register(shopifyRoutes);
   await app.register(shopifyCustomerRoutes);
   await app.register(modelsRoutes);

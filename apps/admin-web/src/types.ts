@@ -7,6 +7,8 @@ export interface ModelFace {
   thumbnailKey: string;
   r2Key: string;
   faceSideR2Key: string | null;
+  /** Non-null = published to the public developer API under this slug. */
+  publicApiSlug: string | null;
   isActive: boolean;
   sortOrder: number;
   deletedAt: string | null;
@@ -23,6 +25,7 @@ export interface ModelBackground {
   categoryId: number | null;
   tags: string[];
   specialTag: CategoryTag | null;
+  publicApiSlug: string | null;
   isActive: boolean;
   isWhiteBg: boolean;
   sortOrder: number;
@@ -56,6 +59,7 @@ export interface GarmentType {
   lowerUploadLabel?: string | null;
   requiresThirdUpload?: boolean;
   thirdUploadLabel?: string | null;
+  publicApiSlug?: string | null;
   createdAt: string;
   updatedAt: string;
   poseCount?: number;
@@ -181,6 +185,7 @@ export interface CatalogItem {
   label: string;
   thumbnailKey: string;
   r2Key: string;
+  publicApiSlug: string | null;
   isActive: boolean;
   sortOrder: number;
   subcategoryIds: string[];
@@ -343,6 +348,7 @@ export interface ModelPoseAsset {
   promptFacePhase: string | null;
   poseVariant: string | null;
   shotType: 'full' | 'half' | 'closeup' | null;
+  publicApiSlug: string | null;
   scope: 'general' | 'template';
   isActive: boolean;
   sortOrder: number;
