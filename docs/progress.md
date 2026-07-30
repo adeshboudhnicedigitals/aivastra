@@ -1,6 +1,52 @@
-## 2026-07-30 - Live verification of the public catalog API against local infra
+## 2026-07-30 - Bulk backfill for public_api_slug + admin panel button
 
 ### Done
+- Root cause of the empty prod `/v1/dev/catalog/options` (confirmed via read-only VPS queries):
+  not a bug. `public_api_slug` was deliberately shipped with no backfill — every asset starts
+  unpublished, admin opts each one in. Prod has hundreds of active, well-curated assets per
+  gender; none had ever been opted in.
+- Added `POST /admin/dev-api/catalog/backfill-slugs` (`apps/api/src/modules/admin/dev-api.routes.ts`) —
+  a one-time bulk opt-in. For each of the 5 asset tables, selects active rows (matching
+  `buildCatalogOptions()`'s own WHERE clauses exactly — same scope/deleted-at/is-active filters, so
+  it never publishes a row that query could never surface anyway) with `public_api_slug IS NULL`,
+  assigns each a slug derived from its label, and bumps the options cache. Safe to re-run: every
+  clause excludes already-slugged rows, so a second run is a no-op.
+- New `apps/api/src/lib/slugify.ts`: `slugify()` (NFKD-normalize, strip diacritics, hyphenate) +
+  `makeUniqueSlug()`, which widens a candidate (bare label -> + gender/type discriminator -> + a
+  short id suffix) until it clears a per-table `usedSlugs` set. Needed because raw labels collide
+  constantly against the partial-unique index (same pose label across genders, lower vs shoe items
+  sharing a name) and at least one real prod row's label is itself a UUID.
+- Admin-web: "Public Catalog" card in `DevApiPage.tsx` with a confirm-gated "Backfill public
+  slugs" button (surfaces per-table counts in the success toast) and a "Rebuild cache" button —
+  the rebuild-cache API route existed from the original feature but had no UI trigger until now.
+- Tests: `apps/api/test/slugify.test.ts` (11, pure-function), 4 new cases in
+  `apps/api/test/admin-dev-api.test.ts` covering: publishes eligible rows, skips inactive/wrong-scope/
+  already-published rows, same-label-same-gender collision resolves without colliding (poses),
+  same-label-different-type collision resolves (catalog items), cache version bumps, and re-running
+  is a no-op. Full API suite: 322 passed (41 files, up from 302/40 — 11 slugify + 4 backfill, plus 5
+  more from unrelated in-flight funnel work now green). `pnpm lint` 0 errors. `@aivastra/api` and
+  `@aivastra/admin` build and typecheck clean.
+
+### Failed / Not Done
+- Not run against prod. This was built and verified against local dev infra only; running the
+  actual backfill on the VPS is a separate, explicit decision for whoever has admin access there —
+  per the standing rule, no ad-hoc writes were made to the production DB.
+- Not committed or pushed — this session's branch (`feat/dev-api-catalog-generation`) already has an
+  unrelated in-progress Shopify funnel WIP mixed into the working tree; committing needs to stay
+  scoped to only the backfill files.
+
+### Open Questions / Decisions
+- Slug uniqueness is enforced per-table, not globally — the same slug string can exist as e.g. both
+  a face slug and a garment-type slug with no DB conflict, since each is a separate partial unique
+  index and callers look each one up in its own field. Confirmed this is fine: `resolveCatalogSelection`
+  resolves face/pose/background/lower/shoe/garmentType each against their own array, never a shared
+  namespace.
+- Auto-generated slugs from garbage labels (e.g. the UUID-named catalog item seen on prod) will be
+  ugly but valid. No attempt was made to make them pretty — an admin can still rename any of them
+  through the existing per-asset editors after the fact; renaming is a real action for third-party
+  callers (breaks anyone who hard-coded the old slug), so it's deliberately not automated.
+
+
 - Exercised all three new routes against the running `aivastra-api` container with a real API key (merchant `scvx`), not just the test harness. Confirmed: `options` returns 200 with a weak `ETag` and `304` on `If-None-Match`; 401 without a key; 400 on an unknown `gender`; `generate` returns 202 with N jobIds under one `catalogueId`; `catalogues/:id` returns batch status and 404s for an id the caller does not own; all three routes present in `/v1/dev/openapi.json`.
 - Confirmed the credit path end-to-end on real jobs: 7160 -> 7090 for two HD looks (35 each), then +35 refunded when one job failed. The transactional deduct/refund invariant holds against live data, and `BAD_SLUG` rejects before any credit or R2 write.
 - Confirmed the `source`/`apiKeyId` fix in `createJob` on a live job: a catalog-generated job resolves through `GET /v1/dev/jobs/:id` (it would have 404'd before).
