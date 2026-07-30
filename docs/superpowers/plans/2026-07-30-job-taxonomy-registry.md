@@ -1648,6 +1648,7 @@ Create `apps/api/test/integration/api-source-migration.test.ts`:
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { schema } from '@aivastra/db';
+import { LEGACY_JOB_SOURCE } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -1675,7 +1676,7 @@ describe('0133_backfill_api_source_split.sql — classification', () => {
     // Row A: saree-mannequin shape (params.kind)
     const [jobA] = await app.db
       .insert(schema.jobs)
-      .values({ source: 'api', creditsCharged: 1 })
+      .values({ source: LEGACY_JOB_SOURCE.API, creditsCharged: 1 })
       .returning();
     await app.db.insert(schema.jobInputs).values({
       jobId: jobA.id,
@@ -1694,7 +1695,7 @@ describe('0133_backfill_api_source_split.sql — classification', () => {
       .returning();
     const [jobB] = await app.db
       .insert(schema.jobs)
-      .values({ source: 'api', creditsCharged: 1 })
+      .values({ source: LEGACY_JOB_SOURCE.API, creditsCharged: 1 })
       .returning();
     await app.db.insert(schema.jobInputs).values({
       jobId: jobB.id,
@@ -1705,7 +1706,7 @@ describe('0133_backfill_api_source_split.sql — classification', () => {
     // matching the two real test fixtures updated in Task 11)
     const [jobC] = await app.db
       .insert(schema.jobs)
-      .values({ source: 'api', creditsCharged: 1 })
+      .values({ source: LEGACY_JOB_SOURCE.API, creditsCharged: 1 })
       .returning();
 
     const sql = postgres(c.pgUrl, { max: 1 });
