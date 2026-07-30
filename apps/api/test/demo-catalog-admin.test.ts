@@ -8,6 +8,12 @@ import { buildTestApp, type TestApp } from './helpers/api.js';
 import { type Containers, startContainers } from './helpers/containers.js';
 import { createTestMerchant } from './helpers/merchant.js';
 
+// Smallest valid JPEG - enough for a real PUT and a real headObject content-type check.
+const JPEG_1X1 = Buffer.from(
+  '/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwcJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPDIzMv/AABEIAAEAAQMBIgACEQEDEQH/xAAfAAABBQEBAQEBAQAAAAAAAAAAAQIDBAUGBwgJCgv/2gAMAwEAAhADEAAAAT8A/9k=',
+  'base64',
+);
+
 let c: Containers;
 let app: TestApp;
 let garmentTypeId: string;
@@ -15,6 +21,9 @@ let garmentTypeId: string;
 beforeAll(async () => {
   c = await startContainers();
   app = await buildTestApp(c);
+  // Redis DB 15 is shared across integration runs; isolate this file from a
+  // previous run's per-IP admin-login bucket before creating its test admins.
+  await app.redis.del('fastify-rate-limit-POST/admin/auth/login-127.0.0.1');
 
   const [gt] = await app.db
     .insert(schema.garmentSubcategories)
@@ -694,5 +703,245 @@ describe('admin demo set + subcategory routes', () => {
       headers: supportHeaders,
     });
     expect(support.statusCode).toBe(403);
+  });
+});
+
+describe('admin demo item routes', () => {
+  let authHeaders: Record<string, string>;
+  let subcategoryId: string;
+  let infoSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeAll(async () => {
+    authHeaders = await adminAuthHeader(app, 'SUPER_ADMIN');
+    const set = await app.inject({
+      method: 'POST',
+      url: '/admin/demo-catalog/sets',
+      headers: authHeaders,
+      payload: { name: 'Items set' },
+    });
+    const sub = await app.inject({
+      method: 'POST',
+      url: '/admin/demo-catalog/subcategories',
+      headers: authHeaders,
+      payload: {
+        setId: set.json().id,
+        category: 'women',
+        name: 'Sarees',
+        garmentSubcategoryId: garmentTypeId,
+      },
+    });
+    subcategoryId = sub.json().id;
+  });
+
+  beforeEach(() => {
+    infoSpy = vi.spyOn(app.log, 'info');
+  });
+
+  afterEach(() => {
+    infoSpy.mockRestore();
+  });
+
+  const auth = () => authHeaders;
+
+  /** Presigns, PUTs a real 1x1 JPEG, and returns the key. */
+  async function uploadAsset(kind: 'image' | 'thumbnail') {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/demo-catalog/presign',
+      headers: auth(),
+      payload: { kind, contentType: 'image/jpeg', contentLength: JPEG_1X1.length },
+    });
+    expect(res.statusCode).toBe(200);
+    const { assetId, uploadUrl, r2Key } = res.json();
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adminUserId: expect.any(String),
+        entity: 'demoCatalogUpload',
+        entityId: assetId,
+        fields: ['kind', 'contentType', 'contentLength'],
+      }),
+      'demo catalog upload presigned',
+    );
+    const put = await fetch(uploadUrl, {
+      method: 'PUT',
+      body: JPEG_1X1,
+      headers: { 'Content-Type': 'image/jpeg' },
+    });
+    expect(put.ok).toBe(true);
+    return r2Key as string;
+  }
+
+  it('creates an item from uploaded assets and returns rupee prices', async () => {
+    const [r2Key, thumbnailKey] = await Promise.all([
+      uploadAsset('image'),
+      uploadAsset('thumbnail'),
+    ]);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/demo-catalog/items',
+      headers: auth(),
+      payload: {
+        subcategoryId,
+        label: 'Red Saree',
+        sku: 'DEMO-1',
+        actualPrice: 2500,
+        offerPrice: 1990,
+        r2Key,
+        thumbnailKey,
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({
+      label: 'Red Saree',
+      sku: 'DEMO-1',
+      actualPrice: 2500,
+      offerPrice: 1990,
+    });
+    expect(res.json().imageUrl).toContain('demo-catalog/');
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adminUserId: expect.any(String),
+        entity: 'demoCatalogItem',
+        entityId: res.json().id,
+        fields: [
+          'subcategoryId',
+          'label',
+          'sku',
+          'actualPrice',
+          'offerPrice',
+          'r2Key',
+          'thumbnailKey',
+        ],
+      }),
+      'demo item created',
+    );
+  });
+
+  it('lists items for a subcategory and filters by search', async () => {
+    const listed = await app.inject({
+      method: 'GET',
+      url: `/admin/demo-catalog/items?subcategoryId=${subcategoryId}&search=DEMO-1`,
+      headers: auth(),
+    });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json().items).toHaveLength(1);
+
+    const miss = await app.inject({
+      method: 'GET',
+      url: `/admin/demo-catalog/items?subcategoryId=${subcategoryId}&search=nothing-matches`,
+      headers: auth(),
+    });
+    expect(miss.json().items).toHaveLength(0);
+  });
+
+  it('patches prices and active flag', async () => {
+    const [r2Key, thumbnailKey] = await Promise.all([
+      uploadAsset('image'),
+      uploadAsset('thumbnail'),
+    ]);
+    const created = await app.inject({
+      method: 'POST',
+      url: '/admin/demo-catalog/items',
+      headers: auth(),
+      payload: {
+        subcategoryId,
+        label: 'Patch me',
+        actualPrice: 100,
+        offerPrice: 90,
+        r2Key,
+        thumbnailKey,
+      },
+    });
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/admin/demo-catalog/items/${created.json().id}`,
+      headers: auth(),
+      payload: { offerPrice: 50, isActive: false },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ offerPrice: 50, isActive: false, actualPrice: 100 });
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adminUserId: expect.any(String),
+        entity: 'demoCatalogItem',
+        entityId: created.json().id,
+        fields: ['offerPrice', 'isActive'],
+      }),
+      'demo item updated',
+    );
+  });
+
+  it('deletes an item and its objects', async () => {
+    const [r2Key, thumbnailKey] = await Promise.all([
+      uploadAsset('image'),
+      uploadAsset('thumbnail'),
+    ]);
+    const created = await app.inject({
+      method: 'POST',
+      url: '/admin/demo-catalog/items',
+      headers: auth(),
+      payload: {
+        subcategoryId,
+        label: 'Delete me',
+        actualPrice: 10,
+        offerPrice: 10,
+        r2Key,
+        thumbnailKey,
+      },
+    });
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/admin/demo-catalog/items/${created.json().id}`,
+      headers: auth(),
+    });
+    expect(res.statusCode).toBe(204);
+    await expect(app.storage.headObject(r2Key)).rejects.toThrow();
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adminUserId: expect.any(String),
+        entity: 'demoCatalogItem',
+        entityId: created.json().id,
+        fields: expect.arrayContaining(['r2Key', 'thumbnailKey']),
+      }),
+      'demo item deleted',
+    );
+  });
+
+  it('rejects a key outside demo-catalog/', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/demo-catalog/items',
+      headers: auth(),
+      payload: {
+        subcategoryId,
+        label: 'Bad key',
+        actualPrice: 10,
+        offerPrice: 10,
+        r2Key: 'merchant-catalog/somebody/else/image.jpg',
+        thumbnailKey: 'merchant-catalog/somebody/else/thumb.jpg',
+      },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('404s an item pointed at a subcategory that does not exist', async () => {
+    const [r2Key, thumbnailKey] = await Promise.all([
+      uploadAsset('image'),
+      uploadAsset('thumbnail'),
+    ]);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/demo-catalog/items',
+      headers: auth(),
+      payload: {
+        subcategoryId: randomUUID(),
+        label: 'Orphan',
+        actualPrice: 10,
+        offerPrice: 10,
+        r2Key,
+        thumbnailKey,
+      },
+    });
+    expect(res.statusCode).toBe(404);
   });
 });

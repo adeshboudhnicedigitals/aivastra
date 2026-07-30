@@ -1,14 +1,20 @@
+import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
+import { keys } from '@aivastra/storage';
 import {
+  DemoCatalogItemCreateBody,
+  DemoCatalogItemUpdateBody,
+  DemoCatalogPresignBody,
   DemoCatalogSetCreateBody,
   DemoCatalogSetUpdateBody,
   DemoCatalogSubcategoryCreateBody,
   DemoCatalogSubcategoryUpdateBody,
 } from '@aivastra/types';
-import { asc, count, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, inArray, or, type SQL } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { assertDemoUploadKey } from './demo-upload-guard.js';
 import { requireAdmin } from './guard.js';
 
 type DemoObjectField = 'r2Key' | 'thumbnailKey';
@@ -34,6 +40,28 @@ export async function adminDemoCatalogRoutes(app: FastifyInstance): Promise<void
   const RW = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
   const D = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
   const uuidParam = z.object({ id: z.string().uuid() });
+  type DemoItemRow = typeof schema.demoCatalogItems.$inferSelect;
+
+  async function serializeItem(item: DemoItemRow) {
+    const [imageUrl, thumbnailUrl] = await Promise.all([
+      app.storage
+        .presignGet(item.r2Key, 3600)
+        .then((result) => result.url)
+        .catch(() => null),
+      app.storage
+        .presignGet(item.thumbnailKey, 3600)
+        .then((result) => result.url)
+        .catch(() => null),
+    ]);
+
+    return {
+      ...item,
+      actualPrice: Math.round(item.actualPricePaise / 100),
+      offerPrice: Math.round(item.offerPricePaise / 100),
+      imageUrl,
+      thumbnailUrl,
+    };
+  }
 
   async function loadSet(id: string) {
     const [set] = await app.db
@@ -74,6 +102,190 @@ export async function adminDemoCatalogRoutes(app: FastifyInstance): Promise<void
     }
     return { deletedObjectKeys, failedObjects };
   }
+
+  app.post(
+    '/admin/demo-catalog/presign',
+    { preHandler: RW, schema: { body: DemoCatalogPresignBody } },
+    async (req) => {
+      const body = req.body as z.infer<typeof DemoCatalogPresignBody>;
+      const { assetId = randomUUID(), kind, contentType, contentLength } = body;
+      const key =
+        kind === 'thumbnail' ? keys.demoCatalogItemThumb(assetId) : keys.demoCatalogItem(assetId);
+      const { url, expiresIn } = await app.storage.presignPut(key, contentType, contentLength, 600);
+      await app.redis.set(`upload:owner:${key}`, `admin:${req.userId}`, 'EX', 600);
+
+      app.log.info(
+        {
+          adminUserId: req.userId,
+          entity: 'demoCatalogUpload',
+          entityId: assetId,
+          fields: Object.keys(body),
+        },
+        'demo catalog upload presigned',
+      );
+      return { assetId, uploadUrl: url, r2Key: key, expiresIn };
+    },
+  );
+
+  app.get('/admin/demo-catalog/items', { preHandler: RW }, async (req) => {
+    const { subcategoryId, search = '' } = req.query as {
+      subcategoryId?: string;
+      search?: string;
+    };
+    const conditions: (SQL | undefined)[] = [];
+    if (subcategoryId) {
+      conditions.push(eq(schema.demoCatalogItems.subcategoryId, subcategoryId));
+    }
+    if (search.trim()) {
+      const pattern = `%${search.trim()}%`;
+      conditions.push(
+        or(
+          ilike(schema.demoCatalogItems.label, pattern),
+          ilike(schema.demoCatalogItems.sku, pattern),
+        ),
+      );
+    }
+
+    const rows = await app.db
+      .select()
+      .from(schema.demoCatalogItems)
+      .where(conditions.length ? and(...conditions) : undefined)
+      .orderBy(asc(schema.demoCatalogItems.sortOrder), desc(schema.demoCatalogItems.createdAt));
+
+    return { items: await Promise.all(rows.map(serializeItem)) };
+  });
+
+  app.post(
+    '/admin/demo-catalog/items',
+    { preHandler: RW, schema: { body: DemoCatalogItemCreateBody } },
+    async (req, reply) => {
+      const body = req.body as z.infer<typeof DemoCatalogItemCreateBody>;
+      const [subcategory] = await app.db
+        .select({ id: schema.demoCatalogSubcategories.id })
+        .from(schema.demoCatalogSubcategories)
+        .where(eq(schema.demoCatalogSubcategories.id, body.subcategoryId))
+        .limit(1);
+      if (!subcategory) throw new AppError('NOT_FOUND', 404, 'demo subcategory not found');
+
+      await Promise.all([
+        assertDemoUploadKey(app, req.userId, body.r2Key, 'image'),
+        assertDemoUploadKey(app, req.userId, body.thumbnailKey, 'thumbnail'),
+      ]);
+
+      const [row] = await app.db
+        .insert(schema.demoCatalogItems)
+        .values({
+          subcategoryId: body.subcategoryId,
+          label: body.label,
+          sku: body.sku?.trim() || null,
+          actualPricePaise: body.actualPrice * 100,
+          offerPricePaise: body.offerPrice * 100,
+          r2Key: body.r2Key,
+          thumbnailKey: body.thumbnailKey,
+          sortOrder: body.sortOrder ?? 0,
+        })
+        .returning();
+      if (!row) throw new AppError('INTERNAL', 500, 'failed to create demo item');
+
+      app.log.info(
+        {
+          adminUserId: req.userId,
+          entity: 'demoCatalogItem',
+          entityId: row.id,
+          fields: Object.keys(body),
+        },
+        'demo item created',
+      );
+      reply.code(201);
+      return serializeItem(row);
+    },
+  );
+
+  app.patch(
+    '/admin/demo-catalog/items/:id',
+    { preHandler: RW, schema: { params: uuidParam, body: DemoCatalogItemUpdateBody } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const body = req.body as z.infer<typeof DemoCatalogItemUpdateBody>;
+
+      const [updated] = await app.db
+        .update(schema.demoCatalogItems)
+        .set({
+          ...(body.subcategoryId !== undefined ? { subcategoryId: body.subcategoryId } : {}),
+          ...(body.label !== undefined ? { label: body.label } : {}),
+          ...(body.sku !== undefined ? { sku: body.sku?.trim() || null } : {}),
+          ...(body.actualPrice !== undefined ? { actualPricePaise: body.actualPrice * 100 } : {}),
+          ...(body.offerPrice !== undefined ? { offerPricePaise: body.offerPrice * 100 } : {}),
+          ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+          ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.demoCatalogItems.id, id))
+        .returning();
+      if (!updated) throw new AppError('NOT_FOUND', 404, 'demo item not found');
+
+      app.log.info(
+        {
+          adminUserId: req.userId,
+          entity: 'demoCatalogItem',
+          entityId: id,
+          fields: Object.keys(body),
+        },
+        'demo item updated',
+      );
+      return serializeItem(updated);
+    },
+  );
+
+  app.delete(
+    '/admin/demo-catalog/items/:id',
+    { preHandler: D, schema: { params: uuidParam } },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const [deleted] = await app.db
+        .delete(schema.demoCatalogItems)
+        .where(eq(schema.demoCatalogItems.id, id))
+        .returning();
+      if (!deleted) throw new AppError('NOT_FOUND', 404, 'demo item not found');
+
+      const cleanup = await deleteDemoObjects([
+        { field: 'r2Key', key: deleted.r2Key },
+        { field: 'thumbnailKey', key: deleted.thumbnailKey },
+      ]);
+      if (cleanup.failedObjects.length > 0) {
+        app.log.error(
+          {
+            adminUserId: req.userId,
+            entity: 'demoCatalogItem',
+            entityId: id,
+            fields: Object.keys(deleted),
+            databaseDeleted: true,
+            deletedObjectKeys: cleanup.deletedObjectKeys,
+            failedObjects: cleanup.failedObjects,
+          },
+          'demo item deleted with object cleanup failures',
+        );
+        throw new AppError(
+          'STORAGE_DELETE_FAILED',
+          502,
+          'demo item deleted but object cleanup failed',
+        );
+      }
+
+      app.log.info(
+        {
+          adminUserId: req.userId,
+          entity: 'demoCatalogItem',
+          entityId: id,
+          fields: Object.keys(deleted),
+          deletedObjects: cleanup.deletedObjectKeys.length,
+        },
+        'demo item deleted',
+      );
+      reply.code(204);
+      return reply.send();
+    },
+  );
 
   app.get('/admin/demo-catalog/sets', { preHandler: RW }, async () => {
     const sets = await app.db
