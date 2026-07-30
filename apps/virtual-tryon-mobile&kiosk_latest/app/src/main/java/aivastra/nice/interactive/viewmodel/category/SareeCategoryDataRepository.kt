@@ -20,6 +20,13 @@ class DeviceLimitReachedException(
 
 object SareeCategoryDataRepository {
 
+    /** merchantStatus from the most recent login: ONBOARDING_REQUIRED | PENDING_ACTIVATION | ACTIVE. */
+    var lastMerchantStatus: String = ""
+        private set
+
+    var onboardingSuggestedName: String = ""
+        private set
+
     private var sareeCatData: SareeCateDataModel.Data = SareeCateDataModel.Data()
     private var selectedDressType: DressesTypeDataModel.Data = DressesTypeDataModel.Data()
     private var uploadedImageData: UploadImageModel = UploadImageModel()
@@ -41,6 +48,16 @@ object SareeCategoryDataRepository {
             put("platform", "kiosk")
         }
         return postDeviceLogin(APIConstant.API_ENDPOINTS.DEVICE_LOGIN, payload)
+    }
+
+    suspend fun loginWithGoogle(idToken: String, androidId: String): UserLoginDataModel {
+        val payload = JSONObject().apply {
+            put("idToken", idToken)
+            put("deviceId", androidId)
+            put("deviceName", deviceName())
+            put("platform", "kiosk")
+        }
+        return postDeviceLogin(APIConstant.API_ENDPOINTS.DEVICE_LOGIN_GOOGLE, payload)
     }
 
     suspend fun forceLoginDevice(forceLogoutToken: String, androidId: String): UserLoginDataModel {
@@ -66,6 +83,11 @@ object SareeCategoryDataRepository {
             throw IllegalStateException(APIConstant.errorSomethingWrong)
         }
         val user = response.optJSONObject("user") ?: JSONObject()
+        lastMerchantStatus = response.optString("merchantStatus", "ACTIVE")
+        onboardingSuggestedName = response
+            .optJSONObject("onboarding")
+            ?.optString("suggestedContactName", "")
+            .orEmpty()
         PrefsManager.saveRefreshToken(refreshToken)
         return UserLoginDataModel(
             status = true,
@@ -82,6 +104,33 @@ object SareeCategoryDataRepository {
             ),
         )
     }
+
+    suspend fun submitOnboarding(
+        phone: String,
+        contactName: String?,
+        companyName: String?,
+        businessAddress: String?,
+    ) {
+        val payload = JSONObject().apply {
+            put("phone", phone)
+            if (!contactName.isNullOrBlank()) put("contactName", contactName)
+            if (!companyName.isNullOrBlank()) put("companyName", companyName)
+            if (!businessAddress.isNullOrBlank()) put("businessAddress", businessAddress)
+        }
+        APICaller.postJsonAuthed(
+            APIConstant.API_ENDPOINTS.MERCHANT_ONBOARDING,
+            payload.toString(),
+            PrefsManager.getAccessToken(),
+        )
+        lastMerchantStatus = "ACTIVE"
+    }
+
+    suspend fun fetchOnboardingState(): JSONObject = JSONObject(
+        APICaller.getJsonAuthed(
+            APIConstant.API_ENDPOINTS.MERCHANT_ONBOARDING,
+            PrefsManager.getAccessToken(),
+        ),
+    )
 
     private fun parseLoginError(cause: Throwable): Throwable {
         val raw = (cause as? com.example.facewixlatest.ApiUtils.ApiException.BackendError)?.rawBody

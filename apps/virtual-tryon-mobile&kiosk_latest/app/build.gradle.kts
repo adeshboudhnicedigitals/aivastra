@@ -22,6 +22,11 @@ android {
             useSupportLibrary = true
         }
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
+        buildConfigField(
+            "String",
+            "GOOGLE_WEB_CLIENT_ID",
+            "\"${project.findProperty("GOOGLE_WEB_CLIENT_ID") ?: ""}\"",
+        )
     }
 
     buildTypes {
@@ -97,6 +102,9 @@ dependencies {
     implementation(libs.androidx.lottie)
     implementation(libs.androidx.swiperefreshlayout)
     implementation(libs.androidx.security.crypto)
+    implementation(libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play.services)
+    implementation(libs.googleid)
     implementation(libs.androidx.exoplayer)
     implementation(libs.androidx.exoplayer.ui)
     implementation(libs.androidx.cameraview)

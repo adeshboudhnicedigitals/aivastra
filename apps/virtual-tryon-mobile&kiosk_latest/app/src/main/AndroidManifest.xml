@@ -79,6 +79,9 @@
             android:exported="false"
             android:screenOrientation="portrait" />
         <activity
+            android:name=".activity.auth.OnboardingActivity"
+            android:exported="false" />
+        <activity
             android:name=".activity.auth.LoginActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
