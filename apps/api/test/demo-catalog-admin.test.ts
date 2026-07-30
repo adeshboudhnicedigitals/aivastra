@@ -1017,3 +1017,111 @@ describe('admin demo item routes', () => {
     expect(res.statusCode).toBe(404);
   });
 });
+
+describe('admin demo set assignments', () => {
+  let authHeaders: Record<string, string>;
+  let setId: string;
+
+  beforeAll(async () => {
+    // This file's earlier describe blocks already spend 5 of the route's
+    // 5-per-minute admin-login budget; reset it here so this block's own
+    // logins don't 429 (same pattern as the file-level beforeAll above).
+    await app.redis.del('fastify-rate-limit-POST/admin/auth/login-127.0.0.1');
+    authHeaders = await adminAuthHeader(app, 'SUPER_ADMIN');
+    const set = await app.inject({
+      method: 'POST',
+      url: '/admin/demo-catalog/sets',
+      headers: authHeaders,
+      payload: { name: 'Assignable' },
+    });
+    setId = set.json().id;
+  });
+
+  const auth = () => authHeaders;
+
+  it('replaces the assignment list wholesale and is idempotent', async () => {
+    const a = await createTestMerchant(app);
+    const b = await createTestMerchant(app);
+
+    const first = await app.inject({
+      method: 'PUT',
+      url: `/admin/demo-catalog/sets/${setId}/assignments`,
+      headers: auth(),
+      payload: { merchantIds: [a.merchantId, b.merchantId] },
+    });
+    expect(first.statusCode).toBe(200);
+    expect(first.json().assignedMerchantCount).toBe(2);
+
+    const again = await app.inject({
+      method: 'PUT',
+      url: `/admin/demo-catalog/sets/${setId}/assignments`,
+      headers: auth(),
+      payload: { merchantIds: [a.merchantId, b.merchantId] },
+    });
+    expect(again.json().assignedMerchantCount).toBe(2);
+
+    const shrunk = await app.inject({
+      method: 'PUT',
+      url: `/admin/demo-catalog/sets/${setId}/assignments`,
+      headers: auth(),
+      payload: { merchantIds: [b.merchantId] },
+    });
+    expect(shrunk.json().assignedMerchantCount).toBe(1);
+
+    const listed = await app.inject({
+      method: 'GET',
+      url: `/admin/demo-catalog/sets/${setId}/assignments`,
+      headers: auth(),
+    });
+    expect(listed.json().items).toHaveLength(1);
+    expect(listed.json().items[0]).toMatchObject({
+      merchantId: b.merchantId,
+      companyName: 'Test Co',
+    });
+  });
+
+  it('clears every assignment on an empty list', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/admin/demo-catalog/sets/${setId}/assignments`,
+      headers: auth(),
+      payload: { merchantIds: [] },
+    });
+    expect(res.json().assignedMerchantCount).toBe(0);
+  });
+
+  it('404s an unknown merchant id and changes nothing', async () => {
+    const a = await createTestMerchant(app);
+    await app.inject({
+      method: 'PUT',
+      url: `/admin/demo-catalog/sets/${setId}/assignments`,
+      headers: auth(),
+      payload: { merchantIds: [a.merchantId] },
+    });
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/admin/demo-catalog/sets/${setId}/assignments`,
+      headers: auth(),
+      payload: { merchantIds: [randomUUID()] },
+    });
+    expect(res.statusCode).toBe(404);
+
+    const listed = await app.inject({
+      method: 'GET',
+      url: `/admin/demo-catalog/sets/${setId}/assignments`,
+      headers: auth(),
+    });
+    expect(listed.json().items).toHaveLength(1);
+  });
+
+  it('404s an unknown set id', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/admin/demo-catalog/sets/${randomUUID()}/assignments`,
+      headers: auth(),
+      payload: { merchantIds: [] },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
