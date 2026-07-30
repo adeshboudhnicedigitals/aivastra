@@ -1,9 +1,22 @@
-import { schema } from '@aivastra/db';
+import { type DB, schema } from '@aivastra/db';
 import { asc, count, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { requireAdmin } from './guard.js';
+
+type FunnelTemplatesTx = Parameters<Parameters<DB['transaction']>[0]>[0];
+
+// Demote first: the partial unique index rejects a second default, so
+// insert-then-demote (or update-then-demote) would fail on the constraint
+// rather than swap. Callers must run this before the insert/update that sets
+// the new default, within the same transaction.
+async function demoteCurrentDefault(tx: FunnelTemplatesTx) {
+  await tx
+    .update(schema.shopifyFunnelTemplates)
+    .set({ isDefault: false, updatedAt: new Date() })
+    .where(eq(schema.shopifyFunnelTemplates.isDefault, true));
+}
 
 const CreateFunnelTemplateBody = z.object({
   slug: z
@@ -51,13 +64,8 @@ export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
       const body = req.body as z.infer<typeof CreateFunnelTemplateBody>;
       try {
         return await app.db.transaction(async (tx) => {
-          // Demote first: the partial unique index rejects a second default, so
-          // insert-then-demote would fail on the constraint rather than swap.
           if (body.isDefault) {
-            await tx
-              .update(schema.shopifyFunnelTemplates)
-              .set({ isDefault: false, updatedAt: new Date() })
-              .where(eq(schema.shopifyFunnelTemplates.isDefault, true));
+            await demoteCurrentDefault(tx);
           }
           const [row] = await tx.insert(schema.shopifyFunnelTemplates).values(body).returning();
           return row;
@@ -96,10 +104,7 @@ export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
 
       const updated = await app.db.transaction(async (tx) => {
         if (body.isDefault === true) {
-          await tx
-            .update(schema.shopifyFunnelTemplates)
-            .set({ isDefault: false, updatedAt: new Date() })
-            .where(eq(schema.shopifyFunnelTemplates.isDefault, true));
+          await demoteCurrentDefault(tx);
         }
         const [row] = await tx
           .update(schema.shopifyFunnelTemplates)
