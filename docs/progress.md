@@ -1,14 +1,3 @@
-## 2026-07-30 — Pre-push hook schema build dependency
-
-### Done
-- Updated lefthook.yml so the pre-push typecheck job rebuilds @aivastra/types and @aivastra/db before dependent workspace typechecks, preventing stale generated schema declarations from failing API typechecking.
-- Confirmed the focused API authentication test passes against the local Docker-backed test services.
-
-### Failed / Not Done
-- (none)
-
-### Open Questions / Decisions
-- None.
 ## 2026-07-30 - Bulk backfill for public_api_slug + admin panel button
 
 ### Done

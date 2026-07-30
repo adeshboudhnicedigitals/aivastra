@@ -303,16 +303,18 @@ export default function DevApiPage({ toast }: Props) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Header */}
-      <div className="page-head">
+      <div
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
+      >
         <div>
-          <h1>Dev API</h1>
-          <p className="lede">
+          <h2 style={{ margin: 0, fontSize: '1.125rem', fontWeight: 600 }}>Dev API</h2>
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
             Controls the public developer API surface (<code>/v1/dev/*</code>) exposed to
             third-party API callers. This catalog is independent of the internal Try-on categories —
             renaming or deactivating an internal category never changes what the Dev API exposes.
           </p>
         </div>
-        <div className="head-tools">
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button className="btn primary" onClick={openCreate}>
             <Icon.Plus /> Add category
           </button>
