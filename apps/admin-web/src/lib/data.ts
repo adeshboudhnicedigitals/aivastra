@@ -74,6 +74,7 @@ export const MOCK_STATS: Stats = {
 
 export const MOCK_FACES: ModelFace[] = [
   {
+    publicApiSlug: null,
     id: 'face_men_01',
     gender: 'men',
     label: 'Male Model A',
@@ -87,6 +88,7 @@ export const MOCK_FACES: ModelFace[] = [
     deletedAt: null,
   },
   {
+    publicApiSlug: null,
     id: 'face_men_02',
     gender: 'men',
     label: 'Male Model B',
@@ -100,6 +102,7 @@ export const MOCK_FACES: ModelFace[] = [
     deletedAt: null,
   },
   {
+    publicApiSlug: null,
     id: 'face_women_01',
     gender: 'women',
     label: 'Female Model A',
@@ -113,6 +116,7 @@ export const MOCK_FACES: ModelFace[] = [
     deletedAt: null,
   },
   {
+    publicApiSlug: null,
     id: 'face_women_02',
     gender: 'women',
     label: 'Female Model B',
@@ -126,6 +130,7 @@ export const MOCK_FACES: ModelFace[] = [
     deletedAt: null,
   },
   {
+    publicApiSlug: null,
     id: 'face_boys_01',
     gender: 'boys',
     label: 'Boys Model A',
@@ -139,6 +144,7 @@ export const MOCK_FACES: ModelFace[] = [
     deletedAt: null,
   },
   {
+    publicApiSlug: null,
     id: 'face_girls_01',
     gender: 'girls',
     label: 'Girls Model A',
@@ -155,6 +161,7 @@ export const MOCK_FACES: ModelFace[] = [
 
 export const MOCK_BACKGROUNDS: ModelBackground[] = [
   {
+    publicApiSlug: null,
     id: 'bg_001',
     label: 'Studio White',
     thumbnailKey: 'bgs/studio-white-thumb.jpg',
@@ -173,6 +180,7 @@ export const MOCK_BACKGROUNDS: ModelBackground[] = [
     deletedAt: null,
   },
   {
+    publicApiSlug: null,
     id: 'bg_002',
     label: 'Urban Street',
     thumbnailKey: 'bgs/urban-thumb.jpg',
@@ -191,6 +199,7 @@ export const MOCK_BACKGROUNDS: ModelBackground[] = [
     deletedAt: null,
   },
   {
+    publicApiSlug: null,
     id: 'bg_003',
     label: 'Office',
     thumbnailKey: 'bgs/office-thumb.jpg',
@@ -209,6 +218,7 @@ export const MOCK_BACKGROUNDS: ModelBackground[] = [
     deletedAt: null,
   },
   {
+    publicApiSlug: null,
     id: 'bg_004',
     label: 'Studio Grey',
     thumbnailKey: 'bgs/studio-grey-thumb.jpg',
@@ -296,6 +306,7 @@ export const MOCK_POSES: ModelPose[] = [
 
 export const MOCK_CATALOG: CatalogItem[] = [
   {
+    publicApiSlug: null,
     id: 'cat_lower_001',
     label: 'Classic Blue Jeans',
     type: 'lower',
@@ -310,6 +321,7 @@ export const MOCK_CATALOG: CatalogItem[] = [
     updatedAt: '2026-05-01T10:00:00Z',
   },
   {
+    publicApiSlug: null,
     id: 'cat_lower_002',
     label: 'Slim Fit Chinos',
     type: 'lower',
@@ -324,6 +336,7 @@ export const MOCK_CATALOG: CatalogItem[] = [
     updatedAt: '2026-05-02T10:00:00Z',
   },
   {
+    publicApiSlug: null,
     id: 'cat_lower_003',
     label: 'Formal Trousers Black',
     type: 'lower',
@@ -338,6 +351,7 @@ export const MOCK_CATALOG: CatalogItem[] = [
     updatedAt: '2026-05-03T10:00:00Z',
   },
   {
+    publicApiSlug: null,
     id: 'cat_lower_004',
     label: 'Track Pants Grey',
     type: 'lower',
@@ -352,6 +366,7 @@ export const MOCK_CATALOG: CatalogItem[] = [
     updatedAt: '2026-05-04T10:00:00Z',
   },
   {
+    publicApiSlug: null,
     id: 'cat_shoe_001',
     label: 'White Sneakers',
     type: 'shoe',
@@ -366,6 +381,7 @@ export const MOCK_CATALOG: CatalogItem[] = [
     updatedAt: '2026-05-01T10:00:00Z',
   },
   {
+    publicApiSlug: null,
     id: 'cat_shoe_002',
     label: 'Oxford Brown',
     type: 'shoe',
@@ -380,6 +396,7 @@ export const MOCK_CATALOG: CatalogItem[] = [
     updatedAt: '2026-05-02T10:00:00Z',
   },
   {
+    publicApiSlug: null,
     id: 'cat_shoe_003',
     label: 'Loafers Tan',
     type: 'shoe',

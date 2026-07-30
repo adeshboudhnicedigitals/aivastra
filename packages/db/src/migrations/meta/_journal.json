@@ -925,6 +925,13 @@
       "when": 1785341325566,
       "tag": "0131_saree_style_two_input",
       "breakpoints": true
+    },
+    {
+      "idx": 132,
+      "version": "7",
+      "when": 1785360000000,
+      "tag": "0132_dev_public_catalog_slugs",
+      "breakpoints": true
     }
   ]
 }

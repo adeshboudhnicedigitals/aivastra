@@ -7,6 +7,10 @@ import {
 import { asc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import {
+  bumpCatalogOptionsVersion,
+  getCatalogOptionsVersion,
+} from '../../lib/catalog-options-cache.js';
 import { AppError } from '../../lib/errors.js';
 import { requireAdmin } from './guard.js';
 
@@ -16,6 +20,15 @@ export async function adminDevApiRoutes(app: FastifyInstance) {
   const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
   const R = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
   const uuidParam = z.object({ id: z.string().uuid() });
+
+  // Manual escape hatch for the catalog options cache. The onResponse hook in
+  // plugins/catalog-cache-invalidation.ts already bumps the generation on every
+  // successful /admin/assets and /admin/catalog mutation, so this exists only for
+  // the cases the hook cannot see — a direct DB edit, or a suspected desync.
+  app.post('/admin/dev-api/catalog/rebuild-cache', { preHandler: W }, async () => {
+    await bumpCatalogOptionsVersion(app);
+    return { ok: true, version: await getCatalogOptionsVersion(app) };
+  });
 
   app.get('/admin/dev-api/tryon-categories', { preHandler: R }, async () => {
     return app.db
