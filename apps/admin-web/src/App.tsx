@@ -4,6 +4,8 @@ import { Sidebar } from './components/Sidebar';
 import { ToastStack } from './components/ToastStack';
 import { Topbar } from './components/Topbar';
 import { useAuth } from './context/AuthContext';
+import { SidebarProvider } from './context/SidebarContext';
+import { useMediaQuery } from './hooks/use-media-query';
 import { apiErrorMessage, apiFetch, patchAdminPreferences } from './lib/data';
 import AssetsPage from './pages/AssetsPage';
 import ChatbotQnaPage from './pages/ChatbotQnaPage';
@@ -64,6 +66,10 @@ export default function App() {
   const idRef = useRef(0);
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Drawer mode: below 1024px — same breakpoint as catalogues-web
+  const isMobile = useMediaQuery('(max-width: 1023px)');
+  const isDrawerMode = !!isMobile;
 
   // Apply theme to DOM + persist locally
   useEffect(() => {
@@ -190,45 +196,50 @@ export default function App() {
   const settingsProps = { onNav: handleNavWithFilter, toast, theme, setTheme };
 
   return (
-    <div className={`app${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
-      <Sidebar
-        page={segment}
-        onNav={handleNav}
-        role={role ?? ''}
-        collapsed={sidebarCollapsed}
-        onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
-      />
-      <div className="main">
-        <Topbar
-          trail={trail}
-          onNavTrail={(i) => i === 0 && navigate('/dashboard')}
-          theme={theme}
-          onToggleTheme={toggleTheme}
+    <SidebarProvider isDrawerMode={isDrawerMode} currentPage={segment}>
+      <div
+        className={`app${sidebarCollapsed && !isDrawerMode ? ' sidebar-collapsed' : ''}`}
+        style={isDrawerMode ? { display: 'flex', flexDirection: 'column' } : undefined}
+      >
+        <Sidebar
+          page={segment}
+          onNav={handleNav}
+          role={role ?? ''}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
         />
-        <main className="content">
-          <Routes>
-            <Route path="/" element={<DashboardPage {...pageProps} />} />
-            <Route path="/dashboard" element={<DashboardPage {...pageProps} />} />
-            <Route path="/assets" element={<AssetsPage {...pageProps} />} />
-            <Route path="/users" element={<UsersPage {...pageProps} />} />
-            <Route path="/jobs" element={<JobsPage {...pageProps} />} />
-            <Route path="/workflows" element={<WorkflowsPage {...pageProps} />} />
-            <Route path="/shopify-funnels" element={<ShopifyFunnelsPage {...pageProps} />} />
-            <Route path="/credit-analysis" element={<CreditAnalysisPage {...pageProps} />} />
-            <Route path="/tryon" element={<TryonPage {...pageProps} />} />
-            <Route path="/dev-api" element={<DevApiPage {...pageProps} />} />
-            <Route path="/saree" element={<SareePage {...pageProps} />} />
-            <Route path="/chat-inbox" element={<ChatInboxPage {...pageProps} />} />
-            <Route path="/chatbot-qna" element={<ChatbotQnaPage {...pageProps} />} />
-            <Route path="/contacts" element={<ContactRequestsPage {...pageProps} />} />
-            <Route path="/recycle-bin" element={<RecycleBinPage {...pageProps} />} />
-            <Route path="/settings" element={<SettingsPage {...settingsProps} />} />
-            <Route path="/workers" element={<WorkersPage {...pageProps} />} />
-            <Route path="*" element={<DashboardPage {...pageProps} />} />
-          </Routes>
-        </main>
+        <div className="main">
+          <Topbar
+            trail={trail}
+            onNavTrail={(i) => i === 0 && navigate('/dashboard')}
+            theme={theme}
+            onToggleTheme={toggleTheme}
+          />
+          <main className="content">
+            <Routes>
+              <Route path="/" element={<DashboardPage {...pageProps} />} />
+              <Route path="/dashboard" element={<DashboardPage {...pageProps} />} />
+              <Route path="/assets" element={<AssetsPage {...pageProps} />} />
+              <Route path="/users" element={<UsersPage {...pageProps} />} />
+              <Route path="/jobs" element={<JobsPage {...pageProps} />} />
+              <Route path="/workflows" element={<WorkflowsPage {...pageProps} />} />
+              <Route path="/shopify-funnels" element={<ShopifyFunnelsPage {...pageProps} />} />
+              <Route path="/credit-analysis" element={<CreditAnalysisPage {...pageProps} />} />
+              <Route path="/tryon" element={<TryonPage {...pageProps} />} />
+              <Route path="/dev-api" element={<DevApiPage {...pageProps} />} />
+              <Route path="/saree" element={<SareePage {...pageProps} />} />
+              <Route path="/chat-inbox" element={<ChatInboxPage {...pageProps} />} />
+              <Route path="/chatbot-qna" element={<ChatbotQnaPage {...pageProps} />} />
+              <Route path="/contacts" element={<ContactRequestsPage {...pageProps} />} />
+              <Route path="/recycle-bin" element={<RecycleBinPage {...pageProps} />} />
+              <Route path="/settings" element={<SettingsPage {...settingsProps} />} />
+              <Route path="/workers" element={<WorkersPage {...pageProps} />} />
+              <Route path="*" element={<DashboardPage {...pageProps} />} />
+            </Routes>
+          </main>
+        </div>
+        <ToastStack items={toasts} onDismiss={dismissToast} />
       </div>
-      <ToastStack items={toasts} onDismiss={dismissToast} />
-    </div>
+    </SidebarProvider>
   );
 }

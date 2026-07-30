@@ -292,4 +292,9 @@ export const Icon: Record<string, (props?: IconProps) => JSX.Element> = {
       <path d="M5.5 10.5H3a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v2" />
     </svg>
   ),
+  Menu: () => (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <path d="M2 4h12M2 8h12M2 12h12" strokeLinecap="round" />
+    </svg>
+  ),
 };
