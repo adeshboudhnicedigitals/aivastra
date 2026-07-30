@@ -3,9 +3,16 @@ import { and, desc, eq, exists, gte, inArray, isNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { JOB_SOURCE } from '@aivastra/types';
 import { requireAdmin } from './guard.js';
 
-const SOURCES = ['catalog', 'tryon', 'saree', 'kiosk', 'shopify'] as const;
+const SOURCES = [
+  JOB_SOURCE.CATALOG,
+  JOB_SOURCE.TRYON,
+  JOB_SOURCE.SAREE,
+  JOB_SOURCE.KIOSK,
+  JOB_SOURCE.SHOPIFY,
+] as const;
 const DAY_RANGES = ['7', '30', '90', 'all'] as const;
 type DayRange = (typeof DAY_RANGES)[number];
 type SourceFilter = 'all' | (typeof SOURCES)[number];
