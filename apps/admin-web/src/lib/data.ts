@@ -55,9 +55,12 @@ export function jobTypeBadge(t: string): [string, string] {
     api_tryon: ['success', 'API Try On'],
     api_saree_mannequin: ['success', 'API Saree Prep'],
     api_catalog: ['success', 'API Catalog'],
+    api: ['success', 'API (legacy)'],
   };
   if (!m[t]) {
-    console.warn(`jobTypeBadge: unrecognized job source "${t}" — add it to the label map in apps/admin-web/src/lib/data.ts`);
+    console.warn(
+      `jobTypeBadge: unrecognized job source "${t}" — add it to the label map in apps/admin-web/src/lib/data.ts`,
+    );
   }
   return m[t] || ['', t];
 }

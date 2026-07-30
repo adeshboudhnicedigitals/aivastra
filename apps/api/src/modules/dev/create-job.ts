@@ -2,11 +2,11 @@ import { randomUUID } from 'node:crypto';
 import type { DB } from '@aivastra/db';
 import { schema } from '@aivastra/db';
 import { jobsCreatedTotal } from '@aivastra/observability';
+import { JOB_SOURCE, type JobSource } from '@aivastra/types';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
-import { JOB_SOURCE, type JobSource } from '@aivastra/types';
 import { atomicDeduct, refund } from '../credits/ledger.js';
 
 /**
@@ -21,7 +21,6 @@ export async function createDevJobCore(
     apiKeyId: string;
     cost: number;
     watermark: boolean;
-    metricKind: string;
     source: JobSource;
     buildJobInputs: () => Omit<typeof schema.jobInputs.$inferInsert, 'jobId'>;
   },
@@ -70,11 +69,11 @@ export async function createDevJobCore(
       'userId',
       params.merchantUserId,
     );
-    jobsCreatedTotal.inc({ priority: 'normal', kind: params.metricKind });
+    jobsCreatedTotal.inc({ priority: 'normal', kind: params.source });
   } catch (err) {
     app.log.error(
       { err, jobId: job.id },
-      `redis xadd failed — dev ${params.metricKind} job will be refunded`,
+      `redis xadd failed — dev ${params.source} job will be refunded`,
     );
     await refund(app.db, params.merchantUserId, params.cost, job.id, 'REFUND_ENQUEUE_FAIL');
     await app.db
@@ -153,7 +152,6 @@ export async function createDevTryonJob(
     apiKeyId: params.apiKeyId,
     cost,
     watermark: false,
-    metricKind: 'tryon',
     source: JOB_SOURCE.API_TRYON,
     buildJobInputs: () => ({
       upperGarmentKey: params.garmentKey,

@@ -301,7 +301,9 @@ export default function WorkersPage({ toast }: Props) {
                                     ? 'color-mix(in srgb, var(--pink, #ec4899) 15%, transparent)'
                                     : t === 'shopify'
                                       ? 'color-mix(in srgb, #8b5cf6 15%, transparent)'
-                                      : 'color-mix(in srgb, var(--success) 15%, transparent)',
+                                      : t === 'merchant'
+                                        ? 'color-mix(in srgb, var(--warn) 15%, transparent)'
+                                        : 'color-mix(in srgb, var(--success) 15%, transparent)',
                               color:
                                 t === 'tryon'
                                   ? 'var(--accent)'
@@ -309,7 +311,9 @@ export default function WorkersPage({ toast }: Props) {
                                     ? 'var(--pink, #ec4899)'
                                     : t === 'shopify'
                                       ? '#8b5cf6'
-                                      : 'var(--success)',
+                                      : t === 'merchant'
+                                        ? 'var(--warn)'
+                                        : 'var(--success)',
                             }}
                           >
                             {jobTypeLabel(t)}

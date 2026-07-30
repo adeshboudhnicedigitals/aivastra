@@ -146,4 +146,29 @@ describe('POST /admin/workers — allowedJobTypes validation', () => {
     });
     expect(res.statusCode).toBe(400);
   });
+
+  it('accepts merchant as an allowed job type via PATCH', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workers',
+      headers: authHeader,
+      payload: {
+        id: 'test-worker-merchant-pool-patch',
+        label: '',
+        url: 'https://example.com/',
+        apiKey: 'k'.repeat(8),
+        allowedJobTypes: [],
+      },
+    });
+    expect(createRes.statusCode).toBe(201);
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: '/admin/workers/test-worker-merchant-pool-patch',
+      headers: authHeader,
+      payload: { allowedJobTypes: ['merchant'] },
+    });
+    expect(patchRes.statusCode).toBe(200);
+    expect(patchRes.json().allowedJobTypes).toEqual(['merchant']);
+  });
 });
