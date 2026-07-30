@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { workerPoolSchema } from '@aivastra/types';
+import { WORKER_POOL, workerPoolSchema } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -77,6 +77,12 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
       );
       return results;
     },
+  );
+
+  app.get(
+    '/admin/workers/job-types',
+    { preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']) },
+    async () => Object.values(WORKER_POOL),
   );
 
   app.post(
