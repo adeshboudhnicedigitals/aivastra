@@ -9,22 +9,35 @@ export interface ProductAttributes {
   collections: string[] | null;
 }
 
+/** Rule values are typed by hand in the funnel setup UI; Shopify's own casing and
+ *  padding are whatever the merchant's catalog happens to use. Comparing raw meant
+ *  a rule reading `tags contains "upper"` never matched the tag `Upper Garment`. */
+function norm(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function matchesOne(fieldValue: string, cond: schema.FunnelRuleCondition): boolean {
+  return cond.operator === 'equals'
+    ? norm(fieldValue) === norm(cond.value)
+    : norm(fieldValue).includes(norm(cond.value));
+}
+
 export function matchesConditions(
   product: ProductAttributes,
   conditions: schema.FunnelRuleCondition[],
 ): boolean {
   if (conditions.length === 0) return false;
   return conditions.every((cond) => {
-    if (cond.field === 'tags') {
-      return (product.tags ?? []).includes(cond.value);
-    }
-    if (cond.field === 'collections') {
-      return (product.collections ?? []).includes(cond.value);
+    // Array fields match if ANY element satisfies the condition. `equals` compares
+    // the whole tag/title, `contains` a substring of it — previously both collapsed
+    // to an exact case-sensitive Array.includes, so `contains` was inert here.
+    if (cond.field === 'tags' || cond.field === 'collections') {
+      const values = (cond.field === 'tags' ? product.tags : product.collections) ?? [];
+      return values.some((v) => matchesOne(v, cond));
     }
     const fieldValue = cond.field === 'product_type' ? product.productType : product.vendor;
     if (fieldValue == null) return false;
-    if (cond.operator === 'equals') return fieldValue === cond.value;
-    return fieldValue.toLowerCase().includes(cond.value.toLowerCase());
+    return matchesOne(fieldValue, cond);
   });
 }
 

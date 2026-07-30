@@ -126,26 +126,42 @@ function EnabledToggle({
 
 function FunnelDropdown({
   currentFunnelId,
+  assignmentSource,
   funnelTemplates,
   open,
   onToggle,
   onSelect,
 }: {
   currentFunnelId: string | null;
+  assignmentSource: 'manual' | 'automated' | null;
   funnelTemplates: FunnelTemplateItem[];
   open: boolean;
   onToggle: () => void;
   onSelect: (funnelId: string | null) => void;
 }) {
-  const isAutomated = !currentFunnelId;
+  // A null funnel used to render as the purple "Automated" pill, which reads as
+  // "handled by your rules" when it actually means no funnel resolved and every
+  // try-on on this product will fail. Unassigned now looks like the problem it is.
   const current = funnelTemplates.find((f) => f.id === currentFunnelId);
-  const label = isAutomated ? 'Automated' : (current?.label ?? 'Automated');
+  const unassigned = !current;
+  const label = unassigned
+    ? 'Not assigned'
+    : assignmentSource === 'automated'
+      ? `${current.label} · auto`
+      : current.label;
 
   return (
     <div style={{ position: 'relative' }}>
       <button
         type="button"
         onClick={onToggle}
+        title={
+          unassigned
+            ? 'No funnel template matched this product. Try-on stays off until you pick one or a funnel rule matches.'
+            : assignmentSource === 'automated'
+              ? 'Assigned automatically by your funnel rules.'
+              : 'Pinned manually.'
+        }
         style={{
           height: '34px',
           padding: '0 12px',
@@ -157,9 +173,9 @@ function FunnelDropdown({
           alignItems: 'center',
           gap: '6px',
           whiteSpace: 'nowrap',
-          border: `1px solid ${isAutomated ? BRAND.purpleBorder : BRAND.borderStrong}`,
-          background: isAutomated ? BRAND.purpleTint : '#fff',
-          color: isAutomated ? BRAND.purpleDark : BRAND.inkSoft,
+          border: `1px solid ${unassigned ? BRAND.danger : BRAND.borderStrong}`,
+          background: unassigned ? BRAND.dangerBg : '#fff',
+          color: unassigned ? BRAND.dangerStrong : BRAND.inkSoft,
         }}
       >
         {label}
@@ -200,7 +216,9 @@ function FunnelDropdown({
             }}
           >
             Automated (no manual pin)
-            {isAutomated && <CheckIcon size={13} color={BRAND.purple} strokeWidth={2.5} />}
+            {assignmentSource !== 'manual' && (
+              <CheckIcon size={13} color={BRAND.purple} strokeWidth={2.5} />
+            )}
           </button>
           {funnelTemplates.map((f) => (
             <button
@@ -247,9 +265,17 @@ export default function ProductsPage() {
 
   const filteredItems = useMemo(() => {
     return items
-      .filter((item) => statusFilter === 'all' || displayStatus(item) === statusFilter)
+      .filter((item) => {
+        // 'unassigned' cuts across sync status rather than being one of its buckets:
+        // a product can be active and enabled and still have no funnel, which is
+        // exactly the state that makes every try-on on it fail.
+        if (statusFilter === 'unassigned') return !item.funnelTemplateId;
+        return statusFilter === 'all' || displayStatus(item) === statusFilter;
+      })
       .filter((item) => (item.title ?? '').toLowerCase().includes(searchQuery.toLowerCase()));
   }, [items, statusFilter, searchQuery]);
+
+  const unassignedCount = useMemo(() => items.filter((i) => !i.funnelTemplateId).length, [items]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -485,6 +511,9 @@ export default function ProductsPage() {
               <option value="processing">Processing</option>
               <option value="failed">Failed</option>
               <option value="disabled">Disabled</option>
+              <option value="unassigned">
+                No funnel{unassignedCount > 0 ? ` (${unassignedCount})` : ''}
+              </option>
             </select>
           </div>
 
@@ -586,6 +615,7 @@ export default function ProductsPage() {
                     </div>
                     <FunnelDropdown
                       currentFunnelId={item.funnelTemplateId}
+                      assignmentSource={item.funnelAssignmentSource}
                       funnelTemplates={funnelTemplates}
                       open={openDropdownId === item.shopifyProductId}
                       onToggle={() =>

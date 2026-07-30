@@ -139,9 +139,19 @@ export async function shopifyFunnelRoutes(app: FastifyInstance) {
         .from(schema.shopifyProductGarments)
         .where(eq(schema.shopifyProductGarments.storeId, store.id));
 
-      let reassigned = 0;
+      // `reassigned` used to count every non-manual row this loop touched,
+      // including the ones a rule failed to match and which were therefore set
+      // back to NULL. "Reassigned 8" could mean "unassigned 8" — the merchant had
+      // no way to tell a rule that matches everything from one that matches
+      // nothing. Split into outcomes the number can't lie about.
+      let matched = 0;
+      let cleared = 0;
+      let skippedManual = 0;
       for (const p of products) {
-        if (p.funnelAssignmentSource === 'manual') continue;
+        if (p.funnelAssignmentSource === 'manual') {
+          skippedManual += 1;
+          continue;
+        }
         const resolved = await resolveFunnelTemplateId(app, store.id, {
           productType: p.productType,
           tags: p.tags,
@@ -155,10 +165,20 @@ export async function shopifyFunnelRoutes(app: FastifyInstance) {
             funnelAssignmentSource: resolved ? 'automated' : null,
           })
           .where(eq(schema.shopifyProductGarments.id, p.id));
-        reassigned += 1;
+        if (resolved) matched += 1;
+        else cleared += 1;
       }
 
-      return { ok: true, reassigned };
+      return {
+        ok: true,
+        matched,
+        cleared,
+        skippedManual,
+        evaluated: matched + cleared,
+        // Retained for one deploy cycle so an older admin bundle keeps rendering
+        // its toast; drop once the shopify app is known to be past this version.
+        reassigned: matched + cleared,
+      };
     },
   );
 }

@@ -7,11 +7,21 @@ export interface ShopifyStoreSettings {
   themeBlockConfirmed?: boolean;
 }
 
+export interface ShopifyFunnelCounts {
+  /** Products with a funnel template resolved — the only ones try-on can run for. */
+  mapped: number;
+  unmapped: number;
+  byRule: number;
+  byHand: number;
+}
+
 export interface ShopifyStats {
   totalTryOns: number;
   syncedProductCount: number;
   enabledProductCount: number;
+  /** @deprecated true when `funnelCounts.mapped > 0` — says nothing about the rest. */
   funnelConfigured: boolean;
+  funnelCounts: ShopifyFunnelCounts;
   statusCounts: { active: number; processing: number; failed: number; disabled: number };
 }
 
