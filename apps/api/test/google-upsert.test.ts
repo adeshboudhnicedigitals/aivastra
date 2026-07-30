@@ -103,6 +103,10 @@ describe('upsertGoogleUser', () => {
 
 describe('resolveFreeCredits', () => {
   it('returns 0 when no active free plan exists', async () => {
+    await app.db
+      .update(schema.creditPlans)
+      .set({ isActive: false })
+      .where(eq(schema.creditPlans.slug, 'free'));
     await expect(resolveFreeCredits(app)).resolves.toBe(0);
   });
 
