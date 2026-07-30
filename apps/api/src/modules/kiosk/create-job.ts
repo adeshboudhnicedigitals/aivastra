@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import type { FastifyInstance } from 'fastify';
 import { JOB_SOURCE } from '@aivastra/types';
+import type { FastifyInstance } from 'fastify';
 import { atomicMerchantDeduct } from '../merchant/ledger.js';
 
 export const KIOSK_JOB_COST = 10;

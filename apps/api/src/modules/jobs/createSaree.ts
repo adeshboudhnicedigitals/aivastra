@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { DB } from '@aivastra/db';
 import { schema } from '@aivastra/db';
 import { jobsCreatedTotal } from '@aivastra/observability';
-import { JOB_SOURCE, type CreateSareeJobRequest } from '@aivastra/types';
+import { type CreateSareeJobRequest, JOB_SOURCE } from '@aivastra/types';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
