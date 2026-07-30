@@ -145,6 +145,7 @@ describe('storage keys', () => {
 describe('admin demo set + subcategory routes', () => {
   let authHeaders: Record<string, string>;
   let infoSpy: ReturnType<typeof vi.spyOn>;
+  let errorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeAll(async () => {
     authHeaders = await adminAuthHeader(app, 'SUPER_ADMIN');
@@ -152,10 +153,12 @@ describe('admin demo set + subcategory routes', () => {
 
   beforeEach(() => {
     infoSpy = vi.spyOn(app.log, 'info');
+    errorSpy = vi.spyOn(app.log, 'error');
   });
 
   afterEach(() => {
     infoSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 
   const auth = () => authHeaders;
@@ -322,6 +325,326 @@ describe('admin demo set + subcategory routes', () => {
       payload: { name: 'Gone' },
     });
     expect(gone.statusCode).toBe(404);
+  });
+
+  it('reports positive product and assignment aggregates', async () => {
+    const set = await app.inject({
+      method: 'POST',
+      url: '/admin/demo-catalog/sets',
+      headers: auth(),
+      payload: { name: 'Aggregate set' },
+    });
+    const setId = set.json().id;
+    const subcategory = await app.inject({
+      method: 'POST',
+      url: '/admin/demo-catalog/subcategories',
+      headers: auth(),
+      payload: {
+        setId,
+        category: 'women',
+        name: 'Aggregate subcategory',
+        garmentSubcategoryId: garmentTypeId,
+      },
+    });
+    const subcategoryId = subcategory.json().id;
+    await app.db.insert(schema.demoCatalogItems).values([
+      {
+        subcategoryId,
+        label: 'Aggregate product one',
+        r2Key: keys.demoCatalogItem(randomUUID()),
+        thumbnailKey: keys.demoCatalogItemThumb(randomUUID()),
+      },
+      {
+        subcategoryId,
+        label: 'Aggregate product two',
+        r2Key: keys.demoCatalogItem(randomUUID()),
+        thumbnailKey: keys.demoCatalogItemThumb(randomUUID()),
+      },
+    ]);
+    const merchant = await createTestMerchant(app);
+    await app.db
+      .insert(schema.demoCatalogAssignments)
+      .values({ setId, merchantId: merchant.merchantId });
+
+    const sets = await app.inject({
+      method: 'GET',
+      url: '/admin/demo-catalog/sets',
+      headers: auth(),
+    });
+    const listedSet = sets.json().items.find((item: { id: string }) => item.id === setId);
+    expect(listedSet).toMatchObject({
+      subcategoryCount: 1,
+      productCount: 2,
+      assignedMerchantCount: 1,
+    });
+
+    const subcategories = await app.inject({
+      method: 'GET',
+      url: `/admin/demo-catalog/sets/${setId}/subcategories`,
+      headers: auth(),
+    });
+    expect(subcategories.json().items[0]).toMatchObject({ id: subcategoryId, productCount: 2 });
+  });
+
+  it('404s a subcategory patch with an unknown garment type', async () => {
+    const set = await app.inject({
+      method: 'POST',
+      url: '/admin/demo-catalog/sets',
+      headers: auth(),
+      payload: { name: 'Patch garment validation' },
+    });
+    const subcategory = await app.inject({
+      method: 'POST',
+      url: '/admin/demo-catalog/subcategories',
+      headers: auth(),
+      payload: {
+        setId: set.json().id,
+        category: 'women',
+        name: 'Patch target',
+        garmentSubcategoryId: garmentTypeId,
+      },
+    });
+
+    const patched = await app.inject({
+      method: 'PATCH',
+      url: `/admin/demo-catalog/subcategories/${subcategory.json().id}`,
+      headers: auth(),
+      payload: { garmentSubcategoryId: randomUUID() },
+    });
+    expect(patched.statusCode).toBe(404);
+    expect(patched.json()).toEqual({
+      error: { code: 'NOT_FOUND', message: 'garment type not found' },
+    });
+  });
+
+  it('deletes a subcategory and its real storage objects', async () => {
+    const set = await app.inject({
+      method: 'POST',
+      url: '/admin/demo-catalog/sets',
+      headers: auth(),
+      payload: { name: 'Storage cleanup set' },
+    });
+    const subcategory = await app.inject({
+      method: 'POST',
+      url: '/admin/demo-catalog/subcategories',
+      headers: auth(),
+      payload: {
+        setId: set.json().id,
+        category: 'women',
+        name: 'Storage cleanup subcategory',
+        garmentSubcategoryId: garmentTypeId,
+      },
+    });
+    const subcategoryId = subcategory.json().id;
+    const itemId = randomUUID();
+    const r2Key = keys.demoCatalogItem(itemId);
+    const thumbnailKey = keys.demoCatalogItemThumb(itemId);
+    await app.storage.putObject(r2Key, Buffer.from('image'), 'image/jpeg');
+    await app.storage.putObject(thumbnailKey, Buffer.from('thumbnail'), 'image/jpeg');
+    await app.db.insert(schema.demoCatalogItems).values({
+      id: itemId,
+      subcategoryId,
+      label: 'Storage cleanup item',
+      r2Key,
+      thumbnailKey,
+    });
+
+    const deleted = await app.inject({
+      method: 'DELETE',
+      url: `/admin/demo-catalog/subcategories/${subcategoryId}`,
+      headers: auth(),
+    });
+    expect(deleted.statusCode).toBe(204);
+    expect(
+      await app.db
+        .select()
+        .from(schema.demoCatalogItems)
+        .where(eq(schema.demoCatalogItems.id, itemId)),
+    ).toHaveLength(0);
+    await expect(app.storage.headObject(r2Key)).rejects.toThrow();
+    await expect(app.storage.headObject(thumbnailKey)).rejects.toThrow();
+  });
+
+  it('surfaces and audits storage failures after a set cascade', async () => {
+    const set = await app.inject({
+      method: 'POST',
+      url: '/admin/demo-catalog/sets',
+      headers: auth(),
+      payload: { name: 'Storage failure set' },
+    });
+    const setId = set.json().id;
+    const subcategory = await app.inject({
+      method: 'POST',
+      url: '/admin/demo-catalog/subcategories',
+      headers: auth(),
+      payload: {
+        setId,
+        category: 'women',
+        name: 'Storage failure subcategory',
+        garmentSubcategoryId: garmentTypeId,
+      },
+    });
+    const itemId = randomUUID();
+    const r2Key = keys.demoCatalogItem(itemId);
+    const thumbnailKey = keys.demoCatalogItemThumb(itemId);
+    await app.storage.putObject(r2Key, Buffer.from('image'), 'image/jpeg');
+    await app.storage.putObject(thumbnailKey, Buffer.from('thumbnail'), 'image/jpeg');
+    await app.db.insert(schema.demoCatalogItems).values({
+      id: itemId,
+      subcategoryId: subcategory.json().id,
+      label: 'Storage failure item',
+      r2Key,
+      thumbnailKey,
+    });
+
+    const realDeleteObject = app.storage.deleteObject.bind(app.storage);
+    app.storage.deleteObject = async (key) => {
+      if (key === thumbnailKey) throw new Error('simulated storage outage');
+      await realDeleteObject(key);
+    };
+    const deleted = await (async () => {
+      try {
+        return await app.inject({
+          method: 'DELETE',
+          url: `/admin/demo-catalog/sets/${setId}`,
+          headers: auth(),
+        });
+      } finally {
+        app.storage.deleteObject = realDeleteObject;
+      }
+    })();
+
+    expect(deleted.statusCode).toBe(502);
+    expect(deleted.json()).toEqual({
+      error: {
+        code: 'STORAGE_DELETE_FAILED',
+        message: 'demo set deleted but object cleanup failed',
+      },
+    });
+    expect(
+      await app.db
+        .select()
+        .from(schema.demoCatalogSets)
+        .where(eq(schema.demoCatalogSets.id, setId)),
+    ).toHaveLength(0);
+    await expect(app.storage.headObject(r2Key)).rejects.toThrow();
+    await expect(app.storage.headObject(thumbnailKey)).resolves.toMatchObject({ contentLength: 9 });
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adminUserId: expect.any(String),
+        demoSetId: setId,
+        fields: expect.arrayContaining(['id', 'name']),
+        databaseDeleted: true,
+        deletedObjectKeys: [r2Key],
+        failedObjects: [
+          {
+            field: 'thumbnailKey',
+            key: thumbnailKey,
+            error: { name: 'Error', message: 'simulated storage outage' },
+          },
+        ],
+      }),
+      'demo set deleted with object cleanup failures',
+    );
+    expect(infoSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ demoSetId: setId }),
+      'demo set deleted',
+    );
+  });
+
+  it('allows ADMIN edits but denies ADMIN deletes and all SUPPORT mutations', async () => {
+    const adminHeaders = await adminAuthHeader(app, 'ADMIN');
+    const supportHeaders = await adminAuthHeader(app, 'SUPPORT');
+    const set = await app.inject({
+      method: 'POST',
+      url: '/admin/demo-catalog/sets',
+      headers: adminHeaders,
+      payload: { name: 'Role matrix set' },
+    });
+    expect(set.statusCode).toBe(201);
+    const setId = set.json().id;
+    const setPatch = await app.inject({
+      method: 'PATCH',
+      url: `/admin/demo-catalog/sets/${setId}`,
+      headers: adminHeaders,
+      payload: { name: 'ADMIN renamed' },
+    });
+    expect(setPatch.statusCode).toBe(200);
+    const subcategory = await app.inject({
+      method: 'POST',
+      url: '/admin/demo-catalog/subcategories',
+      headers: adminHeaders,
+      payload: {
+        setId,
+        category: 'women',
+        name: 'Role matrix subcategory',
+        garmentSubcategoryId: garmentTypeId,
+      },
+    });
+    expect(subcategory.statusCode).toBe(201);
+    const subcategoryId = subcategory.json().id;
+    expect(
+      (
+        await app.inject({
+          method: 'PATCH',
+          url: `/admin/demo-catalog/subcategories/${subcategoryId}`,
+          headers: adminHeaders,
+          payload: { name: 'ADMIN renamed subcategory' },
+        })
+      ).statusCode,
+    ).toBe(200);
+    for (const url of [
+      `/admin/demo-catalog/sets/${setId}`,
+      `/admin/demo-catalog/subcategories/${subcategoryId}`,
+    ]) {
+      expect((await app.inject({ method: 'DELETE', url, headers: adminHeaders })).statusCode).toBe(
+        403,
+      );
+    }
+
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/admin/demo-catalog/sets',
+          headers: supportHeaders,
+          payload: { name: 'Denied support set' },
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/admin/demo-catalog/subcategories',
+          headers: supportHeaders,
+          payload: {
+            setId,
+            category: 'women',
+            name: 'Denied support subcategory',
+            garmentSubcategoryId: garmentTypeId,
+          },
+        })
+      ).statusCode,
+    ).toBe(403);
+    for (const url of [
+      `/admin/demo-catalog/sets/${setId}`,
+      `/admin/demo-catalog/subcategories/${subcategoryId}`,
+    ]) {
+      expect(
+        (
+          await app.inject({
+            method: 'PATCH',
+            url,
+            headers: supportHeaders,
+            payload: { name: 'Denied support patch' },
+          })
+        ).statusCode,
+      ).toBe(403);
+      expect(
+        (await app.inject({ method: 'DELETE', url, headers: supportHeaders })).statusCode,
+      ).toBe(403);
+    }
   });
 
   it('404s a subcategory pointed at a set that does not exist', async () => {

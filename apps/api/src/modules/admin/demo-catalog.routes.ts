@@ -11,6 +11,25 @@ import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { requireAdmin } from './guard.js';
 
+type DemoObjectField = 'r2Key' | 'thumbnailKey';
+
+interface DemoObjectTarget {
+  field: DemoObjectField;
+  key: string;
+}
+
+function serializeStorageError(reason: unknown): { name: string; message: string; code?: string } {
+  if (!(reason instanceof Error)) {
+    return { name: 'UnknownError', message: String(reason) };
+  }
+  const code = 'code' in reason && typeof reason.code === 'string' ? reason.code : undefined;
+  return {
+    name: reason.name,
+    message: reason.message,
+    ...(code ? { code } : {}),
+  };
+}
+
 export async function adminDemoCatalogRoutes(app: FastifyInstance): Promise<void> {
   const RW = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
   const D = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
@@ -24,6 +43,36 @@ export async function adminDemoCatalogRoutes(app: FastifyInstance): Promise<void
       .limit(1);
     if (!set) throw new AppError('NOT_FOUND', 404, 'demo set not found');
     return set;
+  }
+
+  async function loadGarmentType(id: string) {
+    const [garmentType] = await app.db
+      .select({ id: schema.garmentSubcategories.id })
+      .from(schema.garmentSubcategories)
+      .where(eq(schema.garmentSubcategories.id, id))
+      .limit(1);
+    if (!garmentType) throw new AppError('NOT_FOUND', 404, 'garment type not found');
+    return garmentType;
+  }
+
+  async function deleteDemoObjects(targets: DemoObjectTarget[]) {
+    const results = await Promise.allSettled(
+      targets.map((target) => app.storage.deleteObject(target.key)),
+    );
+    const deletedObjectKeys: string[] = [];
+    const failedObjects: Array<
+      DemoObjectTarget & { error: ReturnType<typeof serializeStorageError> }
+    > = [];
+    for (const [index, result] of results.entries()) {
+      const target = targets[index];
+      if (!target) continue;
+      if (result.status === 'fulfilled') {
+        deletedObjectKeys.push(target.key);
+      } else {
+        failedObjects.push({ ...target, error: serializeStorageError(result.reason) });
+      }
+    }
+    return { deletedObjectKeys, failedObjects };
   }
 
   app.get('/admin/demo-catalog/sets', { preHandler: RW }, async () => {
@@ -150,19 +199,38 @@ export async function adminDemoCatalogRoutes(app: FastifyInstance): Promise<void
         .where(eq(schema.demoCatalogSubcategories.setId, id));
 
       await app.db.delete(schema.demoCatalogSets).where(eq(schema.demoCatalogSets.id, id));
-      await Promise.allSettled(
+      const cleanup = await deleteDemoObjects(
         orphaned.flatMap((row) => [
-          app.storage.deleteObject(row.r2Key),
-          app.storage.deleteObject(row.thumbnailKey),
+          { field: 'r2Key' as const, key: row.r2Key },
+          { field: 'thumbnailKey' as const, key: row.thumbnailKey },
         ]),
       );
+
+      if (cleanup.failedObjects.length > 0) {
+        app.log.error(
+          {
+            adminUserId: req.userId,
+            demoSetId: id,
+            fields: Object.keys(set),
+            databaseDeleted: true,
+            deletedObjectKeys: cleanup.deletedObjectKeys,
+            failedObjects: cleanup.failedObjects,
+          },
+          'demo set deleted with object cleanup failures',
+        );
+        throw new AppError(
+          'STORAGE_DELETE_FAILED',
+          502,
+          'demo set deleted but object cleanup failed',
+        );
+      }
 
       app.log.info(
         {
           adminUserId: req.userId,
           demoSetId: id,
           fields: Object.keys(set),
-          deletedObjects: orphaned.length * 2,
+          deletedObjects: cleanup.deletedObjectKeys.length,
         },
         'demo set deleted',
       );
@@ -213,12 +281,7 @@ export async function adminDemoCatalogRoutes(app: FastifyInstance): Promise<void
       const body = req.body as z.infer<typeof DemoCatalogSubcategoryCreateBody>;
       await loadSet(body.setId);
 
-      const [garmentType] = await app.db
-        .select({ id: schema.garmentSubcategories.id })
-        .from(schema.garmentSubcategories)
-        .where(eq(schema.garmentSubcategories.id, body.garmentSubcategoryId))
-        .limit(1);
-      if (!garmentType) throw new AppError('NOT_FOUND', 404, 'garment type not found');
+      await loadGarmentType(body.garmentSubcategoryId);
 
       const [row] = await app.db
         .insert(schema.demoCatalogSubcategories)
@@ -251,6 +314,7 @@ export async function adminDemoCatalogRoutes(app: FastifyInstance): Promise<void
     async (req) => {
       const { id } = req.params as { id: string };
       const body = req.body as z.infer<typeof DemoCatalogSubcategoryUpdateBody>;
+      if (body.garmentSubcategoryId) await loadGarmentType(body.garmentSubcategoryId);
       const [updated] = await app.db
         .update(schema.demoCatalogSubcategories)
         .set({ ...body, updatedAt: new Date() })
@@ -284,18 +348,36 @@ export async function adminDemoCatalogRoutes(app: FastifyInstance): Promise<void
         .returning();
       if (!deleted) throw new AppError('NOT_FOUND', 404, 'demo subcategory not found');
 
-      await Promise.allSettled(
+      const cleanup = await deleteDemoObjects(
         orphaned.flatMap((row) => [
-          app.storage.deleteObject(row.r2Key),
-          app.storage.deleteObject(row.thumbnailKey),
+          { field: 'r2Key' as const, key: row.r2Key },
+          { field: 'thumbnailKey' as const, key: row.thumbnailKey },
         ]),
       );
+      if (cleanup.failedObjects.length > 0) {
+        app.log.error(
+          {
+            adminUserId: req.userId,
+            demoSubcategoryId: id,
+            fields: Object.keys(deleted),
+            databaseDeleted: true,
+            deletedObjectKeys: cleanup.deletedObjectKeys,
+            failedObjects: cleanup.failedObjects,
+          },
+          'demo subcategory deleted with object cleanup failures',
+        );
+        throw new AppError(
+          'STORAGE_DELETE_FAILED',
+          502,
+          'demo subcategory deleted but object cleanup failed',
+        );
+      }
       app.log.info(
         {
           adminUserId: req.userId,
           demoSubcategoryId: id,
           fields: Object.keys(deleted),
-          deletedObjects: orphaned.length * 2,
+          deletedObjects: cleanup.deletedObjectKeys.length,
         },
         'demo subcategory deleted',
       );
