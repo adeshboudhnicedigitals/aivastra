@@ -60,6 +60,12 @@ const groups: NavGroup[] = [
         roles: ['SUPER_ADMIN', 'MODERATOR'],
       },
       {
+        k: 'demo-catalog',
+        label: 'Kiosk Demo Data',
+        icon: Icon.Image,
+        roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN'],
+      },
+      {
         k: 'dev-api',
         label: 'Dev API',
         icon: Icon.Workflow,

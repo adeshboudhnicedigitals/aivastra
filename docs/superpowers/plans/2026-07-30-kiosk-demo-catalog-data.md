@@ -2749,7 +2749,7 @@ git commit -m "fix(web): exclude demo rows from the merchant library editors"
 - Consumes: `/admin/demo-catalog/*` (Tasks 2-4); `GET /admin/merchants` (existing); `GET /admin/assets/garment-types` (existing, `admin/subcategories.routes.ts:22`); `apiFetch`, `apiErrorMessage` (`apps/admin-web/src/lib/data.ts:551,516`); `makeThumbnail` (`apps/admin-web/src/lib/thumbnail.ts:12`).
 - Produces: route `/demo-catalog`, sidebar entry "Kiosk Demo Data".
 
-- [ ] **Step 1: Write the page**
+- [x] **Step 1: Write the page**
 
 Create `apps/admin-web/src/pages/DemoCatalogPage.tsx`. Three panes left to right — sets,
 subcategories, products — matching the merchant `catalogue-manager` mental model:
@@ -3191,7 +3191,7 @@ Class names (`page`, `card`, `grid-3`, `list`, `badge`, `muted`, `grid-items`) m
 its wrappers rather than inventing new ones. If `grid-3` / `grid-items` do not exist, add them to the
 stylesheet the other pages use.
 
-- [ ] **Step 2: Register the route and sidebar entry**
+- [x] **Step 2: Register the route and sidebar entry**
 
 `apps/admin-web/src/App.tsx` — import the page and add, after the `/tryon` route (line 218):
 
@@ -3213,7 +3213,7 @@ stylesheet the other pages use.
 Roles must match the `RW` guard from Task 2 (`SUPER_ADMIN`, `MODERATOR`, `ADMIN`) — otherwise the
 link shows for someone who then gets a 403.
 
-- [ ] **Step 3: Verify it builds**
+- [x] **Step 3: Verify it builds**
 
 ```bash
 pnpm --filter @aivastra/admin build
@@ -3221,7 +3221,7 @@ pnpm lint
 ```
 Expected: clean build, 0 lint errors.
 
-- [ ] **Step 4: Verify by hand**
+- [x] **Step 4: Verify by hand**
 
 With the API running, log in to the admin panel and:
 1. Create a set → it appears with zero counts.
@@ -3234,7 +3234,7 @@ With the API running, log in to the admin panel and:
 7. Delete the set → confirm dialog names the product and merchant counts, and the objects are gone
    from MinIO.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/admin-web/src
