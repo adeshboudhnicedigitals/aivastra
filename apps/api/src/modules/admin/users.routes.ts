@@ -72,6 +72,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
               ),
           ),
           isMerchant: isNotNull(schema.merchants.id),
+          signupSource: schema.merchants.signupSource,
         })
         .from(schema.users)
         .leftJoin(schema.userCredits, eq(schema.userCredits.userId, schema.users.id))
