@@ -2232,7 +2232,7 @@ git commit -m "feat(merchant): surface assigned demo catalog rows in catalog rea
 - Consumes: `schema.demoCatalog*` (Task 1); `loadDemoItems` (Task 5).
 - Produces: `resolveTryonGarment(app, merchantId, itemId): Promise<{ r2Key: string; workflowTemplateId: string; isDemo: boolean }>`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `apps/api/test/demo-catalog-tryon.test.ts`. Reuse `createTestTryonCategory`
 (`apps/api/test/helpers/merchant.ts`) so the garment type actually resolves to a workflow template:
@@ -2470,12 +2470,12 @@ Confirm the `garment_subcategories` FK column is really named `tryonCategoryId` 
 `packages/db/src/schema/models.ts` — `merchant/tryon.routes.ts:152` joins on it, so it exists, but
 match the exact property name.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @aivastra/api test -- demo-catalog-tryon`
 Expected: FAIL — the demo item id 404s ("catalog item not found") on the first test.
 
-- [ ] **Step 3: Write the resolver**
+- [x] **Step 3: Write the resolver**
 
 Create `apps/api/src/modules/merchant/resolve-tryon-garment.ts`. The merchant branch is the query
 currently inlined at `merchant/tryon.routes.ts:127-173`, moved verbatim:
@@ -2605,7 +2605,7 @@ function assertWorkflow(row: {
 }
 ```
 
-- [ ] **Step 4: Use the resolver in both job routes**
+- [x] **Step 4: Use the resolver in both job routes**
 
 In `apps/api/src/modules/merchant/tryon.routes.ts`, replace lines 127-173 (the `item` query and its
 four guards) with:
@@ -2622,7 +2622,7 @@ In `apps/api/src/modules/kiosk/jobs.routes.ts`, replace the equivalent block at 
 same way, importing from `'../merchant/resolve-tryon-garment.js'`. Leave `KIOSK_JOB_COST` and the
 credit deduct untouched — that path charges 10 credits and demo items are not special there.
 
-- [ ] **Step 5: Append demo items to the kiosk device catalog**
+- [x] **Step 5: Append demo items to the kiosk device catalog**
 
 In `apps/api/src/modules/kiosk/catalog.routes.ts`, after the existing `rows` query, replace the
 return with:
@@ -2656,7 +2656,7 @@ return with:
 ```
 plus `import { loadDemoItems, loadDemoSubcategories } from '../merchant/demo-catalog-read.js';`.
 
-- [ ] **Step 6: Run the tests**
+- [x] **Step 6: Run the tests**
 
 Run: `pnpm --filter @aivastra/api test -- demo-catalog-tryon`
 Expected: PASS, 5 tests.
@@ -2665,7 +2665,7 @@ Run: `pnpm --filter @aivastra/api test`
 Expected: whole suite green — the merchant and kiosk try-on behaviour for non-demo items is
 unchanged, including the existing error codes.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/api/src/modules/merchant/resolve-tryon-garment.ts \
