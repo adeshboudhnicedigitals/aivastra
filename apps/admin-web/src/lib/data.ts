@@ -43,6 +43,7 @@ export function statusBadge(s: string): [string, string] {
 export function jobTypeBadge(t: string): [string, string] {
   const m: Record<string, [string, string]> = {
     catalog: ['', 'Catalog'],
+    catalog_video: ['success', 'Catalog Video'],
     tryon: ['info', 'Try On'],
     saree: ['accent', 'Saree'],
     saree_mannequin: ['warn', 'Saree Prep'],
@@ -51,8 +52,13 @@ export function jobTypeBadge(t: string): [string, string] {
     kiosk: ['accent', 'Kiosk'],
     merchant_catalog: ['accent', 'Try On Library'],
     merchant_catalog_saree_mannequin: ['warn', 'Try On Library Prep'],
-    api: ['success', 'API'],
+    api_tryon: ['success', 'API Try On'],
+    api_saree_mannequin: ['success', 'API Saree Prep'],
+    api_catalog: ['success', 'API Catalog'],
   };
+  if (!m[t]) {
+    console.warn(`jobTypeBadge: unrecognized job source "${t}" — add it to the label map in apps/admin-web/src/lib/data.ts`);
+  }
   return m[t] || ['', t];
 }
 
