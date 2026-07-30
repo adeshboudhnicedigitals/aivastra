@@ -6,6 +6,7 @@ export * from './chatbot.js';
 export * from './common.js';
 export * from './credits.js';
 export * from './dev.js';
+export * from './job-taxonomy.js';
 export * from './jobs.js';
 export * from './saree.js';
 export * from './tryon.js';
