@@ -1829,25 +1829,11 @@ async function processShopifyJob(
   const garmentKey = inputs.upperGarmentKey;
   const customerPhotoKey = job.customerPhotoKey;
 
-  const [garmentRow] = await db
-    .select({
-      funnelTemplateId: schema.shopifyProductGarments.funnelTemplateId,
-    })
-    .from(schema.shopifyProductGarments)
-    .where(eq(schema.shopifyProductGarments.r2Key, garmentKey ?? ''))
-    .limit(1);
-
-  let workflowTemplateId: string | undefined;
-  if (garmentRow?.funnelTemplateId) {
-    const [funnelTemplate] = await db
-      .select({ workflowTemplateId: schema.shopifyFunnelTemplates.workflowTemplateId })
-      .from(schema.shopifyFunnelTemplates)
-      .where(eq(schema.shopifyFunnelTemplates.id, garmentRow.funnelTemplateId));
-    workflowTemplateId = funnelTemplate?.workflowTemplateId;
-  }
-  if (!workflowTemplateId) {
-    workflowTemplateId = params.workflowTemplateId as string | undefined;
-  }
+  // The API resolves the workflow at creation and pins it onto params. Looking it
+  // up again here would reintroduce the split-brain the funnel removal closed: a
+  // default promoted after this job was charged would silently run a different
+  // workflow than the one the merchant was billed for.
+  const workflowTemplateId = params.workflowTemplateId as string | undefined;
 
   if (!workflowTemplateId || !garmentKey || !customerPhotoKey) {
     await markShopifyFailed(
