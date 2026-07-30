@@ -48,12 +48,13 @@ describe('shopify customer routes', () => {
     return store;
   }
 
-  /** One funnel template (and the workflow it points at) shared by every test that
-   *  needs a try-on to actually be creatable. Created lazily so the tests that
-   *  assert the unassigned path aren't forced to depend on it. */
-  let funnelTemplateId: string | null = null;
-  async function getFunnelTemplateId() {
-    if (funnelTemplateId) return funnelTemplateId;
+  /** The single default funnel template every product now resolves. Created
+   *  lazily so the test that asserts the no-default path isn't forced to depend
+   *  on it — that test runs against a database where this was never called. */
+  let defaultFunnelTemplateId: string | null = null;
+  let defaultWorkflowTemplateId: string | null = null;
+  async function seedDefaultFunnelTemplate() {
+    if (defaultFunnelTemplateId) return defaultFunnelTemplateId;
     const [workflow] = await app.db
       .insert(schema.workflowTemplates)
       .values({
@@ -72,21 +73,18 @@ describe('shopify customer routes', () => {
     const [funnel] = await app.db
       .insert(schema.shopifyFunnelTemplates)
       .values({
-        slug: `upper-${Date.now()}`,
-        label: 'Upper garment',
+        slug: `default-${Date.now()}`,
+        label: 'Default',
         workflowTemplateId: workflow.id,
+        isDefault: true,
       })
       .returning();
-    funnelTemplateId = funnel.id;
-    return funnelTemplateId;
+    defaultFunnelTemplateId = funnel.id;
+    defaultWorkflowTemplateId = workflow.id;
+    return defaultFunnelTemplateId;
   }
 
-  async function seedGarment(
-    storeId: string,
-    shopifyProductId: number,
-    opts: { withFunnel?: boolean } = {},
-  ) {
-    const { withFunnel = true } = opts;
+  async function seedGarment(storeId: string, shopifyProductId: number) {
     const [garment] = await app.db
       .insert(schema.shopifyProductGarments)
       .values({
@@ -96,9 +94,6 @@ describe('shopify customer routes', () => {
         title: 'Test Product',
         status: 'active',
         enabled: true,
-        ...(withFunnel
-          ? { funnelTemplateId: await getFunnelTemplateId(), funnelAssignmentSource: 'manual' }
-          : {}),
       })
       .returning();
     return garment;
@@ -165,7 +160,94 @@ describe('shopify customer routes', () => {
     expect(res.statusCode).toBe(402);
   });
 
+  it('refuses to enqueue when no default funnel template exists, without charging credits', async () => {
+    // Runs before any test calls seedDefaultFunnelTemplate(), so the table is
+    // empty. Ordering matters — do not move this below a test that seeds one.
+    const owner = await seedOwner(100);
+    const store = await seedStore(owner.id);
+    const r2Key = await uploadCustomerPhoto(store.storeKey, Buffer.from('photo-bytes'));
+    await seedGarment(store.id, 71);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/customer/jobs',
+      headers: { 'x-widget-key': store.storeKey },
+      payload: { customerPhotoKey: r2Key, shopifyProductId: 71 },
+    });
+    // 202, not 4xx: same shape the widget already handles for a product that is
+    // still syncing or switched off.
+    expect(res.statusCode).toBe(202);
+    expect(res.json()).not.toHaveProperty('jobId');
+
+    const [credits] = await app.db
+      .select()
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, owner.id));
+    expect(credits.balance).toBe(100);
+
+    const jobs = await app.db
+      .select()
+      .from(schema.jobs)
+      .where(eq(schema.jobs.shopifyStoreId, store.id));
+    expect(jobs).toHaveLength(0);
+  });
+
+  it('pins the default template workflow onto the job params', async () => {
+    await seedDefaultFunnelTemplate();
+    const owner = await seedOwner(100);
+    const store = await seedStore(owner.id);
+    const r2Key = await uploadCustomerPhoto(store.storeKey, Buffer.from('photo-bytes'));
+    await seedGarment(store.id, 72);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/customer/jobs',
+      headers: { 'x-widget-key': store.storeKey },
+      payload: { customerPhotoKey: r2Key, shopifyProductId: 72 },
+    });
+    expect(res.statusCode).toBe(201);
+    const { jobId } = res.json() as { jobId: string };
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, jobId));
+    expect((inputs.params as { workflowTemplateId?: string }).workflowTemplateId).toBe(
+      defaultWorkflowTemplateId,
+    );
+  });
+
+  it('ignores a store-level workflowTemplateId setting', async () => {
+    // settings.workflowTemplateId is vestigial — nothing writes it in production
+    // and it must not silently override the admin-set default.
+    await seedDefaultFunnelTemplate();
+    const owner = await seedOwner(100);
+    const store = await seedStore(owner.id);
+    await app.db
+      .update(schema.shopifyStores)
+      .set({ settings: { workflowTemplateId: '00000000-0000-0000-0000-000000000001' } })
+      .where(eq(schema.shopifyStores.id, store.id));
+    const r2Key = await uploadCustomerPhoto(store.storeKey, Buffer.from('photo-bytes'));
+    await seedGarment(store.id, 73);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/customer/jobs',
+      headers: { 'x-widget-key': store.storeKey },
+      payload: { customerPhotoKey: r2Key, shopifyProductId: 73 },
+    });
+    expect(res.statusCode).toBe(201);
+    const { jobId } = res.json() as { jobId: string };
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, jobId));
+    expect((inputs.params as { workflowTemplateId?: string }).workflowTemplateId).toBe(
+      defaultWorkflowTemplateId,
+    );
+  });
+
   it('creates a job billed to the store owner and deducts their credits, needing no shopper auth at all', async () => {
+    await seedDefaultFunnelTemplate();
     const owner = await seedOwner(100);
     const store = await seedStore(owner.id);
     const r2Key = await uploadCustomerPhoto(store.storeKey, Buffer.from('photo-bytes'));
@@ -189,77 +271,6 @@ describe('shopify customer routes', () => {
       .from(schema.userCredits)
       .where(eq(schema.userCredits.userId, owner.id));
     expect(credits.balance).toBeLessThan(100);
-  });
-
-  it('refuses to enqueue a product with no funnel template, without charging credits', async () => {
-    const owner = await seedOwner(100);
-    const store = await seedStore(owner.id);
-    const r2Key = await uploadCustomerPhoto(store.storeKey, Buffer.from('photo-bytes'));
-    await seedGarment(store.id, 71, { withFunnel: false });
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/shopify/customer/jobs',
-      headers: { 'x-widget-key': store.storeKey },
-      payload: { customerPhotoKey: r2Key, shopifyProductId: 71 },
-    });
-    // 202, not 4xx: same shape the widget already handles for a product that is
-    // still syncing or switched off. Previously this path returned 201, deducted
-    // credits, and only failed in the dispatcher with NO_WORKFLOW_CONFIGURED.
-    expect(res.statusCode).toBe(202);
-    expect(res.json()).not.toHaveProperty('jobId');
-
-    const [credits] = await app.db
-      .select()
-      .from(schema.userCredits)
-      .where(eq(schema.userCredits.userId, owner.id));
-    expect(credits.balance).toBe(100);
-
-    const jobs = await app.db
-      .select()
-      .from(schema.jobs)
-      .where(eq(schema.jobs.shopifyStoreId, store.id));
-    expect(jobs).toHaveLength(0);
-  });
-
-  it('falls back to the store-level workflow when the product has no funnel', async () => {
-    const owner = await seedOwner(100);
-    const store = await seedStore(owner.id);
-    const [workflow] = await app.db
-      .insert(schema.workflowTemplates)
-      .values({
-        slug: `shopify-store-fallback-${Date.now()}`,
-        label: 'Store fallback workflow',
-        jsonContent: {},
-        poseNodeId: '2',
-        upperNodeIds: ['4'],
-        garmentPhasePromptNode: '6',
-        workflowType: 'tryon',
-        tryonPersonNodeId: '10',
-        tryonGarmentNodeId: '11',
-        tryonOutputNodeId: '12',
-      })
-      .returning();
-    await app.db
-      .update(schema.shopifyStores)
-      .set({ settings: { workflowTemplateId: workflow.id } })
-      .where(eq(schema.shopifyStores.id, store.id));
-    const r2Key = await uploadCustomerPhoto(store.storeKey, Buffer.from('photo-bytes'));
-    await seedGarment(store.id, 72, { withFunnel: false });
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/shopify/customer/jobs',
-      headers: { 'x-widget-key': store.storeKey },
-      payload: { customerPhotoKey: r2Key, shopifyProductId: 72 },
-    });
-    expect(res.statusCode).toBe(201);
-    const { jobId } = res.json() as { jobId: string };
-    const [inputs] = await app.db
-      .select()
-      .from(schema.jobInputs)
-      .where(eq(schema.jobInputs.jobId, jobId));
-    expect((inputs.params as { workflowTemplateId?: string }).workflowTemplateId).toBe(workflow.id);
   });
 
   it('rejects a customer photo above the admin-configured limit', async () => {
@@ -288,6 +299,7 @@ describe('shopify customer routes', () => {
   });
 
   it('scopes job status/events by store, not by shopper identity', async () => {
+    await seedDefaultFunnelTemplate();
     const owner = await seedOwner(100);
     const store = await seedStore(owner.id);
     const otherStore = await seedStore(null);
@@ -324,6 +336,7 @@ describe('shopify customer routes', () => {
   });
 
   it('extends the upload ownership TTL to 24h after a successful job creation', async () => {
+    await seedDefaultFunnelTemplate();
     const owner = await seedOwner(100);
     const store = await seedStore(owner.id);
     const r2Key = await uploadCustomerPhoto(store.storeKey, Buffer.from('photo-bytes'));
@@ -343,6 +356,7 @@ describe('shopify customer routes', () => {
   });
 
   it('reuses the same photo for a second, different product', async () => {
+    await seedDefaultFunnelTemplate();
     const owner = await seedOwner(100);
     const store = await seedStore(owner.id);
     const r2Key = await uploadCustomerPhoto(store.storeKey, Buffer.from('photo-bytes'));

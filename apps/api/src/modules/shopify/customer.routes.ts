@@ -72,31 +72,28 @@ async function requireStoreOwnerWithCredits(
 }
 
 /**
- * Mirrors the dispatcher's own resolution order (processShopifyJob in
- * apps/dispatcher/src/job/processor.ts): the garment's assigned funnel template
- * first, then the store-level workflow fallback.
+ * The workflow every Shopify try-on runs. Resolved here, at creation, and pinned
+ * onto job_inputs.params so the dispatcher never has to look it up again — and so
+ * an admin promoting a different default mid-flight cannot change the workflow
+ * under a job whose credits are already deducted.
  *
- * Resolved here, at creation, rather than only in the dispatcher: an unassigned
- * product used to pass every create-time check, deduct credits, enqueue, and only
- * then fail with NO_WORKFLOW_CONFIGURED — a refunded round-trip and a FAILED job
- * row for what is really a merchant configuration gap. Newly synced products that
- * no funnel rule matched are unassigned by default, so this was every store's
- * newest product until someone pinned a funnel by hand.
+ * Returning null means no active default is configured at all, which is a system
+ * misconfiguration rather than anything the merchant did. The caller refuses the
+ * job before deducting credits: enqueueing would burn a credit and produce a
+ * FAILED row with NO_WORKFLOW_CONFIGURED for something no merchant can fix.
  */
-async function resolveWorkflowTemplateId(
-  app: FastifyInstance,
-  store: typeof schema.shopifyStores.$inferSelect,
-  garment: typeof schema.shopifyProductGarments.$inferSelect,
-): Promise<string | null> {
-  if (garment.funnelTemplateId) {
-    const [funnelTemplate] = await app.db
-      .select({ workflowTemplateId: schema.shopifyFunnelTemplates.workflowTemplateId })
-      .from(schema.shopifyFunnelTemplates)
-      .where(eq(schema.shopifyFunnelTemplates.id, garment.funnelTemplateId))
-      .limit(1);
-    if (funnelTemplate?.workflowTemplateId) return funnelTemplate.workflowTemplateId;
-  }
-  return store.settings?.workflowTemplateId ?? null;
+async function resolveWorkflowTemplateId(app: FastifyInstance): Promise<string | null> {
+  const [row] = await app.db
+    .select({ workflowTemplateId: schema.shopifyFunnelTemplates.workflowTemplateId })
+    .from(schema.shopifyFunnelTemplates)
+    .where(
+      and(
+        eq(schema.shopifyFunnelTemplates.isDefault, true),
+        eq(schema.shopifyFunnelTemplates.isActive, true),
+      ),
+    )
+    .limit(1);
+  return row?.workflowTemplateId ?? null;
 }
 
 /**
@@ -232,20 +229,15 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
           .send({ message: 'This product is not available for try-on right now.' });
       }
 
-      const workflowTemplateId = await resolveWorkflowTemplateId(app, store, garment);
+      const workflowTemplateId = await resolveWorkflowTemplateId(app);
       if (!workflowTemplateId) {
-        // Logged, not silent: from the shopper's side this is indistinguishable
-        // from "disabled", and the merchant has no other signal that their newest
-        // product never picked up a funnel.
-        app.log.warn(
-          {
-            storeId,
-            shopifyProductId,
-            garmentId: garment.id,
-            funnelTemplateId: garment.funnelTemplateId,
-            funnelAssignmentSource: garment.funnelAssignmentSource,
-          },
-          'shopify try-on blocked before enqueue: no funnel template resolves for this product',
+        // error, not warn: after the funnel removal this can only mean no active
+        // default template exists, which is ours to fix, not the merchant's. The
+        // shopper still sees the same soft message as a disabled product — no
+        // internal state leaks to the storefront.
+        app.log.error(
+          { storeId, shopifyProductId, garmentId: garment.id },
+          'shopify try-on blocked before enqueue: no active default funnel template is configured',
         );
         return reply
           .code(202)
@@ -275,10 +267,9 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
           params: {
             kind: 'shopify',
             shopifyProductId,
-            // Already resolved above — the dispatcher still prefers the garment's own
-            // funnel template and lands on the same id, but pinning it here means a
-            // funnel reassignment mid-flight can't change the workflow under a job
-            // whose credits are already deducted.
+            // Resolved above and pinned here so the dispatcher trusts it rather
+            // than re-resolving — a default promoted mid-flight can't change the
+            // workflow under a job whose credits are already deducted.
             workflowTemplateId,
           },
         });
