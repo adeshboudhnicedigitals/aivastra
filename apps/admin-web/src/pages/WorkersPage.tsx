@@ -3,7 +3,11 @@ import { Icon } from '../components/Icons';
 import { Switch } from '../components/Switch';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 
-type JobType = 'catalogue' | 'tryon' | 'saree' | 'shopify';
+type JobType = string;
+
+function jobTypeLabel(t: string): string {
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
 
 interface Worker {
   id: string;
@@ -24,19 +28,12 @@ interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
-const JOB_TYPES: JobType[] = ['catalogue', 'tryon', 'saree', 'shopify'];
-const JOB_TYPE_LABELS: Record<JobType, string> = {
-  catalogue: 'Catalogue',
-  tryon: 'Tryon',
-  saree: 'Saree',
-  shopify: 'Shopify',
-};
-
 const EMPTY_FORM = { id: '', label: '', url: '', apiKey: '', allowedJobTypes: [] as JobType[] };
 const WORKER_ID_PATTERN = /^[\w-]+$/;
 
 export default function WorkersPage({ toast }: Props) {
   const [workers, setWorkers] = useState<Worker[]>([]);
+  const [jobTypes, setJobTypes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [editTarget, setEditTarget] = useState<Worker | null>(null);
@@ -68,6 +65,18 @@ export default function WorkersPage({ toast }: Props) {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [load]);
+
+  useEffect(() => {
+    apiFetch<string[]>('/admin/workers/job-types')
+      .then(setJobTypes)
+      .catch((e) => {
+        toast({
+          kind: 'error',
+          title: 'Failed to load job types',
+          body: apiErrorMessage(e, 'Please try again.'),
+        });
+      });
+  }, [toast]);
 
   function openAdd() {
     setForm(EMPTY_FORM);
@@ -303,7 +312,7 @@ export default function WorkersPage({ toast }: Props) {
                                       : 'var(--success)',
                             }}
                           >
-                            {JOB_TYPE_LABELS[t]}
+                            {jobTypeLabel(t)}
                           </span>
                         ))}
                       </div>
@@ -509,7 +518,7 @@ export default function WorkersPage({ toast }: Props) {
                 </span>
               </span>
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                {JOB_TYPES.map((t) => (
+                {jobTypes.map((t) => (
                   <label
                     key={t}
                     style={{
@@ -532,7 +541,7 @@ export default function WorkersPage({ toast }: Props) {
                         }))
                       }
                     />
-                    {JOB_TYPE_LABELS[t]}
+                    {jobTypeLabel(t)}
                   </label>
                 ))}
               </div>
