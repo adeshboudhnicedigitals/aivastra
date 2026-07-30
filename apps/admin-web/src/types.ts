@@ -222,6 +222,7 @@ export interface User {
   hasPassword: boolean;
   hasShopifyStore: boolean;
   isMerchant?: boolean;
+  signupSource?: 'admin' | 'android_google' | null;
   balance: number;
   totalJobs: number;
   lastJobAt: string | null;

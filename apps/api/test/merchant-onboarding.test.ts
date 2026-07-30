@@ -3,6 +3,7 @@ import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { signAccess } from '../src/modules/auth/service.js';
+import { adminAuthHeader } from './helpers/admin.js';
 import { buildTestApp, type TestApp } from './helpers/api.js';
 import { type Containers, startContainers } from './helpers/containers.js';
 import { createTestMerchant } from './helpers/merchant.js';
@@ -224,5 +225,47 @@ describe('POST /v1/merchant/onboarding', () => {
       });
       expect(res.statusCode).toBe(400);
     }
+  });
+});
+
+describe('GET /admin/merchants signupSource', () => {
+  it('reports android_google for a self-serve signup and admin for the rest', async () => {
+    const adminHeaders = await adminAuthHeader(app, 'SUPER_ADMIN');
+    const seeded = await createTestMerchant(app, { isActive: true });
+    const { token } = await createGoogleUser();
+    await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/onboarding',
+      headers: auth(token),
+      payload: { phone: '9000000005' },
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/merchants',
+      headers: adminHeaders,
+    });
+    expect(res.statusCode).toBe(200);
+
+    const rows = res.json().clients as Array<{ id: string; signupSource: string }>;
+    expect(rows.find((row) => row.id === seeded.merchantId)?.signupSource).toBe('admin');
+    expect(rows.some((row) => row.signupSource === 'android_google')).toBe(true);
+  });
+});
+
+describe('GET /admin/users signupSource', () => {
+  it('reports a merchant user signup source', async () => {
+    const adminHeaders = await adminAuthHeader(app, 'SUPER_ADMIN');
+    const seeded = await createTestMerchant(app, { isActive: true });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/users?merchant=true',
+      headers: adminHeaders,
+    });
+    expect(res.statusCode).toBe(200);
+
+    const rows = res.json().items as Array<{ id: string; signupSource?: string }>;
+    expect(rows.find((row) => row.id === seeded.userId)?.signupSource).toBe('admin');
   });
 });
