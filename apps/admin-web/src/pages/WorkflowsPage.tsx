@@ -205,19 +205,19 @@ export default function WorkflowsPage({ toast }: Props) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Header */}
-      <div
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
-      >
+      <div className="page-head">
         <div>
-          <h2 style={{ margin: 0, fontSize: '1.125rem', fontWeight: 600 }}>Workflows</h2>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
+          <h1>Workflows</h1>
+          <p className="lede">
             ComfyUI workflow templates used for try-on generation. Each pose selects one workflow.
           </p>
         </div>
-        <button className="btn primary" onClick={() => setShowUpload(true)}>
-          <Icon.Plus />
-          Add workflow
-        </button>
+        <div className="head-tools">
+          <button className="btn primary" onClick={() => setShowUpload(true)}>
+            <Icon.Plus />
+            Add workflow
+          </button>
+        </div>
       </div>
 
       {/* Table */}

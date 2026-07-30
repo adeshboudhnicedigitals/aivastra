@@ -5,7 +5,6 @@ import { JobTypeBadge } from '../components/JobTypeBadge';
 import { Pager } from '../components/Pager';
 import { StatusBadge } from '../components/StatusBadge';
 import type { SortDir } from '../components/Th';
-import { Th } from '../components/Th';
 import { useAdminJobStream } from '../hooks/use-admin-job-stream';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 import type { Job } from '../types';
@@ -165,6 +164,7 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
   const [actioning, setActioning] = useState(false);
   const [confirmFlush, setConfirmFlush] = useState(false);
   const [flushing, setFlushing] = useState(false);
+  const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
 
   const load = useCallback(
     async (silent = false) => {
@@ -279,14 +279,6 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
   });
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
-
-  const handleSort = (k: keyof Job) => {
-    if (k === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-    else {
-      setSortKey(k);
-      setSortDir('desc');
-    }
-  };
 
   const openDetail = async (j: Job) => {
     setDetail(j);
@@ -413,10 +405,7 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
           <p style={{ color: 'var(--muted)', fontSize: 13 }}>Loading&hellip;</p>
         ) : (
           <>
-            <div
-              className="kv-grid"
-              style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 20 }}
-            >
+            <div className="kv-grid-2-col" style={{ marginBottom: 20 }}>
               <KV k="User" v={j.userEmail ?? '—'} />
               <KV k="Job Type" v={<JobTypeBadge jobType={j.jobType} />} />
               <KV k="Status" v={<StatusBadge status={j.status} />} />
@@ -609,6 +598,42 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
               onChange={(e) => handleSearch(e.target.value)}
             />
           </div>
+
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span
+              className="sub"
+              style={{ fontSize: 13, whiteSpace: 'nowrap', color: 'var(--muted)' }}
+            >
+              Sort by:
+            </span>
+            <select
+              value={`${sortKey}-${sortDir}`}
+              onChange={(e) => {
+                const [key, dir] = e.target.value.split('-');
+                setSortKey(key as keyof Job);
+                setSortDir(dir as SortDir);
+              }}
+              style={{
+                padding: '6px 12px',
+                borderRadius: 6,
+                border: '1px solid var(--border)',
+                background: 'var(--surface)',
+                color: 'var(--ink)',
+                fontSize: 13,
+                cursor: 'pointer',
+                outline: 'none',
+              }}
+            >
+              <option value="createdAt-desc">Newest Created</option>
+              <option value="createdAt-asc">Oldest Created</option>
+              <option value="userEmail-asc">User Email (A-Z)</option>
+              <option value="userEmail-desc">User Email (Z-A)</option>
+              <option value="creditsCharged-desc">Credits (High-Low)</option>
+              <option value="creditsCharged-asc">Credits (Low-High)</option>
+              <option value="status-asc">Status</option>
+            </select>
+          </div>
+
           {confirmFlush ? (
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <span style={{ fontSize: 12, color: 'var(--muted)' }}>Cancel all queued jobs?</span>
@@ -686,108 +711,245 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
         <p style={{ color: 'var(--muted)', fontSize: 13, padding: '20px 0' }}>Loading&hellip;</p>
       ) : (
         <>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <Th k="id" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
-                    Job ID
-                  </Th>
-                  <Th k="userEmail" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
-                    User
-                  </Th>
-                  <Th k="jobType" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
-                    Job Type
-                  </Th>
-                  <Th k="status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
-                    Status
-                  </Th>
-                  <Th k="creditsCharged" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
-                    Credits
-                  </Th>
-                  <Th k="workerId" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
-                    Worker
-                  </Th>
-                  <Th k="createdAt" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
-                    Created
-                  </Th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map((j) => (
-                  <tr key={j.id} onClick={() => openDetail(j)} style={{ cursor: 'pointer' }}>
-                    <td>
-                      <span className="mono sub" style={{ fontSize: 11 }}>
-                        {j.id.slice(0, 8)}…
-                      </span>
-                    </td>
-                    <td>
-                      <span className="semi">{j.userEmail ?? '—'}</span>
-                    </td>
-                    <td>
-                      <JobTypeBadge jobType={j.jobType} />
-                    </td>
-                    <td>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {sorted.map((j) => {
+              const isExpanded = expandedJobId === j.id;
+              return (
+                <div
+                  key={j.id}
+                  className="card"
+                  style={{
+                    padding: 0,
+                    overflow: 'hidden',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    background: 'var(--surface)',
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setExpandedJobId(isExpanded ? null : j.id)}
+                    style={{
+                      padding: '12px 16px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                      background: 'none',
+                      border: 'none',
+                      width: '100%',
+                      textAlign: 'left',
+                      color: 'inherit',
+                      fontFamily: 'inherit',
+                      fontSize: 'inherit',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        minWidth: 0,
+                        flex: 1,
+                      }}
+                    >
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            flexWrap: 'wrap',
+                          }}
+                        >
+                          <span className="mono semi" style={{ fontSize: 13, color: 'var(--ink)' }}>
+                            #{j.id.slice(0, 8)}
+                          </span>
+                          <JobTypeBadge jobType={j.jobType} />
+                        </div>
+                        <div
+                          className="sub"
+                          style={{
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            fontSize: 12,
+                            marginTop: 4,
+                          }}
+                        >
+                          {j.userEmail ?? '—'}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 8 }}>
                       <StatusBadge status={j.status} />
-                    </td>
-                    <td>
-                      <span className="mono">{j.creditsCharged}</span>
-                    </td>
-                    <td>
-                      <span className="mono sub" style={{ fontSize: 11 }}>
-                        {j.workerId ?? '—'}
+                      <span
+                        style={{
+                          color: 'var(--muted-2)',
+                          transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                          transition: 'transform 0.2s',
+                          display: 'inline-flex',
+                        }}
+                      >
+                        <Icon.Chevron />
                       </span>
-                    </td>
-                    <td>
-                      <span className="mono sub" style={{ fontSize: 11 }}>
-                        {new Date(j.createdAt).toLocaleString()}
-                      </span>
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', gap: 4 }}>
+                    </div>
+                  </button>
+
+                  {isExpanded && (
+                    <div
+                      style={{
+                        padding: '16px',
+                        borderTop: '1px solid var(--border)',
+                        background: 'var(--bg-2, #fafafa)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 12,
+                        fontSize: 13,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>User</span>
+                        <span>{j.userEmail ?? '—'}</span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Job ID</span>
+                        <span className="mono" style={{ fontSize: 11 }}>
+                          {j.id}
+                        </span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Job Type</span>
+                        <JobTypeBadge jobType={j.jobType} />
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Status</span>
+                        <StatusBadge status={j.status} />
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Credits</span>
+                        <span className="mono">{j.creditsCharged}</span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Worker</span>
+                        <span className="mono">{j.workerId ?? '—'}</span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Created</span>
+                        <span className="sub">{new Date(j.createdAt).toLocaleString()}</span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'flex-end',
+                          gap: 8,
+                          marginTop: 8,
+                          borderTop: '1px solid var(--border)',
+                          paddingTop: 12,
+                        }}
+                      >
                         {(j.status === 'QUEUED' ||
                           j.status === 'GENERATING' ||
                           j.status === 'PREPROCESSING') && (
                           <button
-                            className="btn sm ghost"
-                            title="Cancel"
+                            className="btn sm danger ghost"
                             onClick={(e) => {
                               e.stopPropagation();
                               setConfirmCancel(j.id);
                             }}
                           >
-                            <Icon.Ban />
+                            <Icon.Ban /> Cancel Job
                           </button>
                         )}
                         {j.status === 'FAILED' && (
                           <button
                             className="btn sm ghost"
-                            title="Retry"
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleRetry(j.id);
+                              void handleRetry(j.id);
                             }}
                           >
-                            <Icon.Refresh />
+                            <Icon.Refresh /> Retry Job
                           </button>
                         )}
+                        <button
+                          className="btn sm primary"
+                          onClick={() => openDetail(j)}
+                          style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                        >
+                          <Icon.ExternalLink /> View Events & Logs
+                        </button>
                       </div>
-                    </td>
-                  </tr>
-                ))}
-                {sorted.length === 0 && (
-                  <tr>
-                    <td
-                      colSpan={9}
-                      style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}
-                    >
-                      No jobs found.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {sorted.length === 0 && (
+              <div
+                style={{
+                  textAlign: 'center',
+                  color: 'var(--muted)',
+                  padding: '3rem 1.5rem',
+                  background: 'var(--surface)',
+                  border: '1px dashed var(--border)',
+                  borderRadius: 8,
+                }}
+              >
+                No jobs found.
+              </div>
+            )}
           </div>
 
           <Pager
