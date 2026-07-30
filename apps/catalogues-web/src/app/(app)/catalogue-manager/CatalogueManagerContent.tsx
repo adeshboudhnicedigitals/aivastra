@@ -51,7 +51,9 @@ export function CatalogueManagerContent() {
   const subcategoriesQuery = useQuery({
     queryKey: ['merchant-catalog-subcategories'],
     queryFn: () =>
-      api.get<MerchantCatalogSubcategoryListResponse>('/v1/merchant/catalog/subcategories'),
+      api.get<MerchantCatalogSubcategoryListResponse>(
+        '/v1/merchant/catalog/subcategories?includeDemo=false',
+      ),
   });
   const subcategories = subcategoriesQuery.data?.items ?? [];
 
@@ -69,7 +71,7 @@ export function CatalogueManagerContent() {
     queryKey: ['merchant-catalog-products', selectedSubcategoryId],
     queryFn: () =>
       api.get<MerchantCatalogListResponse>(
-        `/v1/merchant/catalog?subcategoryId=${selectedSubcategoryId}`,
+        `/v1/merchant/catalog?includeDemo=false&subcategoryId=${selectedSubcategoryId}`,
       ),
     enabled: !!selectedSubcategoryId,
   });

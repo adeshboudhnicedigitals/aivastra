@@ -2686,7 +2686,7 @@ git commit -m "feat(tryon): allow try-on against assigned demo catalog items"
 - Consumes: `includeDemo` (Task 5).
 - Produces: no new API surface.
 
-- [ ] **Step 1: Find every merchant-facing caller**
+- [x] **Step 1: Find every merchant-facing caller**
 
 ```bash
 grep -rn "merchant/catalog/subcategories\|merchant/catalog?\|merchant/catalog'" apps/catalogues-web/src
@@ -2696,7 +2696,7 @@ Expected hits: `CatalogueManagerContent.tsx:54,72`, plus the `tryon-library-app`
 `apps/catalogues-web/src/app/(app)/catalogue-manager/BulkUploadModal.tsx` — it only PATCHes, so it
 needs no change.
 
-- [ ] **Step 2: Add `includeDemo=false` to each read**
+- [x] **Step 2: Add `includeDemo=false` to each read**
 
 `CatalogueManagerContent.tsx` line 54:
 
@@ -2717,20 +2717,20 @@ line 72:
 Apply the same `includeDemo=false` to each `tryon-library-app` read found in Step 1, preserving the
 existing query params.
 
-- [ ] **Step 3: Verify the web app builds and typechecks**
+- [x] **Step 3: Verify the web app builds and typechecks**
 
 ```bash
 pnpm --filter @aivastra/web build
 ```
 Expected: clean build.
 
-- [ ] **Step 4: Verify by hand**
+- [x] **Step 4: Verify by hand**
 
 With the API running and a merchant assigned a demo set (Task 4), open `/catalogue-manager` and
 `/tryon-library-app` as that merchant. Expected: only the merchant's own subcategories and products,
 identical to before this plan. Every visible edit and delete control still works.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/catalogues-web/src
