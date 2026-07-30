@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   bigint,
   boolean,
@@ -7,6 +8,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 import { workflowTemplates } from './models.js';
@@ -50,18 +52,32 @@ export const shopifyStores = pgTable('shopify_stores', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const shopifyFunnelTemplates = pgTable('shopify_funnel_templates', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  slug: text('slug').notNull().unique(),
-  label: text('label').notNull(),
-  workflowTemplateId: uuid('workflow_template_id')
-    .notNull()
-    .references(() => workflowTemplates.id),
-  isActive: boolean('is_active').notNull().default(true),
-  sortOrder: integer('sort_order').notNull().default(0),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const shopifyFunnelTemplates = pgTable(
+  'shopify_funnel_templates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    slug: text('slug').notNull().unique(),
+    label: text('label').notNull(),
+    workflowTemplateId: uuid('workflow_template_id')
+      .notNull()
+      .references(() => workflowTemplates.id),
+    isActive: boolean('is_active').notNull().default(true),
+    // Exactly one row carries this. It is the workflow every Shopify product
+    // resolves unless something more specific claims it — today nothing does,
+    // so it is the only routing input. Enforced by the partial unique index
+    // below rather than by application code, because two defaults would make
+    // resolution non-deterministic rather than merely wrong.
+    isDefault: boolean('is_default').notNull().default(false),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    singleDefault: uniqueIndex('shopify_funnel_templates_single_default_idx')
+      .on(t.isDefault)
+      .where(sql`${t.isDefault}`),
+  }),
+);
 
 export const shopifyFunnelRules = pgTable(
   'shopify_funnel_rules',

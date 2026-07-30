@@ -932,6 +932,13 @@
       "when": 1785360000000,
       "tag": "0132_dev_public_catalog_slugs",
       "breakpoints": true
+    },
+    {
+      "idx": 133,
+      "version": "7",
+      "when": 1785484800000,
+      "tag": "0133_shopify_funnel_default",
+      "breakpoints": true
     }
   ]
 }
