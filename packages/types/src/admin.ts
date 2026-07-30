@@ -171,6 +171,32 @@ export const ConfirmModelFaceBody = z.object({
   faceSideR2Key: z.string().min(1).optional(),
   sortOrder: z.number().int().default(0),
 });
+/**
+ * Opts an asset into the public developer API and names it there.
+ *
+ * null / omitted-as-null = withdraw the asset from /v1/dev/*. Setting a value is a
+ * publishing action: third-party integrations will hard-code it, so treat a rename
+ * as a breaking change for those callers rather than a cosmetic edit.
+ */
+export const PublicApiSlugField = z
+  .union([
+    // A cleared admin form field submits '' rather than null. Accept it and
+    // normalize below, so "withdraw this asset" works from the UI without every
+    // route handler having to special-case the empty string.
+    z.literal(''),
+    z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(
+        /^[a-z0-9]+(-[a-z0-9]+)*$/,
+        'must be lowercase alphanumeric words separated by hyphens',
+      ),
+  ])
+  .nullable()
+  .optional()
+  .transform((v) => (v === '' ? null : v));
+
 export const PatchModelFaceBody = z.object({
   label: z.string().min(1).max(120).optional(),
   gender: GenderEnum.optional(),
@@ -179,6 +205,7 @@ export const PatchModelFaceBody = z.object({
   r2Key: z.string().optional(),
   thumbnailKey: z.string().optional(),
   faceSideR2Key: z.string().nullable().optional(),
+  publicApiSlug: PublicApiSlugField,
 });
 
 // Backgrounds are now global — no faceId
@@ -210,6 +237,7 @@ export const PatchModelBackgroundBody = z.object({
   categoryId: CoercedPositiveInt.nullable().optional(),
   specialTag: CategoryTag.nullable().optional(),
   tags: z.array(z.string().min(1).max(40)).max(20).optional(),
+  publicApiSlug: PublicApiSlugField,
 });
 
 export const PresignSampleVideoBody = z.object({
@@ -506,6 +534,7 @@ export const PatchGarmentTypeBody = z.object({
   mannequinWorkflowTemplateId: z.string().uuid().nullable().optional(),
   sareeStep2WorkflowTemplateId: z.string().uuid().nullable().optional(),
   mannequinTwoInputWorkflowTemplateId: z.string().uuid().nullable().optional(),
+  publicApiSlug: PublicApiSlugField,
 });
 export const PresignGarmentTypeBody = z.object({
   contentType: AssetContentType,

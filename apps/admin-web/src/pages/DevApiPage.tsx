@@ -24,6 +24,29 @@ interface DevSareeConfig {
   updatedAt: string | null;
 }
 
+interface BackfillCounts {
+  modelFaces: number;
+  modelBackgrounds: number;
+  modelPoseAssets: number;
+  catalogItems: number;
+  garmentSubcategories: number;
+}
+
+interface BackfillResponse {
+  ok: true;
+  counts: BackfillCounts;
+  total: number;
+  version: number;
+}
+
+const BACKFILL_COUNT_LABELS: Record<keyof BackfillCounts, string> = {
+  modelFaces: 'faces',
+  modelBackgrounds: 'backgrounds',
+  modelPoseAssets: 'poses',
+  catalogItems: 'catalog items',
+  garmentSubcategories: 'garment types',
+};
+
 interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
   onNav: (_page: string, _filter?: { page: string; filter?: string }) => void;
@@ -51,6 +74,11 @@ export default function DevApiPage({ toast }: Props) {
     updatedAt: null,
   });
   const [savingSareeConfig, setSavingSareeConfig] = useState(false);
+
+  // Public catalog: one-time bulk opt-in for existing assets + manual cache trigger.
+  const [backfilling, setBackfilling] = useState(false);
+  const [rebuildingCache, setRebuildingCache] = useState(false);
+  const [confirmingBackfill, setConfirmingBackfill] = useState(false);
 
   // Category modal state
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
@@ -227,6 +255,49 @@ export default function DevApiPage({ toast }: Props) {
     }
   };
 
+  const handleRebuildCache = async () => {
+    setRebuildingCache(true);
+    try {
+      await apiFetch('/admin/dev-api/catalog/rebuild-cache', { method: 'POST' });
+      toast({ title: 'Public catalog cache invalidated' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to rebuild cache',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setRebuildingCache(false);
+    }
+  };
+
+  const handleBackfillSlugs = async () => {
+    setConfirmingBackfill(false);
+    setBackfilling(true);
+    try {
+      const res = await apiFetch<BackfillResponse>('/admin/dev-api/catalog/backfill-slugs', {
+        method: 'POST',
+      });
+      if (res.total === 0) {
+        toast({ title: 'Nothing to publish', body: 'Every eligible asset already has a slug.' });
+      } else {
+        const breakdown = (Object.keys(BACKFILL_COUNT_LABELS) as (keyof BackfillCounts)[])
+          .filter((k) => res.counts[k] > 0)
+          .map((k) => `${res.counts[k]} ${BACKFILL_COUNT_LABELS[k]}`)
+          .join(', ');
+        toast({ title: `Published ${res.total} assets`, body: breakdown });
+      }
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Backfill failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setBackfilling(false);
+    }
+  };
+
   const deletingCategory = deletingId ? categories.find((c) => c.id === deletingId) : null;
 
   return (
@@ -374,6 +445,73 @@ export default function DevApiPage({ toast }: Props) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Public catalog (dev API asset publishing) card */}
+      <div
+        className="card"
+        style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}
+      >
+        <span style={{ fontSize: 14, fontWeight: 600 }}>Public Catalog</span>
+        <p style={{ margin: 0, fontSize: 11, color: 'var(--muted)' }}>
+          Faces, backgrounds, poses, lower garments, shoes and garment types are hidden from{' '}
+          <code>/v1/dev/catalog/*</code> until they carry a slug (set per-asset via "Public API
+          slug" in each editor, or filled in bulk below). Backfill only touches active assets that
+          don't have a slug yet — it never renames or removes an existing one.
+        </p>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button
+            className="btn primary"
+            disabled={backfilling}
+            onClick={() => setConfirmingBackfill(true)}
+          >
+            {backfilling ? 'Publishing…' : 'Backfill public slugs'}
+          </button>
+          <button className="btn ghost" disabled={rebuildingCache} onClick={handleRebuildCache}>
+            {rebuildingCache ? 'Rebuilding…' : 'Rebuild cache'}
+          </button>
+        </div>
+      </div>
+
+      {/* Backfill confirm modal */}
+      {confirmingBackfill && (
+        <div
+          className="modal-overlay"
+          onClick={backfilling ? undefined : () => setConfirmingBackfill(false)}
+        >
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 'min(440px, calc(100vw - 40px))' }}
+          >
+            <div className="modal-head">
+              <h3>Backfill public slugs</h3>
+            </div>
+            <div className="modal-body">
+              <p style={{ margin: 0 }}>
+                This publishes every currently active, unpublished asset to{' '}
+                <code>/v1/dev/catalog/*</code> under an auto-generated slug — potentially hundreds
+                of rows at once. Assets that already have a slug are left untouched. Continue?
+              </p>
+            </div>
+            <div className="modal-foot">
+              <button
+                className="btn ghost"
+                onClick={() => setConfirmingBackfill(false)}
+                disabled={backfilling}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn primary"
+                disabled={backfilling}
+                onClick={() => void handleBackfillSlugs()}
+              >
+                {backfilling ? 'Publishing…' : 'Publish all'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

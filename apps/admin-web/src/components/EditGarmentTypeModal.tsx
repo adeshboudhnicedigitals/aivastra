@@ -10,6 +10,7 @@ import type {
 } from '../types';
 import { AssetThumb } from './AssetThumb';
 import { Icon } from './Icons';
+import { PublicApiSlugField } from './PublicApiSlugField';
 import { SearchableSelect } from './SearchableSelect';
 import { Switch } from './Switch';
 
@@ -369,6 +370,7 @@ export function EditGarmentTypeModal({
   const [mannequinTwoInputWorkflowTemplateId, setMannequinTwoInputWorkflowTemplateId] = useState(
     garmentType.mannequinTwoInputWorkflowTemplateId ?? '',
   );
+  const [publicApiSlug, setPublicApiSlug] = useState(garmentType.publicApiSlug ?? '');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [instructionFile, setInstructionFile] = useState<File | null>(null);
   const [removeInstructionImage, setRemoveInstructionImage] = useState(false);
@@ -443,6 +445,8 @@ export function EditGarmentTypeModal({
         patchBody.instructionImageKey = null;
       }
       if (label.trim() !== garmentType.label.trim()) patchBody.label = label.trim();
+      if (publicApiSlug !== (garmentType.publicApiSlug ?? ''))
+        patchBody.publicApiSlug = publicApiSlug;
       if (sortOrder !== garmentType.sortOrder) patchBody.sortOrder = sortOrder;
       if (requiresLowerUpload !== garmentType.requiresLowerUpload) {
         patchBody.requiresLowerUpload = requiresLowerUpload;
@@ -560,6 +564,12 @@ export function EditGarmentTypeModal({
                   onChange={(e) => setLabel(e.target.value)}
                 />
               </div>
+              <PublicApiSlugField
+                value={publicApiSlug}
+                disabled={saving}
+                kind="shirt"
+                onChange={setPublicApiSlug}
+              />
               <div className="field">
                 <label>
                   Sort order{' '}

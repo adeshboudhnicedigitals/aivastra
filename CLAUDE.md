@@ -18,7 +18,7 @@ Read `docs/virtual-tryon-system-design.md` before changing architecture. See `do
 - **Runtime:** Node 20+, TypeScript 5.6, ESM only (`"type": "module"` everywhere).
 - **API:** Fastify 5 + `fastify-type-provider-zod`. All routes wired in `apps/api/src/server.ts`.
 - **DB:** PostgreSQL 16 via Drizzle ORM. Schema in `packages/db/src/schema/`. Migrations in `packages/db/src/migrations/`.
-- **Cache/Queue:** Redis 7 Streams (`jobs:priority`, `jobs:normal`). Consumer group: `dispatcher-cg`.
+- **Cache/Queue:** Redis 7 Streams (`jobs:priority`, `jobs:normal`, `jobs:low`, `jobs:video`). Consumer group: `dispatcher-cg`. The three GPU streams are capped by the worker-registry size; `jobs:video` is a separate lane capped by `VIDEO_CONCURRENCY` (PixVerse jobs need no GPU).
 - **Storage:** S3-compatible (Cloudflare R2 in prod, MinIO locally). `StorageProvider` interface in `packages/storage`.
 - **Logger:** pino via `@aivastra/logger` (`createLogger(service)`). No `console.log` in committed code. Use child loggers with `jobId`/`userId` bindings.
 - **Tests:** Vitest. No testcontainers — see Testing section below.
@@ -222,7 +222,7 @@ Supports subdirectory deployment (e.g. `/app`). All internal asset references an
 
 | Module | Files | Purpose |
 |--------|-------|---------|
-| `stream/` | `consumer.ts`, `recovery.ts` | `XREADGROUP` consumer group `dispatcher-cg`; startup `XPENDING` recovery |
+| `stream/` | `loop.ts`, `consumer.ts`, `video-consumer.ts`, `recovery.ts`, `sweeper.ts` | `runStreamLoop` (shared read→dispatch loop); GPU consumer over `jobs:priority\|normal\|low` capped by worker-registry size; video consumer over `jobs:video` capped by `VIDEO_CONCURRENCY`; startup `XPENDING` recovery; stuck-job sweeper |
 | `job/` | `processor.ts`, `state.ts` | Main job processor; status transitions; `processTryonJob`, `processSareeJob`, `processWidgetJob` |
 | `workflow/` | `patcher.ts`, `resize-to-max.ts` | Clone + patch workflow templates; aspect-ratio sizing; dual-size group support |
 | `comfyui/` | `client.ts`, `progress.ts` | ComfyUI HTTP client, WebSocket progress, `/history` polling |
@@ -290,6 +290,8 @@ Key vars (see `.env.production.example` for full list):
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_CALLBACK_URL` | api (optional OAuth) |
 | `RESEND_API_KEY` / `EMAIL_FROM` | api (transactional email) |
 | `WORKER_API_KEY` | dispatcher |
+| `PIXVERSE_API_KEY`, `PIXVERSE_API_BASE_URL`, `PIXVERSE_POLL_INTERVAL_MS`, `PIXVERSE_POLL_TIMEOUT_MS` | dispatcher (catalog video) |
+| `VIDEO_CONCURRENCY` | dispatcher — in-flight cap for `jobs:video`, independent of GPU worker count; match the PixVerse plan limit (default 5) |
 | `NEXT_PUBLIC_API_URL` | web (Fastify API base URL, default `http://localhost:4000`) |
 | `NEXT_PUBLIC_BASE_PATH` | web (subdirectory prefix, e.g. `/app`; empty in root deploy) |
 

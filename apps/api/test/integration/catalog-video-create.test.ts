@@ -20,6 +20,7 @@ describe('POST /v1/jobs/catalog-video', () => {
   beforeEach(async () => {
     await app.redis.del('jobs:normal');
     await app.redis.del('jobs:priority');
+    await app.redis.del('jobs:video');
   });
   async function registerUser(email: string) {
     const [user] = await app.db
@@ -80,6 +81,10 @@ describe('POST /v1/jobs/catalog-video', () => {
     expect(job.status).toBe('QUEUED');
     expect(job.creditsCharged).toBe(150);
     expect(job.source).toBe('catalog_video');
+    // Video jobs get their own lane — they need no GPU worker, so they must not be
+    // gated by the dispatcher's worker-registry concurrency cap.
+    expect(job.queueStream).toBe('video');
+    expect(job.priority).toBe(false);
     const [bal] = await app.db
       .select()
       .from(schema.userCredits)
@@ -97,7 +102,8 @@ describe('POST /v1/jobs/catalog-video', () => {
       sourceImageKey: keys.output(sourceJobId),
       prompt: 'model turns slowly',
     });
-    expect(await app.redis.xlen('jobs:normal')).toBeGreaterThanOrEqual(1);
+    expect(await app.redis.xlen('jobs:video')).toBeGreaterThanOrEqual(1);
+    expect(await app.redis.xlen('jobs:normal')).toBe(0);
   });
   it('rejects with FORBIDDEN when sourceJobId belongs to another user', async () => {
     const { userId: owner } = await registerUser('cv-owner@x.com');

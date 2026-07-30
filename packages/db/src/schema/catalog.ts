@@ -28,6 +28,9 @@ export const catalogItems = pgTable('catalog_items', {
   label: text('label').notNull(),
   r2Key: text('r2_key').notNull(),
   thumbnailKey: text('thumbnail_key').notNull(),
+  // See modelFaces.publicApiSlug in ./models.ts — NULL means this item is not
+  // reachable from the public developer API.
+  publicApiSlug: text('public_api_slug'),
   isActive: boolean('is_active').notNull().default(true),
   sortOrder: integer('sort_order').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

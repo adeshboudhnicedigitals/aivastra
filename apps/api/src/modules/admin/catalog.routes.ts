@@ -7,6 +7,7 @@ import {
   CreateCategoryBody,
   PatchCategoryBody,
   PresignCatalogItemBody,
+  PublicApiSlugField,
 } from '@aivastra/types';
 import { and, count, eq, inArray, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
@@ -49,6 +50,7 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
           label: schema.catalogItems.label,
           r2Key: schema.catalogItems.r2Key,
           thumbnailKey: schema.catalogItems.thumbnailKey,
+          publicApiSlug: schema.catalogItems.publicApiSlug,
           isActive: schema.catalogItems.isActive,
           sortOrder: schema.catalogItems.sortOrder,
           createdAt: schema.catalogItems.createdAt,
@@ -178,11 +180,13 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
           subcategoryIds: z.array(z.string().uuid()).optional(),
           r2Key: z.string().optional(),
           thumbnailKey: z.string().optional(),
+          publicApiSlug: PublicApiSlugField,
         }),
       },
     },
     async (req) => {
       const { id } = req.params as { id: string };
+      // publicApiSlug arrives already normalized ('' -> null) by PublicApiSlugField.
       const { subcategoryIds, ...itemFields } = req.body as {
         label?: string;
         isActive?: boolean;
@@ -191,6 +195,7 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
         subcategoryIds?: string[];
         r2Key?: string;
         thumbnailKey?: string;
+        publicApiSlug?: string | null;
       };
       await app.db.transaction(async (tx) => {
         if (Object.keys(itemFields).length > 0) {
