@@ -91,7 +91,9 @@ function SubcategoriesScreenInner() {
   const subcategoriesQuery = useQuery({
     queryKey: ['merchant-catalog-subcategories'],
     queryFn: () =>
-      api.get<MerchantCatalogSubcategoryListResponse>('/v1/merchant/catalog/subcategories'),
+      api.get<MerchantCatalogSubcategoryListResponse>(
+        '/v1/merchant/catalog/subcategories?includeDemo=false',
+      ),
   });
 
   const merchantGated = isMerchantGateError(subcategoriesQuery.error);
