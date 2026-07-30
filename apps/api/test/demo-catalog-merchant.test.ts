@@ -43,7 +43,12 @@ async function merchantToken(userId: string) {
 }
 
 async function seedDemoSet(
-  opts: { setActive?: boolean; itemActive?: boolean; category?: string } = {},
+  opts: {
+    setActive?: boolean;
+    itemActive?: boolean;
+    category?: string;
+    garmentSubcategoryId?: string;
+  } = {},
 ) {
   const [set] = await app.db
     .insert(schema.demoCatalogSets)
@@ -55,7 +60,7 @@ async function seedDemoSet(
       setId: set!.id,
       category: opts.category ?? 'women',
       name: 'Demo Sarees',
-      garmentSubcategoryId: garmentTypeId,
+      garmentSubcategoryId: opts.garmentSubcategoryId ?? garmentTypeId,
     })
     .returning();
   const [item] = await app.db
@@ -190,6 +195,46 @@ describe('merchant catalog reads with demo data', () => {
       .items.map((s: { id: string }) => s.id);
     expect(ids).toContain(women.subcategoryId);
     expect(ids).not.toContain(men.subcategoryId);
+  });
+
+  it('filters demo subcategories to mannequin-only garment types on saree-subcategories', async () => {
+    const merchant = await createTestMerchant(app);
+    const token = await merchantToken(merchant.userId);
+
+    const [mannequinGt] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({
+        genderSlug: 'women',
+        slug: `demo-read-mannequin-gt-${randomUUID()}`,
+        label: 'Demo Read Mannequin Garment Type',
+        isActive: true,
+        requiresMannequinStep: true,
+      })
+      .returning();
+    if (!mannequinGt) throw new Error('failed to seed mannequin garment type');
+
+    // garmentTypeId (from beforeAll) has requiresMannequinStep: false — the non-mannequin case.
+    const flat = await seedDemoSet({ garmentSubcategoryId: garmentTypeId });
+    const mannequin = await seedDemoSet({ garmentSubcategoryId: mannequinGt.id });
+    await assign(flat.setId, merchant.merchantId);
+    await assign(mannequin.setId, merchant.merchantId);
+
+    // No `category` param: the route's self-provisioning block only runs when
+    // `category` is present, so omitting it keeps this test scoped purely to
+    // the mannequinOnly join/filter, with no extra merchant-owned rows.
+    const ids = (await get('/v1/merchant/catalog/saree-subcategories', token))
+      .json()
+      .items.map((s: { id: string }) => s.id);
+    expect(ids).toContain(mannequin.subcategoryId);
+    expect(ids).not.toContain(flat.subcategoryId);
+
+    const idsExcluded = (
+      await get('/v1/merchant/catalog/saree-subcategories?includeDemo=false', token)
+    )
+      .json()
+      .items.map((s: { id: string }) => s.id);
+    expect(idsExcluded).not.toContain(mannequin.subcategoryId);
+    expect(idsExcluded).not.toContain(flat.subcategoryId);
   });
 
   it('applies subcategoryId and search filters to demo items', async () => {
