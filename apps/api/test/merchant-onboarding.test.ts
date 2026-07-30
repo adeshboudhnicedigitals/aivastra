@@ -257,15 +257,25 @@ describe('GET /admin/users signupSource', () => {
   it('reports a merchant user signup source', async () => {
     const adminHeaders = await adminAuthHeader(app, 'SUPER_ADMIN');
     const seeded = await createTestMerchant(app, { isActive: true });
+    const selfServe = await createGoogleUser();
+    const nonMerchant = await createGoogleUser();
+    await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/onboarding',
+      headers: auth(selfServe.token),
+      payload: { phone: '9000000006' },
+    });
 
     const res = await app.inject({
       method: 'GET',
-      url: '/admin/users?merchant=true',
+      url: '/admin/users',
       headers: adminHeaders,
     });
     expect(res.statusCode).toBe(200);
 
-    const rows = res.json().items as Array<{ id: string; signupSource?: string }>;
+    const rows = res.json().items as Array<{ id: string; signupSource: string | null }>;
     expect(rows.find((row) => row.id === seeded.userId)?.signupSource).toBe('admin');
+    expect(rows.find((row) => row.id === selfServe.userId)?.signupSource).toBe('android_google');
+    expect(rows.find((row) => row.id === nonMerchant.userId)?.signupSource).toBeNull();
   });
 });
