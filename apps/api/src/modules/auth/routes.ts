@@ -8,6 +8,8 @@ import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
 import { sendPasswordResetEmail, sendVerificationEmail } from '../../lib/mailer.js';
 import { resolveMerchantStatus } from '../merchant/status.js';
+import { parseAcceptedAudiences, verifyGoogleIdToken } from './google-id-token.js';
+import { resolveFreeCredits, upsertGoogleUser } from './google-upsert.js';
 import {
   hashPassword,
   hashRefresh,
@@ -37,6 +39,14 @@ const DeviceRefreshBody = z.object({
 
 const DeviceLogoutBody = z.object({ refreshToken: z.string().min(1) });
 
+const DeviceGoogleLoginBody = z.object({
+  // The `id_token` from Android Credential Manager's GetGoogleIdOption, NOT an
+  // OAuth access token — this route verifies it against Google's JWKS itself.
+  idToken: z.string().min(1).max(4096),
+  deviceId: z.string().min(1).max(200),
+  deviceName: z.string().max(120).optional(),
+  platform: z.enum(['mobile', 'kiosk']).default('mobile'),
+});
 const DEVICE_SESSION_PORTALS = ['mobile', 'kiosk'] as const;
 const FORCE_LOGOUT_TTL_SECONDS = 5 * 60;
 
@@ -861,6 +871,105 @@ export async function authRoutes(app: FastifyInstance) {
       });
       const merchantStatus = await resolveMerchantStatus(app, user.id);
       return { ...tokens, user: deviceLoginUserPayload(user), merchantStatus };
+    },
+  );
+
+  // Native Google sign-in for the Android app. The browser flow in google.routes.ts
+  // cannot serve this: it is a 302 redirect chain that ends in cookies on the web
+  // origin. Here the client already holds a verified ID token, so there is no
+  // code exchange and no state cookie — just verify, upsert, issue a device session.
+  app.post(
+    '/v1/auth/device-login/google',
+    {
+      schema: { body: DeviceGoogleLoginBody },
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    },
+    async (req, reply) => {
+      const audiences = parseAcceptedAudiences(
+        app.env.GOOGLE_CLIENT_ID,
+        app.env.GOOGLE_DEVICE_AUDIENCES,
+      );
+      const { idToken, deviceId, deviceName, platform } = req.body as z.infer<
+        typeof DeviceGoogleLoginBody
+      >;
+      const identity = await verifyGoogleIdToken(idToken, audiences);
+
+      const freeCredits = await resolveFreeCredits(app);
+      const userId = await app.db.transaction((tx) => upsertGoogleUser(tx, identity, freeCredits));
+
+      const [user] = await app.db
+        .select({
+          id: schema.users.id,
+          email: schema.users.email,
+          displayName: schema.users.displayName,
+          tier: schema.users.tier,
+          maxActiveDevices: schema.users.maxActiveDevices,
+        })
+        .from(schema.users)
+        .where(eq(schema.users.id, userId));
+      if (!user) throw new AppError('UNAUTH', 401, 'user not found');
+
+      // Cap logic is deliberately identical to the password route above: kiosk is a
+      // single shared terminal per account, mobile is staff sharing one account
+      // across tablets.
+      const sessions = await activeDeviceSessions(app, user.id);
+      const otherSessions = sessions.filter((session) => session.deviceId !== deviceId);
+      if (platform !== 'mobile' && otherSessions.length >= user.maxActiveDevices) {
+        const forceLogoutToken = await createForceLogoutToken(app, {
+          userId: user.id,
+          deviceId,
+          deviceName,
+          platform,
+        });
+        return reply.code(409).send({
+          error: {
+            code: 'DEVICE_LIMIT_REACHED',
+            message: 'This account is already active on another device.',
+            forceLogoutToken,
+            maxActiveDevices: user.maxActiveDevices,
+            activeDevices: otherSessions.map(publicDeviceSession),
+          },
+        });
+      }
+
+      await app.db
+        .update(schema.refreshTokens)
+        .set({ revokedAt: new Date() })
+        .where(
+          and(
+            eq(schema.refreshTokens.userId, user.id),
+            inArray(schema.refreshTokens.portal, [...DEVICE_SESSION_PORTALS]),
+            eq(schema.refreshTokens.deviceId, deviceId),
+            isNull(schema.refreshTokens.revokedAt),
+          ),
+        );
+
+      const tokens = await issueDeviceSession(app, {
+        userId: user.id,
+        deviceId,
+        deviceName,
+        platform,
+      });
+      const [logoUrl, merchantStatus] = await Promise.all([
+        resolveMerchantLogoUrl(app, user.id),
+        resolveMerchantStatus(app, user.id),
+      ]);
+
+      return {
+        ...tokens,
+        user: deviceLoginUserPayload(user),
+        logoUrl,
+        merchantStatus,
+        // Prefill for the onboarding form; omitted once a merchants row exists.
+        ...(merchantStatus === 'ONBOARDING_REQUIRED'
+          ? {
+              onboarding: {
+                suggestedContactName: identity.name ?? null,
+                suggestedCompanyName: identity.name ?? null,
+              },
+            }
+          : {}),
+      };
     },
   );
 
