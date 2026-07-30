@@ -1,16 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  CheckIcon,
-  ChevronDownIcon,
-  ProductsIcon,
-  SearchIcon,
-  SyncIcon,
-} from '../components/icons';
+import { ProductsIcon, SearchIcon, SyncIcon } from '../components/icons';
 import { Toast } from '../components/Toast';
 import { apiFetch } from '../lib/api';
 import { useToast } from '../lib/useToast';
 import { BRAND } from '../theme';
-import type { FunnelTemplateItem, ShopifyProductListItem } from '../types';
+import type { ShopifyProductListItem } from '../types';
 
 type DisplayStatus = 'active' | 'processing' | 'failed' | 'disabled';
 
@@ -124,169 +118,25 @@ function EnabledToggle({
   );
 }
 
-function FunnelDropdown({
-  currentFunnelId,
-  assignmentSource,
-  funnelTemplates,
-  open,
-  onToggle,
-  onSelect,
-}: {
-  currentFunnelId: string | null;
-  assignmentSource: 'manual' | 'automated' | null;
-  funnelTemplates: FunnelTemplateItem[];
-  open: boolean;
-  onToggle: () => void;
-  onSelect: (funnelId: string | null) => void;
-}) {
-  // A null funnel used to render as the purple "Automated" pill, which reads as
-  // "handled by your rules" when it actually means no funnel resolved and every
-  // try-on on this product will fail. Unassigned now looks like the problem it is.
-  const current = funnelTemplates.find((f) => f.id === currentFunnelId);
-  const unassigned = !current;
-  const label = unassigned
-    ? 'Not assigned'
-    : assignmentSource === 'automated'
-      ? `${current.label} · auto`
-      : current.label;
-
-  return (
-    <div style={{ position: 'relative' }}>
-      <button
-        type="button"
-        onClick={onToggle}
-        title={
-          unassigned
-            ? 'No funnel template matched this product. Try-on stays off until you pick one or a funnel rule matches.'
-            : assignmentSource === 'automated'
-              ? 'Assigned automatically by your funnel rules.'
-              : 'Pinned manually.'
-        }
-        style={{
-          height: '34px',
-          padding: '0 12px',
-          borderRadius: '9px',
-          cursor: 'pointer',
-          fontSize: '12.5px',
-          fontWeight: 600,
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '6px',
-          whiteSpace: 'nowrap',
-          border: `1px solid ${unassigned ? BRAND.danger : BRAND.borderStrong}`,
-          background: unassigned ? BRAND.dangerBg : '#fff',
-          color: unassigned ? BRAND.dangerStrong : BRAND.inkSoft,
-        }}
-      >
-        {label}
-        <ChevronDownIcon size={12} color="currentColor" />
-      </button>
-      {open && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 'calc(100% + 6px)',
-            left: 0,
-            minWidth: '210px',
-            background: '#fff',
-            border: `1px solid ${BRAND.border}`,
-            borderRadius: '12px',
-            boxShadow: '0 16px 36px rgba(23,15,38,0.16)',
-            padding: '6px',
-            zIndex: 25,
-            boxSizing: 'border-box',
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => onSelect(null)}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              padding: '8px 10px',
-              border: 'none',
-              background: 'none',
-              borderRadius: '8px',
-              fontSize: '13px',
-              color: BRAND.inkSoft,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}
-          >
-            Automated (no manual pin)
-            {assignmentSource !== 'manual' && (
-              <CheckIcon size={13} color={BRAND.purple} strokeWidth={2.5} />
-            )}
-          </button>
-          {funnelTemplates.map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              onClick={() => onSelect(f.id)}
-              style={{
-                width: '100%',
-                textAlign: 'left',
-                padding: '8px 10px',
-                border: 'none',
-                background: 'none',
-                borderRadius: '8px',
-                fontSize: '13px',
-                color: BRAND.inkSoft,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}
-            >
-              {f.label}
-              {f.id === currentFunnelId && (
-                <CheckIcon size={13} color={BRAND.purple} strokeWidth={2.5} />
-              )}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function ProductsPage() {
   const [items, setItems] = useState<ShopifyProductListItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [funnelTemplates, setFunnelTemplates] = useState<FunnelTemplateItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [syncing, setSyncing] = useState(false);
-  const [openDropdownId, setOpenDropdownId] = useState<number | null>(null);
   const { toast, showToast } = useToast();
 
   const filteredItems = useMemo(() => {
     return items
-      .filter((item) => {
-        // 'unassigned' cuts across sync status rather than being one of its buckets:
-        // a product can be active and enabled and still have no funnel, which is
-        // exactly the state that makes every try-on on it fail.
-        if (statusFilter === 'unassigned') return !item.funnelTemplateId;
-        return statusFilter === 'all' || displayStatus(item) === statusFilter;
-      })
+      .filter((item) => statusFilter === 'all' || displayStatus(item) === statusFilter)
       .filter((item) => (item.title ?? '').toLowerCase().includes(searchQuery.toLowerCase()));
   }, [items, statusFilter, searchQuery]);
 
-  const unassignedCount = useMemo(() => items.filter((i) => !i.funnelTemplateId).length, [items]);
-
   const load = useCallback(() => {
     setLoading(true);
-    Promise.all([
-      apiFetch<{ items: ShopifyProductListItem[] }>('/v1/shopify/products?pageSize=100'),
-      apiFetch<{ items: FunnelTemplateItem[] }>('/v1/shopify/funnel-templates'),
-    ])
-      .then(([products, funnels]) => {
-        setItems(products.items);
-        setFunnelTemplates(funnels.items);
-      })
+    apiFetch<{ items: ShopifyProductListItem[] }>('/v1/shopify/products?pageSize=100')
+      .then((products) => setItems(products.items))
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   }, []);
@@ -325,20 +175,6 @@ export default function ProductsPage() {
         },
       );
       setItems((prev) => prev.map((p) => (p.shopifyProductId === shopifyProductId ? updated : p)));
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  }
-
-  async function setFunnel(shopifyProductId: number, funnelTemplateId: string | null) {
-    setError(null);
-    setOpenDropdownId(null);
-    try {
-      await apiFetch(`/v1/shopify/products/${shopifyProductId}/funnel`, {
-        method: 'PATCH',
-        body: JSON.stringify({ funnelTemplateId }),
-      });
-      load();
     } catch (err) {
       setError((err as Error).message);
     }
@@ -511,9 +347,6 @@ export default function ProductsPage() {
               <option value="processing">Processing</option>
               <option value="failed">Failed</option>
               <option value="disabled">Disabled</option>
-              <option value="unassigned">
-                No funnel{unassignedCount > 0 ? ` (${unassignedCount})` : ''}
-              </option>
             </select>
           </div>
 
@@ -528,7 +361,7 @@ export default function ProductsPage() {
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: '2.4fr 1fr 0.8fr 1.8fr',
+                gridTemplateColumns: '2.4fr 1fr 0.8fr',
                 gap: '12px',
                 padding: '14px 20px 12px',
                 fontSize: '11.5px',
@@ -542,7 +375,6 @@ export default function ProductsPage() {
               <div>Product</div>
               <div>Status</div>
               <div>Try-On</div>
-              <div>Funnel template</div>
             </div>
 
             {loading && (
@@ -567,7 +399,7 @@ export default function ProductsPage() {
                     key={item.shopifyProductId}
                     style={{
                       display: 'grid',
-                      gridTemplateColumns: '2.4fr 1fr 0.8fr 1.8fr',
+                      gridTemplateColumns: '2.4fr 1fr 0.8fr',
                       gap: '12px',
                       alignItems: 'center',
                       padding: '12px 20px',
@@ -613,18 +445,6 @@ export default function ProductsPage() {
                         onClick={() => toggleEnabled(item.shopifyProductId, !item.enabled)}
                       />
                     </div>
-                    <FunnelDropdown
-                      currentFunnelId={item.funnelTemplateId}
-                      assignmentSource={item.funnelAssignmentSource}
-                      funnelTemplates={funnelTemplates}
-                      open={openDropdownId === item.shopifyProductId}
-                      onToggle={() =>
-                        setOpenDropdownId((cur) =>
-                          cur === item.shopifyProductId ? null : item.shopifyProductId,
-                        )
-                      }
-                      onSelect={(funnelId) => setFunnel(item.shopifyProductId, funnelId)}
-                    />
                   </div>
                 );
               })}
@@ -668,15 +488,6 @@ export default function ProductsPage() {
             )}
           </div>
         </div>
-      )}
-
-      {openDropdownId !== null && (
-        // biome-ignore lint/a11y/noStaticElementInteractions: click-outside-to-close overlay; dropdown items remain keyboard-reachable buttons
-        <div
-          role="presentation"
-          style={{ position: 'fixed', inset: 0, zIndex: 15 }}
-          onClick={() => setOpenDropdownId(null)}
-        />
       )}
 
       <Toast message={toast} />
