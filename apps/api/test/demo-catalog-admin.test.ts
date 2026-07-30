@@ -710,6 +710,7 @@ describe('admin demo item routes', () => {
   let authHeaders: Record<string, string>;
   let subcategoryId: string;
   let infoSpy: ReturnType<typeof vi.spyOn>;
+  let errorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeAll(async () => {
     authHeaders = await adminAuthHeader(app, 'SUPER_ADMIN');
@@ -735,10 +736,12 @@ describe('admin demo item routes', () => {
 
   beforeEach(() => {
     infoSpy = vi.spyOn(app.log, 'info');
+    errorSpy = vi.spyOn(app.log, 'error');
   });
 
   afterEach(() => {
     infoSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 
   const auth = () => authHeaders;
@@ -903,6 +906,75 @@ describe('admin demo item routes', () => {
         entityId: created.json().id,
         fields: expect.arrayContaining(['r2Key', 'thumbnailKey']),
       }),
+      'demo item deleted',
+    );
+  });
+
+  it('surfaces and audits storage failures on item delete', async () => {
+    const itemId = randomUUID();
+    const r2Key = keys.demoCatalogItem(itemId);
+    const thumbnailKey = keys.demoCatalogItemThumb(itemId);
+    await app.storage.putObject(r2Key, Buffer.from('image'), 'image/jpeg');
+    await app.storage.putObject(thumbnailKey, Buffer.from('thumbnail'), 'image/jpeg');
+    await app.db.insert(schema.demoCatalogItems).values({
+      id: itemId,
+      subcategoryId,
+      label: 'Storage failure item',
+      r2Key,
+      thumbnailKey,
+    });
+
+    const realDeleteObject = app.storage.deleteObject.bind(app.storage);
+    app.storage.deleteObject = async (key) => {
+      if (key === thumbnailKey) throw new Error('simulated storage outage');
+      await realDeleteObject(key);
+    };
+    const deleted = await (async () => {
+      try {
+        return await app.inject({
+          method: 'DELETE',
+          url: `/admin/demo-catalog/items/${itemId}`,
+          headers: auth(),
+        });
+      } finally {
+        app.storage.deleteObject = realDeleteObject;
+      }
+    })();
+
+    expect(deleted.statusCode).toBe(502);
+    expect(deleted.json()).toEqual({
+      error: {
+        code: 'STORAGE_DELETE_FAILED',
+        message: 'demo item deleted but object cleanup failed',
+      },
+    });
+    expect(
+      await app.db
+        .select()
+        .from(schema.demoCatalogItems)
+        .where(eq(schema.demoCatalogItems.id, itemId)),
+    ).toHaveLength(0);
+    await expect(app.storage.headObject(r2Key)).rejects.toThrow();
+    await expect(app.storage.headObject(thumbnailKey)).resolves.toMatchObject({ contentLength: 9 });
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adminUserId: expect.any(String),
+        entity: 'demoCatalogItem',
+        entityId: itemId,
+        databaseDeleted: true,
+        deletedObjectKeys: [r2Key],
+        failedObjects: [
+          {
+            field: 'thumbnailKey',
+            key: thumbnailKey,
+            error: { name: 'Error', message: 'simulated storage outage' },
+          },
+        ],
+      }),
+      'demo item deleted with object cleanup failures',
+    );
+    expect(infoSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ entityId: itemId }),
       'demo item deleted',
     );
   });
