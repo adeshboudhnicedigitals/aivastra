@@ -3247,7 +3247,7 @@ git commit -m "feat(admin): Kiosk Demo Data page"
 
 No code. This is the acceptance gate for the whole plan.
 
-- [ ] **Step 1: Bring up the stack**
+- [x] **Step 1: Bring up the stack**
 
 ```bash
 pnpm docker:up
@@ -3260,7 +3260,7 @@ If the dispatcher fails every job with `column "widget_client_id" does not exist
 image predates migration `0096` — rebuild it (`docker compose build dispatcher && docker compose up -d dispatcher`).
 That failure is recorded in `docs/progress.md` and is unrelated to this work.
 
-- [ ] **Step 2: Run the full suites**
+- [x] **Step 2: Run the full suites**
 
 ```bash
 pnpm --filter @aivastra/api test
@@ -3269,7 +3269,7 @@ pnpm typecheck
 ```
 Expected: all green. `apps/admin-mobile` typecheck failures are pre-existing and out of scope.
 
-- [ ] **Step 3: Walk the app**
+- [x] **Step 3: Walk the app**
 
 1. Install the app pointed at the local API. Log in as a merchant with an **empty** catalogue.
    Expected: Women flow shows nothing.
@@ -3283,13 +3283,13 @@ Expected: all green. `apps/admin-mobile` typecheck failures are pre-existing and
 5. Unassign the set in admin, refresh the app.
    Expected: the demo product disappears; a try-on POST against that item id now 404s.
 
-- [ ] **Step 4: Record progress**
+- [x] **Step 4: Record progress**
 
 Add a dated entry at the top of `docs/progress.md` with **Done**, **Failed / Not Done** and
 **Open Questions / Decisions** sections, per CLAUDE.md. Include the unresolved free-try-on abuse
 surface under Open Questions.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/progress.md
