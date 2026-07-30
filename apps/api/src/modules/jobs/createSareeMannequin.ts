@@ -1,6 +1,6 @@
 import { type DB, schema } from '@aivastra/db';
 import { jobsCreatedTotal } from '@aivastra/observability';
-import { JOB_SOURCE, type CreateSareeMannequinJobRequest } from '@aivastra/types';
+import { type CreateSareeMannequinJobRequest, JOB_SOURCE } from '@aivastra/types';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';

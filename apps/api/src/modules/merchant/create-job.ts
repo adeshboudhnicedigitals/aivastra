@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import { ASPECT_DIMENSIONS, JOB_SOURCE, type Resolution, resolutionFromDims } from '@aivastra/types';
+import {
+  ASPECT_DIMENSIONS,
+  JOB_SOURCE,
+  type Resolution,
+  resolutionFromDims,
+} from '@aivastra/types';
 import { aliasedTable, and, eq, ilike } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
