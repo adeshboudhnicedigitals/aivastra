@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { DB } from '@aivastra/db';
 import { schema } from '@aivastra/db';
 import { jobsCreatedTotal } from '@aivastra/observability';
+import { JOB_SOURCE, type JobSource } from '@aivastra/types';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
@@ -20,7 +21,7 @@ export async function createDevJobCore(
     apiKeyId: string;
     cost: number;
     watermark: boolean;
-    metricKind: string;
+    source: JobSource;
     buildJobInputs: () => Omit<typeof schema.jobInputs.$inferInsert, 'jobId'>;
   },
 ): Promise<{ jobId: string }> {
@@ -37,7 +38,7 @@ export async function createDevJobCore(
         queueStream: 'normal',
         watermark: params.watermark,
         creditsCharged: params.cost,
-        source: 'api',
+        source: params.source,
       })
       .returning();
     if (!newJob) throw new AppError('INTERNAL', 500, 'failed to create job');
@@ -68,11 +69,11 @@ export async function createDevJobCore(
       'userId',
       params.merchantUserId,
     );
-    jobsCreatedTotal.inc({ priority: 'normal', kind: params.metricKind });
+    jobsCreatedTotal.inc({ priority: 'normal', kind: params.source });
   } catch (err) {
     app.log.error(
       { err, jobId: job.id },
-      `redis xadd failed — dev ${params.metricKind} job will be refunded`,
+      `redis xadd failed — dev ${params.source} job will be refunded`,
     );
     await refund(app.db, params.merchantUserId, params.cost, job.id, 'REFUND_ENQUEUE_FAIL');
     await app.db
@@ -151,7 +152,7 @@ export async function createDevTryonJob(
     apiKeyId: params.apiKeyId,
     cost,
     watermark: false,
-    metricKind: 'tryon',
+    source: JOB_SOURCE.API_TRYON,
     buildJobInputs: () => ({
       upperGarmentKey: params.garmentKey,
       params: { personKey: params.personKey, workflowTemplateId: category.workflowTemplateId },

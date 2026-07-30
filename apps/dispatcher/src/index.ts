@@ -12,6 +12,7 @@ if (process.env.NODE_ENV !== 'production' && process.env.NODE_TLS_REJECT_UNAUTHO
 }
 
 import { schema } from '@aivastra/db';
+import type { WorkerPool } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
 import { loadEnv } from './env.js';
 import { startHealthServer } from './health/server.js';
@@ -80,7 +81,13 @@ async function main(): Promise<void> {
     id: w.id,
     url: w.url,
     apiKey: w.apiKey,
-    allowedJobTypes: w.allowedJobTypes ?? [],
+    // schema.workers.allowedJobTypes is a raw `text[]` column (Drizzle types it as
+    // string[]); values are only constrained to WorkerPool by workerPoolSchema at
+    // the admin API write boundary (apps/api/src/modules/admin/workers.routes.ts),
+    // not by the DB/schema layer itself. Cast here, at the one place a DB read
+    // crosses into the precisely-typed dispatcher registry, rather than widening
+    // WorkerEntry/registerWorkers back to string[].
+    allowedJobTypes: (w.allowedJobTypes ?? []) as WorkerPool[],
   }));
   if (workers.length === 0) {
     log.warn('No active workers found in DB — add workers via admin panel');

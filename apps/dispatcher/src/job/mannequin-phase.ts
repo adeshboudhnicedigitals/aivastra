@@ -16,6 +16,7 @@ import {
 import { waitForCompletion } from '../comfyui/progress.js';
 import { setWorkerStatus } from '../worker/registry.js';
 import { selectWorker } from '../worker/selector.js';
+import { WORKER_POOL } from '@aivastra/types';
 
 export interface MannequinPhaseConfig {
   db: DB;
@@ -63,7 +64,7 @@ export async function runMannequinPhase(
     if (!faceRow) throw new Error('MANNEQUIN_NO_FACE_IMAGE');
     personKey = faceRow.faceSideR2Key ?? faceRow.r2Key;
   }
-  const worker = await selectWorker(redis, 'saree');
+  const worker = await selectWorker(redis, WORKER_POOL.SAREE);
   if (!worker) throw new Error('MANNEQUIN_NO_WORKER');
   const w = worker;
 

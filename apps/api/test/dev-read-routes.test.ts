@@ -1,4 +1,5 @@
 import { schema } from '@aivastra/db';
+import { JOB_SOURCE } from '@aivastra/types';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildTestApp, type TestApp } from './helpers/api.js';
 import { type Containers, startContainers } from './helpers/containers.js';
@@ -56,7 +57,7 @@ async function makeJob(status: string, opts: { withOutput?: boolean; errorCode?:
       userId,
       apiKeyId,
       status,
-      source: 'api',
+      source: JOB_SOURCE.API_TRYON,
       creditsCharged: 1,
       errorCode: opts.errorCode ?? null,
     })

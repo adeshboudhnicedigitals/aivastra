@@ -1,6 +1,6 @@
 import { schema } from '@aivastra/db';
-import { ApiKeyCreateBody } from '@aivastra/types';
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { ApiKeyCreateBody, JOB_SOURCE, LEGACY_JOB_SOURCE } from '@aivastra/types';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -129,7 +129,12 @@ export async function merchantApiKeysRoutes(app: FastifyInstance) {
       .where(
         and(
           eq(schema.apiKeys.merchantId, req.merchantClientId as string),
-          eq(schema.jobs.source, 'api'),
+          inArray(schema.jobs.source, [
+            JOB_SOURCE.API_TRYON,
+            JOB_SOURCE.API_SAREE_MANNEQUIN,
+            JOB_SOURCE.API_CATALOG,
+            LEGACY_JOB_SOURCE.API,
+          ]),
         ),
       )
       .orderBy(desc(schema.jobs.createdAt))

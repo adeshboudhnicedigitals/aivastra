@@ -2,6 +2,7 @@ import { schema } from '@aivastra/db';
 import { aliasedTable, and, count, desc, eq, ilike, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { JOB_SOURCE } from '@aivastra/types';
 import { AppError } from '../../lib/errors.js';
 import { refund } from '../credits/ledger.js';
 import { adminStreamHandler } from '../jobs/sse.js';
@@ -30,6 +31,8 @@ const JobsQuery = z.object({
 export async function adminJobsRoutes(app: FastifyInstance) {
   const R = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']);
   const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
+
+  app.get('/admin/jobs/sources', { preHandler: R }, async () => Object.values(JOB_SOURCE));
 
   app.get('/admin/jobs', { preHandler: R, schema: { querystring: JobsQuery } }, async (req) => {
     // biome-ignore lint/suspicious/noExplicitAny: Fastify typed-provider workaround
