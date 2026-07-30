@@ -3,6 +3,7 @@ import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } f
 import { makeThumbnail } from '../lib/thumbnail';
 import type { GenderSlug, ModelFace } from '../types';
 import { Icon } from './Icons';
+import { PublicApiSlugField } from './PublicApiSlugField';
 
 interface Props {
   face: ModelFace;
@@ -17,6 +18,7 @@ export function EditFaceModal({ face, storagePublicUrl, onSaved, onClose, toast 
     label: face.label,
     gender: face.gender,
     sortOrder: face.sortOrder,
+    publicApiSlug: face.publicApiSlug ?? '',
   });
   const [saving, setSaving] = useState(false);
   const [replaceFile, setReplaceFile] = useState<File | null>(null);
@@ -151,6 +153,12 @@ export function EditFaceModal({ face, storagePublicUrl, onSaved, onClose, toast 
               onChange={(e) => setForm((f) => ({ ...f, sortOrder: Number(e.target.value) }))}
             />
           </div>
+          <PublicApiSlugField
+            value={form.publicApiSlug}
+            disabled={saving}
+            kind="model"
+            onChange={(v) => setForm((f) => ({ ...f, publicApiSlug: v }))}
+          />
           <div className="field">
             <label>Replace image</label>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>

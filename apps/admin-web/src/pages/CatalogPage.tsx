@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { BatchCatalogUploadModal } from '../components/BatchCatalogUploadModal';
 import { Icon } from '../components/Icons';
 import { Pager } from '../components/Pager';
+import { PublicApiSlugField } from '../components/PublicApiSlugField';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { Switch } from '../components/Switch';
 import type { SortDir } from '../components/Th';
@@ -58,6 +59,7 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
   const [editItem, setEditItem] = useState<CatalogItem | null>(null);
   const [editLabel, setEditLabel] = useState('');
   const [editSortOrder, setEditSortOrder] = useState(0);
+  const [editPublicApiSlug, setEditPublicApiSlug] = useState('');
   const [editCategoryId, setEditCategoryId] = useState('');
   const [editSaving, setEditSaving] = useState(false);
   const [editReplaceFile, setEditReplaceFile] = useState<File | null>(null);
@@ -143,6 +145,7 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
     setEditItem(item);
     setEditLabel(item.label);
     setEditSortOrder(item.sortOrder);
+    setEditPublicApiSlug(item.publicApiSlug ?? '');
     setEditReplaceFile(null);
     setEditReplacePreview(null);
     const cat = categories.find((c) => item.categoryId === c.id || c.typeSlug === item.type);
@@ -216,13 +219,19 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
         body: JSON.stringify({
           label: editLabel.trim() || editItem.label,
           sortOrder: editSortOrder,
+          publicApiSlug: editPublicApiSlug,
           ...(editCategoryId ? { categoryId: Number(editCategoryId) } : {}),
         }),
       });
       setItems((prev) =>
         prev.map((c) =>
           c.id === editItem.id
-            ? { ...c, label: editLabel.trim() || c.label, sortOrder: editSortOrder }
+            ? {
+                ...c,
+                label: editLabel.trim() || c.label,
+                sortOrder: editSortOrder,
+                publicApiSlug: editPublicApiSlug || null,
+              }
             : c,
         ),
       );
@@ -474,6 +483,12 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
                   style={{ width: 100 }}
                 />
               </div>
+              <PublicApiSlugField
+                value={editPublicApiSlug}
+                disabled={editSaving}
+                kind={editItem.type === 'shoe' ? 'sneaker' : 'trouser'}
+                onChange={setEditPublicApiSlug}
+              />
               <div className="field">
                 <label>Replace image</label>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
