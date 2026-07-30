@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import {
+  DemoCatalogAssignmentsPutBody,
   DemoCatalogItemCreateBody,
   DemoCatalogItemUpdateBody,
   DemoCatalogPresignBody,
@@ -595,6 +596,75 @@ export async function adminDemoCatalogRoutes(app: FastifyInstance): Promise<void
       );
       reply.code(204);
       return reply.send();
+    },
+  );
+
+  app.get(
+    '/admin/demo-catalog/sets/:id/assignments',
+    { preHandler: RW, schema: { params: uuidParam } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      await loadSet(id);
+
+      const rows = await app.db
+        .select({
+          merchantId: schema.merchants.id,
+          companyName: schema.merchants.companyName,
+          isActive: schema.merchants.isActive,
+          assignedAt: schema.demoCatalogAssignments.createdAt,
+        })
+        .from(schema.demoCatalogAssignments)
+        .innerJoin(
+          schema.merchants,
+          eq(schema.merchants.id, schema.demoCatalogAssignments.merchantId),
+        )
+        .where(eq(schema.demoCatalogAssignments.setId, id))
+        .orderBy(asc(schema.merchants.companyName));
+
+      return { items: rows };
+    },
+  );
+
+  app.put(
+    '/admin/demo-catalog/sets/:id/assignments',
+    { preHandler: RW, schema: { params: uuidParam, body: DemoCatalogAssignmentsPutBody } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const { merchantIds } = req.body as z.infer<typeof DemoCatalogAssignmentsPutBody>;
+      await loadSet(id);
+
+      const unique = [...new Set(merchantIds)];
+      if (unique.length > 0) {
+        // Validate before writing so a typo'd id cannot half-apply the change.
+        const found = await app.db
+          .select({ id: schema.merchants.id })
+          .from(schema.merchants)
+          .where(inArray(schema.merchants.id, unique));
+        if (found.length !== unique.length) {
+          throw new AppError('NOT_FOUND', 404, 'one or more merchants not found');
+        }
+      }
+
+      await app.db.transaction(async (tx) => {
+        await tx
+          .delete(schema.demoCatalogAssignments)
+          .where(eq(schema.demoCatalogAssignments.setId, id));
+        if (unique.length > 0) {
+          await tx.insert(schema.demoCatalogAssignments).values(
+            unique.map((merchantId) => ({
+              setId: id,
+              merchantId,
+              assignedByUserId: req.userId,
+            })),
+          );
+        }
+      });
+
+      app.log.info(
+        { adminUserId: req.userId, demoSetId: id, merchantCount: unique.length },
+        'demo set assignments replaced',
+      );
+      return { assignedMerchantCount: unique.length };
     },
   );
 }

@@ -79,3 +79,10 @@ export const DemoCatalogItemUpdateBody = z
     message: 'at least one field is required',
   });
 export type DemoCatalogItemUpdateBody = z.infer<typeof DemoCatalogItemUpdateBody>;
+
+// Full replace, not add/remove: the admin UI edits a multi-select and saves the
+// whole list, so a partial API would require the client to diff.
+export const DemoCatalogAssignmentsPutBody = z.object({
+  merchantIds: z.array(z.string().uuid()).max(500),
+});
+export type DemoCatalogAssignmentsPutBody = z.infer<typeof DemoCatalogAssignmentsPutBody>;
