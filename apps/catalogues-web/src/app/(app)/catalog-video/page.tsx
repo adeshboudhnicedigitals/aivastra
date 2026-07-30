@@ -27,6 +27,27 @@ function statusColor(status: string): string {
   return C.amber;
 }
 
+/** The dispatcher's raw statuses are internal pipeline stages — collapse the three
+ *  in-flight ones into a single "Generating" so the pill reads as progress. */
+function statusLabel(status: string): string {
+  switch (status) {
+    case 'QUEUED':
+      return 'Queued';
+    case 'PREPROCESSING':
+    case 'GENERATING':
+    case 'UPLOADING':
+      return 'Generating';
+    case 'COMPLETED':
+      return 'Ready';
+    case 'FAILED':
+      return 'Failed';
+    case 'CANCELLED':
+      return 'Cancelled';
+    default:
+      return status;
+  }
+}
+
 export default function CatalogVideoPage(): React.ReactElement {
   const qc = useQueryClient();
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -227,7 +248,7 @@ export default function CatalogVideoPage(): React.ReactElement {
                         fontWeight: 600,
                       }}
                     >
-                      {item.status}
+                      {statusLabel(item.status)}
                     </span>
                     <time style={{ color: C.light, fontSize: 12 }} dateTime={item.createdAt}>
                       {new Date(item.createdAt).toLocaleDateString('en-IN', {

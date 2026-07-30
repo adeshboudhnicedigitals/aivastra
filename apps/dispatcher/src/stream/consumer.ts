@@ -2,10 +2,16 @@ import { hostname } from 'node:os';
 import type { Logger } from '@aivastra/logger';
 import type { Redis } from 'ioredis';
 import type { ProcessorConfig } from '../job/processor.js';
-import { processJob } from '../job/processor.js';
 import { getWorkers } from '../worker/registry.js';
+import {
+  DISPATCHER_GROUP,
+  parseMessage,
+  runStreamLoop,
+  type StreamMessage,
+  type XReadGroupResult,
+} from './loop.js';
 
-const GROUP = 'dispatcher-cg';
+const GROUP = DISPATCHER_GROUP;
 const CONSUMER = hostname();
 
 // How often the consumer re-reads the worker registry to recompute its in-flight
@@ -25,30 +31,7 @@ async function ensureGroups(redis: Redis, log: Logger): Promise<void> {
   }
 }
 
-type XReadGroupResult = Array<[string, Array<[string, string[]]>]> | null;
-
-function parseMessage(
-  stream: string,
-  result: XReadGroupResult,
-): { stream: string; messageId: string; jobId: string; userId: string } | null {
-  if (!result?.[0]?.[1].length) return null;
-  const entry = result[0][1][0];
-  if (!entry) return null;
-  const [messageId, fields] = entry;
-  const fieldMap: Record<string, string> = {};
-  for (let i = 0; i < fields.length; i += 2) {
-    const k = fields[i];
-    const v = fields[i + 1];
-    if (k !== undefined && v !== undefined) fieldMap[k] = v;
-  }
-  // userId is absent for widget jobs (which use merchantId from the DB row instead)
-  if (!fieldMap.jobId) return null;
-  return { stream, messageId, jobId: fieldMap.jobId, userId: fieldMap.userId ?? '' };
-}
-
-async function readOne(
-  redis: Redis,
-): Promise<{ stream: string; messageId: string; jobId: string; userId: string } | null> {
+async function readOne(redis: Redis): Promise<StreamMessage | null> {
   // 1. Check priority queue — instant, no block
   const priority = (await redis.xreadgroup(
     'GROUP',
@@ -93,14 +76,17 @@ async function readOne(
   return parseMessage('jobs:low', low);
 }
 
+/**
+ * GPU lane consumer: reads jobs:priority → jobs:normal → jobs:low and caps in-flight
+ * jobs to the number of registered ComfyUI workers. Catalog-video jobs do NOT ride
+ * this lane — see runVideoConsumer in ./video-consumer.ts.
+ */
 export async function runConsumer(
   redis: Redis,
   cfg: ProcessorConfig,
   log: Logger,
 ): Promise<() => void> {
   await ensureGroups(redis, log);
-  let running = true;
-  let inFlight = 0;
 
   // In-flight cap = number of registered workers, read live from the registry so
   // scaling GPUs up/down via the admin panel takes effect without a restart.
@@ -108,57 +94,26 @@ export async function runConsumer(
   let concurrency = 0;
   let lastConcurrencyRefresh = 0;
 
-  async function refreshConcurrency(): Promise<void> {
+  async function getConcurrency(): Promise<number> {
     const now = Date.now();
-    if (now - lastConcurrencyRefresh < CONCURRENCY_REFRESH_MS) return;
-    lastConcurrencyRefresh = now;
-    try {
-      const next = (await getWorkers(redis)).size;
-      if (next !== concurrency) {
-        log.info({ from: concurrency, to: next }, 'consumer concurrency updated from registry');
-        concurrency = next;
-      }
-    } catch (err) {
-      log.warn({ err }, 'failed to refresh concurrency from registry — keeping current');
-    }
-  }
-
-  // Caps in-flight jobs to the number of GPU workers so reads don't race ahead of
-  // capacity — processJob already requeues gracefully if no worker is free anyway.
-  // Blocks indefinitely while concurrency is 0 (no workers), resuming automatically
-  // once a worker is added to the registry.
-  async function waitForSlot(): Promise<void> {
-    while (running) {
-      await refreshConcurrency();
-      if (inFlight < concurrency) return;
-      await new Promise((r) => setTimeout(r, 50));
-    }
-  }
-
-  async function loop(): Promise<void> {
-    while (running) {
+    if (now - lastConcurrencyRefresh >= CONCURRENCY_REFRESH_MS) {
+      lastConcurrencyRefresh = now;
       try {
-        await waitForSlot();
-        const msg = await readOne(redis);
-        if (!msg) continue;
-        const { stream, messageId, jobId, userId } = msg;
-        log.info({ jobId, userId, stream }, 'consumed job from stream');
-        inFlight++;
-        processJob(cfg, jobId, userId, stream, messageId)
-          .catch((err) => log.error({ err, jobId }, 'job processing failed'))
-          .finally(() => {
-            inFlight--;
-          });
+        const next = (await getWorkers(redis)).size;
+        if (next !== concurrency) {
+          log.info({ from: concurrency, to: next }, 'consumer concurrency updated from registry');
+          concurrency = next;
+        }
       } catch (err) {
-        log.error({ err }, 'consumer loop error — resuming');
-        await new Promise((r) => setTimeout(r, 1000));
+        log.warn({ err }, 'failed to refresh concurrency from registry — keeping current');
       }
     }
+    return concurrency;
   }
 
-  loop().catch((err) => log.error({ err }, 'consumer loop crashed'));
-
-  return () => {
-    running = false;
-  };
+  return runStreamLoop(cfg, log, {
+    name: 'gpu',
+    read: () => readOne(redis),
+    getConcurrency,
+  });
 }
