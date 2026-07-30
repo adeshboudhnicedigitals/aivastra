@@ -1421,7 +1421,7 @@ git commit -m "feat(admin): upload and manage demo catalog products"
   - Type: `DemoCatalogAssignmentsPutBody` (`{ merchantIds: string[] }`)
   - Routes: `GET /admin/demo-catalog/sets/:id/assignments`, `PUT /admin/demo-catalog/sets/:id/assignments`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `apps/api/test/demo-catalog-admin.test.ts`:
 
@@ -1528,12 +1528,12 @@ describe('admin demo set assignments', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @aivastra/api test -- demo-catalog-admin`
 Expected: FAIL — 404 on the assignments route.
 
-- [ ] **Step 3: Add the type**
+- [x] **Step 3: Add the type**
 
 Append to `packages/types/src/demo-catalog.ts`:
 
@@ -1546,7 +1546,7 @@ export const DemoCatalogAssignmentsPutBody = z.object({
 export type DemoCatalogAssignmentsPutBody = z.infer<typeof DemoCatalogAssignmentsPutBody>;
 ```
 
-- [ ] **Step 4: Add the routes**
+- [x] **Step 4: Add the routes**
 
 In `apps/api/src/modules/admin/demo-catalog.routes.ts`, import
 `DemoCatalogAssignmentsPutBody` and add:
@@ -1622,12 +1622,12 @@ In `apps/api/src/modules/admin/demo-catalog.routes.ts`, import
   );
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `pnpm --filter @aivastra/api test -- demo-catalog-admin`
 Expected: PASS, 22 tests.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/types/src/demo-catalog.ts apps/api/src/modules/admin/demo-catalog.routes.ts apps/api/test/demo-catalog-admin.test.ts
