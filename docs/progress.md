@@ -1,3 +1,29 @@
+## 2026-07-31 - Kiosk demo catalog data (Tasks 6-9 complete)
+
+### Done
+- Task 6: Added `resolveTryonGarment` resolver and wired `POST /v1/merchant/tryon/jobs` and `POST /v1/kiosk/jobs` to allow try-on against assigned demo catalog items. Appended assigned demo items to `GET /v1/kiosk/catalog`. Added integration test suite (`apps/api/test/demo-catalog-tryon.test.ts`, 5/5 passing). Landed in `4a640fdc`.
+- Task 7: Added `includeDemo=false` to merchant-facing web catalogue management UIs (`CatalogueManagerContent.tsx`, `tryon-library-app` pages) so admin-owned demo rows stay out of the merchant's editable product library. Landed in `aa9cbeb6`.
+- Task 8: Created "Kiosk Demo Data" admin page (`apps/admin-web/src/pages/DemoCatalogPage.tsx`), registered `/demo-catalog` route and sidebar entry in `App.tsx` and `Sidebar.tsx`. Verified `@aivastra/admin` builds cleanly. Landed in `0f1019d1`.
+- Task 9: End-to-end verification — ran full API integration test suite (400/400 tests passing across 49 files), repo-wide typecheck (`pnpm typecheck`) clean across all 11 workspace packages, repo-wide lint (`pnpm lint`) clean. All 9 plan tasks checked off.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- Merchant try-ons on assigned demo products do not deduct credits (merchant try-ons are free by design). While this is the intended kiosk demo experience, monitor usage to ensure merchants do not abuse demo set assignments as an unintended free try-on surface.
+
+## 2026-07-30 - Native Google device login for Android
+
+### Done
+- Added `POST /v1/auth/device-login/google`: verifies Android Google ID tokens, reuses the shared Google account-link/upsert ladder, preserves the kiosk device-cap/force-logout and refresh-token contract, and returns merchant status, logo URL, and onboarding prefill when no merchant exists.
+- Added nine API integration tests for onboarding, existing-account linking, repeat subject, ban/audience/configuration errors, kiosk/mobile device behavior, and device refresh. Focused suite: 9/9 passing.
+- Committed the route and its tests as `1798b153` (`feat(auth): add native Google device login for the Android app`).
+
+### Failed / Not Done
+- `pnpm --filter @aivastra/api build` is blocked by pre-existing `publicApiSlug` schema/type errors in `apps/api/src/modules/admin/catalog.routes.ts` and `apps/api/src/modules/admin/dev-api.routes.ts`; Task 4 files do not appear in those errors.
+
+### Open Questions / Decisions
+- The test harness keeps rate limiting active. The 11 native-login requests in the suite use unique RFC 5737 test IPs so the test cases do not accidentally test the route's 10/minute limiter bucket.
 ## 2026-07-30 - Bulk backfill for public_api_slug + admin panel button
 
 ### Done
