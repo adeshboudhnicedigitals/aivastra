@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
 import { sendPasswordResetEmail, sendVerificationEmail } from '../../lib/mailer.js';
+import { resolveMerchantStatus } from '../merchant/status.js';
 import {
   hashPassword,
   hashRefresh,
@@ -795,8 +796,11 @@ export async function authRoutes(app: FastifyInstance) {
         deviceName,
         platform,
       });
-      const logoUrl = await resolveMerchantLogoUrl(app, user.id);
-      return { ...tokens, user: deviceLoginUserPayload(user), logoUrl };
+      const [logoUrl, merchantStatus] = await Promise.all([
+        resolveMerchantLogoUrl(app, user.id),
+        resolveMerchantStatus(app, user.id),
+      ]);
+      return { ...tokens, user: deviceLoginUserPayload(user), logoUrl, merchantStatus };
     },
   );
 
@@ -855,7 +859,8 @@ export async function authRoutes(app: FastifyInstance) {
         deviceName: deviceName ?? claim.deviceName,
         platform,
       });
-      return { ...tokens, user: deviceLoginUserPayload(user) };
+      const merchantStatus = await resolveMerchantStatus(app, user.id);
+      return { ...tokens, user: deviceLoginUserPayload(user), merchantStatus };
     },
   );
 
