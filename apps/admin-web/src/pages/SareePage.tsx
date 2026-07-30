@@ -312,10 +312,12 @@ export default function SareePage({ toast, onNav }: Props) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div className="page-head">
+      <div
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
+      >
         <div>
-          <h1>Saree Try-On</h1>
-          <p className="lede">
+          <h2 style={{ margin: 0, fontSize: '1.125rem', fontWeight: 600 }}>Saree Try-On</h2>
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
             Temporary feature — upload the ComfyUI workflow and the static model image.
           </p>
         </div>
