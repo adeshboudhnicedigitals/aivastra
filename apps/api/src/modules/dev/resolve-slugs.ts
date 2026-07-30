@@ -26,14 +26,27 @@ export interface ResolvedCatalogSelection {
   shoeCatalogId?: string;
 }
 
-function pick(items: { id: string; slug: string | null }[], slug: string, field: string): string {
+/**
+ * scopedByGarmentType: pass the request's garmentType slug for fields whose
+ * eligible set narrows by it (pose, lower, shoe — see build.ts's poseGarmentConfigs
+ * overlay and fetchCatalogItems). Omit for face/background/garmentType itself,
+ * which are never narrowed this way. This only changes the error message: the
+ * lookup itself already ran against the correctly-scoped options above.
+ */
+function pick(
+  items: { id: string; slug: string | null }[],
+  slug: string,
+  field: string,
+  scopedByGarmentType?: string,
+): string {
   const hit = items.find((i) => i.slug === slug);
   if (!hit) {
-    throw new AppError(
-      'BAD_SLUG',
-      400,
-      `unknown ${field} "${slug}" — call GET /v1/dev/catalog/options for the current list`,
-    );
+    const hint = scopedByGarmentType
+      ? `unknown ${field} "${slug}" for garmentType "${scopedByGarmentType}" — it may exist ` +
+        `for a different garmentType. Call GET /v1/dev/catalog/options?garmentType=${scopedByGarmentType} ` +
+        'for the current compatible list'
+      : `unknown ${field} "${slug}" — call GET /v1/dev/catalog/options for the current list`;
+    throw new AppError('BAD_SLUG', 400, hint);
   }
   return hit.id;
 }
@@ -67,12 +80,16 @@ export async function resolveCatalogSelection(
   return {
     faceId: pick(options.faces, body.face, 'face'),
     looks: body.looks.map((l) => ({
-      poseId: pick(options.poses, l.pose, 'pose'),
+      poseId: pick(options.poses, l.pose, 'pose', body.garmentType),
       backgroundId: pick(options.backgrounds, l.background, 'background'),
     })),
     garmentTypeId,
-    lowerCatalogId: body.lower ? pick(options.lowerItems, body.lower, 'lower') : undefined,
-    shoeCatalogId: body.shoe ? pick(options.shoeItems, body.shoe, 'shoe') : undefined,
+    lowerCatalogId: body.lower
+      ? pick(options.lowerItems, body.lower, 'lower', body.garmentType)
+      : undefined,
+    shoeCatalogId: body.shoe
+      ? pick(options.shoeItems, body.shoe, 'shoe', body.garmentType)
+      : undefined,
   };
 }
 
