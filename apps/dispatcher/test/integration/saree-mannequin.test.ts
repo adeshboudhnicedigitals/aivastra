@@ -418,4 +418,101 @@ describe('dispatcher — saree mannequin (step 1) job', () => {
       devTemplate.id,
     );
   });
+
+  async function seedTwoInputMannequinJob() {
+    const [user] = await env.db
+      .insert(schema.users)
+      .values({
+        email: `mannequin-two-input-${Date.now()}@test.com`,
+        passwordHash: 'x',
+        tier: 'free',
+      })
+      .returning();
+    const [template] = await env.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `saree-step1-two-input-${Date.now()}`,
+        label: 'Step1 Two Input',
+        jsonContent: {
+          '1': { class_type: 'LoadImage', inputs: { image: 'placeholder.jpg' } },
+          '2': { class_type: 'LoadImage', inputs: { image: 'placeholder.jpg' } },
+          '3': { class_type: 'LoadImage', inputs: { image: 'placeholder.jpg' } },
+        },
+        workflowType: 'saree_step1_two_input',
+        faceNodeId: '',
+        poseNodeId: '',
+        bgNodeId: '',
+        upperNodeIds: [],
+        facePhasePromptNode: '',
+        garmentPhasePromptNode: '',
+        tryonPersonNodeId: '1',
+        tryonGarmentNodeId: '2',
+        tryonGarmentNodeId2: '3',
+        tryonOutputNodeId: '10',
+      })
+      .returning();
+    const [garmentType] = await env.db
+      .insert(schema.garmentSubcategories)
+      .values({
+        genderSlug: 'women',
+        slug: `flat-saree-two-input-${Date.now()}`,
+        label: 'Flat Saree Two Input',
+        requiresMannequinStep: true,
+        mannequinWorkflowTemplateId: template.id,
+      })
+      .returning();
+    const [face] = await env.db
+      .insert(schema.modelFaces)
+      .values({
+        gender: 'women',
+        label: 'F',
+        r2Key: 'face/ftwoinput.jpg',
+        thumbnailKey: 'face/ftwoinput.jpg',
+      })
+      .returning();
+    const [job] = await env.db
+      .insert(schema.jobs)
+      .values({ userId: user.id, status: 'QUEUED', priority: false, creditsCharged: 0 })
+      .returning();
+    await env.db.insert(schema.jobInputs).values({
+      jobId: job.id,
+      upperGarmentKey: `inputs/${job.id}/garment.jpg`,
+      thirdGarmentKey: `inputs/${job.id}/pallu.jpg`,
+      faceId: face.id,
+      garmentTypeId: garmentType.id,
+      params: { kind: 'saree_mannequin', workflowTemplateId: template.id },
+    });
+    for (const key of [
+      `inputs/${job.id}/garment.jpg`,
+      `inputs/${job.id}/pallu.jpg`,
+      'face/ftwoinput.jpg',
+    ]) {
+      await env.s3.send(
+        new PutObjectCommand({
+          Bucket: env.r2Bucket,
+          Key: key,
+          Body: Buffer.from('stub'),
+          ContentType: 'image/jpeg',
+        }),
+      );
+    }
+    return { jobId: job.id, userId: user.id };
+  }
+
+  it('patches both body and pallu nodes for a two-input mannequin job', async () => {
+    const { jobId, userId } = await seedTwoInputMannequinJob();
+    const log = createLogger('test');
+    await processJob(
+      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      jobId,
+      userId,
+      'jobs:normal',
+      '1-5',
+    );
+    const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+    expect(job?.status).toBe('COMPLETED');
+    const prompt = comfy.lastPrompt();
+    expect(prompt?.prompt['2']?.inputs?.image).toContain('mannequin_garment_');
+    expect(prompt?.prompt['3']?.inputs?.image).toContain('mannequin_pallu_');
+  });
 });

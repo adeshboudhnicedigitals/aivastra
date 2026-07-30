@@ -757,6 +757,8 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         label: schema.sareeMannequinStyles.label,
         previewImageKey: schema.sareeMannequinStyles.previewImageKey,
         sortOrder: schema.sareeMannequinStyles.sortOrder,
+        mannequinTwoInputWorkflowTemplateId:
+          schema.sareeMannequinStyles.mannequinTwoInputWorkflowTemplateId,
       })
       .from(schema.sareeMannequinStyles)
       .where(eq(schema.sareeMannequinStyles.isActive, true))
@@ -773,6 +775,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
               .catch(() => null)
           : null,
         sortOrder: row.sortOrder,
+        supportsTwoInput: row.mannequinTwoInputWorkflowTemplateId !== null,
       })),
     );
     return { items };
@@ -785,9 +788,8 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
       const merchantId = req.merchantClientId;
       if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
-      const { subcategoryId, flatImageKey, mannequinOnly, sareeStyleId } = req.body as z.infer<
-        typeof MerchantCatalogGenerateBody
-      >;
+      const { subcategoryId, flatImageKey, mannequinOnly, sareeStyleId, secondFlatImageKey } =
+        req.body as z.infer<typeof MerchantCatalogGenerateBody>;
 
       const [row] = await app.db
         .select({
@@ -816,6 +818,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
             flatImageKey,
             merchantId,
             sareeStyleId,
+            secondFlatImageKey,
           })
         : await createMerchantCatalogJob(app, {
             userId: row.userId,

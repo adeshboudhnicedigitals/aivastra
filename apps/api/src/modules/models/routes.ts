@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
+import { getPixverseCreditCost } from '../../lib/resolution-config.js';
 
 export async function modelsRoutes(app: FastifyInstance) {
   app.get(
@@ -30,6 +31,8 @@ export async function modelsRoutes(app: FastifyInstance) {
           defaultLowerCatalogId: schema.garmentSubcategories.defaultLowerCatalogId,
           defaultShoeCatalogId: schema.garmentSubcategories.defaultShoeCatalogId,
           requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep,
+          mannequinTwoInputWorkflowTemplateId:
+            schema.garmentSubcategories.mannequinTwoInputWorkflowTemplateId,
         })
         .from(schema.garmentSubcategories)
         .where(
@@ -72,7 +75,9 @@ export async function modelsRoutes(app: FastifyInstance) {
       .from(schema.sampleVideos)
       .where(and(eq(schema.sampleVideos.isActive, true), isNull(schema.sampleVideos.deletedAt)))
       .orderBy(asc(schema.sampleVideos.sortOrder));
+    const creditCost = await getPixverseCreditCost(app);
     return {
+      creditCost,
       items: await Promise.all(
         rows.map(async (row) => {
           const [thumbnail, video] = await Promise.all([

@@ -367,6 +367,9 @@ export function EditGarmentTypeModal({
   const [sareeStep2WorkflowTemplateId, setSareeStep2WorkflowTemplateId] = useState(
     garmentType.sareeStep2WorkflowTemplateId ?? '',
   );
+  const [mannequinTwoInputWorkflowTemplateId, setMannequinTwoInputWorkflowTemplateId] = useState(
+    garmentType.mannequinTwoInputWorkflowTemplateId ?? '',
+  );
   const [publicApiSlug, setPublicApiSlug] = useState(garmentType.publicApiSlug ?? '');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [instructionFile, setInstructionFile] = useState<File | null>(null);
@@ -407,7 +410,8 @@ export function EditGarmentTypeModal({
     tryonCategoryId !== (garmentType.tryonCategoryId ?? '') ||
     requiresMannequinStep !== (garmentType.requiresMannequinStep ?? false) ||
     mannequinWorkflowTemplateId !== (garmentType.mannequinWorkflowTemplateId ?? '') ||
-    sareeStep2WorkflowTemplateId !== (garmentType.sareeStep2WorkflowTemplateId ?? '');
+    sareeStep2WorkflowTemplateId !== (garmentType.sareeStep2WorkflowTemplateId ?? '') ||
+    mannequinTwoInputWorkflowTemplateId !== (garmentType.mannequinTwoInputWorkflowTemplateId ?? '');
 
   const save = async () => {
     setSaving(true);
@@ -476,6 +480,12 @@ export function EditGarmentTypeModal({
       }
       if (sareeStep2WorkflowTemplateId !== (garmentType.sareeStep2WorkflowTemplateId ?? '')) {
         patchBody.sareeStep2WorkflowTemplateId = sareeStep2WorkflowTemplateId || null;
+      }
+      if (
+        mannequinTwoInputWorkflowTemplateId !==
+        (garmentType.mannequinTwoInputWorkflowTemplateId ?? '')
+      ) {
+        patchBody.mannequinTwoInputWorkflowTemplateId = mannequinTwoInputWorkflowTemplateId || null;
       }
 
       if (Object.keys(patchBody).length > 0) {
@@ -702,6 +712,23 @@ export function EditGarmentTypeModal({
                     />
                     <span className="hint">
                       Drapes the uploaded garment onto the selected face, once per job.
+                    </span>
+                  </div>
+                  <div className="field">
+                    <label>Two-Input Mannequin (Body + Pallu) Workflow</label>
+                    <SearchableSelect
+                      options={workflows
+                        .filter((w) => w.workflowType === 'saree_step1_two_input' && w.isActive)
+                        .map((w) => ({ id: w.id, label: `${w.label} (${w.slug})` }))}
+                      value={mannequinTwoInputWorkflowTemplateId}
+                      disabled={saving}
+                      emptyLabel="— none —"
+                      placeholder="— search workflow —"
+                      onChange={setMannequinTwoInputWorkflowTemplateId}
+                    />
+                    <span className="hint">
+                      Optional. When set, the studio wizard offers a "Body & Pallu" two-image upload
+                      mode for this garment type, using this workflow instead of the one above.
                     </span>
                   </div>
                   <div className="field">
