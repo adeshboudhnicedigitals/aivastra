@@ -3,7 +3,6 @@ package aivastra.nice.interactive.activity.auth
 import aivastra.nice.interactive.BuildConfig
 import aivastra.nice.interactive.Loader.LoaderManager
 import aivastra.nice.interactive.R
-import aivastra.nice.interactive.activity.Home.HomeDressesForActivity
 import aivastra.nice.interactive.activity.launch.BaseActivity
 import aivastra.nice.interactive.databinding.ActivityLoginBinding
 import aivastra.nice.interactive.utils.PrefsManager
@@ -13,7 +12,6 @@ import aivastra.nice.interactive.viewmodel.category.DeviceLimitState
 import aivastra.nice.interactive.viewmodel.category.SareeCategoryDataRepository
 import aivastra.nice.interactive.viewmodel.category.SareecategoryDataViewModel
 import android.app.AlertDialog
-import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.os.Bundle
 import android.provider.Settings
@@ -28,6 +26,7 @@ import androidx.lifecycle.lifecycleScope
 import com.example.facewixlatest.ApiUtils.ApiErrorPresenter
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 class LoginActivity : BaseActivity() {
@@ -159,6 +158,7 @@ class LoginActivity : BaseActivity() {
             .build()
 
         lifecycleScope.launch {
+            var loaderShown = false
             try {
                 val result = CredentialManager.create(this@LoginActivity)
                     .getCredential(this@LoginActivity, request)
@@ -170,46 +170,41 @@ class LoginActivity : BaseActivity() {
                     .orEmpty()
 
                 LoaderManager.show(this@LoginActivity, findViewById(android.R.id.content), false)
+                loaderShown = true
                 val login = SareeCategoryDataRepository.loginWithGoogle(idToken, deviceId)
                 PrefsManager.saveLoginUserData(login)
-                LoaderManager.remove(this@LoginActivity)
                 routeAfterLogin()
             } catch (_: GetCredentialException) {
-                LoaderManager.remove(this@LoginActivity)
-                ViewControll.showMessage(this@LoginActivity, "Google sign-in was cancelled.")
+                if (canShowUi()) {
+                    ViewControll.showMessage(this@LoginActivity, "Google sign-in was cancelled.")
+                }
             } catch (error: DeviceLimitReachedException) {
-                LoaderManager.remove(this@LoginActivity)
-                showDeviceLimitDialog(
-                    DeviceLimitState(error.message.orEmpty(), error.forceLogoutToken),
-                    Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID).orEmpty(),
-                )
+                if (canShowUi()) {
+                    showDeviceLimitDialog(
+                        DeviceLimitState(error.message.orEmpty(), error.forceLogoutToken),
+                        Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID).orEmpty(),
+                    )
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
             } catch (error: Exception) {
-                LoaderManager.remove(this@LoginActivity)
-                val (title, message) = ApiErrorPresenter.present(error)
-                ViewControll.showSnackErrorMsg(this@LoginActivity, "$title: $message")
+                if (canShowUi()) {
+                    val (title, message) = ApiErrorPresenter.present(error)
+                    ViewControll.showSnackErrorMsg(this@LoginActivity, "$title: $message")
+                }
+            } finally {
+                if (loaderShown) LoaderManager.remove(this@LoginActivity)
             }
         }
     }
 
     private fun routeAfterLogin() {
-        when (SareeCategoryDataRepository.lastMerchantStatus) {
-            "ONBOARDING_REQUIRED" -> navigateTo(OnboardingActivity::class.java)
-            "PENDING_ACTIVATION" -> AlertDialog.Builder(this)
-                .setTitle("Activation pending")
-                .setMessage("Your account is awaiting activation. Please contact support.")
-                .setPositiveButton("OK", null)
-                .show()
-            else -> navigateTo(HomeDressesForActivity::class.java)
+        if (canShowUi()) {
+            MerchantStatusNavigator.route(this, SareeCategoryDataRepository.lastMerchantStatus)
         }
     }
 
-    private fun navigateTo(destination: Class<*>) {
-        val intent = Intent(this, destination)
-        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        startActivity(intent)
-        finish()
-        overridePendingTransition(R.anim.fade_and_scale_in, R.anim.fade_and_scale_out)
-    }
+    private fun canShowUi(): Boolean = !isFinishing && !isDestroyed
 
     private fun showDeviceLimitDialog(state: DeviceLimitState, deviceId: String) {
         AlertDialog.Builder(this)

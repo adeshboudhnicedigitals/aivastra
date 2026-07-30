@@ -117,20 +117,26 @@ object SareeCategoryDataRepository {
             if (!companyName.isNullOrBlank()) put("companyName", companyName)
             if (!businessAddress.isNullOrBlank()) put("businessAddress", businessAddress)
         }
-        APICaller.postJsonAuthed(
-            APIConstant.API_ENDPOINTS.MERCHANT_ONBOARDING,
-            payload.toString(),
-            PrefsManager.getAccessToken(),
+        val response = JSONObject(
+            APICaller.postJsonAuthed(
+                APIConstant.API_ENDPOINTS.MERCHANT_ONBOARDING,
+                payload.toString(),
+                PrefsManager.getAccessToken(),
+            ),
         )
-        lastMerchantStatus = "ACTIVE"
+        lastMerchantStatus = response.getString("merchantStatus")
     }
 
-    suspend fun fetchOnboardingState(): JSONObject = JSONObject(
-        APICaller.getJsonAuthed(
-            APIConstant.API_ENDPOINTS.MERCHANT_ONBOARDING,
-            PrefsManager.getAccessToken(),
-        ),
-    )
+    suspend fun fetchOnboardingState(): JSONObject {
+        val response = JSONObject(
+            APICaller.getJsonAuthed(
+                APIConstant.API_ENDPOINTS.MERCHANT_ONBOARDING,
+                PrefsManager.getAccessToken(),
+            ),
+        )
+        lastMerchantStatus = response.getString("merchantStatus")
+        return response
+    }
 
     private fun parseLoginError(cause: Throwable): Throwable {
         val raw = (cause as? com.example.facewixlatest.ApiUtils.ApiException.BackendError)?.rawBody
