@@ -246,5 +246,42 @@ describe('POST /v1/shopify/funnel-templates/re-run', () => {
     expect(auto?.funnelAssignmentSource).toBe('automated');
     expect(manual?.funnelTemplateId).toBeNull();
     expect(manual?.funnelAssignmentSource).toBe('manual');
+
+    // Outcome counters, not one ambiguous "reassigned" total: a match and a
+    // clear-to-null are opposite results and used to be summed together.
+    const body = res.json() as { matched: number; cleared: number; skippedManual: number };
+    expect(body.matched).toBe(1); // 9003
+    expect(body.cleared).toBe(1); // 9002, left from the previous test, no longer matches
+    expect(body.skippedManual).toBe(2); // 9001 + 9004
+  });
+
+  it('reports zero matches when no product satisfies any rule', async () => {
+    await app.db
+      .insert(schema.shopifyFunnelRules)
+      .values({
+        storeId,
+        funnelTemplateId,
+        mode: 'automated',
+        conditions: [{ field: 'tags', operator: 'contains', value: 'no-product-has-this-tag' }],
+        priority: 0,
+      })
+      .onConflictDoUpdate({
+        target: [schema.shopifyFunnelRules.storeId, schema.shopifyFunnelRules.funnelTemplateId],
+        set: {
+          mode: 'automated',
+          conditions: [{ field: 'tags', operator: 'contains', value: 'no-product-has-this-tag' }],
+        },
+      });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/funnel-templates/re-run',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { matched: number; cleared: number; evaluated: number };
+    expect(body.matched).toBe(0);
+    expect(body.cleared).toBe(body.evaluated);
+    expect(body.evaluated).toBeGreaterThan(0);
   });
 });

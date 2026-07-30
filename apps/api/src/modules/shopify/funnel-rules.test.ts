@@ -28,24 +28,50 @@ describe('matchesConditions', () => {
     ).toBe(true);
   });
 
-  it('matches vendor with equals', () => {
+  it('matches vendor with equals, case-insensitively', () => {
     expect(
       matchesConditions(product, [{ field: 'vendor', operator: 'equals', value: 'Acme Co' }]),
     ).toBe(true);
+    // Merchants type rule values by hand; a case mismatch against the Shopify
+    // value silently produced an unassignable product before.
     expect(
       matchesConditions(product, [{ field: 'vendor', operator: 'equals', value: 'acme co' }]),
+    ).toBe(true);
+    expect(
+      matchesConditions(product, [{ field: 'vendor', operator: 'equals', value: 'Other Co' }]),
     ).toBe(false);
   });
 
-  it('matches tags by array membership, ignoring operator', () => {
+  it('matches tags with equals by whole-tag membership', () => {
     expect(matchesConditions(product, [{ field: 'tags', operator: 'equals', value: 'Sale' }])).toBe(
       true,
     );
+    expect(matchesConditions(product, [{ field: 'tags', operator: 'equals', value: 'sale' }])).toBe(
+      true,
+    );
+    expect(
+      matchesConditions(product, [{ field: 'tags', operator: 'equals', value: 'Clearance' }]),
+    ).toBe(false);
+    // `equals` stays whole-value: a partial tag must not match.
+    expect(matchesConditions(product, [{ field: 'tags', operator: 'equals', value: 'Sal' }])).toBe(
+      false,
+    );
+  });
+
+  it('matches tags with contains by substring of any tag', () => {
     expect(
       matchesConditions(product, [{ field: 'tags', operator: 'contains', value: 'Sale' }]),
     ).toBe(true);
     expect(
-      matchesConditions(product, [{ field: 'tags', operator: 'equals', value: 'Clearance' }]),
+      matchesConditions(product, [{ field: 'tags', operator: 'contains', value: 'cot' }]),
+    ).toBe(true);
+    expect(
+      matchesConditions({ ...product, tags: ['Upper Garment'] }, [
+        { field: 'tags', operator: 'contains', value: 'upper' },
+      ]),
+    ).toBe(true);
+    expect(
+      matchesConditions(product, [{ field: 'tags', operator: 'contains', value: 'denim' }]),
     ).toBe(false);
   });
 
@@ -72,17 +98,39 @@ describe('matchesConditions', () => {
     ).toBe(false);
   });
 
-  it('matches collections by array membership, ignoring operator', () => {
+  it('matches collections with equals by whole-title membership', () => {
     expect(
       matchesConditions(product, [{ field: 'collections', operator: 'equals', value: 'Summer' }]),
     ).toBe(true);
+    expect(
+      matchesConditions(product, [{ field: 'collections', operator: 'equals', value: 'summer' }]),
+    ).toBe(true);
+    expect(
+      matchesConditions(product, [{ field: 'collections', operator: 'equals', value: 'Winter' }]),
+    ).toBe(false);
+  });
+
+  it('matches collections with contains by substring of any title', () => {
     expect(
       matchesConditions(product, [
         { field: 'collections', operator: 'contains', value: 'New Arrivals' },
       ]),
     ).toBe(true);
     expect(
-      matchesConditions(product, [{ field: 'collections', operator: 'equals', value: 'Winter' }]),
+      matchesConditions({ ...product, collections: ["Men's Shirts"] }, [
+        { field: 'collections', operator: 'contains', value: 'Men' },
+      ]),
+    ).toBe(true);
+    expect(
+      matchesConditions(product, [{ field: 'collections', operator: 'contains', value: 'Winter' }]),
+    ).toBe(false);
+  });
+
+  it('treats an empty array field as no match, not a match-all', () => {
+    expect(
+      matchesConditions({ productType: 'Shirts', tags: [], vendor: 'Acme Co', collections: [] }, [
+        { field: 'tags', operator: 'contains', value: 'upper' },
+      ]),
     ).toBe(false);
   });
 

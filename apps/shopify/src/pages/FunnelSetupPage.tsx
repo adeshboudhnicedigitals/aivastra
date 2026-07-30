@@ -110,8 +110,34 @@ export default function FunnelSetupPage() {
     setRerunning(true);
     setError(null);
     try {
-      await apiFetch('/v1/shopify/funnel-templates/re-run', { method: 'POST' });
-      showToast('Rules re-run — products reassigned where needed.');
+      const res = await apiFetch<{
+        matched: number;
+        cleared: number;
+        skippedManual: number;
+        evaluated: number;
+      }>('/v1/shopify/funnel-templates/re-run', { method: 'POST' });
+      // The old toast ("products reassigned where needed") read as success even
+      // when every rule matched nothing. Zero matches is the single most common
+      // misconfiguration — a rule whose value doesn't exist on any product — so
+      // it gets said outright.
+      if (res.evaluated === 0) {
+        showToast(
+          res.skippedManual > 0
+            ? `No products to evaluate — all ${res.skippedManual} are pinned manually.`
+            : 'No products to evaluate yet. Sync your products first.',
+        );
+      } else if (res.matched === 0) {
+        showToast(
+          `No product matched any automated rule — ${res.cleared} left without a funnel. Check your rule values against your product tags, collections, type and vendor.`,
+        );
+      } else {
+        showToast(
+          `${res.matched} product${res.matched === 1 ? '' : 's'} matched a rule` +
+            (res.cleared > 0 ? `, ${res.cleared} left without a funnel` : '') +
+            (res.skippedManual > 0 ? `, ${res.skippedManual} pinned manually (untouched)` : '') +
+            '.',
+        );
+      }
     } catch (err) {
       setError((err as Error).message);
     } finally {

@@ -323,7 +323,12 @@ export default function DashboardPage() {
   const synced = (me?.stats.syncedProductCount ?? 0) > 0;
   const enabled = (me?.stats.enabledProductCount ?? 0) > 0;
   const themeBlockDone = me?.store.settings.themeBlockConfirmed ?? false;
-  const funnelConfigured = me?.stats.funnelConfigured ?? false;
+  const funnelCounts = me?.stats.funnelCounts;
+  const mappedCount = funnelCounts?.mapped ?? 0;
+  const unmappedCount = funnelCounts?.unmapped ?? 0;
+  // The setup step is only done when EVERY synced product resolves a funnel — one
+  // unmapped product is one product whose try-ons all fail, which is not "set up".
+  const funnelConfigured = mappedCount > 0 && unmappedCount === 0;
   const doneCount = [synced, enabled, themeBlockDone, funnelConfigured].filter(Boolean).length;
   const allDone = doneCount === 4;
   const collapsed = allDone && !expanded;
@@ -441,9 +446,17 @@ export default function DashboardPage() {
             <StepRow
               done={funnelConfigured}
               title="Set up your funnel templates"
-              desc="Choose what shoppers see after they try something on."
-              primaryLabel="Go to Funnel Setup"
-              onPrimary={() => navigate('/funnel-setup')}
+              desc={
+                unmappedCount > 0 && mappedCount > 0
+                  ? `${unmappedCount} ${unmappedCount === 1 ? 'product has' : 'products have'} no funnel template — try-on stays off for ${unmappedCount === 1 ? 'it' : 'them'}.`
+                  : 'Choose what shoppers see after they try something on.'
+              }
+              primaryLabel={
+                unmappedCount > 0 && mappedCount > 0 ? 'Go to Products' : 'Go to Funnel Setup'
+              }
+              onPrimary={() =>
+                navigate(unmappedCount > 0 && mappedCount > 0 ? '/products' : '/funnel-setup')
+              }
             />
             {openingEditor && (
               <div style={{ marginTop: '4px', fontSize: '12px', color: BRAND.textFaint }}>
@@ -482,7 +495,7 @@ export default function DashboardPage() {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(3,1fr)',
+          gridTemplateColumns: 'repeat(4,1fr)',
           gap: '16px',
           marginBottom: '16px',
         }}
@@ -532,6 +545,28 @@ export default function DashboardPage() {
           label="Products Enabled"
           value={me?.stats.enabledProductCount ?? 0}
           sub={`of ${me?.stats.syncedProductCount ?? 0} synced`}
+        />
+        <StatCard
+          icon={
+            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M4 6h16M7 12h10M10 18h4"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+              />
+            </svg>
+          }
+          iconBg={unmappedCount > 0 ? BRAND.dangerBg : '#E6F6EC'}
+          iconColor={unmappedCount > 0 ? BRAND.dangerStrong : BRAND.successText}
+          label="Funnel Mapped"
+          value={`${mappedCount} of ${mappedCount + unmappedCount}`}
+          sub={
+            unmappedCount > 0
+              ? `${unmappedCount} unmapped — try-on off`
+              : `${funnelCounts?.byRule ?? 0} by rule · ${funnelCounts?.byHand ?? 0} by hand`
+          }
+          subColor={unmappedCount > 0 ? BRAND.dangerStrong : undefined}
         />
       </div>
 

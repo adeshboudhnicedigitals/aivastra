@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { and, count, eq, exists, sql } from 'drizzle-orm';
+import { and, count, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 
 export async function shopifyMeRoutes(app: FastifyInstance) {
@@ -47,23 +47,24 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
       .from(schema.shopifyProductGarments)
       .where(eq(schema.shopifyProductGarments.storeId, store.id));
 
-    const [{ funnelConfigured }] = await app.db
+    // Counts, not a boolean. `funnelConfigured` used to be EXISTS(any mapped row),
+    // so a store with 12 of 13 products mapped reported "configured" while the 13th
+    // failed every try-on with NO_WORKFLOW_CONFIGURED. Deleted rows are excluded —
+    // they can't be tried on, so counting them as unmapped is noise.
+    const [funnelCounts] = await app.db
       .select({
-        funnelConfigured: exists(
-          app.db
-            .select()
-            .from(schema.shopifyProductGarments)
-            .where(
-              and(
-                eq(schema.shopifyProductGarments.storeId, store.id),
-                sql`${schema.shopifyProductGarments.funnelTemplateId} is not null`,
-              ),
-            ),
-        ),
+        mapped: sql<number>`COUNT(*) FILTER (WHERE ${schema.shopifyProductGarments.funnelTemplateId} IS NOT NULL)::int`,
+        unmapped: sql<number>`COUNT(*) FILTER (WHERE ${schema.shopifyProductGarments.funnelTemplateId} IS NULL)::int`,
+        byRule: sql<number>`COUNT(*) FILTER (WHERE ${schema.shopifyProductGarments.funnelAssignmentSource} = 'automated')::int`,
+        byHand: sql<number>`COUNT(*) FILTER (WHERE ${schema.shopifyProductGarments.funnelAssignmentSource} = 'manual')::int`,
       })
-      .from(schema.shopifyStores)
-      .where(eq(schema.shopifyStores.id, store.id))
-      .limit(1);
+      .from(schema.shopifyProductGarments)
+      .where(
+        and(
+          eq(schema.shopifyProductGarments.storeId, store.id),
+          sql`${schema.shopifyProductGarments.status} <> 'deleted'`,
+        ),
+      );
 
     return {
       store: {
@@ -77,7 +78,10 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
         totalTryOns,
         syncedProductCount,
         enabledProductCount,
-        funnelConfigured,
+        // Kept so an older widget/admin bundle mid-deploy still reads something
+        // sensible; every new surface should use funnelCounts.
+        funnelConfigured: funnelCounts.mapped > 0,
+        funnelCounts,
         statusCounts: {
           active: activeCount,
           processing: processingCount,

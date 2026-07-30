@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { upsertShopifyStore } from '../src/modules/shopify/auth.routes.js';
 import { buildTestApp, type TestApp } from './helpers/api.js';
@@ -94,19 +94,27 @@ describe('GET /v1/shopify/me stats', () => {
       syncedProductCount: 3,
       enabledProductCount: 1,
       funnelConfigured: false,
+      // Deleted rows are excluded — 3 synced, 2 of them still tryable, neither mapped.
+      funnelCounts: { mapped: 0, unmapped: 2, byRule: 0, byHand: 0 },
       statusCounts: { active: 1, processing: 0, failed: 0, disabled: 2 },
     });
   });
 });
 
-describe('GET /v1/shopify/me stats.funnelConfigured', () => {
-  it('is false with no funnel assignment, true once one exists', async () => {
+describe('GET /v1/shopify/me stats.funnelCounts', () => {
+  it('counts mapped/unmapped products, not just whether any mapping exists', async () => {
     let res = await app.inject({
       method: 'GET',
       url: '/v1/shopify/me',
       headers: { authorization: `Bearer ${token}` },
     });
     expect(res.json().stats.funnelConfigured).toBe(false);
+    expect(res.json().stats.funnelCounts).toEqual({
+      mapped: 0,
+      unmapped: 2,
+      byRule: 0,
+      byHand: 0,
+    });
 
     const [wf] = await app.db
       .insert(schema.workflowTemplates)
@@ -138,6 +146,39 @@ describe('GET /v1/shopify/me stats.funnelConfigured', () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(res.json().stats.funnelConfigured).toBe(true);
+    expect(res.json().stats.funnelCounts).toEqual({
+      mapped: 2,
+      unmapped: 0,
+      byRule: 0,
+      byHand: 2,
+    });
+  });
+
+  it('reports a partially mapped store as partial, where funnelConfigured says "true"', async () => {
+    // The exact shape of the production incident: one product left unmapped among
+    // many mapped ones. The old boolean reported this store as fully configured.
+    await app.db
+      .update(schema.shopifyProductGarments)
+      .set({ funnelTemplateId: null, funnelAssignmentSource: null })
+      .where(
+        and(
+          eq(schema.shopifyProductGarments.storeId, storeId),
+          eq(schema.shopifyProductGarments.shopifyProductId, 2),
+        ),
+      );
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/me',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.json().stats.funnelConfigured).toBe(true);
+    expect(res.json().stats.funnelCounts).toEqual({
+      mapped: 1,
+      unmapped: 1,
+      byRule: 0,
+      byHand: 1,
+    });
   });
 });
 
