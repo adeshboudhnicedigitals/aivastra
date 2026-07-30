@@ -1,3 +1,15 @@
+## 2026-07-31 - Kiosk demo catalog data: post-hoc test-coverage gap closed
+
+### Done
+- Independent post-hoc audit found `GET /v1/kiosk/catalog` (`apps/api/src/modules/kiosk/catalog.routes.ts`) had zero test coverage for the demo-item mapping block added in `4a640fdc` (Task 6 below) — and no pre-existing test file for the route at all. Added `apps/api/test/kiosk-catalog-demo.test.ts` (3 tests): assigned demo item maps `gender`/`category` from its subcategory (using non-default values so a silent fallback-to-`'women'`/`'Demo'` regression would be caught), an unassigned demo set stays absent from the response, and the merchant's own catalog item and an assigned demo item both appear together with correct, unconflated shapes. Auth built directly via a `kioskDevices` row + `signAccess(..., 'kiosk')`, bypassing the pairing-code claim flow per the plugin's actual authorization surface (`app.requireKioskDevice` in `apps/api/src/plugins/portal-auth.ts`).
+- Isolated run: 3/3 passing. Full suite: 403/403 passing (up from 400). `pnpm --filter @aivastra/api typecheck` clean. `npx biome check` on the new file: 0 errors, 7 `noNonNullAssertion` warnings (same pre-existing pattern as `demo-catalog-merchant.test.ts`, non-blocking). Committed as `db6363b5`.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None new — this closes a coverage gap only, no behavior change to the shipped route.
+
 ## 2026-07-31 - Kiosk demo catalog data (Tasks 6-9 complete)
 
 ### Done
