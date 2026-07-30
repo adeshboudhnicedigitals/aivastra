@@ -30,3 +30,47 @@ describe('GET /admin/workers/job-types', () => {
     );
   });
 });
+
+describe('GET /admin/jobs/sources', () => {
+  let c: Containers;
+  let app: TestApp;
+  let authHeader: Record<string, string>;
+
+  beforeAll(async () => {
+    c = await startContainers();
+    app = await buildTestApp(c);
+    authHeader = await adminAuthHeader(app, 'SUPPORT');
+  }, 60000);
+  afterAll(async () => {
+    await app?.close();
+    await c?.stop();
+  });
+
+  it('returns all 13 job sources', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/jobs/sources',
+      headers: authHeader,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as string[];
+    expect(body).toHaveLength(13);
+    expect(body.sort()).toEqual(
+      [
+        'catalog',
+        'tryon',
+        'catalog_video',
+        'saree',
+        'saree_mannequin',
+        'shopify',
+        'merchant_catalog',
+        'merchant_catalog_saree_mannequin',
+        'merchant_tryon',
+        'kiosk',
+        'api_tryon',
+        'api_saree_mannequin',
+        'api_catalog',
+      ].sort(),
+    );
+  });
+});
