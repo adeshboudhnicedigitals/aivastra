@@ -7,7 +7,6 @@ import { Pager } from '../components/Pager';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { StatusBadge } from '../components/StatusBadge';
 import type { SortDir } from '../components/Th';
-import { Th } from '../components/Th';
 import { useAuth } from '../context/AuthContext';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 import type { CreditPlan, User } from '../types';
@@ -99,6 +98,7 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [createUserError, setCreateUserError] = useState('');
   const [resettingPassword, setResettingPassword] = useState(false);
   const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -136,6 +136,10 @@ export default function UsersPage({ onNav, toast }: Props) {
       );
   }, [toast]);
 
+  useEffect(() => {
+    if (detail) window.scrollTo(0, 0);
+  }, [detail]);
+
   const handleSearch = (q: string) => {
     setQuery(q);
     setPage(0);
@@ -152,14 +156,6 @@ export default function UsersPage({ onNav, toast }: Props) {
   });
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
-
-  const handleSort = (k: keyof User) => {
-    if (k === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-    else {
-      setSortKey(k);
-      setSortDir('asc');
-    }
-  };
 
   const openDetail = async (u: User) => {
     setDetail(u);
@@ -602,7 +598,7 @@ export default function UsersPage({ onNav, toast }: Props) {
           </p>
         ) : (
           <>
-            <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+            <div className="stat-grid">
               <button className="stat" onClick={openPlanEditor} title="Change credit plan">
                 <div className="lbl">
                   <Icon.Credit /> Current plan
@@ -653,7 +649,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                 <h3>Account details</h3>
               </div>
               <div className="card-body">
-                <div className="kv-grid" style={{ gridTemplateColumns: '112px 1fr' }}>
+                <div className="kv-grid">
                   <KV k="Phone" v={u.phone ? `+91 ${u.phone}` : 'Not provided'} />
                   <KV
                     k="Authentication"
@@ -724,10 +720,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                     </button>
                   </div>
                 ) : (
-                  <div
-                    className="kv-grid"
-                    style={{ gridTemplateColumns: 'auto 1fr auto 1fr auto 1fr', columnGap: 28 }}
-                  >
+                  <div className="kv-grid">
                     <KV
                       k="Status"
                       v={<StatusBadge status={u.merchant.isActive ? 'active' : 'inactive'} />}
@@ -1252,6 +1245,43 @@ export default function UsersPage({ onNav, toast }: Props) {
               onChange={(e) => handleSearch(e.target.value)}
             />
           </div>
+
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span
+              className="sub"
+              style={{ fontSize: 13, whiteSpace: 'nowrap', color: 'var(--muted)' }}
+            >
+              Sort by:
+            </span>
+            <select
+              value={`${sortKey}-${sortDir}`}
+              onChange={(e) => {
+                const [key, dir] = e.target.value.split('-');
+                setSortKey(key as keyof User);
+                setSortDir(dir as SortDir);
+              }}
+              style={{
+                padding: '6px 12px',
+                borderRadius: 6,
+                border: '1px solid var(--border)',
+                background: 'var(--surface)',
+                color: 'var(--ink)',
+                fontSize: 13,
+                cursor: 'pointer',
+                outline: 'none',
+              }}
+            >
+              <option value="createdAt-desc">Newest Joined</option>
+              <option value="createdAt-asc">Oldest Joined</option>
+              <option value="displayName-asc">Name (A-Z)</option>
+              <option value="displayName-desc">Name (Z-A)</option>
+              <option value="balance-desc">Highest Credits</option>
+              <option value="balance-asc">Lowest Credits</option>
+              <option value="totalJobs-desc">Most Jobs</option>
+              <option value="lastJobAt-desc">Recent Activity</option>
+            </select>
+          </div>
+
           <button className="btn" onClick={openCreateUser}>
             <Icon.Plus /> Create User
           </button>
@@ -1285,137 +1315,237 @@ export default function UsersPage({ onNav, toast }: Props) {
         </p>
       ) : (
         <>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <Th k="displayName" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
-                    User
-                  </Th>
-                  <Th k="tier" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
-                    Plan
-                  </Th>
-                  <th>Access</th>
-                  <Th k="balance" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
-                    Credits
-                  </Th>
-                  <Th k="totalJobs" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
-                    Jobs
-                  </Th>
-                  <Th k="lastJobAt" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
-                    Last activity
-                  </Th>
-                  <Th k="createdAt" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
-                    Joined
-                  </Th>
-                  <Th k="isBanned" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
-                    Status
-                  </Th>
-                  <th aria-label="Open user"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map((u) => (
-                  <tr
-                    key={u.id}
-                    onClick={() => openDetail(u)}
-                    style={{ cursor: 'pointer', opacity: u.isBanned ? 0.6 : 1 }}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {sorted.map((u) => {
+              const isExpanded = expandedUserId === u.id;
+              return (
+                <div
+                  key={u.id}
+                  className="card"
+                  style={{
+                    padding: 0,
+                    overflow: 'hidden',
+                    opacity: u.isBanned ? 0.6 : 1,
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    background: 'var(--surface)',
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setExpandedUserId(isExpanded ? null : u.id)}
+                    style={{
+                      padding: '12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                      background: 'none',
+                      border: 'none',
+                      width: '100%',
+                      textAlign: 'left',
+                      color: 'inherit',
+                      fontFamily: 'inherit',
+                      fontSize: 'inherit',
+                    }}
                   >
-                    <td>
-                      <div
-                        style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 220 }}
-                      >
-                        <NameAvatar name={userLabel(u)} email={u.email ?? undefined} size={32} />
-                        <div style={{ minWidth: 0 }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        minWidth: 0,
+                        flex: 1,
+                      }}
+                    >
+                      <NameAvatar name={userLabel(u)} email={u.email ?? undefined} size={32} />
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div
+                          className="semi"
+                          style={{
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            fontSize: 14,
+                          }}
+                        >
+                          {userLabel(u)}
+                        </div>
+                        {u.displayName && (
                           <div
-                            className="semi"
+                            className="sub"
                             style={{
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
                               whiteSpace: 'nowrap',
+                              fontSize: 11,
+                              color: 'var(--muted)',
                             }}
                           >
-                            {userLabel(u)}
+                            {userContact(u)}
                           </div>
-                          {u.displayName && (
-                            <div
-                              className="sub"
-                              style={{
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              {userContact(u)}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                    <td>
-                      <span className="badge" style={{ textTransform: 'capitalize' }}>
-                        {u.tier}
-                      </span>
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                        {u.isAdmin && (
-                          <span className="badge accent">
-                            {u.adminRole === 'SUPER_ADMIN' ? 'Super Admin' : 'Admin'}
-                          </span>
-                        )}
-                        {u.isMerchant && <span className="badge success">Merchant</span>}
-                        {u.hasShopifyStore && <span className="badge success">Shopify</span>}
-                        {!u.hasPassword && <span className="badge info">Google</span>}
-                        {!u.isAdmin && !u.isMerchant && u.hasPassword && (
-                          <span className="sub">Standard</span>
                         )}
                       </div>
-                    </td>
-                    <td>
-                      <span className="mono" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                        {u.balance.toLocaleString()}
-                      </span>
-                    </td>
-                    <td>
-                      <span className="mono" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                        {(u.totalJobs ?? 0).toLocaleString()}
-                      </span>
-                    </td>
-                    <td>
-                      <span className="sub">
-                        {u.lastJobAt ? new Date(u.lastJobAt).toLocaleDateString() : 'No activity'}
-                      </span>
-                    </td>
-                    <td>
-                      <span className="sub">{new Date(u.createdAt).toLocaleDateString()}</span>
-                    </td>
-                    <td>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 8 }}>
                       {u.isBanned ? (
                         <span className="badge danger dot">Suspended</span>
                       ) : (
                         <span className="badge success dot">Active</span>
                       )}
-                    </td>
-                    <td>
-                      <span style={{ color: 'var(--muted-2)' }} aria-hidden="true">
+                      <span
+                        style={{
+                          color: 'var(--muted-2)',
+                          transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                          transition: 'transform 0.2s',
+                          display: 'inline-flex',
+                        }}
+                      >
                         <Icon.Chevron />
                       </span>
-                    </td>
-                  </tr>
-                ))}
-                {sorted.length === 0 && (
-                  <tr>
-                    <td
-                      colSpan={9}
-                      style={{ textAlign: 'center', color: 'var(--muted)', padding: '2.5rem' }}
+                    </div>
+                  </button>
+
+                  {isExpanded && (
+                    <div
+                      style={{
+                        padding: '12px',
+                        borderTop: '1px solid var(--border)',
+                        background: 'var(--bg-2, #fafafa)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 10,
+                        fontSize: 13,
+                      }}
                     >
-                      No users found.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Plan</span>
+                        <span className="badge" style={{ textTransform: 'capitalize' }}>
+                          {u.tier}
+                        </span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Access</span>
+                        <div
+                          style={{
+                            display: 'flex',
+                            gap: 4,
+                            flexWrap: 'wrap',
+                            justifyContent: 'flex-end',
+                          }}
+                        >
+                          {u.isAdmin && (
+                            <span className="badge accent">
+                              {u.adminRole === 'SUPER_ADMIN' ? 'Super Admin' : 'Admin'}
+                            </span>
+                          )}
+                          {u.isMerchant && <span className="badge success">Merchant</span>}
+                          {u.hasShopifyStore && <span className="badge success">Shopify</span>}
+                          {!u.hasPassword && <span className="badge info">Google</span>}
+                          {!u.isAdmin && !u.isMerchant && u.hasPassword && (
+                            <span className="sub" style={{ fontSize: 11 }}>
+                              Standard
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Credits</span>
+                        <span
+                          className="mono"
+                          style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}
+                        >
+                          {u.balance.toLocaleString()}
+                        </span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Jobs</span>
+                        <span className="mono" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {(u.totalJobs ?? 0).toLocaleString()}
+                        </span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>
+                          Last activity
+                        </span>
+                        <span className="sub">
+                          {u.lastJobAt ? new Date(u.lastJobAt).toLocaleDateString() : 'No activity'}
+                        </span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Joined</span>
+                        <span className="sub">{new Date(u.createdAt).toLocaleDateString()}</span>
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+                        <button
+                          className="btn sm primary"
+                          onClick={() => openDetail(u)}
+                          style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                        >
+                          <Icon.User /> Manage Account
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {sorted.length === 0 && (
+              <div
+                style={{
+                  textAlign: 'center',
+                  color: 'var(--muted)',
+                  padding: '2.5rem',
+                  border: '1.5px dashed var(--border)',
+                  borderRadius: 8,
+                }}
+              >
+                No users found.
+              </div>
+            )}
           </div>
 
           <Pager
