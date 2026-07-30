@@ -939,6 +939,13 @@
       "when": 1785423935683,
       "tag": "0133_merchant_signup_source",
       "breakpoints": true
+    },
+    {
+      "idx": 134,
+      "version": "7",
+      "when": 1785428990667,
+      "tag": "0134_demo_catalog",
+      "breakpoints": true
     }
   ]
 }

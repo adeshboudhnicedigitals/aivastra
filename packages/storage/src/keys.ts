@@ -9,6 +9,9 @@ export const keys = {
     `merchant-catalog/${merchantId}/${id}/thumb.jpg`,
   merchantCatalogFlatGarment: (merchantId: string, id: string) =>
     `merchant-catalog/${merchantId}/flat/${id}/garment.jpg`,
+  // Not merchant-scoped: one demo object is shared by every assigned merchant.
+  demoCatalogItem: (id: string) => `demo-catalog/${id}/image.jpg`,
+  demoCatalogItemThumb: (id: string) => `demo-catalog/${id}/thumb.jpg`,
   merchantLogo: (merchantId: string) => `merchant-logo/${merchantId}/logo.jpg`,
   devUpload: (merchantId: string, id: string, ext: string) => `dev/${merchantId}/${id}.${ext}`,
   catalogItem: (typeSlug: string, id: string) => `catalog/${typeSlug}/${id}.jpg`,
