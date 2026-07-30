@@ -18,6 +18,8 @@ object APIConstant {
         const val DEVICE_LOGIN_FORCE = "v1/auth/device-login/force"
         const val DEVICE_REFRESH = "v1/auth/device-refresh"
         const val DEVICE_LOGOUT = "v1/auth/device-logout"
+        const val DEVICE_LOGIN_GOOGLE = "v1/auth/device-login/google"
+        const val MERCHANT_ONBOARDING = "v1/merchant/onboarding"
 
         const val MERCHANT_CATALOG_SUBCATEGORIES = "v1/merchant/catalog/subcategories"
         const val MERCHANT_CATALOG_ITEMS = "v1/merchant/catalog"

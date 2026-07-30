@@ -46,6 +46,8 @@ gpuimage = "2.1.0"
 mlkit = "17.0.0"
 glide_okhttp = "4.16.0"
 securityCrypto = "1.0.0"
+credentials = "1.3.0"
+googleid = "1.1.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -98,6 +100,9 @@ androidx-exoplayer_ui = { group = "androidx.media3", name = "media3-ui", version
 androidx-cameraview = { group = "com.otaliastudios", name = "cameraview", version.ref = "cameraview" }
 androidx-gpuimage= { group = "jp.co.cyberagent.android", name = "gpuimage", version.ref = "gpuimage" }
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
+androidx-credentials = { group = "androidx.credentials", name = "credentials", version.ref = "credentials" }
+androidx-credentials-play-services = { group = "androidx.credentials", name = "credentials-play-services-auth", version.ref = "credentials" }
+googleid = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version.ref = "googleid" }
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 jetbrains-kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
