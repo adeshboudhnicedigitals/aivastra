@@ -199,6 +199,20 @@ describe('POST /v1/merchant/onboarding', () => {
     expect(row?.signupSource).toBe('admin');
   });
 
+  it('rejects an arbitrary signup source at the database boundary', async () => {
+    const { userId } = await createGoogleUser();
+
+    await expect(
+      app.db.insert(schema.merchants).values({
+        companyName: 'Invalid Source Shop',
+        contactName: 'Invalid Source Person',
+        phone: '9000000005',
+        businessAddress: '1 Constraint Street',
+        signupSource: 'unapproved' as never,
+        userId,
+      }),
+    ).rejects.toMatchObject({ code: '23514' });
+  });
   it('400s on a missing or malformed phone number', async () => {
     const { token } = await createGoogleUser();
     for (const payload of [{}, { phone: '123' }, { phone: 'not-a-number' }]) {

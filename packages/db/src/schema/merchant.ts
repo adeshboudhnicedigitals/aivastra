@@ -33,7 +33,9 @@ export const merchants = pgTable('merchants', {
   // 'android_google' -- self-serve Google signup from the Android app via
   //                    POST /v1/merchant/onboarding. Try-ons are free, so these
   //                    accounts are the ones to watch for GPU abuse.
-  signupSource: text('signup_source').notNull().default('admin'),
+  signupSource: text('signup_source', { enum: ['admin', 'android_google'] })
+    .notNull()
+    .default('admin'),
   // Login credentials live on `users` — a merchant IS a user with a merchants
   // profile attached (same pattern as admin_users). One merchant account per user.
   userId: uuid('user_id')
