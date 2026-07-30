@@ -1,7 +1,10 @@
+import { schema } from '@aivastra/db';
+import { LEGACY_JOB_SOURCE } from '@aivastra/types';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { adminAuthHeader } from '../helpers/admin.js';
 import { buildTestApp, type TestApp } from '../helpers/api.js';
 import { type Containers, startContainers } from '../helpers/containers.js';
+import { createTestApiKey, createTestMerchant } from '../helpers/merchant.js';
 
 describe('GET /admin/workers/job-types', () => {
   let c: Containers;
@@ -72,5 +75,40 @@ describe('GET /admin/jobs/sources', () => {
         'api_catalog',
       ].sort(),
     );
+  });
+});
+
+describe('dev-API read filters — permanent legacy source compatibility', () => {
+  let c: Containers;
+  let app: TestApp;
+
+  beforeAll(async () => {
+    c = await startContainers();
+    app = await buildTestApp(c);
+  }, 60000);
+  afterAll(async () => {
+    await app?.close();
+    await c?.stop();
+  });
+
+  it('GET /v1/dev/jobs/:id still finds a job seeded with the raw legacy source value', async () => {
+    const { merchantId } = await createTestMerchant(app);
+    const { id: apiKeyId, key } = await createTestApiKey(app, merchantId);
+    const [job] = await app.db
+      .insert(schema.jobs)
+      .values({
+        apiKeyId,
+        status: 'COMPLETED',
+        source: LEGACY_JOB_SOURCE.API,
+        creditsCharged: 1,
+      })
+      .returning();
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/dev/jobs/${job.id}`,
+      headers: { authorization: `Bearer ${key}` },
+    });
+    expect(res.statusCode).toBe(200);
   });
 });
