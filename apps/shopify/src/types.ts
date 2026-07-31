@@ -1,10 +1,25 @@
+export interface ShopifyStoreLimits {
+  /** null = off. Hard ceiling on generations per store-local day. */
+  storeDailyCap?: number | null;
+  /** null = off. Soft — defeatable by a fresh browser; see the design doc. */
+  perShopperCap?: number | null;
+  perShopperWindow?: 'day' | 'week' | 'month';
+  /** null = never ask. 0 = ask before the first generation. */
+  emailAfterNTryOns?: number | null;
+}
+
+export interface ShopifyStoreRetention {
+  /** null = off, for all three. Days until deletion. */
+  shopperPhotoDays?: number | null;
+  resultDays?: number | null;
+  shopperRecordDays?: number | null;
+}
+
 export interface ShopifyStoreSettings {
-  buttonText?: string;
-  buttonColor?: string;
-  position?: string;
-  customCss?: string;
   workflowTemplateId?: string;
   themeBlockConfirmed?: boolean;
+  limits?: ShopifyStoreLimits;
+  retention?: ShopifyStoreRetention;
 }
 
 export interface ShopifyStats {

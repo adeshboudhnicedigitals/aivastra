@@ -14,7 +14,7 @@ import { catalogItems } from './catalog.js';
 import { kioskDevices } from './kiosk.js';
 import { merchants } from './merchant.js';
 import { garmentSubcategories, modelBackgrounds, modelFaces, modelPoseAssets } from './models.js';
-import { shopifyStores } from './shopify.js';
+import { shopifyShoppers, shopifyStores } from './shopify.js';
 import { users } from './users.js';
 
 export const jobs = pgTable('jobs', {
@@ -46,6 +46,12 @@ export const jobs = pgTable('jobs', {
     onDelete: 'set null',
   }),
   shopifyStoreId: uuid('shopify_store_id').references(() => shopifyStores.id, {
+    onDelete: 'set null',
+  }),
+  // SET NULL, never CASCADE: retention and GDPR erasure delete shopper rows,
+  // but a jobs row is a billing record tied to a credit deduction and a ledger
+  // entry. A cascade here would delete billing history.
+  shopifyShopperId: uuid('shopify_shopper_id').references(() => shopifyShoppers.id, {
     onDelete: 'set null',
   }),
   customerPhotoKey: text('customer_photo_key'),
