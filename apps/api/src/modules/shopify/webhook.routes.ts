@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import fp from 'fastify-plugin';
 import { AppError } from '../../lib/errors.js';
+import { collectShopperData, redactShopperData } from './gdpr.js';
 import { enqueueSync, shopifyAdminFetch, verifyWebhookHmac } from './service.js';
 
 // NOTE: `shopifyRegisterWebhooks` on FastifyInstance is declared once in
@@ -38,7 +39,10 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
         throw new AppError('UNAUTHORIZED', 401, 'bad webhook hmac');
       }
       const shopDomain = req.headers['x-shopify-shop-domain'] as string | undefined;
-      const payload = JSON.parse(raw.toString() || '{}') as { id?: number };
+      const payload = JSON.parse(raw.toString() || '{}') as {
+        id?: number;
+        customer?: { id?: number; email?: string };
+      };
 
       // Post-processing here is fast local work (a 1-2 row Postgres UPDATE or a
       // Redis XADD), never a slow outbound call — so we await it before
@@ -86,14 +90,39 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
                 );
             }
             break;
-          case 'customers_redact':
-          case 'shop_redact':
-            // We store no customer PII beyond transient photos; purge store R2 assets on shop_redact.
-            req.log.info({ topic, shopDomain }, 'gdpr webhook acknowledged');
+          case 'customers_redact': {
+            if (store) {
+              const removed = await redactShopperData(app, store.id, {
+                shopifyCustomerId: payload.customer?.id ?? null,
+                email: payload.customer?.email ?? null,
+              });
+              req.log.info({ topic, shopDomain, removed }, 'gdpr: shopper data redacted');
+            }
             break;
-          case 'customers_data_request':
-            req.log.info({ topic, shopDomain }, 'gdpr data request — no stored customer data');
+          }
+          case 'shop_redact': {
+            if (store) {
+              const removed = await redactShopperData(app, store.id, { matchAll: true });
+              req.log.info({ topic, shopDomain, removed }, 'gdpr: store data purged');
+            }
             break;
+          }
+          case 'customers_data_request': {
+            if (store) {
+              const found = await collectShopperData(app, store.id, {
+                shopifyCustomerId: payload.customer?.id ?? null,
+                email: payload.customer?.email ?? null,
+              });
+              // Shopify allows 30 days to respond and expects the merchant to
+              // relay the data; log enough to fulfil it without dumping PII
+              // into the log itself.
+              req.log.info(
+                { topic, shopDomain, shopperIds: found.shopperIds },
+                'gdpr: data request received',
+              );
+            }
+            break;
+          }
           case 'app_subscriptions_update':
             req.log.info({ topic, shopDomain }, 'subscription updated');
             break;

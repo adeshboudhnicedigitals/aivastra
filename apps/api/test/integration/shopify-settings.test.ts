@@ -149,4 +149,125 @@ describe('shopify settings routes', () => {
     expect(res.body).toContain('email,consent,first_seen,try_ons');
     expect(res.body).toContain('csv@b.com,no,');
   });
+
+  it('customers_redact deletes the matching shopper row', async () => {
+    const [shopper] = await app.db
+      .insert(schema.shopifyShoppers)
+      .values({
+        storeId,
+        clientId: 'gdpr-client',
+        shopifyCustomerId: 4242,
+        email: 'redact@example.com',
+      })
+      .returning();
+
+    const { redactShopperData } = await import('../../src/modules/shopify/gdpr.js');
+    const removed = await redactShopperData(app, storeId, {
+      shopifyCustomerId: 4242,
+      email: null,
+    });
+
+    expect(removed).toBe(1);
+    const rows = await app.db
+      .select()
+      .from(schema.shopifyShoppers)
+      .where(eq(schema.shopifyShoppers.id, shopper.id));
+    expect(rows).toHaveLength(0);
+  });
+
+  it('customers_redact also matches on email alone, for shoppers who never logged in', async () => {
+    await app.db
+      .insert(schema.shopifyShoppers)
+      .values({ storeId, clientId: 'anon-mail', email: 'only-mail@example.com' });
+
+    const { redactShopperData } = await import('../../src/modules/shopify/gdpr.js');
+    const removed = await redactShopperData(app, storeId, {
+      shopifyCustomerId: null,
+      email: 'only-mail@example.com',
+    });
+    expect(removed).toBe(1);
+  });
+
+  it('refuses to match anything when the payload identifies no subject', async () => {
+    const { redactShopperData } = await import('../../src/modules/shopify/gdpr.js');
+    // An empty payload must never be read as "delete everything".
+    expect(await redactShopperData(app, storeId, {})).toBe(0);
+  });
+
+  it('leaves the shopper row and the failed key in place when an object delete fails', async () => {
+    // Regression test for Corrections 1 and 2: a shopper's row (and any key
+    // that didn't successfully delete) must survive a partial R2 failure so a
+    // future retry can find and finish the job — deleting the row here would
+    // destroy the only remaining pointer to the still-orphaned object.
+    const photoKey = `shopify-inputs/${storeId}/gdpr-fail/photo`;
+    const resultKey = `shopify-results/${storeId}/gdpr-fail/result`;
+    const thumbnailKey = `shopify-results/${storeId}/gdpr-fail/thumbnail`;
+    await app.storage.putObject(photoKey, Buffer.from('x'), 'image/jpeg');
+    await app.storage.putObject(resultKey, Buffer.from('x'), 'image/jpeg');
+    await app.storage.putObject(thumbnailKey, Buffer.from('x'), 'image/jpeg');
+
+    const [shopper] = await app.db
+      .insert(schema.shopifyShoppers)
+      .values({
+        storeId,
+        clientId: 'gdpr-fail-client',
+        shopifyCustomerId: 9999,
+        email: 'fail@example.com',
+      })
+      .returning();
+
+    const [job] = await app.db
+      .insert(schema.jobs)
+      .values({
+        status: 'COMPLETED',
+        shopifyStoreId: storeId,
+        shopifyShopperId: shopper.id,
+        customerPhotoKey: photoKey,
+        creditsCharged: 1,
+        source: 'shopify',
+      })
+      .returning();
+    await app.db.insert(schema.jobOutputs).values({ jobId: job.id, resultKey, thumbnailKey });
+
+    // Wraps the real storage so the thumbnail delete fails while the photo
+    // and result deletes succeed — proves the row/columns are only cleared
+    // when their own delete actually succeeded, not as an all-or-nothing batch.
+    const originalDelete = app.storage.deleteObject.bind(app.storage);
+    app.storage.deleteObject = async (key: string) => {
+      if (key === thumbnailKey) throw new Error('simulated failure');
+      return originalDelete(key);
+    };
+
+    try {
+      const { redactShopperData } = await import('../../src/modules/shopify/gdpr.js');
+      const removed = await redactShopperData(app, storeId, {
+        shopifyCustomerId: 9999,
+        email: null,
+      });
+
+      // (a) the returned count does not include this shopper
+      expect(removed).toBe(0);
+
+      // (b) the shopifyShoppers row for this shopper still exists
+      const rows = await app.db
+        .select()
+        .from(schema.shopifyShoppers)
+        .where(eq(schema.shopifyShoppers.id, shopper.id));
+      expect(rows).toHaveLength(1);
+
+      const [afterJob] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, job.id));
+      const [afterOut] = await app.db
+        .select()
+        .from(schema.jobOutputs)
+        .where(eq(schema.jobOutputs.jobId, job.id));
+
+      // (d) keys that did successfully delete are null
+      expect(afterJob.customerPhotoKey).toBeNull();
+      expect(afterOut.resultKey).toBeNull();
+      // (c) the key that failed to delete is still non-null
+      expect(afterOut.thumbnailKey).toBe(thumbnailKey);
+    } finally {
+      app.storage.deleteObject = originalDelete;
+    }
+  });
 });
