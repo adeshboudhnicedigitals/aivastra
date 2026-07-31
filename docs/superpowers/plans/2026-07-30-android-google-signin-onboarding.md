@@ -82,7 +82,7 @@ cap for accounts never touched by an admin.
   - `verifyGoogleIdToken(idToken: string, audiences: string[], getKey?: JWTVerifyGetKey): Promise<GoogleIdentity>`
   - `setGoogleKeyGetterForTests(getKey: JWTVerifyGetKey | undefined): void`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `apps/api/test/google-id-token.test.ts`. This is a pure unit test — no containers, no
 network. It signs real RS256 tokens with a locally generated key pair and verifies them against a
@@ -195,12 +195,12 @@ describe('verifyGoogleIdToken', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @aivastra/api test -- google-id-token`
 Expected: FAIL — `Failed to resolve import "../src/modules/auth/google-id-token.js"`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `apps/api/src/modules/auth/google-id-token.ts`:
 
@@ -289,7 +289,7 @@ export async function verifyGoogleIdToken(
 }
 ```
 
-- [ ] **Step 4: Add the env var**
+- [x] **Step 4: Add the env var**
 
 In `apps/api/src/env.ts`, directly after `GOOGLE_CALLBACK_URL` (line 38):
 
@@ -300,12 +300,12 @@ In `apps/api/src/env.ts`, directly after `GOOGLE_CALLBACK_URL` (line 38):
   GOOGLE_DEVICE_AUDIENCES: z.string().optional(),
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `pnpm --filter @aivastra/api test -- google-id-token`
 Expected: PASS, 9 tests.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/api/src/modules/auth/google-id-token.ts apps/api/src/env.ts apps/api/test/google-id-token.test.ts
@@ -328,7 +328,7 @@ git commit -m "feat(auth): verify native Google ID tokens against Google JWKS"
   - `resolveFreeCredits(app: FastifyInstance): Promise<number>`
   - `upsertGoogleUser(tx: DbOrTx, googleUser: GoogleIdentity, freeCredits: number): Promise<string>` — returns `users.id`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `apps/api/test/google-upsert.test.ts`:
 
@@ -461,12 +461,12 @@ Before running: open `packages/db/src/schema/credits.ts` and confirm the `credit
 columns. If `pricePaise`/`name` are named differently or more columns are required, fix the insert
 in the last test to match — the schema is the authority, not this snippet.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @aivastra/api test -- google-upsert`
 Expected: FAIL — cannot resolve `../src/modules/auth/google-upsert.js`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `apps/api/src/modules/auth/google-upsert.ts`. The body is the ladder currently inlined at
 `google.routes.ts:107-216`, moved verbatim — same order, same `onConflictDoNothing` + re-select
@@ -608,7 +608,7 @@ export async function upsertGoogleUser(
 }
 ```
 
-- [ ] **Step 4: Rewrite the web callback to use it**
+- [x] **Step 4: Rewrite the web callback to use it**
 
 In `apps/api/src/modules/auth/google.routes.ts`, replace lines 107-216 (the `freePlan` lookup and
 the whole `app.db.transaction` block) with:
@@ -633,7 +633,7 @@ Add `import { resolveFreeCredits, upsertGoogleUser } from './google-upsert.js';`
 now-unused imports (`sql`, and `and`/`eq` only if nothing else in the file uses them — check before
 deleting).
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 Run: `pnpm --filter @aivastra/api test -- google-upsert`
 Expected: PASS, 7 tests.
@@ -641,7 +641,7 @@ Expected: PASS, 7 tests.
 Run: `pnpm --filter @aivastra/api test`
 Expected: the whole suite still green — the web callback behaviour is unchanged.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/api/src/modules/auth/google-upsert.ts apps/api/src/modules/auth/google.routes.ts apps/api/test/google-upsert.test.ts
@@ -663,7 +663,7 @@ git commit -m "refactor(auth): share the Google user upsert between web and devi
   - `type MerchantStatus = 'ONBOARDING_REQUIRED' | 'PENDING_ACTIVATION' | 'ACTIVE'`
   - `resolveMerchantStatus(app: FastifyInstance, userId: string): Promise<MerchantStatus>`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `apps/api/test/device-merchant-status.test.ts`:
 
@@ -751,12 +751,12 @@ describe('device-login merchantStatus', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @aivastra/api test -- device-merchant-status`
 Expected: FAIL — `expected undefined to be 'ONBOARDING_REQUIRED'`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `apps/api/src/modules/merchant/status.ts`:
 
@@ -789,7 +789,7 @@ export async function resolveMerchantStatus(
 }
 ```
 
-- [ ] **Step 4: Wire it into both existing device-login responses**
+- [x] **Step 4: Wire it into both existing device-login responses**
 
 In `apps/api/src/modules/auth/routes.ts`, add
 `import { resolveMerchantStatus } from '../merchant/status.js';`
@@ -823,12 +823,12 @@ Replace the tail of `/v1/auth/device-login/force` (lines 852-858) with:
       return { ...tokens, user: deviceLoginUserPayload(user), merchantStatus };
 ```
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 Run: `pnpm --filter @aivastra/api test -- device-merchant-status`
 Expected: PASS, 3 tests.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/api/src/modules/merchant/status.ts apps/api/src/modules/auth/routes.ts apps/api/test/device-merchant-status.test.ts
@@ -847,7 +847,7 @@ git commit -m "feat(auth): return merchantStatus from device login"
 - Consumes: `verifyGoogleIdToken`, `parseAcceptedAudiences`, `setGoogleKeyGetterForTests` (Task 1); `resolveFreeCredits`, `upsertGoogleUser` (Task 2); `resolveMerchantStatus` (Task 3); existing `activeDeviceSessions`, `createForceLogoutToken`, `issueDeviceSession`, `publicDeviceSession`, `deviceLoginUserPayload`, `resolveMerchantLogoUrl` (all local to `routes.ts`).
 - Produces: `POST /v1/auth/device-login/google` returning `{ accessToken, refreshToken, user, logoUrl, merchantStatus, onboarding? }`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `apps/api/test/device-google-login.test.ts`:
 
@@ -1049,12 +1049,12 @@ calls. Check how the existing suite handles that for `/v1/auth/device-login` (wh
 if the test env disables `@fastify/rate-limit`, nothing more is needed; if not, mirror whatever
 opt-out those tests use.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @aivastra/api test -- device-google-login`
 Expected: FAIL — 404 on `/v1/auth/device-login/google`.
 
-- [ ] **Step 3: Add the body schema**
+- [x] **Step 3: Add the body schema**
 
 In `apps/api/src/modules/auth/routes.ts`, after `DeviceLogoutBody` (line 37):
 
@@ -1069,7 +1069,7 @@ const DeviceGoogleLoginBody = z.object({
 });
 ```
 
-- [ ] **Step 4: Add the route**
+- [x] **Step 4: Add the route**
 
 Insert after `/v1/auth/device-login/force` closes (line 860). Add the imports:
 
@@ -1186,12 +1186,12 @@ import { resolveFreeCredits, upsertGoogleUser } from './google-upsert.js';
 insertion point, move the route insertion after it or hoist the function — `const` arrow functions
 are not hoisted.
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 Run: `pnpm --filter @aivastra/api test -- device-google-login`
 Expected: PASS, 9 tests.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/api/src/modules/auth/routes.ts apps/api/test/device-google-login.test.ts
@@ -1214,7 +1214,7 @@ git commit -m "feat(auth): add native Google device login for the Android app"
   - `merchantOnboardingRoutes(app: FastifyInstance): Promise<void>`
   - `merchants.signupSource: 'admin' | 'android_google'`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `apps/api/test/merchant-onboarding.test.ts`:
 
@@ -1435,12 +1435,12 @@ describe('POST /v1/merchant/onboarding', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @aivastra/api test -- merchant-onboarding`
 Expected: FAIL — 404 on `/v1/merchant/onboarding`.
 
-- [ ] **Step 3: Add the schema column and migration**
+- [x] **Step 3: Add the schema column and migration**
 
 In `packages/db/src/schema/merchant.ts`, inside `merchants` after `logoKey` (line 31):
 
@@ -1462,7 +1462,7 @@ Then run `pnpm db:generate` and reconcile: if drizzle-kit emits its own file for
 the hand-written one and keep drizzle's, making sure the index stays `0133` and `_journal.json` lists
 it. Never renumber below an index the server already has.
 
-- [ ] **Step 4: Add the types**
+- [x] **Step 4: Add the types**
 
 Append to `packages/types/src/widget.ts`:
 
@@ -1488,7 +1488,7 @@ export const MerchantOnboardingBody = z.object({
 export type MerchantOnboardingBody = z.infer<typeof MerchantOnboardingBody>;
 ```
 
-- [ ] **Step 5: Write the routes**
+- [x] **Step 5: Write the routes**
 
 Create `apps/api/src/modules/merchant/onboarding.routes.ts`:
 
@@ -1604,7 +1604,7 @@ Register it in `apps/api/src/server.ts` next to `merchantCatalogRoutes` (line 29
 ```
 plus the matching import alongside the other merchant imports.
 
-- [ ] **Step 6: Apply the migration and run the tests**
+- [x] **Step 6: Apply the migration and run the tests**
 
 ```bash
 pnpm docker:up
@@ -1615,7 +1615,7 @@ Expected: PASS, 9 tests.
 
 Then the whole suite: `pnpm --filter @aivastra/api test` — still green.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/db/src/schema/merchant.ts packages/db/src/migrations packages/types/src/widget.ts \
@@ -1636,7 +1636,7 @@ git commit -m "feat(merchant): self-serve onboarding for Google signups"
 - Consumes: `merchants.signupSource` (Task 5).
 - Produces: `signupSource` on each row of `GET /admin/merchants`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `apps/api/test/merchant-onboarding.test.ts`. Read
 `apps/api/test/helpers/admin.ts` first for the existing admin-token helper and use it rather than
@@ -1672,12 +1672,12 @@ describe('GET /admin/merchants signupSource', () => {
 If the list route returns a differently-named envelope than `items`, match what the route actually
 returns.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @aivastra/api test -- merchant-onboarding`
 Expected: FAIL — `expected undefined to be 'admin'`.
 
-- [ ] **Step 3: Add the column to the list select**
+- [x] **Step 3: Add the column to the list select**
 
 In `apps/api/src/modules/admin/merchants.routes.ts`, add to the `GET /admin/merchants` select
 object:
@@ -1686,12 +1686,12 @@ object:
         signupSource: schema.merchants.signupSource,
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @aivastra/api test -- merchant-onboarding`
 Expected: PASS.
 
-- [ ] **Step 5: Show it in the admin merchants table**
+- [x] **Step 5: Show it in the admin merchants table**
 
 In `apps/admin-web/src/pages/UsersPage.tsx`, find the merchants table row rendering and add a badge
 cell. Follow the file's own badge markup — the codebase convention is
@@ -1711,14 +1711,14 @@ cell. Follow the file's own badge markup — the codebase convention is
 
 Add the matching `<th>Signup</th>` to the header row so column counts stay aligned.
 
-- [ ] **Step 6: Verify the admin app builds**
+- [x] **Step 6: Verify the admin app builds**
 
 ```bash
 pnpm --filter @aivastra/admin build
 ```
 Expected: clean build.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/api/src/modules/admin/merchants.routes.ts apps/admin-web/src/pages/UsersPage.tsx apps/api/test/merchant-onboarding.test.ts
@@ -1746,7 +1746,7 @@ All paths are relative to `apps/virtual-tryon-mobile&kiosk_latest/`.
 - Consumes: `POST /v1/auth/device-login/google` (Task 4), `GET`/`POST /v1/merchant/onboarding` (Task 5).
 - Produces: `SareeCategoryDataRepository.loginWithGoogle(idToken: String, androidId: String): UserLoginDataModel`, `SareeCategoryDataRepository.submitOnboarding(...)`, `SareeCategoryDataRepository.lastMerchantStatus: String`.
 
-- [ ] **Step 1: Add the Credential Manager dependencies**
+- [x] **Step 1: Add the Credential Manager dependencies**
 
 `gradle/libs.versions.toml` — in `[versions]`:
 
@@ -1783,12 +1783,12 @@ real client ID into a committed file):
         )
 ```
 
-- [ ] **Step 2: Verify it compiles**
+- [x] **Step 2: Verify it compiles**
 
 Run: `cd "apps/virtual-tryon-mobile&kiosk_latest" && ./gradlew :app:assembleDebug`
 Expected: BUILD SUCCESSFUL.
 
-- [ ] **Step 3: Add the endpoints**
+- [x] **Step 3: Add the endpoints**
 
 `ApiUtils/APIConstant.kt`, inside `API_ENDPOINTS`:
 
@@ -1797,7 +1797,7 @@ Expected: BUILD SUCCESSFUL.
         const val MERCHANT_ONBOARDING = "v1/merchant/onboarding"
 ```
 
-- [ ] **Step 4: Add the repository calls**
+- [x] **Step 4: Add the repository calls**
 
 `SareeCategoryDataRepository.kt`. Add a field and three functions. `postDeviceLogin` already
 persists the refresh token and maps `DEVICE_LIMIT_REACHED`, so reuse it verbatim:
@@ -1860,7 +1860,7 @@ In `postDeviceLogin`, capture the two new response fields right after `val user 
             .orEmpty()
 ```
 
-- [ ] **Step 5: Add the Google button to LoginActivity**
+- [x] **Step 5: Add the Google button to LoginActivity**
 
 In `LoginActivity.kt`, add a "Continue with Google" button to `activity_login.xml` (match the
 existing `btn_login` styling) and wire it:
@@ -1921,7 +1921,7 @@ merchant-less user still lands on a screen that 403s. Adapt `PrefsManager.getOrC
 `ApiErrorPresenter.message` to whatever those helpers are actually called in this codebase — read
 the current `LoginActivity.kt` and `ApiErrorPresenter.kt` before writing.
 
-- [ ] **Step 6: Create the onboarding screen**
+- [x] **Step 6: Create the onboarding screen**
 
 `res/layout/activity_onboarding.xml`: a vertical form with four `EditText`s — mobile number
 (`inputType="phone"`, required), contact name (prefilled, `android:hint="Your name"`), shop name
@@ -1994,7 +1994,7 @@ Register in `AndroidManifest.xml` next to `LoginActivity`:
 7. Sign in with Google using the email of an existing password merchant → straight to Home, and
    that account's password login still works.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add "apps/virtual-tryon-mobile&kiosk_latest"
