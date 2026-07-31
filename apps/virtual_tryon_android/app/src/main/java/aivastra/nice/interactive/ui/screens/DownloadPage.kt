@@ -446,26 +446,40 @@ fun DownloadPage(
 
 @Composable
 private fun QrCodeImage(content: String, modifier: Modifier = Modifier) {
+    // QRCodeWriter throws WriterException when content is too large to encode (e.g. the
+    // "download all" QR grows with every result added to the session) — never let that
+    // propagate as an uncaught crash; fall back to the same placeholder used for blank content.
     val bitmap = remember(content) {
-        val size = 256
-        val matrix = QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, size, size)
-        android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.RGB_565).apply {
-            for (y in 0 until size) {
-                for (x in 0 until size) {
-                    setPixel(x, y, if (matrix[x, y]) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+        runCatching {
+            val size = 256
+            val matrix = QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, size, size)
+            android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.RGB_565).apply {
+                for (y in 0 until size) {
+                    for (x in 0 until size) {
+                        setPixel(x, y, if (matrix[x, y]) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+                    }
                 }
-            }
-        }.asImageBitmap()
+            }.asImageBitmap()
+        }.getOrNull()
     }
-    Image(
-        bitmap = bitmap,
-        contentDescription = "QR Code",
-        contentScale = ContentScale.Fit,
-        modifier = modifier
-            .clip(RoundedCornerShape(sdp(R.dimen._10sdp)))
-            .background(Color.White)
-            .padding(sdp(R.dimen._8sdp))
-    )
+
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap,
+            contentDescription = "QR Code",
+            contentScale = ContentScale.Fit,
+            modifier = modifier
+                .clip(RoundedCornerShape(sdp(R.dimen._10sdp)))
+                .background(Color.White)
+                .padding(sdp(R.dimen._8sdp))
+        )
+    } else {
+        Image(
+            painter = painterResource(R.drawable.women_img),
+            contentDescription = null,
+            modifier = modifier
+        )
+    }
 }
 
 @Preview(name = "Download Page - Phone", showBackground = true, widthDp = 375, heightDp = 667)

@@ -67,19 +67,37 @@ fun PhotoReviewPage(
     val statusBarH: Dp = (if (isPreview) sdp(R.dimen._28sdp) else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()) + sdp(R.dimen._10sdp)
     val navBarH: Dp = if (isPreview) 14.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFFF4F2F2))
-            .padding(start = sdp(R.dimen._18sdp), end = sdp(R.dimen._18sdp), top = statusBarH + sdp(R.dimen._10sdp), bottom = sdp(R.dimen._34sdp) + navBarH),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .background(Color.Black)
     ) {
+        // Full Screen Customer Photo Display
+        AsyncImage(
+            model = photoUri,
+            contentDescription = "Captured customer photo",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+        )
+
+        // Overlay with Top Header and Bottom Floating Action Bar
         Column(
-            modifier = Modifier.fillMaxSize().widthIn(max = sdp(R.dimen._screen_container_width)),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(
+                    start = sdp(R.dimen._18sdp),
+                    end = sdp(R.dimen._18sdp),
+                    top = statusBarH + sdp(R.dimen._10sdp),
+                    bottom = sdp(R.dimen._24sdp) + navBarH
+                ),
+            verticalArrangement = Arrangement.SpaceBetween,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // Top Bar (Golden Back Arrow + App Header Logo)
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = sdp(R.dimen._screen_container_width)),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -105,28 +123,23 @@ fun PhotoReviewPage(
                 AppHeaderLogo()
             }
 
-            Spacer(Modifier.height(sdp(R.dimen._8sdp)))
-            AsyncImage(
-                model = photoUri,
-                contentDescription = "Captured customer photo",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(sdp(R.dimen._8sdp)))
-            )
-            Spacer(Modifier.height(sdp(R.dimen._16sdp)))
+            // Bottom Floating Action Bar (Retake + Proceed)
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(sdp(R.dimen._12sdp))
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = sdp(R.dimen._screen_container_width))
+                    .padding(bottom = sdp(R.dimen._8sdp)),
+                horizontalArrangement = Arrangement.spacedBy(sdp(R.dimen._12sdp)),
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                // Retake Button (Solid White Container with Gold Border)
                 Row(
                     modifier = Modifier
                         .weight(1f)
                         .height(sdp(R.dimen._review_action_button_height))
-                        .clip(RoundedCornerShape(sdp(R.dimen._8sdp)))
+                        .clip(RoundedCornerShape(sdp(R.dimen._10sdp)))
                         .background(Color.White)
-                        .border(sdp(R.dimen._1sdp), Color(0xFFD5A14C), RoundedCornerShape(sdp(R.dimen._8sdp)))
+                        .border(sdp(R.dimen._1sdp), Color(0xFFD5A14C), RoundedCornerShape(sdp(R.dimen._10sdp)))
                         .clickable(onClick = onRetake),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
@@ -146,12 +159,14 @@ fun PhotoReviewPage(
                         fontFamily = PoppinsFamily
                     )
                 }
+
+                // Proceed Button (Gradient Button)
                 GradientButton(
                     onClick = onProceed,
                     width = sdp(R.dimen._0sdp),
                     height = sdp(R.dimen._review_action_button_height),
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(sdp(R.dimen._8sdp))
+                    shape = RoundedCornerShape(sdp(R.dimen._10sdp))
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -174,7 +189,6 @@ fun PhotoReviewPage(
                     }
                 }
             }
-            Spacer(Modifier.height(sdp(R.dimen._8sdp)))
         }
     }
 }
