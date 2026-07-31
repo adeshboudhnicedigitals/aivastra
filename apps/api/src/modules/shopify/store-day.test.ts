@@ -30,6 +30,12 @@ describe('windowStart', () => {
     );
   });
 
+  it('uses the first midnight when a DST rollback repeats it', () => {
+    // Amman repeated 00:00 on 2020-10-30: first at UTC+3, then at UTC+2.
+    const at = new Date('2020-10-30T10:00:00Z');
+    expect(windowStart('Asia/Amman', 'day', at).toISOString()).toBe('2020-10-29T21:00:00.000Z');
+  });
+
   it('starts the week window on Monday', () => {
     const at = new Date('2026-03-05T12:00:00Z'); // a Thursday
     expect(windowStart('UTC', 'week', at).toISOString()).toBe('2026-03-02T00:00:00.000Z');

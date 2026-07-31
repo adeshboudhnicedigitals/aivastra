@@ -43,48 +43,8 @@ export function storeDayKey(timezone: string | null, now: Date = new Date()): st
   return `${year}${String(month).padStart(2, '0')}${String(day).padStart(2, '0')}`;
 }
 
-/** The UTC offset in milliseconds at an instant in a validated zone. */
-function zoneOffsetMs(timezone: string, at: Date): number {
-  const values: Record<string, number> = {};
-  for (const part of new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(at)) {
-    if (part.type !== 'literal') values[part.type] = Number(part.value);
-  }
-  const localAsUtc = Date.UTC(
-    values.year,
-    values.month - 1,
-    values.day,
-    values.hour,
-    values.minute,
-    values.second,
-  );
-  return localAsUtc - Math.floor(at.getTime() / 1000) * 1000;
-}
-
-/** Convert a local midnight to UTC, resolving the offset at that boundary. */
+/** Find the first UTC instant belonging to a local calendar date. */
 function localMidnightUtc(timezone: string, year: number, month: number, day: number): Date {
-  const wallTime = Date.UTC(year, month - 1, day);
-  let instant = wallTime;
-
-  // Re-evaluate the zone offset at each candidate because the boundary may use
-  // a different DST offset from the current instant.
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    const next = wallTime - zoneOffsetMs(timezone, new Date(instant));
-    if (next === instant) return new Date(instant);
-    instant = next;
-  }
-
-  // A few zones have advanced their clocks at midnight, so 00:00 never
-  // existed. In that case the first UTC instant belonging to the date is the
-  // calendar boundary.
   const target = Date.UTC(year, month - 1, day);
   let low = target - 2 * DAY_MS;
   let high = target + 2 * DAY_MS;
