@@ -60,7 +60,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -68,7 +67,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import aivastra.nice.interactive.AiVastraApplication
 import aivastra.nice.interactive.R
 import aivastra.nice.interactive.ui.theme.PoppinsFamily
 import aivastra.nice.interactive.utils.sdp
@@ -99,6 +97,7 @@ private val processingStatusMessages = listOf(
 
 @Composable
 fun TryOnProcessingPage(
+    videoUri: Uri?,
     elapsedSeconds: Int,
     errorMessage: String?,
     onBack: () -> Unit,
@@ -107,6 +106,7 @@ fun TryOnProcessingPage(
     modifier: Modifier = Modifier
 ) {
     TryOnProcessingContent(
+        videoUri = videoUri,
         elapsedSeconds = elapsedSeconds,
         errorMessage = errorMessage,
         onBack = onBack,
@@ -118,6 +118,7 @@ fun TryOnProcessingPage(
 
 @Composable
 fun TryOnProcessingContent(
+    videoUri: Uri? = null,
     elapsedSeconds: Int = 0,
     errorMessage: String?,
     onBack: () -> Unit,
@@ -125,16 +126,6 @@ fun TryOnProcessingContent(
     onCancel: () -> Unit = onBack,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
-    val videoUri = remember(context) {
-        // Priority 1: Embedded raw video resource (R.raw.loading_video)
-        // Fallback: URL / Local Cache via AiVastraApplication
-        try {
-            Uri.parse("android.resource://${context.packageName}/${R.raw.loading_video}")
-        } catch (e: Exception) {
-            AiVastraApplication.instance.getCachedVideoUri(context)
-        }
-    }
     val isPreview = LocalInspectionMode.current
     val statusBarH: Dp = (if (isPreview) sdp(R.dimen._28sdp) else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()) + sdp(R.dimen._10sdp)
     val navBarH: Dp = if (isPreview) 14.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -168,8 +159,8 @@ fun TryOnProcessingContent(
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // ── Layer 1: Full-Screen Background Video Player (Loaded from URL/Cache) ───
-        if (!hasVideoError && errorMessage == null) {
+        // ── Layer 1: Full-Screen Background Video Player (Loaded from API config) ───
+        if (videoUri != null && !hasVideoError && errorMessage == null) {
             AndroidView(
                 factory = { ctx ->
                     FullScreenVideoView(ctx).apply {

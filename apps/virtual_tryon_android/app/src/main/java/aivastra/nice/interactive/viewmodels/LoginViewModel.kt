@@ -66,38 +66,42 @@ class LoginViewModel(
         _uiState.update { LoginUiState.Loading }
 
         viewModelScope.launch {
-            val result = repository.loginDevice(
-                DeviceLoginRequest(
-                    email = email.trim(),
-                    password = password.trim(),
-                    deviceId = deviceId,
-                    deviceName = deviceName,
-                    platform = platform
+            try {
+                val result = repository.loginDevice(
+                    DeviceLoginRequest(
+                        email = email.trim(),
+                        password = password.trim(),
+                        deviceId = deviceId,
+                        deviceName = deviceName,
+                        platform = platform
+                    )
                 )
-            )
 
-            _uiState.update {
-                when (result) {
-                    is AuthResult.Success -> {
-                        SessionManager.save(
-                            accessToken = result.data.accessToken,
-                            refreshToken = result.data.refreshToken,
-                            email = result.data.user.email,
-                            userName = result.data.user.displayName,
-                            logoUrl = result.data.effectiveLogoUrl
-                        )
-                        LoginUiState.Success(result.data)
+                _uiState.update {
+                    when (result) {
+                        is AuthResult.Success -> {
+                            SessionManager.save(
+                                accessToken = result.data.accessToken,
+                                refreshToken = result.data.refreshToken,
+                                email = result.data.user.email,
+                                userName = result.data.user.displayName,
+                                logoUrl = result.data.effectiveLogoUrl
+                            )
+                            LoginUiState.Success(result.data)
+                        }
+                        is AuthResult.DeviceLimitReached -> {
+                            val err = result.error.error
+                            LoginUiState.DeviceLimitReached(
+                                forceLogoutToken = err.forceLogoutToken,
+                                maxActiveDevices = err.maxActiveDevices,
+                                activeDevices = err.activeDevices
+                            )
+                        }
+                        is AuthResult.Failure -> LoginUiState.Error(result.message)
                     }
-                    is AuthResult.DeviceLimitReached -> {
-                        val err = result.error.error
-                        LoginUiState.DeviceLimitReached(
-                            forceLogoutToken = err.forceLogoutToken,
-                            maxActiveDevices = err.maxActiveDevices,
-                            activeDevices = err.activeDevices
-                        )
-                    }
-                    is AuthResult.Failure -> LoginUiState.Error(result.message)
                 }
+            } catch (e: Exception) {
+                _uiState.update { LoginUiState.Error(e.message ?: "An unexpected error occurred during login") }
             }
         }
     }
@@ -114,47 +118,51 @@ class LoginViewModel(
         _uiState.update { LoginUiState.Loading }
 
         viewModelScope.launch {
-            when (val credential = requestGoogleIdToken(context)) {
-                is GoogleSignInResult.Cancelled -> {
-                    _uiState.update { LoginUiState.Idle }
-                }
-                is GoogleSignInResult.Failure -> {
-                    _uiState.update { LoginUiState.Error(credential.message) }
-                }
-                is GoogleSignInResult.Success -> {
-                    val result = repository.loginGoogle(
-                        GoogleLoginRequest(
-                            idToken = credential.idToken,
-                            deviceId = deviceId,
-                            deviceName = deviceName,
-                            platform = platform
+            try {
+                when (val credential = requestGoogleIdToken(context)) {
+                    is GoogleSignInResult.Cancelled -> {
+                        _uiState.update { LoginUiState.Idle }
+                    }
+                    is GoogleSignInResult.Failure -> {
+                        _uiState.update { LoginUiState.Error(credential.message) }
+                    }
+                    is GoogleSignInResult.Success -> {
+                        val result = repository.loginGoogle(
+                            GoogleLoginRequest(
+                                idToken = credential.idToken,
+                                deviceId = deviceId,
+                                deviceName = deviceName,
+                                platform = platform
+                            )
                         )
-                    )
 
-                    _uiState.update {
-                        when (result) {
-                            is AuthResult.Success -> {
-                                SessionManager.save(
-                                    accessToken = result.data.accessToken,
-                                    refreshToken = result.data.refreshToken,
-                                    email = result.data.user.email,
-                                    userName = result.data.user.displayName,
-                                    logoUrl = result.data.effectiveLogoUrl
-                                )
-                                LoginUiState.Success(result.data)
+                        _uiState.update {
+                            when (result) {
+                                is AuthResult.Success -> {
+                                    SessionManager.save(
+                                        accessToken = result.data.accessToken,
+                                        refreshToken = result.data.refreshToken,
+                                        email = result.data.user.email,
+                                        userName = result.data.user.displayName,
+                                        logoUrl = result.data.effectiveLogoUrl
+                                    )
+                                    LoginUiState.Success(result.data)
+                                }
+                                is AuthResult.DeviceLimitReached -> {
+                                    val err = result.error.error
+                                    LoginUiState.DeviceLimitReached(
+                                        forceLogoutToken = err.forceLogoutToken,
+                                        maxActiveDevices = err.maxActiveDevices,
+                                        activeDevices = err.activeDevices
+                                    )
+                                }
+                                is AuthResult.Failure -> LoginUiState.Error(result.message)
                             }
-                            is AuthResult.DeviceLimitReached -> {
-                                val err = result.error.error
-                                LoginUiState.DeviceLimitReached(
-                                    forceLogoutToken = err.forceLogoutToken,
-                                    maxActiveDevices = err.maxActiveDevices,
-                                    activeDevices = err.activeDevices
-                                )
-                            }
-                            is AuthResult.Failure -> LoginUiState.Error(result.message)
                         }
                     }
                 }
+            } catch (e: Exception) {
+                _uiState.update { LoginUiState.Error(e.message ?: "Google sign-in error occurred") }
             }
         }
     }
@@ -165,30 +173,34 @@ class LoginViewModel(
         _uiState.update { LoginUiState.Loading }
 
         viewModelScope.launch {
-            val result = repository.forceLogin(
-                ForceLoginRequest(
-                    forceLogoutToken = forceLogoutToken,
-                    deviceId = cachedDeviceId,
-                    deviceName = cachedDeviceName,
-                    platform = platform
+            try {
+                val result = repository.forceLogin(
+                    ForceLoginRequest(
+                        forceLogoutToken = forceLogoutToken,
+                        deviceId = cachedDeviceId,
+                        deviceName = cachedDeviceName,
+                        platform = platform
+                    )
                 )
-            )
 
-            _uiState.update {
-                when (result) {
-                    is AuthResult.Success -> {
-                        SessionManager.save(
-                            accessToken = result.data.accessToken,
-                            refreshToken = result.data.refreshToken,
-                            email = result.data.user.email,
-                            userName = result.data.user.displayName,
-                            logoUrl = result.data.effectiveLogoUrl
-                        )
-                        LoginUiState.Success(result.data)
+                _uiState.update {
+                    when (result) {
+                        is AuthResult.Success -> {
+                            SessionManager.save(
+                                accessToken = result.data.accessToken,
+                                refreshToken = result.data.refreshToken,
+                                email = result.data.user.email,
+                                userName = result.data.user.displayName,
+                                logoUrl = result.data.effectiveLogoUrl
+                            )
+                            LoginUiState.Success(result.data)
+                        }
+                        is AuthResult.DeviceLimitReached -> LoginUiState.Error("Unexpected conflict during force login")
+                        is AuthResult.Failure -> LoginUiState.Error(result.message)
                     }
-                    is AuthResult.DeviceLimitReached -> LoginUiState.Error("Unexpected conflict during force login")
-                    is AuthResult.Failure -> LoginUiState.Error(result.message)
                 }
+            } catch (e: Exception) {
+                _uiState.update { LoginUiState.Error(e.message ?: "Force login error occurred") }
             }
         }
     }

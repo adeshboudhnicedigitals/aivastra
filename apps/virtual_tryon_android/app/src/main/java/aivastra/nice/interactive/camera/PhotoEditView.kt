@@ -80,6 +80,7 @@ fun PhotoEditView(
     photoUri: Uri,
     onCancel: () -> Unit,
     onConfirmEdit: (Uri) -> Unit,
+    isFromCamera: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -102,7 +103,10 @@ fun PhotoEditView(
                     context = context,
                     imageUri = photoUri,
                     cameraResultRotation = 0,
-                    isFrontCamera = false
+                    isFrontCamera = false,
+                    // Gallery/QR-sourced photos can be legitimately landscape — only camera
+                    // captures need the kiosk landscape-buffer fallback correction.
+                    applyOrientationFallback = isFromCamera
                 )
                 context.contentResolver.openInputStream(fixedUri)?.use { input ->
                     sourceBitmap = BitmapFactory.decodeStream(input)

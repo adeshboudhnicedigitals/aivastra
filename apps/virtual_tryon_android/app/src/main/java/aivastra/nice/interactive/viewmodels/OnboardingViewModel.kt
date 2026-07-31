@@ -50,20 +50,24 @@ class OnboardingViewModel(
 
         _uiState.update { OnboardingUiState.Loading }
         viewModelScope.launch {
-            when (val result = repository.getStatus()) {
-                is OnboardingResult.Success -> {
-                    val prefill = result.data.prefill
-                    _uiState.update {
-                        OnboardingUiState.Editing(
-                            contactName = prefill.contactName,
-                            companyName = prefill.companyName,
-                            phone = prefill.phone
-                        )
+            try {
+                when (val result = repository.getStatus()) {
+                    is OnboardingResult.Success -> {
+                        val prefill = result.data.prefill
+                        _uiState.update {
+                            OnboardingUiState.Editing(
+                                contactName = prefill.contactName,
+                                companyName = prefill.companyName,
+                                phone = prefill.phone
+                            )
+                        }
                     }
+                    // Falls back to a blank editable form rather than blocking the user
+                    // entirely on a prefill fetch failure — every field is still editable.
+                    is OnboardingResult.Failure -> _uiState.update { OnboardingUiState.Editing() }
                 }
-                // Falls back to a blank editable form rather than blocking the user
-                // entirely on a prefill fetch failure — every field is still editable.
-                is OnboardingResult.Failure -> _uiState.update { OnboardingUiState.Editing() }
+            } catch (_: Exception) {
+                _uiState.update { OnboardingUiState.Editing() }
             }
         }
     }
@@ -78,18 +82,24 @@ class OnboardingViewModel(
 
         _uiState.update { current.copy(isSubmitting = true, error = null) }
         viewModelScope.launch {
-            val result = repository.submit(
-                MerchantOnboardingRequest(
-                    phone = phoneTrimmed,
-                    contactName = contactName.trim().ifBlank { null },
-                    companyName = companyName.trim().ifBlank { null },
-                    businessAddress = businessAddress.trim().ifBlank { null }
+            try {
+                val result = repository.submit(
+                    MerchantOnboardingRequest(
+                        phone = phoneTrimmed,
+                        contactName = contactName.trim().ifBlank { null },
+                        companyName = companyName.trim().ifBlank { null },
+                        businessAddress = businessAddress.trim().ifBlank { null }
+                    )
                 )
-            )
-            _uiState.update {
-                when (result) {
-                    is OnboardingResult.Success -> OnboardingUiState.Submitted(result.data.merchantId)
-                    is OnboardingResult.Failure -> current.copy(isSubmitting = false, error = result.message)
+                _uiState.update {
+                    when (result) {
+                        is OnboardingResult.Success -> OnboardingUiState.Submitted(result.data.merchantId)
+                        is OnboardingResult.Failure -> current.copy(isSubmitting = false, error = result.message)
+                    }
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    current.copy(isSubmitting = false, error = e.message ?: "Onboarding submission failed")
                 }
             }
         }

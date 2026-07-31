@@ -57,36 +57,45 @@ class OutfitSelectionViewModel(
         }
 
         catalogJob = viewModelScope.launch {
-            val result = withTimeoutOrNull(20000L) {
-                repository.getCatalog(normalizedCategory, forceReload)
-            }
+            try {
+                val result = withTimeoutOrNull(20000L) {
+                    repository.getCatalog(normalizedCategory, forceReload)
+                }
 
-            if (result == null) {
+                if (result == null) {
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            errorMessage = "Loading timed out. Check connection and tap Retry."
+                        )
+                    }
+                } else {
+                    when (result) {
+                        is CatalogResult.Success -> _uiState.update {
+                            val firstId = result.data.subcategories.firstOrNull()?.id
+                            it.copy(
+                                isLoading = false,
+                                category = normalizedCategory,
+                                subcategories = result.data.subcategories,
+                                products = result.data.products,
+                                selectedSubcategoryId = firstId,
+                                errorMessage = null
+                            )
+                        }
+                        is CatalogResult.Failure -> _uiState.update {
+                            it.copy(
+                                isLoading = false,
+                                errorMessage = result.message
+                            )
+                        }
+                    }
+                }
+            } catch (e: Exception) {
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        errorMessage = "Loading timed out. Check connection and tap Retry."
+                        errorMessage = e.message ?: "Failed to load catalog. Tap Retry."
                     )
-                }
-            } else {
-                when (result) {
-                    is CatalogResult.Success -> _uiState.update {
-                        val firstId = result.data.subcategories.firstOrNull()?.id
-                        it.copy(
-                            isLoading = false,
-                            category = normalizedCategory,
-                            subcategories = result.data.subcategories,
-                            products = result.data.products,
-                            selectedSubcategoryId = firstId,
-                            errorMessage = null
-                        )
-                    }
-                    is CatalogResult.Failure -> _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            errorMessage = result.message
-                        )
-                    }
                 }
             }
         }
