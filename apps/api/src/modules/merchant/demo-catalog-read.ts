@@ -16,10 +16,14 @@ export const IncludeDemoQuery = z
 type DemoSubcategoryRow = typeof schema.demoCatalogSubcategories.$inferSelect;
 type DemoItemRow = typeof schema.demoCatalogItems.$inferSelect;
 
-/** Subquery-free base filter: only sets assigned to this merchant and still active. */
+/**
+ * Subquery-free base filter: only sets assigned to this merchant and still
+ * active, and only while the merchant-level demo-data switch is enabled.
+ */
 function assignedSetFilter(merchantId: string): SQL | undefined {
   return and(
     eq(schema.demoCatalogAssignments.merchantId, merchantId),
+    eq(schema.merchants.demoData, true),
     eq(schema.demoCatalogSets.isActive, true),
   );
 }
@@ -48,6 +52,7 @@ export async function loadDemoSubcategories(
       schema.demoCatalogAssignments,
       eq(schema.demoCatalogAssignments.setId, schema.demoCatalogSets.id),
     )
+    .innerJoin(schema.merchants, eq(schema.merchants.id, schema.demoCatalogAssignments.merchantId))
     .$dynamic();
 
   if (opts.mannequinOnly) {
@@ -122,6 +127,7 @@ export async function loadDemoItems(
       schema.demoCatalogAssignments,
       eq(schema.demoCatalogAssignments.setId, schema.demoCatalogSets.id),
     )
+    .innerJoin(schema.merchants, eq(schema.merchants.id, schema.demoCatalogAssignments.merchantId))
     .where(and(...conditions))
     .orderBy(asc(schema.demoCatalogItems.sortOrder), desc(schema.demoCatalogItems.createdAt));
 

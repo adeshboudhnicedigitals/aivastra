@@ -88,6 +88,10 @@ export async function resolveTryonGarment(
         eq(schema.demoCatalogAssignments.merchantId, merchantId),
       ),
     )
+    .innerJoin(
+      schema.merchants,
+      and(eq(schema.merchants.id, merchantId), eq(schema.merchants.demoData, true)),
+    )
     .leftJoin(
       schema.garmentSubcategories,
       eq(schema.garmentSubcategories.id, schema.demoCatalogSubcategories.garmentSubcategoryId),
