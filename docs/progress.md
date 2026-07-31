@@ -1,3 +1,18 @@
+## 2026-08-01 - Android app exception handling, build cache gitignore, and remote main sync
+
+### Done
+- Added robust `try-catch` exception handling across Android ViewModels (`LoginViewModel`, `TryOnViewModel`, `PhotoUploadViewModel`, `OutfitSelectionViewModel`, `OnboardingViewModel`, `AppVideoViewModel`), Auth (`GoogleSignInHelper`), and API networking (`ApiClient`).
+- Added `.gradle-user-home` and `.gradle-user-home/` to `apps/virtual_tryon_android/.gitignore` to ignore 4,355+ local Gradle build cache files.
+- Fetched and merged `origin/main` (6 incoming commits) cleanly via fast-forward.
+- Verified Android app build with `./gradlew assembleDebug` (`BUILD SUCCESSFUL in 28s`).
+- Committed all local changes on branch `main` as `7bb1522c` (`feat(android): add exception handling, dynamic app video streaming, and camera updates`).
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
 ## 2026-07-31 - Merchant demo data flag: resume and local verification
 
 ### Done
