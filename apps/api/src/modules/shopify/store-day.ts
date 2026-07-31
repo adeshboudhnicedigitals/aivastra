@@ -7,8 +7,10 @@
  */
 
 type LocalDateParts = { year: number; month: number; day: number };
+type LocalDateTimeParts = LocalDateParts & { hour: number; minute: number; second: number };
 
 const DAY_MS = 86_400_000;
+const HOUR_MS = 3_600_000;
 
 /** Invalid or absent zones use UTC so a bad row cannot break the limit path. */
 function validTimezone(timezone: string | null): string {
@@ -43,19 +45,94 @@ export function storeDayKey(timezone: string | null, now: Date = new Date()): st
   return `${year}${String(month).padStart(2, '0')}${String(day).padStart(2, '0')}`;
 }
 
-/** Find the first UTC instant belonging to a local calendar date. */
-function localMidnightUtc(timezone: string, year: number, month: number, day: number): Date {
-  const target = Date.UTC(year, month - 1, day);
-  let low = target - 2 * DAY_MS;
-  let high = target + 2 * DAY_MS;
+function localDateTimeParts(formatter: Intl.DateTimeFormat, at: Date): LocalDateTimeParts {
+  const values: Record<string, number> = {};
+  for (const part of formatter.formatToParts(at)) {
+    if (part.type !== 'literal') values[part.type] = Number(part.value);
+  }
+  return values as LocalDateTimeParts;
+}
+
+function localDateValue(parts: LocalDateParts): number {
+  return Date.UTC(parts.year, parts.month - 1, parts.day);
+}
+
+function offsetAt(parts: LocalDateTimeParts, at: Date): number {
+  const localAsUtc = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+  );
+  return localAsUtc - Math.floor(at.getTime() / 1000) * 1000;
+}
+
+function firstCrossing(
+  formatter: Intl.DateTimeFormat,
+  target: number,
+  start: number,
+  end: number,
+): number {
+  let low = start;
+  let high = end;
   while (low < high) {
     const middle = low + Math.floor((high - low) / 2);
-    const local = localParts(timezone, new Date(middle));
-    const localDate = Date.UTC(local.year, local.month - 1, local.day);
-    if (localDate < target) low = middle + 1;
+    if (localDateValue(localDateTimeParts(formatter, new Date(middle))) < target) low = middle + 1;
     else high = middle;
   }
-  return new Date(low);
+  return low;
+}
+
+/** Find the earliest UTC instant belonging to a local calendar date. */
+function localMidnightUtc(timezone: string, year: number, month: number, day: number): Date {
+  const target = Date.UTC(year, month - 1, day);
+  const bracketStart = target - 2 * DAY_MS;
+  const bracketEnd = target + 2 * DAY_MS;
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  });
+  const offsets = new Set<number>();
+  const crossings: number[] = [];
+
+  let segmentStart = bracketStart;
+  let startParts = localDateTimeParts(formatter, new Date(segmentStart));
+  offsets.add(offsetAt(startParts, new Date(segmentStart)));
+
+  while (segmentStart < bracketEnd) {
+    const segmentEnd = Math.min(segmentStart + HOUR_MS, bracketEnd);
+    const endParts = localDateTimeParts(formatter, new Date(segmentEnd));
+    offsets.add(offsetAt(endParts, new Date(segmentEnd)));
+
+    if (localDateValue(startParts) < target && localDateValue(endParts) >= target) {
+      crossings.push(firstCrossing(formatter, target, segmentStart, segmentEnd));
+    }
+
+    segmentStart = segmentEnd;
+    startParts = endParts;
+  }
+
+  // Every ordinary/repeated midnight is target wall-time minus one of the
+  // offsets active in the bracket. Validate each candidate because an offset
+  // sampled elsewhere may not be active at that instant.
+  for (const offset of offsets) {
+    const candidate = target - offset;
+    const at = new Date(candidate);
+    const parts = localDateTimeParts(formatter, at);
+    if (localDateValue(parts) === target && offsetAt(parts, at) === offset) {
+      crossings.push(candidate);
+    }
+  }
+
+  return new Date(Math.min(...crossings));
 }
 
 /**
