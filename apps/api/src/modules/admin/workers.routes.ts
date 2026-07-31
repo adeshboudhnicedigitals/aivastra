@@ -1,4 +1,5 @@
 import { schema } from '@aivastra/db';
+import { WORKER_POOL, workerPoolSchema } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -78,6 +79,12 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
     },
   );
 
+  app.get(
+    '/admin/workers/job-types',
+    { preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']) },
+    async () => Object.values(WORKER_POOL),
+  );
+
   app.post(
     '/admin/workers',
     {
@@ -91,7 +98,7 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
           label: z.string().default(''),
           url: z.string().url(),
           apiKey: z.string().min(1),
-          allowedJobTypes: z.array(z.enum(['catalogue', 'tryon', 'saree', 'shopify'])).default([]),
+          allowedJobTypes: z.array(workerPoolSchema).default([]),
         }),
       },
     },
@@ -163,7 +170,7 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
           url: z.string().url().optional(),
           apiKey: z.string().min(1).optional(),
           isActive: z.boolean().optional(),
-          allowedJobTypes: z.array(z.enum(['catalogue', 'tryon', 'saree', 'shopify'])).optional(),
+          allowedJobTypes: z.array(workerPoolSchema).optional(),
         }),
       },
     },
