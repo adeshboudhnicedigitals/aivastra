@@ -1,5 +1,6 @@
 package aivastra.nice.interactive.api
 
+import aivastra.nice.interactive.data.models.AppVideoConfigResponse
 import aivastra.nice.interactive.data.models.DeviceLoginRequest
 import aivastra.nice.interactive.data.models.DeviceLoginResponse
 import aivastra.nice.interactive.data.models.ForceLoginRequest
@@ -28,6 +29,10 @@ import retrofit2.http.Path
  * Retrofit interface defining all authentication network endpoints.
  */
 interface ApiService {
+
+    /** App-wide loading/generation video config. Public — no merchant auth required. */
+    @GET("v1/config/app-video")
+    suspend fun getAppVideoConfig(): Response<AppVideoConfigResponse>
 
     @POST("v1/merchant/tryon/upload-sessions")
     suspend fun createUploadSession(): Response<CreateUploadSessionResponse>

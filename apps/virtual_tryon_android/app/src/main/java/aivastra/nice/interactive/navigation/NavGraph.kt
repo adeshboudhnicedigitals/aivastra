@@ -44,6 +44,7 @@ import aivastra.nice.interactive.data.repository.OnboardingResult
 import aivastra.nice.interactive.data.repository.UserRepository
 import aivastra.nice.interactive.data.session.SessionManager
 import aivastra.nice.interactive.api.ApiClient
+import aivastra.nice.interactive.viewmodels.AppVideoViewModel
 import aivastra.nice.interactive.viewmodels.TryOnState
 import aivastra.nice.interactive.viewmodels.TryOnViewModel
 
@@ -80,8 +81,11 @@ sealed class Screen(val route: String) {
 fun AppNavGraph(
     navController: NavHostController,
     modifier: Modifier = Modifier,
-    tryOnViewModel: TryOnViewModel = viewModel()
+    tryOnViewModel: TryOnViewModel = viewModel(),
+    appVideoViewModel: AppVideoViewModel = viewModel()
 ) {
+    val appVideoUri by appVideoViewModel.videoUri.collectAsState()
+
     var selectedProduct by remember { mutableStateOf<CatalogProduct?>(null) }
     var activeSubcategoryProductList by remember { mutableStateOf<List<CatalogProduct>>(emptyList()) }
     var fromTryMoreOutfits by remember { mutableStateOf(false) }
@@ -434,6 +438,7 @@ fun AppNavGraph(
             }
 
             TryOnProcessingPage(
+                videoUri = appVideoUri,
                 elapsedSeconds = tryOnUiState.elapsedTimeSeconds,
                 errorMessage = tryOnUiState.errorMessage,
                 onBack = handleCancel,

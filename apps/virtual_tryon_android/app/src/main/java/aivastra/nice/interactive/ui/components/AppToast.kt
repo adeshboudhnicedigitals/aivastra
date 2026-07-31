@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -96,6 +98,7 @@ fun AppToast(
                 )
                 .clip(RoundedCornerShape(sdp(R.dimen._14sdp)))
                 .background(Color(0xFF1D2027))
+                .height(IntrinsicSize.Min)
         ) {
             // Colored accent bar — carries the type's color without tinting the whole card.
             Box(
