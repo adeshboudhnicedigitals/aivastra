@@ -1,3 +1,18 @@
+## 2026-07-31 — Shopify shopper limits: database foundation
+
+### Done
+- Added the `shopify_shoppers` schema and migration, with per-store browser identity, Shopify customer and email lookup indexes, consent metadata, and lifecycle timestamps.
+- Added nullable `shopify_stores.iana_timezone` and the `jobs.shopify_shopper_id` SET NULL foreign key, preserving billing history when retention or GDPR erasure removes a shopper.
+- Replaced the dead Shopify widget appearance settings with nested limits and retention settings in both DB and Shopify app type definitions.
+
+### Failed / Not Done
+- The prescribed broad removed-settings grep only finds ignored stale declarations in
+  `packages/db/dist/schema/widget.d.ts` for an unrelated, removed widget schema. The source-tree
+  check (excluding ignored `dist/`) has no matches; the artifact was left untouched.
+
+### Open Questions / Decisions
+- (none)
+
 ## 2026-07-31 - Shopify embedded admin restructure: verification (Task 13)
 
 ### Done

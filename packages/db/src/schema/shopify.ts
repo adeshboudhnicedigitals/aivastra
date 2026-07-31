@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
   bigint,
   boolean,
+  index,
   integer,
   jsonb,
   pgTable,
@@ -13,13 +14,28 @@ import {
 } from 'drizzle-orm/pg-core';
 import { workflowTemplates } from './models.js';
 import { users } from './users.js';
+export interface ShopifyStoreLimits {
+  /** null = off. Hard ceiling on generations per store-local day. */
+  storeDailyCap?: number | null;
+  /** null = off. Soft — defeatable by a fresh browser; see the design doc. */
+  perShopperCap?: number | null;
+  perShopperWindow?: 'day' | 'week' | 'month';
+  /** null = never ask. 0 = ask before the first generation. */
+  emailAfterNTryOns?: number | null;
+}
+
+export interface ShopifyStoreRetention {
+  /** null = off, for all three. Days until deletion. */
+  shopperPhotoDays?: number | null;
+  resultDays?: number | null;
+  shopperRecordDays?: number | null;
+}
+
 export interface ShopifyStoreSettings {
-  buttonText?: string;
-  buttonColor?: string;
-  position?: string;
-  customCss?: string;
   workflowTemplateId?: string;
   themeBlockConfirmed?: boolean;
+  limits?: ShopifyStoreLimits;
+  retention?: ShopifyStoreRetention;
 }
 
 export interface FunnelRuleCondition {
@@ -43,6 +59,11 @@ export const shopifyStores = pgTable('shopify_stores', {
   tokenExpiresAt: timestamp('token_expires_at', { withTimezone: true }),
   refreshTokenExpiresAt: timestamp('refresh_token_expires_at', { withTimezone: true }),
   scope: text('scope').notNull(),
+  // The store's local timezone, from shop.json at install. Drives day
+  // boundaries for the store daily cap — a merchant who sets "200/day" and
+  // watches it reset at 05:30 local time will file a bug. Null for rows that
+  // predate this column; those fall back to UTC until the next reinstall.
+  ianaTimezone: text('iana_timezone'),
   ownerUserId: uuid('owner_user_id').references(() => users.id, { onDelete: 'set null' }),
   installedAt: timestamp('installed_at', { withTimezone: true }).notNull().defaultNow(),
   uninstalledAt: timestamp('uninstalled_at', { withTimezone: true }),
@@ -124,5 +145,32 @@ export const shopifyProductGarments = pgTable(
   },
   (t) => ({
     uq: unique().on(t.storeId, t.shopifyProductId, t.shopifyVariantId),
+  }),
+);
+
+export const shopifyShoppers = pgTable(
+  'shopify_shoppers',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    storeId: uuid('store_id')
+      .notNull()
+      .references(() => shopifyStores.id, { onDelete: 'cascade' }),
+    // Anonymous UUID minted by the widget and held in localStorage. This is the
+    // ROW identity: one row per browser, never merged. Counting identity is a
+    // separate, stronger signal resolved per request — see modules/shopify/shopper.ts.
+    clientId: text('client_id').notNull(),
+    shopifyCustomerId: bigint('shopify_customer_id', { mode: 'number' }),
+    email: text('email'),
+    // Explicit marketing opt-in. The email is recorded regardless (it keys the
+    // per-shopper cap), but only consented rows are marketable.
+    emailConsent: boolean('email_consent').notNull().default(false),
+    emailCapturedAt: timestamp('email_captured_at', { withTimezone: true }),
+    firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    uq: unique().on(t.storeId, t.clientId),
+    byEmail: index('shopify_shoppers_store_email_idx').on(t.storeId, t.email),
+    byCustomer: index('shopify_shoppers_store_customer_idx').on(t.storeId, t.shopifyCustomerId),
   }),
 );
