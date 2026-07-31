@@ -16,6 +16,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 data class OutfitSelectionUiState(
     val isLoading: Boolean = true,
+    val isRefreshing: Boolean = false,
     val category: String = "",
     val subcategories: List<GarmentSubcategory> = emptyList(),
     val products: List<CatalogProduct> = emptyList(),
@@ -38,22 +39,33 @@ class OutfitSelectionViewModel(
 
     fun loadCatalog(category: String, forceReload: Boolean = false) {
         val normalizedCategory = category.trim().lowercase()
+        val currentState = _uiState.value
 
-        // If products for this category are already loaded and not forcing reload, return loaded state
-        if (!forceReload && _uiState.value.category == normalizedCategory && _uiState.value.products.isNotEmpty()) {
-            _uiState.update { it.copy(isLoading = false) }
+        if (!forceReload && currentState.category == normalizedCategory && currentState.products.isNotEmpty()) {
+            _uiState.update { it.copy(isLoading = false, isRefreshing = false) }
             return
         }
 
-        // Cancel previous loading job to prevent race conditions or infinite loading traps
         catalogJob?.cancel()
 
-        _uiState.update {
-            OutfitSelectionUiState(
-                isLoading = true,
-                category = normalizedCategory,
-                errorMessage = null
-            )
+        val hasExistingContent =
+            currentState.category == normalizedCategory && currentState.products.isNotEmpty()
+
+        _uiState.update { state ->
+            if (hasExistingContent) {
+                state.copy(
+                    isLoading = false,
+                    isRefreshing = true,
+                    category = normalizedCategory,
+                    errorMessage = null
+                )
+            } else {
+                OutfitSelectionUiState(
+                    isLoading = true,
+                    category = normalizedCategory,
+                    errorMessage = null
+                )
+            }
         }
 
         catalogJob = viewModelScope.launch {
@@ -63,37 +75,46 @@ class OutfitSelectionViewModel(
                 }
 
                 if (result == null) {
-                    _uiState.update {
-                        it.copy(
+                    _uiState.update { state ->
+                        state.copy(
                             isLoading = false,
+                            isRefreshing = false,
                             errorMessage = "Loading timed out. Check connection and tap Retry."
                         )
                     }
                 } else {
                     when (result) {
-                        is CatalogResult.Success -> _uiState.update {
-                            val firstId = result.data.subcategories.firstOrNull()?.id
-                            it.copy(
+                        is CatalogResult.Success -> _uiState.update { state ->
+                            val selectedSubcategoryId = resolveSelectedSubcategoryId(
+                                subcategories = result.data.subcategories,
+                                products = result.data.products,
+                                preferredId = state.selectedSubcategoryId
+                            )
+                            state.copy(
                                 isLoading = false,
+                                isRefreshing = false,
                                 category = normalizedCategory,
                                 subcategories = result.data.subcategories,
                                 products = result.data.products,
-                                selectedSubcategoryId = firstId,
+                                selectedSubcategoryId = selectedSubcategoryId,
                                 errorMessage = null
                             )
                         }
-                        is CatalogResult.Failure -> _uiState.update {
-                            it.copy(
+
+                        is CatalogResult.Failure -> _uiState.update { state ->
+                            state.copy(
                                 isLoading = false,
+                                isRefreshing = false,
                                 errorMessage = result.message
                             )
                         }
                     }
                 }
             } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(
+                _uiState.update { state ->
+                    state.copy(
                         isLoading = false,
+                        isRefreshing = false,
                         errorMessage = e.message ?: "Failed to load catalog. Tap Retry."
                     )
                 }
@@ -108,7 +129,27 @@ class OutfitSelectionViewModel(
         }
     }
 
+    fun refresh() {
+        retry()
+    }
+
     fun selectSubcategory(id: String?) {
         _uiState.update { it.copy(selectedSubcategoryId = id) }
+    }
+
+    private fun resolveSelectedSubcategoryId(
+        subcategories: List<GarmentSubcategory>,
+        products: List<CatalogProduct>,
+        preferredId: String?
+    ): String? {
+        val productSubcategoryIds = products.mapTo(hashSetOf()) { it.subcategoryId }
+
+        if (preferredId != null && preferredId in productSubcategoryIds) {
+            return preferredId
+        }
+
+        return subcategories
+            .firstOrNull { it.id in productSubcategoryIds }
+            ?.id
     }
 }

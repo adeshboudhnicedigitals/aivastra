@@ -17,6 +17,8 @@ sealed interface OnboardingUiState {
         val contactName: String = "",
         val companyName: String = "",
         val phone: String = "",
+        val showCompanyNameField: Boolean = true,
+        val showPhoneField: Boolean = true,
         val businessAddress: String = "",
         val isSubmitting: Boolean = false,
         val error: String? = null
@@ -32,51 +34,66 @@ class OnboardingViewModel(
     val uiState: StateFlow<OnboardingUiState> = _uiState.asStateFlow()
 
     /**
-     * The Google login response already carries suggested name fields when onboarding
-     * is required, so this skips the extra GET round-trip in that case. Any other
-     * entry point (password login, or a cold app restart landing here) falls back to
-     * fetching prefill from the server.
+     * Fetches server-side onboarding prefill so the UI can skip any fields that
+     * already have data. Contact name stays hidden in the UI and is carried
+     * through only as a fallback submit value.
+     *
+     * Google sign-in may provide a suggested company name, but that is only a
+     * suggestion, not confirmed merchant data, so the business-name field stays
+     * visible and editable unless the onboarding status endpoint already has a
+     * real company name stored for the merchant.
      */
     fun start(suggestedContactName: String? = null, suggestedCompanyName: String? = null) {
-        if (!suggestedContactName.isNullOrBlank() || !suggestedCompanyName.isNullOrBlank()) {
-            _uiState.update {
-                OnboardingUiState.Editing(
-                    contactName = suggestedContactName.orEmpty(),
-                    companyName = suggestedCompanyName.orEmpty()
-                )
-            }
-            return
-        }
-
         _uiState.update { OnboardingUiState.Loading }
         viewModelScope.launch {
             try {
-                when (val result = repository.getStatus()) {
-                    is OnboardingResult.Success -> {
-                        val prefill = result.data.prefill
-                        _uiState.update {
-                            OnboardingUiState.Editing(
-                                contactName = prefill.contactName,
-                                companyName = prefill.companyName,
-                                phone = prefill.phone
-                            )
-                        }
-                    }
-                    // Falls back to a blank editable form rather than blocking the user
-                    // entirely on a prefill fetch failure — every field is still editable.
-                    is OnboardingResult.Failure -> _uiState.update { OnboardingUiState.Editing() }
+                val prefill = when (val result = repository.getStatus()) {
+                    is OnboardingResult.Success -> result.data.prefill
+                    is OnboardingResult.Failure -> null
+                }
+
+                val contactName = prefill?.contactName
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+                    ?: suggestedContactName?.trim().orEmpty()
+                val storedCompanyName = prefill?.companyName
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+                val suggestedCompany = suggestedCompanyName
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+                val companyName = storedCompanyName ?: suggestedCompany.orEmpty()
+                val phoneDigits = prefill?.phone.orEmpty().filter(Char::isDigit).take(10)
+
+                _uiState.update {
+                    OnboardingUiState.Editing(
+                        contactName = contactName,
+                        companyName = companyName,
+                        phone = phoneDigits,
+                        showCompanyNameField = storedCompanyName == null,
+                        showPhoneField = phoneDigits.length != 10
+                    )
                 }
             } catch (_: Exception) {
-                _uiState.update { OnboardingUiState.Editing() }
+                val contactName = suggestedContactName?.trim().orEmpty()
+                val companyName = suggestedCompanyName?.trim().orEmpty()
+                _uiState.update {
+                    OnboardingUiState.Editing(
+                        contactName = contactName,
+                        companyName = companyName,
+                        showCompanyNameField = true,
+                        showPhoneField = true
+                    )
+                }
             }
         }
     }
 
     fun submit(contactName: String, companyName: String, phone: String, businessAddress: String) {
         val current = _uiState.value as? OnboardingUiState.Editing ?: return
-        val phoneTrimmed = phone.trim()
-        if (!phoneTrimmed.matches(Regex("^\\+?[0-9]{10,15}$"))) {
-            _uiState.update { current.copy(error = "Enter a valid mobile number") }
+        val phoneDigits = phone.filter(Char::isDigit)
+        if (!phoneDigits.matches(Regex("^\\d{10}$"))) {
+            _uiState.update { current.copy(error = "Enter a valid 10-digit mobile number") }
             return
         }
 
@@ -85,7 +102,7 @@ class OnboardingViewModel(
             try {
                 val result = repository.submit(
                     MerchantOnboardingRequest(
-                        phone = phoneTrimmed,
+                        phone = phoneDigits,
                         contactName = contactName.trim().ifBlank { null },
                         companyName = companyName.trim().ifBlank { null },
                         businessAddress = businessAddress.trim().ifBlank { null }

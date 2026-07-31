@@ -1,7 +1,22 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
+
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val hasKeystoreProperties = keystorePropertiesFile.exists()
+
+if (hasKeystoreProperties) {
+    keystorePropertiesFile.inputStream().use(keystoreProperties::load)
+}
+
+fun requireKeystoreProperty(name: String): String =
+    requireNotNull(keystoreProperties.getProperty(name)) {
+        "Missing `$name` in ${keystorePropertiesFile.absolutePath}"
+    }
 
 android {
     namespace = "aivastra.nice.interactive"
@@ -15,14 +30,29 @@ android {
         applicationId = "aivastra.nice.interactive"
         minSdk = 28
         targetSdk = 36
-        versionCode = 12
+        versionCode = 13
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (hasKeystoreProperties) {
+            create("release") {
+                storeFile = rootProject.file(requireKeystoreProperty("storeFile"))
+                storePassword = requireKeystoreProperty("storePassword")
+                keyAlias = requireKeystoreProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+                    ?: requireKeystoreProperty("storePassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (hasKeystoreProperties) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
