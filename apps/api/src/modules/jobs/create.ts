@@ -801,9 +801,14 @@ export async function createSimpleTryonJob(
       workflowTemplateId: schema.tryonCategories.workflowTemplateId,
       tryonCategoryIsActive: schema.tryonCategories.isActive,
       workflowTemplateIsActive: schema.workflowTemplates.isActive,
+      // Tryon-direct results (source='tryon'/'api_tryon') are WebP-encoded, not
+      // PNG (see apps/dispatcher/src/workflow/finalize.ts) — the actual uploaded
+      // key must come from here, not be reconstructed via keys.output(sourceJobId).
+      resultKey: schema.jobOutputs.resultKey,
     })
     .from(schema.jobs)
     .innerJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+    .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
     .leftJoin(
       schema.garmentSubcategories,
       eq(schema.garmentSubcategories.id, schema.jobInputs.garmentTypeId),
@@ -859,7 +864,9 @@ export async function createSimpleTryonJob(
     workflowTemplateId = source.workflowTemplateId;
   }
 
-  const garmentKey = keys.output(sourceJobId);
+  // Legacy rows (predating job_outputs.resultKey being populated for every
+  // job) fall back to the PNG convention — safe because webp is new.
+  const garmentKey = source.resultKey ?? keys.output(sourceJobId);
 
   const [[user], [planRow]] = await Promise.all([
     app.db.select().from(schema.users).where(eq(schema.users.id, userId)),
@@ -940,8 +947,16 @@ export async function createCatalogVideoJob(
 ) {
   const cost = await getPixverseCreditCost(app);
   const [source] = await app.db
-    .select({ userId: schema.jobs.userId, status: schema.jobs.status })
+    .select({
+      userId: schema.jobs.userId,
+      status: schema.jobs.status,
+      // Tryon-direct results (source='tryon'/'api_tryon') are WebP-encoded, not
+      // PNG (see apps/dispatcher/src/workflow/finalize.ts) — the actual uploaded
+      // key must come from here, not be reconstructed via keys.output(sourceJobId).
+      resultKey: schema.jobOutputs.resultKey,
+    })
     .from(schema.jobs)
+    .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
     .where(eq(schema.jobs.id, body.sourceJobId));
   if (!source) throw new AppError('NOT_FOUND', 404, 'source image not found');
   if (source.userId !== userId)
@@ -980,7 +995,9 @@ export async function createCatalogVideoJob(
       params: {
         kind: 'video',
         sourceJobId: body.sourceJobId,
-        sourceImageKey: keys.output(body.sourceJobId),
+        // Legacy rows (predating job_outputs.resultKey being populated for
+        // every job) fall back to the PNG convention — safe since webp is new.
+        sourceImageKey: source.resultKey ?? keys.output(body.sourceJobId),
         sampleVideoId: body.sampleVideoId,
         prompt: sample.prompt,
       },

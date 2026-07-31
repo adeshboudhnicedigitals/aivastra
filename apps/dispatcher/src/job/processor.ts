@@ -997,11 +997,14 @@ async function processTryonDirectJob(
     const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
 
     // Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
+    // outputFormat: 'webp' — tryon-direct is the only job kind (source='tryon' /
+    // 'api_tryon') whose result is WebP-encoded; see finalize.ts's doc comment.
     await finalizeOutput({
       imageBytes,
       jobId,
       userId,
       jobWatermark: job.watermark,
+      outputFormat: 'webp',
       db,
       pub,
       s3,
