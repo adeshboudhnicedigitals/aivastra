@@ -67,8 +67,6 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
           r2Key: schema.shopifyProductGarments.r2Key,
           status: schema.shopifyProductGarments.status,
           enabled: schema.shopifyProductGarments.enabled,
-          funnelTemplateId: schema.shopifyProductGarments.funnelTemplateId,
-          funnelAssignmentSource: schema.shopifyProductGarments.funnelAssignmentSource,
         })
         .from(schema.shopifyProductGarments)
         .where(notDeleted)
@@ -82,8 +80,6 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
         thumbnailUrl: app.storage.publicUrl(r.r2Key),
         status: r.status,
         enabled: r.enabled,
-        funnelTemplateId: r.funnelTemplateId,
-        funnelAssignmentSource: r.funnelAssignmentSource,
       }));
 
       return { page, pageSize, total, items };

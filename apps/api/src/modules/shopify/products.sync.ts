@@ -2,7 +2,6 @@ import { schema } from '@aivastra/db';
 import { eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
-import { assignFunnelFromRules } from './funnel-rules.js';
 import { shopifyAdminFetch } from './service.js';
 import { getValidAccessToken } from './token.js';
 
@@ -104,7 +103,7 @@ async function upsertGarmentFailure(
   failedReason: string,
 ): Promise<void> {
   const r2Key = `shopify-garments/${storeId}/${productId}/garment.jpg`;
-  const row = await upsertGarment(
+  await upsertGarment(
     app,
     storeId,
     productId,
@@ -117,14 +116,6 @@ async function upsertGarmentFailure(
     null,
     failedReason,
   );
-  if (row.funnelAssignmentSource !== 'manual') {
-    await assignFunnelFromRules(app, row.id, storeId, {
-      productType: null,
-      tags: null,
-      vendor: null,
-      collections: null,
-    });
-  }
 }
 
 export async function syncProduct(
@@ -145,7 +136,7 @@ export async function syncProduct(
   const collections = product.collections ?? null;
   const src = product.image?.src;
   if (!src) {
-    const row = await upsertGarment(
+    await upsertGarment(
       app,
       storeId,
       product.id,
@@ -158,9 +149,6 @@ export async function syncProduct(
       collections,
       'no product image',
     );
-    if (row.funnelAssignmentSource !== 'manual') {
-      await assignFunnelFromRules(app, row.id, storeId, { productType, tags, vendor, collections });
-    }
     return;
   }
   try {
@@ -186,7 +174,7 @@ export async function syncProduct(
     const buf = Buffer.from(arrayBuffer);
     const ct = res.headers.get('content-type') ?? 'image/jpeg';
     await app.storage.putObject(r2Key, buf, ct);
-    const row = await upsertGarment(
+    await upsertGarment(
       app,
       storeId,
       product.id,
@@ -198,12 +186,9 @@ export async function syncProduct(
       vendor,
       collections,
     );
-    if (row.funnelAssignmentSource !== 'manual') {
-      await assignFunnelFromRules(app, row.id, storeId, { productType, tags, vendor, collections });
-    }
   } catch (err) {
     app.log.warn({ err, storeId, productId: product.id }, 'product sync failed');
-    const row = await upsertGarment(
+    await upsertGarment(
       app,
       storeId,
       product.id,
@@ -216,9 +201,6 @@ export async function syncProduct(
       collections,
       (err as Error).message,
     );
-    if (row.funnelAssignmentSource !== 'manual') {
-      await assignFunnelFromRules(app, row.id, storeId, { productType, tags, vendor, collections });
-    }
   }
 }
 
