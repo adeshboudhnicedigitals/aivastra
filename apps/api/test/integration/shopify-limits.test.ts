@@ -411,7 +411,14 @@ describe('shopify shopper limits', () => {
     expect(await app.redis.get(counterKey)).toBe('1');
   });
 
-  it('releases the newly reserved slot when setting its expiry fails before billing', async () => {
+  it('releases nothing and leaves no partial counter when the atomic reservation script itself fails', async () => {
+    // Regression for finding #4 (fix round 1): the reserve, its first-use
+    // EXPIRE, and the over-cap rollback DECR used to be three independent
+    // Redis round trips, so a crash between any two could leave the counter
+    // incremented but never expiring. They now run as one Lua script via
+    // EVAL. Mocking `eval` to fail simulates the whole reservation attempt
+    // never landing — proving there is no intermediate state to leak,
+    // because there is no intermediate round trip left to fail on.
     await seedDefaultFunnelTemplate();
     const owner = await seedOwner(100);
     const store = await seedStore(owner.id);
@@ -420,10 +427,10 @@ describe('shopify shopper limits', () => {
     const counterKey = `shopify:cap:store:${store.id}:${storeDayKey(null)}`;
     const photo = await uploadCustomerPhoto(store.storeKey, Buffer.alloc(1024));
 
-    const realExpire = app.redis.expire.bind(app.redis);
-    app.redis.expire = (async () => {
-      throw new Error('redis expiry failed');
-    }) as typeof app.redis.expire;
+    const realEval = app.redis.eval.bind(app.redis);
+    app.redis.eval = (async () => {
+      throw new Error('redis reservation script failed');
+    }) as typeof app.redis.eval;
 
     try {
       const failed = await createJob(store, {
@@ -432,7 +439,7 @@ describe('shopify shopper limits', () => {
         clientId: randomUUID(),
       });
       expect.soft(failed.statusCode).toBe(500);
-      expect.soft(await app.redis.get(counterKey)).toBe('0');
+      expect.soft(await app.redis.get(counterKey)).toBeNull();
 
       const [credits] = await app.db
         .select()
@@ -445,7 +452,7 @@ describe('shopify shopper limits', () => {
         .where(eq(schema.jobs.shopifyStoreId, store.id));
       expect.soft(jobs).toHaveLength(0);
     } finally {
-      app.redis.expire = realExpire;
+      app.redis.eval = realEval;
     }
 
     const retry = await createJob(store, {
@@ -483,5 +490,138 @@ describe('shopify shopper limits', () => {
     await slot.release();
     await slot.release();
     expect(await app.redis.get(counterKey)).toBe('0');
+  });
+
+  it('serializes concurrent requests from the same shopper against a per-shopper cap of 1', async () => {
+    // Regression for finding #1 (fix round 1): the shopper-limit check used
+    // to run exactly once, entirely before the job-creation transaction
+    // opened. Two concurrent requests from the same shopper could both
+    // observe capacity and both create a job, exceeding the cap.
+    // lockAndRecheckShopperLimits now takes a transaction-scoped advisory
+    // lock keyed on the shopper's counting identity and rechecks the limit
+    // under it, immediately before the job insert — serializing the two
+    // racing requests so only one can win.
+    await seedDefaultFunnelTemplate();
+    const owner = await seedOwner(100);
+    const store = await seedStore(owner.id);
+    await seedGarment(store.id, 5009);
+    await setLimits(store.id, { perShopperCap: 1, perShopperWindow: 'day' });
+
+    const clientId = randomUUID();
+    const [photoA, photoB] = await Promise.all([
+      uploadCustomerPhoto(store.storeKey, Buffer.alloc(1024)),
+      uploadCustomerPhoto(store.storeKey, Buffer.alloc(1024)),
+    ]);
+
+    const [resA, resB] = await Promise.all([
+      createJob(store, { customerPhotoKey: photoA, shopifyProductId: 5009, clientId }),
+      createJob(store, { customerPhotoKey: photoB, shopifyProductId: 5009, clientId }),
+    ]);
+
+    const statuses = [resA.statusCode, resB.statusCode].sort();
+    expect(statuses).toEqual([201, 202]);
+
+    const refused = resA.statusCode === 202 ? resA : resB;
+    expect(refused.json().reason).toBe('shopper_limit');
+
+    const jobs = await app.db
+      .select()
+      .from(schema.jobs)
+      .where(eq(schema.jobs.shopifyStoreId, store.id));
+    expect(jobs).toHaveLength(1);
+
+    const [credits] = await app.db
+      .select()
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, owner.id));
+    expect(credits.balance).toBe(95);
+  });
+
+  it('recovers store quota via bounded route-level retries after transient release failures', async () => {
+    // Regression for finding #3 (fix round 1): the route used to call
+    // slot.release() exactly once. A single transient DECR failure
+    // permanently leaked the reserved slot until the 48h key expiry. The
+    // route now retries the (already-idempotent) release closure up to 3
+    // times — this forces the first two DECR calls to fail and asserts the
+    // counter is restored anyway, without the test itself retrying anything.
+    await seedDefaultFunnelTemplate();
+    const owner = await seedOwner(100);
+    const store = await seedStore(owner.id);
+    await seedGarment(store.id, 5010);
+    await setLimits(store.id, { storeDailyCap: 1 });
+    const counterKey = `shopify:cap:store:${store.id}:${storeDayKey(null)}`;
+    const photo = await uploadCustomerPhoto(store.storeKey, Buffer.alloc(1024));
+
+    const realXadd = app.redis.xadd.bind(app.redis);
+    app.redis.xadd = (async () => {
+      throw new Error('redis down');
+    }) as typeof app.redis.xadd;
+
+    const realDecr = app.redis.decr.bind(app.redis);
+    let decrCalls = 0;
+    app.redis.decr = (async (key: string) => {
+      decrCalls += 1;
+      if (decrCalls <= 2) throw new Error('transient decrement failure');
+      return realDecr(key);
+    }) as typeof app.redis.decr;
+
+    try {
+      const failed = await createJob(store, {
+        customerPhotoKey: photo,
+        shopifyProductId: 5010,
+        clientId: randomUUID(),
+      });
+      expect.soft(failed.statusCode).toBe(503);
+      expect.soft(decrCalls).toBe(3);
+
+      const [job] = await app.db
+        .select()
+        .from(schema.jobs)
+        .where(eq(schema.jobs.shopifyStoreId, store.id));
+      expect.soft(job.status).toBe('FAILED');
+      expect.soft(job.errorCode).toBe('ENQUEUE_FAIL');
+
+      const [credits] = await app.db
+        .select()
+        .from(schema.userCredits)
+        .where(eq(schema.userCredits.userId, owner.id));
+      expect.soft(credits.balance).toBe(100);
+    } finally {
+      app.redis.xadd = realXadd;
+      app.redis.decr = realDecr;
+    }
+
+    // Quota recovered without the test manually retrying — the very next
+    // request against the cap-of-1 store succeeds.
+    const retry = await createJob(store, {
+      customerPhotoKey: photo,
+      shopifyProductId: 5010,
+      clientId: randomUUID(),
+    });
+    expect(retry.statusCode).toBe(201);
+    expect(await app.redis.get(counterKey)).toBe('1');
+  });
+
+  it('enforces nothing when the store settings explicitly set limits to null', async () => {
+    // Compatibility test for finding #6's third bullet: an explicit
+    // `limits: null` (as opposed to the key being absent entirely, already
+    // covered above) must also disable enforcement.
+    await seedDefaultFunnelTemplate();
+    const owner = await seedOwner(100);
+    const store = await seedStore(owner.id);
+    await seedGarment(store.id, 5011);
+    await app.db
+      .update(schema.shopifyStores)
+      .set({ settings: { limits: null } })
+      .where(eq(schema.shopifyStores.id, store.id));
+
+    const clientId = randomUUID();
+    const photo = await uploadCustomerPhoto(store.storeKey, Buffer.alloc(1024));
+    const res = await createJob(store, {
+      customerPhotoKey: photo,
+      shopifyProductId: 5011,
+      clientId,
+    });
+    expect(res.statusCode).toBe(201);
   });
 });
