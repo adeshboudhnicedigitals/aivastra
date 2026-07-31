@@ -259,7 +259,7 @@ export default function DashboardPage() {
           </Card>
         </InlineGrid>
 
-        <InlineGrid columns={{ xs: 1, sm: 2 }} gap="400">
+        <InlineGrid columns={{ xs: 1, sm: 3 }} gap="400">
           <Card>
             <BlockStack gap="300">
               <Text as="p" tone="subdued">
@@ -273,6 +273,28 @@ export default function DashboardPage() {
                   Top up on aivastra.com
                 </Button>
               </Box>
+            </BlockStack>
+          </Card>
+
+          <Card>
+            <BlockStack gap="200">
+              <Text as="h2" variant="headingMd">
+                Today's try-ons
+              </Text>
+              <Text as="p" variant="heading2xl">
+                {me?.stats.storeDailyCap
+                  ? `${me.stats.todayTryOns} / ${me.stats.storeDailyCap}`
+                  : (me?.stats.todayTryOns ?? 0)}
+              </Text>
+              {me?.stats.storeDailyCap != null &&
+                me.stats.todayTryOns >= me.stats.storeDailyCap && (
+                  <Banner tone="warning">
+                    Your daily limit is reached. Try-on is paused until tomorrow.
+                  </Banner>
+                )}
+              <Text as="p" tone="subdued">
+                {me?.stats.capturedEmailCount ?? 0} emails collected
+              </Text>
             </BlockStack>
           </Card>
 

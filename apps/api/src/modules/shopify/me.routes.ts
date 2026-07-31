@@ -1,6 +1,7 @@
 import { schema } from '@aivastra/db';
-import { and, count, eq, sql } from 'drizzle-orm';
+import { and, count, eq, gte, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { windowStart } from './store-day.js';
 
 export async function shopifyMeRoutes(app: FastifyInstance) {
   app.get('/v1/shopify/me', { preHandler: app.requireShopifySession }, async (req) => {
@@ -47,6 +48,29 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
       .from(schema.shopifyProductGarments)
       .where(eq(schema.shopifyProductGarments.storeId, store.id));
 
+    // Derived from Postgres, not the Redis cap counter: the merchant-facing
+    // number must stay correct even if Redis has been flushed and the guard
+    // has lost the day.
+    const [{ todayTryOns }] = await app.db
+      .select({ todayTryOns: count() })
+      .from(schema.jobs)
+      .where(
+        and(
+          eq(schema.jobs.shopifyStoreId, store.id),
+          gte(schema.jobs.createdAt, windowStart(store.ianaTimezone, 'day')),
+        ),
+      );
+
+    const [{ capturedEmailCount }] = await app.db
+      .select({ capturedEmailCount: count() })
+      .from(schema.shopifyShoppers)
+      .where(
+        and(
+          eq(schema.shopifyShoppers.storeId, store.id),
+          sql`${schema.shopifyShoppers.email} IS NOT NULL`,
+        ),
+      );
+
     return {
       store: {
         shopDomain: store.shopDomain,
@@ -65,6 +89,9 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
           failed: failedCount,
           disabled: disabledCount,
         },
+        todayTryOns,
+        storeDailyCap: store.settings.limits?.storeDailyCap ?? null,
+        capturedEmailCount,
       },
     };
   });
