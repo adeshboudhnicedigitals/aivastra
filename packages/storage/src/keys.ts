@@ -1,6 +1,6 @@
 export const keys = {
   inputGarment: (jobId: string) => `inputs/${jobId}/garment.jpg`,
-  output: (jobId: string) => `outputs/${jobId}/result.png`,
+  output: (jobId: string, format: 'png' | 'webp' = 'png') => `outputs/${jobId}/result.${format}`,
   outputThumb: (jobId: string) => `outputs/${jobId}/result.thumb.jpg`,
   mannequinIntermediate: (jobId: string) => `outputs/${jobId}/mannequin-intermediate.png`,
   merchantCatalogItem: (merchantId: string, id: string) =>
@@ -49,6 +49,10 @@ export const keys = {
   sareeStyle: (id: string) => `saree-styles/${id}.jpg`,
   sampleVideo: (id: string) => `sample-videos/${id}.mp4`,
   sampleVideoThumb: (id: string) => `sample-videos/${id}.thumb.gif`,
+  // Single global admin-uploaded video (e.g. app intro/promo clip served to the
+  // Android app via GET /v1/config/app-video). Fixed key — a new upload replaces
+  // the previous one in place; cache-busting is via the ?v= query param, not the key.
+  appVideo: () => `config/app-video.mp4`,
   videoOutput: (jobId: string) => `outputs/${jobId}/result.mp4`,
   supportAttachment: (id: string, ext: string) => `support/${id}.${ext}`,
 };
