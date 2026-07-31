@@ -1,5 +1,6 @@
 package aivastra.nice.interactive.api
 
+import aivastra.nice.interactive.BuildConfig
 import aivastra.nice.interactive.data.models.RefreshTokenRequest
 import aivastra.nice.interactive.data.session.SessionManager
 import kotlinx.coroutines.runBlocking
@@ -25,8 +26,12 @@ object ApiClient {
         tokenOverride = token
     }
 
+    // Full BODY logging is expensive per request (serializes every request/response) and was
+    // previously always on, even in release — kiosks running the shipped build were paying that
+    // cost on every API call for no benefit, plus logging full bodies (tokens, personal data) in
+    // production logs is also unnecessary exposure.
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
-        level = HttpLoggingInterceptor.Level.BODY
+        level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BODY else HttpLoggingInterceptor.Level.NONE
     }
 
     // Unauthenticated HTTP client for Auth endpoints (login, refresh, logout).

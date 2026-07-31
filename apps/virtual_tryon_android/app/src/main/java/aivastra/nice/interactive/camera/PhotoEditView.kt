@@ -56,6 +56,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
@@ -240,6 +241,7 @@ fun PhotoEditView(
                         Image(
                             bitmap = bitmap.asImageBitmap(),
                             contentDescription = "Photo Preview",
+                            contentScale = ContentScale.Crop,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .graphicsLayer {
@@ -393,44 +395,38 @@ private fun processAndSaveEditedBitmap(
 ) {
     scope.launch(Dispatchers.IO) {
         try {
-            val hasEdits = rotation != 0 || kotlin.math.abs(scale - 1.0f) > 0.02f || kotlin.math.abs(offset.x) > 2f || kotlin.math.abs(offset.y) > 2f
-
-            val finalBitmap = if (!hasEdits) {
-                bitmap
+            val rotatedBitmap = if (rotation != 0) {
+                val matrix = Matrix().apply { postRotate(rotation.toFloat()) }
+                Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
             } else {
-                val rotatedBitmap = if (rotation != 0) {
-                    val matrix = Matrix().apply { postRotate(rotation.toFloat()) }
-                    Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-                } else {
-                    bitmap
-                }
+                bitmap
+            }
 
+            val finalBitmap = if (containerSize != null && containerSize.width > 0 && containerSize.height > 0) {
                 val srcW = rotatedBitmap.width.toFloat()
                 val srcH = rotatedBitmap.height.toFloat()
+                val containerW = containerSize.width.toFloat()
+                val containerH = containerSize.height.toFloat()
 
-                if (containerSize != null && containerSize.width > 0 && containerSize.height > 0) {
-                    val containerW = containerSize.width.toFloat()
-                    val containerH = containerSize.height.toFloat()
+                // With ContentScale.Crop, baseScale fills the 3:4 container without empty bars
+                val baseScale = maxOf(containerW / srcW, containerH / srcH)
+                val totalScale = (baseScale * scale).coerceAtLeast(0.001f)
 
-                    val baseScale = minOf(containerW / srcW, containerH / srcH)
-                    val totalScale = (baseScale * scale).coerceAtLeast(0.001f)
+                val cropLeftFloat = (srcW / 2f) - (containerW / 2f + offset.x) / totalScale
+                val cropTopFloat = (srcH / 2f) - (containerH / 2f + offset.y) / totalScale
+                val cropWidthFloat = containerW / totalScale
+                val cropHeightFloat = containerH / totalScale
 
-                    val cropLeftFloat = (srcW / 2f) - (containerW / 2f + offset.x) / totalScale
-                    val cropTopFloat = (srcH / 2f) - (containerH / 2f + offset.y) / totalScale
-                    val cropWidthFloat = containerW / totalScale
-                    val cropHeightFloat = containerH / totalScale
+                val left = cropLeftFloat.toInt().coerceIn(0, (srcW - 1f).coerceAtLeast(0f).toInt())
+                val top = cropTopFloat.toInt().coerceIn(0, (srcH - 1f).coerceAtLeast(0f).toInt())
+                val right = (cropLeftFloat + cropWidthFloat).toInt().coerceIn(left + 1, srcW.toInt())
+                val bottom = (cropTopFloat + cropHeightFloat).toInt().coerceIn(top + 1, srcH.toInt())
+                val width = (right - left).coerceAtLeast(1)
+                val height = (bottom - top).coerceAtLeast(1)
 
-                    val left = cropLeftFloat.toInt().coerceIn(0, (srcW - 1f).coerceAtLeast(0f).toInt())
-                    val top = cropTopFloat.toInt().coerceIn(0, (srcH - 1f).coerceAtLeast(0f).toInt())
-                    val right = (left + cropWidthFloat.toInt()).coerceIn(left + 1, srcW.toInt())
-                    val bottom = (top + cropHeightFloat.toInt()).coerceIn(top + 1, srcH.toInt())
-                    val width = (right - left).coerceAtLeast(1)
-                    val height = (bottom - top).coerceAtLeast(1)
-
-                    Bitmap.createBitmap(rotatedBitmap, left, top, width, height)
-                } else {
-                    rotatedBitmap
-                }
+                Bitmap.createBitmap(rotatedBitmap, left, top, width, height)
+            } else {
+                rotatedBitmap
             }
 
             val file = File(context.cacheDir, "edited_photo_${System.currentTimeMillis()}.jpg")

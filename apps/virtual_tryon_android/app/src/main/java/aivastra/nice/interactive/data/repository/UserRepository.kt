@@ -13,6 +13,8 @@ import aivastra.nice.interactive.data.models.RefreshTokenRequest
 import aivastra.nice.interactive.data.models.RefreshTokenResponse
 import aivastra.nice.interactive.data.session.SessionManager
 
+import aivastra.nice.interactive.utils.ErrorParser
+
 /**
  * Sealed result type for clean error boundary at the repository layer.
  */
@@ -46,12 +48,11 @@ class UserRepository {
                     if (limitError?.error?.code == "DEVICE_LIMIT_REACHED") {
                         AuthResult.DeviceLimitReached(limitError)
                     } else {
-                        AuthResult.Failure("Login conflict: ${limitError?.error?.message ?: "Unknown"}")
+                        AuthResult.Failure(ErrorParser.parseErrorMessage(response, "Login conflict"))
                     }
                 }
                 else -> {
-                    val errBody = response.errorBody()?.string()
-                    AuthResult.Failure(errBody ?: "Login failed (${response.code()})")
+                    AuthResult.Failure(ErrorParser.parseErrorMessage(response, "Login failed. Please check your credentials."))
                 }
             }
         } catch (e: Exception) {
@@ -74,12 +75,11 @@ class UserRepository {
                     if (limitError?.error?.code == "DEVICE_LIMIT_REACHED") {
                         AuthResult.DeviceLimitReached(limitError)
                     } else {
-                        AuthResult.Failure("Login conflict: ${limitError?.error?.message ?: "Unknown"}")
+                        AuthResult.Failure(ErrorParser.parseErrorMessage(response, "Login conflict"))
                     }
                 }
                 else -> {
-                    val errBody = response.errorBody()?.string()
-                    AuthResult.Failure(errBody ?: "Google login failed (${response.code()})")
+                    AuthResult.Failure(ErrorParser.parseErrorMessage(response, "Google login failed."))
                 }
             }
         } catch (e: Exception) {
@@ -95,8 +95,7 @@ class UserRepository {
                 if (body != null) AuthResult.Success(body)
                 else AuthResult.Failure("Empty response body")
             } else {
-                val errBody = response.errorBody()?.string()
-                AuthResult.Failure(errBody ?: "Force login failed (${response.code()})")
+                AuthResult.Failure(ErrorParser.parseErrorMessage(response, "Force login failed."))
             }
         } catch (e: Exception) {
             AuthResult.Failure(e.message ?: "Network error. Check your connection.")
@@ -111,8 +110,7 @@ class UserRepository {
                 if (body != null) AuthResult.Success(body)
                 else AuthResult.Failure("Empty response body")
             } else {
-                val errBody = response.errorBody()?.string()
-                AuthResult.Failure(errBody ?: "Token refresh failed (${response.code()})")
+                AuthResult.Failure(ErrorParser.parseErrorMessage(response, "Session refresh failed."))
             }
         } catch (e: Exception) {
             AuthResult.Failure(e.message ?: "Network error. Check your connection.")
@@ -130,8 +128,7 @@ class UserRepository {
                 }
                 else AuthResult.Failure("Empty response body")
             } else {
-                val errBody = response.errorBody()?.string()
-                AuthResult.Failure(errBody ?: "Logout failed (${response.code()})")
+                AuthResult.Failure(ErrorParser.parseErrorMessage(response, "Logout failed."))
             }
         } catch (e: Exception) {
             AuthResult.Failure(e.message ?: "Network error. Check your connection.")

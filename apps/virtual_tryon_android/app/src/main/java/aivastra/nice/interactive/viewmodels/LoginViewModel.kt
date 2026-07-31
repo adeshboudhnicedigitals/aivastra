@@ -202,4 +202,9 @@ class LoginViewModel(
     fun dismissError() {
         _uiState.update { LoginUiState.Idle }
     }
+
+    /** Surfaces a client-side failure (e.g. Google Sign-In) that never reached the repository. */
+    fun reportError(message: String) {
+        _uiState.update { LoginUiState.Error(message) }
+    }
 }

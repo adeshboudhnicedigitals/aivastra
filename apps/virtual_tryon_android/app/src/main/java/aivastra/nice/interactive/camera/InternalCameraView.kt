@@ -30,6 +30,7 @@ import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -56,6 +57,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -70,9 +73,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -130,6 +136,10 @@ fun InternalCameraView(
 
     var countdown by remember { mutableIntStateOf(settings.countdownSeconds) }
     var availablePictureSizes by remember { mutableStateOf<List<Size>>(emptyList()) }
+    var showTimerOptions by remember { mutableStateOf(false) }
+    // Only auto-pick the highest resolution once per screen visit, so a user's later, explicit
+    // "Auto" choice isn't silently overridden the next time the lens (front/back) is switched.
+    var hasAppliedDefaultPictureSize by remember { mutableStateOf(false) }
 
     val previewView = remember {
         PreviewView(context).apply {
@@ -177,6 +187,15 @@ fun InternalCameraView(
         // rather than silently applying a mismatched fallback size.
         if (settings.pictureSize != null && settings.pictureSize !in sizes) {
             settings = settings.copy(pictureSize = null)
+        }
+        // Default "Picture Resolution" to the highest size this camera actually reports,
+        // instead of leaving it on the coarse Auto/quality-tier fallback.
+        if (!hasAppliedDefaultPictureSize && settings.pictureSize == null && sizes.isNotEmpty()) {
+            val highest = sizes.maxByOrNull { it.width.toLong() * it.height.toLong() }
+            if (highest != null) {
+                settings = settings.copy(pictureSize = highest)
+            }
+            hasAppliedDefaultPictureSize = true
         }
     }
 
@@ -384,20 +403,86 @@ fun InternalCameraView(
                 horizontalArrangement = Arrangement.SpaceAround,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(sdp(R.dimen._44sdp))
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.5f))
-                        .clickable { showSettingsSheet = true },
-                    contentAlignment = Alignment.Center
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(sdp(R.dimen._12sdp)),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        Icons.Default.Settings,
-                        contentDescription = "Camera & Texture Settings",
-                        tint = Color.White,
-                        modifier = Modifier.size(sdp(R.dimen._30sdp))
-                    )
+                    // Timer: tap to pick a countdown duration; the selection stops/starts the
+                    // pre-capture countdown immediately (Off cancels it, a duration restarts it).
+                    Box {
+                        Box(
+                            modifier = Modifier
+                                .size(sdp(R.dimen._camera_control_button_size))
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.5f))
+                                .clickable { showTimerOptions = true },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            TimerIcon(
+                                tint = Color.White,
+                                modifier = Modifier.size(sdp(R.dimen._camera_control_timer_icon_size))
+                            )
+                            if (settings.timerOption != TimerOption.OFF) {
+                                Text(
+                                    text = "${settings.timerOption.seconds}",
+                                    color = Color.White,
+                                    fontSize = ssp(R.dimen._9ssp),
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = PoppinsFamily,
+                                    modifier = Modifier
+                                        .align(Alignment.BottomEnd)
+                                        .padding(bottom = sdp(R.dimen._3sdp), end = sdp(R.dimen._4sdp))
+                                )
+                            }
+                        }
+
+                        DropdownMenu(
+                            expanded = showTimerOptions,
+                            onDismissRequest = { showTimerOptions = false },
+                            containerColor = Color(0xFF1B1E24)
+                        ) {
+                            TimerOption.values().forEach { option ->
+                                val isSelected = settings.timerOption == option
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = option.label,
+                                            color = if (isSelected) Color(0xFFE59B27) else Color.White,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            fontFamily = PoppinsFamily,
+                                            fontSize = ssp(R.dimen._14ssp)
+                                        )
+                                    },
+                                    onClick = {
+                                        settings = settings.copy(
+                                            timerOption = option,
+                                            countdownSeconds = option.seconds
+                                        )
+                                        // Apply immediately: cancels an in-progress countdown when
+                                        // Off is picked, or restarts it at the new duration.
+                                        countdown = option.seconds
+                                        showTimerOptions = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .size(sdp(R.dimen._camera_control_button_size))
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.5f))
+                            .clickable { showSettingsSheet = true },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.Settings,
+                            contentDescription = "Camera & Texture Settings",
+                            tint = Color.White,
+                            modifier = Modifier.size(sdp(R.dimen._camera_control_icon_size))
+                        )
+                    }
                 }
 
                 Box(
@@ -447,7 +532,7 @@ fun InternalCameraView(
 
                 Box(
                     modifier = Modifier
-                        .size(sdp(R.dimen._44sdp))
+                        .size(sdp(R.dimen._camera_control_button_size))
                         .clip(CircleShape)
                         .background(Color.Black.copy(alpha = 0.5f))
                         .clickable {
@@ -467,7 +552,7 @@ fun InternalCameraView(
                         Icons.Default.Refresh,
                         contentDescription = "Switch Camera",
                         tint = Color.White,
-                        modifier = Modifier.size(sdp(R.dimen._30sdp))
+                        modifier = Modifier.size(sdp(R.dimen._camera_control_icon_size))
                     )
                 }
             }
@@ -489,6 +574,29 @@ fun InternalCameraView(
                 }
             )
         }
+    }
+}
+
+@Composable
+private fun TimerIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val strokeWidth = size.minDimension * 0.1f
+        val radius = size.minDimension / 2f - strokeWidth
+        drawCircle(color = tint, radius = radius, style = Stroke(width = strokeWidth))
+        drawLine(
+            color = tint,
+            start = center,
+            end = Offset(center.x, center.y - radius * 0.55f),
+            strokeWidth = strokeWidth,
+            cap = StrokeCap.Round
+        )
+        drawLine(
+            color = tint,
+            start = center,
+            end = Offset(center.x + radius * 0.4f, center.y),
+            strokeWidth = strokeWidth,
+            cap = StrokeCap.Round
+        )
     }
 }
 
@@ -539,9 +647,16 @@ private fun capturePhoto(
             val fixedUri = fixImageRotationFromUri(
                 context = context,
                 imageUri = savedUri,
-                cameraResultRotation = 0,
+                cameraResultRotation = currentSurfaceRotation(context),
                 isFrontCamera = isFrontCamera
             )
+
+//            val fixedUri = fixImageRotationFromUri(
+//                context = context,
+//                imageUri = savedUri,
+//                cameraResultRotation = 0,
+//                isFrontCamera = isFrontCamera
+//            )
             onCaptured(fixedUri)
         } catch (e: Exception) {
             Log.e("InternalCameraView", "Photo capture failed", e)
@@ -766,22 +881,30 @@ suspend fun fixImageRotationFromUri(
             ExifInterface.ORIENTATION_NORMAL
         )
 
-        val bitmap = BitmapFactory.decodeFile(tempFile.absolutePath) ?: return@withContext imageUri
-
         val isUsbOrKiosk = hasUsbCamera(context) || isKioskDevice(context)
 
-        val rotationDegrees = when {
-            // This app only ever wants portrait photos out of the camera. A landscape-shaped
-            // raw buffer always gets straightened to portrait regardless of what EXIF claims —
-            // kiosk/USB camera HALs have proven to report rotation metadata that doesn't match
-            // the actual buffer, even with ImageCapture.targetRotation set correctly on the
-            // capture request. Phones/tablets already hand back a portrait-shaped buffer, so
-            // this never fires for them and their EXIF-based correction below is untouched.
-            bitmap.width > bitmap.height -> 90
-            orientation == ExifInterface.ORIENTATION_ROTATE_90 -> 90
-            orientation == ExifInterface.ORIENTATION_ROTATE_180 -> 180
-            orientation == ExifInterface.ORIENTATION_ROTATE_270 -> 270
+        var rotationDegrees = when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> 90
+            ExifInterface.ORIENTATION_ROTATE_180 -> 180
+            ExifInterface.ORIENTATION_ROTATE_270 -> 270
             else -> 0
+        }
+
+        // This app only ever wants portrait photos out of the camera. A landscape-shaped raw
+        // buffer gets straightened to portrait regardless of what EXIF claims — some kiosk/USB
+        // camera HALs report rotation metadata that doesn't match the actual buffer, and our
+        // isKioskDevice()/hasUsbCamera() heuristics don't reliably catch every kiosk unit (seen
+        // on Android 12/13 kiosk hardware). Not gating this on that detection is deliberate:
+        // well-behaved phones/tablets already hand back a portrait-shaped buffer, so this never
+        // fires for them, while devices the heuristic misses still get corrected. Checked via a
+        // bounds-only decode (reads just the JPEG header, no pixel data) since at this point we
+        // don't yet know whether a transform is even needed.
+        if (rotationDegrees == 0) {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(tempFile.absolutePath, bounds)
+            if (bounds.outWidth > bounds.outHeight) {
+                rotationDegrees = 90
+            }
         }
 
         val shouldMirror = isFrontCamera && !isUsbOrKiosk
@@ -793,6 +916,10 @@ suspend fun fixImageRotationFromUri(
                 tempFile
             )
         }
+
+        // Only pay for a full pixel decode once a transform is actually needed — this is the
+        // expensive step, and scales with the capture resolution.
+        val bitmap = BitmapFactory.decodeFile(tempFile.absolutePath) ?: return@withContext imageUri
 
         val matrix = Matrix()
 
