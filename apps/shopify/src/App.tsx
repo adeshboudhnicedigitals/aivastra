@@ -1,8 +1,8 @@
 import '@shopify/polaris/build/esm/styles.css';
-import { AppProvider, Banner, Box, Frame, Spinner } from '@shopify/polaris';
+import { AppProvider, Banner, Box, Frame, Navigation, Spinner } from '@shopify/polaris';
 import { useCallback, useEffect, useState } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
-import { AppNavMenu } from './components/AppNavMenu';
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { AppNavMenu, NAV_ITEMS } from './components/AppNavMenu';
 import { LinkAccountGate } from './components/LinkAccountGate';
 import { apiFetch, setShopDomain } from './lib/api';
 import {
@@ -19,6 +19,8 @@ export default function App() {
   const [me, setMe] = useState<ShopifyMe | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const location = useLocation();
 
   const load = useCallback(() => {
     setLoading(true);
@@ -82,10 +84,32 @@ export default function App() {
     );
   }
 
+  // window.shopify is only defined inside the Shopify admin iframe (see
+  // lib/appBridge.ts). Outside it, <ui-nav-menu> renders nothing, so Frame's
+  // own `navigation` prop supplies a usable dev nav instead — Polaris's
+  // <Navigation> requires a <Frame> ancestor providing frame context, which
+  // it only gets by being passed in here rather than rendered as a sibling.
+  // When App Bridge IS present, <ui-nav-menu> (real Shopify nav) handles
+  // navigation natively, so no `navigation` prop is passed at all.
+  const devNavigation = !window.shopify ? (
+    <Navigation location={location.pathname}>
+      <Navigation.Section
+        title="AiVastra (dev)"
+        items={NAV_ITEMS.map((item) => ({
+          label: item.label,
+          icon: item.icon,
+          url: item.path,
+          selected: location.pathname === item.path,
+          onClick: () => navigate(item.path),
+        }))}
+      />
+    </Navigation>
+  ) : undefined;
+
   return (
     <AppProvider i18n={{}}>
       <AppNavMenu />
-      <Frame>
+      <Frame navigation={devNavigation}>
         <Routes>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/manage" element={<ManagePage />} />

@@ -1,13 +1,12 @@
-import { Navigation } from '@shopify/polaris';
 import { HomeIcon, ProductIcon, QuestionCircleIcon } from '@shopify/polaris-icons';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 
 // Must match BrowserRouter's basename in main.tsx. <ui-nav-menu> hands its
 // hrefs to Shopify admin, which navigates the iframe to that exact path — a
 // bare "/manage" would land outside the app's base in production.
 const BASENAME = import.meta.env.PROD ? '/shopify-admin' : '';
 
-const ITEMS = [
+export const NAV_ITEMS = [
   { path: '/', label: 'Dashboard', icon: HomeIcon },
   { path: '/manage', label: 'Manage', icon: ProductIcon },
   { path: '/support', label: 'Support', icon: QuestionCircleIcon },
@@ -15,26 +14,14 @@ const ITEMS = [
 
 export function AppNavMenu() {
   const navigate = useNavigate();
-  const location = useLocation();
 
   // window.shopify is only defined inside the Shopify admin iframe
-  // (see lib/appBridge.ts). Outside it, <ui-nav-menu> renders nothing at all,
-  // which would leave local dev with no way to change page.
+  // (see lib/appBridge.ts). Outside it, <ui-nav-menu> renders nothing at all
+  // — the dev-mode nav is supplied by App.tsx instead, via Frame's own
+  // `navigation` prop (Polaris's <Navigation> requires a <Frame> ancestor
+  // providing frame context, which a sibling render here cannot give it).
   if (!window.shopify) {
-    return (
-      <Navigation location={location.pathname}>
-        <Navigation.Section
-          title="AiVastra (dev)"
-          items={ITEMS.map((item) => ({
-            label: item.label,
-            icon: item.icon,
-            url: item.path,
-            selected: location.pathname === item.path,
-            onClick: () => navigate(item.path),
-          }))}
-        />
-      </Navigation>
-    );
+    return null;
   }
 
   return (
@@ -44,7 +31,7 @@ export function AppNavMenu() {
       <a href={`${BASENAME}/`} rel="home">
         Dashboard
       </a>
-      {ITEMS.slice(1).map((item) => (
+      {NAV_ITEMS.slice(1).map((item) => (
         <a
           key={item.path}
           href={`${BASENAME}${item.path}`}

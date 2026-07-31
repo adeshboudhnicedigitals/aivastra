@@ -53,8 +53,11 @@ export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
       .orderBy(asc(schema.shopifyFunnelTemplates.sortOrder));
     // Surfaced so the admin list can warn on it. With no default, every Shopify
     // try-on is refused at creation and nothing else reveals why until a shopper
-    // hits it.
-    return { items, hasDefault: items.some((i) => i.isDefault) };
+    // hits it. Checked against both flags, not just isDefault, so a default row
+    // that's been deactivated (which resolveWorkflowTemplateId treats as "no
+    // usable default") still trips the banner — see the PATCH guard below,
+    // which should prevent that state from occurring in the first place.
+    return { items, hasDefault: items.some((i) => i.isDefault && i.isActive) };
   });
 
   app.post(
@@ -86,7 +89,12 @@ export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
       const { id } = req.params as { id: string };
       const body = req.body as z.infer<typeof PatchFunnelTemplateBody>;
 
-      if (body.isDefault === false) {
+      // Deactivating the default is just as dangerous as un-defaulting it:
+      // resolveWorkflowTemplateId (apps/api/src/modules/shopify/customer.routes.ts)
+      // only resolves a template when isDefault AND isActive are both true, so
+      // `PATCH { isActive: false }` on the default row silently breaks every
+      // Shopify try-on even though `isDefault` never changed. Guard both.
+      if (body.isDefault === false || body.isActive === false) {
         const [row] = await app.db
           .select({ isDefault: schema.shopifyFunnelTemplates.isDefault })
           .from(schema.shopifyFunnelTemplates)
@@ -94,11 +102,20 @@ export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
           .limit(1);
         if (!row) throw new AppError('NOT_FOUND', 404, 'funnel template not found');
         if (row.isDefault) {
-          throw new AppError(
-            'VALIDATION',
-            400,
-            'Cannot clear the default funnel template. Promote another template instead — with no default, every Shopify try-on is refused.',
-          );
+          if (body.isDefault === false) {
+            throw new AppError(
+              'VALIDATION',
+              400,
+              'Cannot clear the default funnel template. Promote another template instead — with no default, every Shopify try-on is refused.',
+            );
+          }
+          if (body.isActive === false) {
+            throw new AppError(
+              'VALIDATION',
+              400,
+              'Cannot deactivate the default funnel template. Promote another template as default first — with no active default, every Shopify try-on is refused.',
+            );
+          }
         }
       }
 
