@@ -19,6 +19,7 @@ export interface ShopDetails {
   email: string;
   phone?: string;
   address?: string;
+  ianaTimezone?: string;
 }
 
 export async function upsertShopifyStore(
@@ -58,6 +59,7 @@ export async function upsertShopifyStore(
           accessToken: enc,
           ...refreshCols,
           scope,
+          ianaTimezone: shop.ianaTimezone ?? null,
           allowedOrigins: origins,
           uninstalledAt: null,
           updatedAt: new Date(),
@@ -75,6 +77,7 @@ export async function upsertShopifyStore(
         accessToken: enc,
         ...refreshCols,
         scope,
+        ianaTimezone: shop.ianaTimezone ?? null,
         allowedOrigins: origins,
       })
       .returning();
@@ -172,6 +175,7 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
         address1?: string;
         city?: string;
         country?: string;
+        iana_timezone?: string;
       };
     };
     const details: ShopDetails = {
@@ -184,6 +188,7 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
       email: s.email,
       phone: s.phone,
       address: [s.address1, s.city, s.country].filter(Boolean).join(', '),
+      ianaTimezone: s.iana_timezone,
     };
 
     const store = await upsertShopifyStore(app, details, access_token, scope, grant);
