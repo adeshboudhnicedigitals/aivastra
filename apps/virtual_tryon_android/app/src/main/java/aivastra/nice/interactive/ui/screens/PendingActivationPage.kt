@@ -22,7 +22,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExitToApp
-import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,7 +38,7 @@ import androidx.compose.ui.tooling.preview.Preview
 /**
  * Shown when login returns merchantStatus = PENDING_ACTIVATION — a merchants row
  * exists but is not yet marked active (awaiting admin approval). Blocking screen:
- * every /v1/merchant/* call would 403 until an admin flips isActive, so there is
+ * every /v1/merchant/{...} call would 403 until an admin flips isActive, so there is
  * nothing else useful for the user to do here besides sign out and check back later.
  */
 @Composable
@@ -73,7 +73,7 @@ fun PendingActivationPage(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.Default.Schedule,
+                    imageVector = Icons.Default.DateRange,
                     contentDescription = null,
                     tint = Color(0xFFD88A18),
                     modifier = Modifier.size(sdp(R.dimen._30sdp))
