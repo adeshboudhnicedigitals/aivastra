@@ -93,4 +93,33 @@ describe('sweeper — per-source QUEUED SLA', () => {
       .where(eq(schema.userCredits.userId, before?.userId as string));
     expect(bal.balance).toBe(20);
   });
+
+  it('does not sweep a job actively cycling through the no-worker backoff', async () => {
+    // Old createdAt (past the 10-min orphan SLA) — but the dispatcher touched it
+    // (logged a PREPROCESSING job_events row) 5s ago, i.e. it's still inside its own
+    // 3h MAX_QUEUE_WAIT_MS retry budget (processor.ts). The sweeper's orphan pass
+    // must not fail+refund a job the processor is still actively retrying.
+    const log = createLogger('test');
+    const tryonId = await seedQueuedJob('tryon', 20 * MIN);
+    await env.db.insert(schema.jobEvents).values({
+      jobId: tryonId,
+      eventType: 'PREPROCESSING',
+      payload: {},
+      createdAt: new Date(Date.now() - 5 * 1000),
+    });
+
+    await runSweeper(env.db, pub, log);
+
+    expect(await statusOf(tryonId)).toBe('QUEUED');
+
+    // Once the last attempt is also past the SLA (dispatcher genuinely stopped
+    // retrying — e.g. crashed), it's correctly treated as orphaned.
+    await env.db
+      .update(schema.jobEvents)
+      .set({ createdAt: new Date(Date.now() - 11 * MIN) })
+      .where(eq(schema.jobEvents.jobId, tryonId));
+
+    await runSweeper(env.db, pub, log);
+    expect(await statusOf(tryonId)).toBe('FAILED');
+  });
 });
