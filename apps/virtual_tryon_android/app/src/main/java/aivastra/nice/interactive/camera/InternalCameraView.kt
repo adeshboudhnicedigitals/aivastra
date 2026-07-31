@@ -15,7 +15,9 @@ import android.util.Size
 import android.view.Surface
 import android.view.WindowManager
 import android.hardware.camera2.CaptureRequest
+import androidx.annotation.OptIn
 import androidx.camera.camera2.interop.Camera2Interop
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.FocusMeteringAction
@@ -701,6 +703,7 @@ private suspend fun lockFocusAndExposure(camera: Camera?, previewView: PreviewVi
     }
 }
 
+@OptIn(ExperimentalCamera2Interop::class)
 private fun applyKioskCaptureTuning(context: Context, builder: ImageCapture.Builder) {
     // Generic kiosk/USB camera HALs default to fast, low-quality JPEG encode and noise
     // reduction to save CPU. Forcing these Camera2 request keys to HIGH_QUALITY is what
@@ -864,7 +867,12 @@ suspend fun fixImageRotationFromUri(
     context: Context,
     imageUri: Uri,
     cameraResultRotation: Int = 0,
-    isFrontCamera: Boolean = false
+    isFrontCamera: Boolean = false,
+    // Only camera captures have the "landscape raw buffer with no/unreliable EXIF" problem
+    // that the width>height fallback below works around. Gallery- and QR-sourced images can
+    // be legitimately landscape, so applying that fallback to them force-rotates otherwise
+    // correct photos — this is what caused kiosk gallery/QR uploads to come out sideways.
+    applyOrientationFallback: Boolean = true
 ): Uri = withContext(Dispatchers.IO) {
     try {
         val inputStream = context.contentResolver.openInputStream(imageUri) ?: return@withContext imageUri
@@ -891,20 +899,15 @@ suspend fun fixImageRotationFromUri(
         }
 
         // This app only ever wants portrait photos out of the camera. A landscape-shaped raw
-        // buffer gets straightened to portrait regardless of what EXIF claims — some kiosk/USB
-        // camera HALs report rotation metadata that doesn't match the actual buffer, and our
-        // isKioskDevice()/hasUsbCamera() heuristics don't reliably catch every kiosk unit (seen
-        // on Android 12/13 kiosk hardware). Not gating this on that detection is deliberate:
-        // well-behaved phones/tablets already hand back a portrait-shaped buffer, so this never
-        // fires for them, while devices the heuristic misses still get corrected. Checked via a
-        // bounds-only decode (reads just the JPEG header, no pixel data) since at this point we
-        // don't yet know whether a transform is even needed.
-        if (rotationDegrees == 0) {
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeFile(tempFile.absolutePath, bounds)
-            if (bounds.outWidth > bounds.outHeight) {
-                rotationDegrees = 90
-            }
+        // buffer gets straightened to portrait when EXIF gives no rotation hint — some kiosk/USB
+        // camera HALs report no orientation metadata at all. Trust the EXIF value CameraX wrote
+        // (the standard interpretation) and only guess via buffer shape when EXIF gave nothing
+        // to work with. Checked via a bounds-only decode (reads just the JPEG header, no pixel
+        // data) since at this point we don't yet know whether a transform is even needed.
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(tempFile.absolutePath, bounds)
+        if (rotationDegrees == 0 && applyOrientationFallback && bounds.outWidth > bounds.outHeight) {
+            rotationDegrees = 90
         }
 
         val shouldMirror = isFrontCamera && !isUsbOrKiosk

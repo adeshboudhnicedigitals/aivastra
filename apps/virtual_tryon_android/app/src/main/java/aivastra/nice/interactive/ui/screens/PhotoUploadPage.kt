@@ -507,6 +507,7 @@ fun PhotoUploadPage(
                 if (uri != null) {
                     PhotoEditView(
                         photoUri = uri,
+                        isFromCamera = photoSourceType == "CAMERA",
                         onCancel = {
                             if (photoSourceType == "CAMERA") {
                                 screenState = PhotoUploadScreenState.INTERNAL_CAMERA
