@@ -1,3 +1,71 @@
+## 2026-07-31 — Shopify shopper limits: final whole-branch review + fix wave
+
+### Done
+- Closes the 12-task shopper-limits plan (`docs/superpowers/plans/2026-07-31-shopify-shopper-limits.md`)
+  with a whole-branch review of the full plan diff (commits `43815b90..98e0808f`) and one fix wave
+  (`98e0808f..490fc0e2`), per `superpowers:subagent-driven-development`'s final-review step. Full ledger
+  in `.superpowers/sdd/2026-07-31-shopify-shopper-limits/progress.md`.
+- The review found no Critical issues. Seven Important findings plus one previously-deferred minor were
+  fixed in one wave and independently re-verified clean by a second reviewer pass:
+  - **`SettingsPage.tsx`:** `Number(raw) || preselected` treated a legitimate `0` ("Before the first
+    try-on") as falsy, silently saving the preselected value (2) instead. Extracted as a pure
+    `resolveNumericLimit` using `Number.isFinite` so `0` round-trips.
+  - **`SettingsPage.tsx`:** the CSV export button used Polaris `Button url=`, which renders a plain
+    `<a href>` — wrong origin in production and no App Bridge auth token, so it 404s or 401s. Replaced
+    with an authenticated fetch (`apiFetch`/new `apiFetchResponse` in `lib/api.ts`) that blobs the
+    response and triggers a download.
+  - **`SettingsPage.tsx`:** the shopper-list fetch's `.catch` only set the error, leaving the `IndexTable`
+    spinning forever on failure. Now also clears `shoppers` to `[]` so the empty state renders.
+  - **`apps/dispatcher/src/shopify/retention.ts`:** the `shopperRecordDays` branch deleted shopper rows
+    on age alone, with no check for still-populated object references on their jobs — the same
+    "never destroy the last reference to an undeleted object" invariant already fixed once at the R2-key
+    level (Task 9), recurring here at the shopper-row/linkage level (deleting the row severs the only
+    path GDPR redaction uses to find those objects). Added a `NOT EXISTS` guard excluding any shopper
+    with a job still holding a non-null `customerPhotoKey`/`resultKey`/`thumbnailKey`.
+  - **`apps/api/src/modules/shopify/gdpr.ts`:** `shop_redact` only purged shopper-linked jobs, so any job
+    with `shopifyShopperId = NULL` (legacy widget traffic with no `clientId`) kept its R2 objects forever
+    even after a full-store erasure request. Added `purgeUnlinkedStoreJobs`, gated strictly to the
+    `matchAll` (`shop_redact`) path — `customers_redact` is unaffected, confirmed by a negative test.
+  - **`apps/api/src/modules/shopify/gdpr.ts` / `webhook.routes.ts`:** a partially-failed redaction (any
+    object delete failure) was swallowed to `log.warn` with no operator-visible signal and no retry path
+    (unlike retention's hourly sweeper). `redactShopperData` now returns `{ removed, incomplete }`; the
+    webhook handler logs at `error` when `incomplete > 0`. No retry/reconciliation system was built —
+    an alertable log line is the accepted scope for this fix.
+  - **`apps/api/src/modules/credits/ledger.ts`:** `refundAndMarkFailed` had no status guard on its jobs
+    UPDATE, so the reverse-direction ambiguous-XADD race (dispatcher completes the job while the API is
+    still inside its own post-commit failure handling) could force-overwrite a `COMPLETED` job to
+    `FAILED` and refund credits for a generation the shopper already received. Added `AND status =
+    'QUEUED'` to the guarded UPDATE; a non-match now skips the refund and status change entirely instead
+    of applying it partially.
+  - **Widget (`tryon-widget.js`):** a logged-in shopper's email (from the `data-customer-email` Liquid
+    prefill, Task 6) was sent to `createJob` and persisted on the very first try-on, before the shopper
+    ever saw the email-gate/consent step — contradicting the plan's own "prefill only" design intent and
+    the Settings page's consent copy. Added an `emailConfirmedByShopper` flag, set only inside the
+    email-gate's submit handler; `createJob` now includes `email`/`emailConsent` only once that flag is
+    true. The Liquid prefill still speeds up filling the gate's input field when a shopper reaches it.
+- All fixes verified: 4-suite Shopify integration 48/48, full API unit suite 323/323 across 42 files,
+  dispatcher build clean, both typechecks clean, widget `node --check` clean, `pnpm lint` clean. Three
+  of the seven findings were verified by reverting the fix and confirming the new test fails first.
+
+### Failed / Not Done
+- (none) — every finding from the final review was fixed and re-verified clean in one fix wave.
+
+### Open Questions / Decisions
+- **User-facing consent gate is now stricter for logged-in shoppers**, per the widget fix above: stores
+  with `emailAfterNTryOns` configured will collect fewer emails from logged-in shoppers than before,
+  since the prefilled address can no longer ride along silently — this is the intended effect of closing
+  the consent gap, not a regression.
+- **Rows captured via the old silent-prefill path are left as-is.** Shopper emails captured before this
+  fix landed (recorded with `emailConsent: false`) remain in `shopify_shoppers` and the CSV export
+  unchanged. User decision (2026-07-31): leave them in place rather than flagging or purging — treated as
+  the merchant's own customer data, consistent with the recommended default presented at review time.
+- Three Minor findings from the re-review were parked, not fixed (none block merge): the CSV download's
+  `URL.revokeObjectURL` runs synchronously right after `anchor.click()` (cross-browser download-cancel
+  risk, strictly better than the prior dead button it replaced); `resolveNumericLimit('', preselected)`
+  returns `0` rather than `preselected` (unreachable given `raw`'s actual call sites); and both
+  `purgeUnlinkedStoreJobs` and the `shopperRecordDays` DELETE remain unbounded with no batch limit
+  (pre-existing pattern, widened rather than introduced — redelivery/re-sweep safe either way).
+
 ## 2026-07-31 — Shopify shopper limits: widget dead-history handling + full verification (Task 12)
 
 ### Done
