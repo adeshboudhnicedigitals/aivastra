@@ -281,29 +281,6 @@ fun CameraSettingsDialog(
                     }
                 }
 
-                // 7. Timer Selection
-                SettingSectionTitle("Timer Selection")
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(sdp(R.dimen._10sdp))
-                ) {
-                    TimerOption.values().forEach { option ->
-                        val isSelected = draftSettings.timerOption == option
-                        SettingChip(
-                            label = option.label,
-                            isSelected = isSelected,
-                            onClick = {
-                                draftSettings = draftSettings.copy(
-                                    timerOption = option,
-                                    countdownSeconds = option.seconds
-                                )
-                            }
-                        )
-                    }
-                }
-
                 Spacer(Modifier.height(sdp(R.dimen._10sdp)))
             }
 

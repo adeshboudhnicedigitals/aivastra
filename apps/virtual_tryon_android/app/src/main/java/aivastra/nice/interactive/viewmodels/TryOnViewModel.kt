@@ -87,11 +87,23 @@ class TryOnViewModel @JvmOverloads constructor(
                                         if (key.startsWith("http")) key
                                         else "https://pub-2e9ee0f339f44a8fb927958ce786a345.r2.dev/$key"
                                     }
-                                _uiState.update {
-                                    it.copy(
-                                        state = TryOnState.COMPLETED,
-                                        shareUrl = finalUrl
-                                    )
+                                // A COMPLETED status with no usable URL would otherwise leave the
+                                // loading screen spinning forever (the nav layer only reacts to
+                                // COMPLETED + a non-null shareUrl) — treat it as a failure instead.
+                                if (finalUrl != null) {
+                                    _uiState.update {
+                                        it.copy(
+                                            state = TryOnState.COMPLETED,
+                                            shareUrl = finalUrl
+                                        )
+                                    }
+                                } else {
+                                    _uiState.update {
+                                        it.copy(
+                                            state = TryOnState.FAILED,
+                                            errorMessage = "Try-on completed but no result image was returned. Please try again."
+                                        )
+                                    }
                                 }
                                 return@launch
                             }

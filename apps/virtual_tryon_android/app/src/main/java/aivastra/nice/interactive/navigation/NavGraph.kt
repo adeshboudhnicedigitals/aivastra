@@ -95,6 +95,7 @@ fun AppNavGraph(
     // falls back to fetching prefill from the server when both are null/blank.
     var onboardingSuggestedContactName by remember { mutableStateOf<String?>(null) }
     var onboardingSuggestedCompanyName by remember { mutableStateOf<String?>(null) }
+    var hasEnteredTryMoreFlow by remember { mutableStateOf(false) }
 
     val sessionTryOnResults = remember { mutableStateListOf<String>() }
 
@@ -347,8 +348,15 @@ fun AppNavGraph(
             PhotoUploadPage(
                 onBack = { navController.popBackStack() },
                 onUploadSuccess = { photoUri, r2Key ->
+                    // A freshly captured/uploaded photo starts a new customer's session — any
+                    // try-on results still held from a previous photo must not leak into this
+                    // person's Download page. (No-op if there's nothing to clear yet, e.g. a
+                    // retake before any try-on completed.)
+                    sessionTryOnResults.clear()
+                    tryOnViewModel.resetState()
                     capturedPhotoUri = photoUri
                     customerPhotoR2Key = r2Key
+                    hasEnteredTryMoreFlow = false
                     navController.navigate(Screen.PhotoReview.route)
                 }
             )
@@ -369,13 +377,24 @@ fun AppNavGraph(
                 PhotoReviewPage(
                     photoUri = uri,
                     onBack = handleBackToUpload,
-                    onRetake = handleBackToUpload,
+                    onRetake = {
+                        val route = Screen.OutfitSelection.createRoute(selectedCategory)
+                        if (!navController.popBackStack(route, inclusive = false)) {
+                            navController.navigate(route)
+                        }
+                    },
                     onProceed = {
-                        val garmentId = selectedProduct?.id
-                        val photoKey = customerPhotoR2Key
-                        if (!garmentId.isNullOrBlank() && !photoKey.isNullOrBlank()) {
-                            tryOnViewModel.startTryOn(garmentId, photoKey)
-                            navController.navigate(Screen.TryOnProcessing.route)
+                        if (hasEnteredTryMoreFlow) {
+                            navController.navigate(Screen.TryMoreOutfits.route) {
+                                popUpTo(Screen.PhotoReview.route) { inclusive = false }
+                            }
+                        } else {
+                            val garmentId = selectedProduct?.id
+                            val photoKey = customerPhotoR2Key
+                            if (!garmentId.isNullOrBlank() && !photoKey.isNullOrBlank()) {
+                                tryOnViewModel.startTryOn(garmentId, photoKey)
+                                navController.navigate(Screen.TryOnProcessing.route)
+                            }
                         }
                     }
                 )
@@ -398,8 +417,12 @@ fun AppNavGraph(
                         sessionTryOnResults.add(url)
                     }
                     if (entry.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                        // Collapse everything back to PhotoReview so TryOnResult always sits
+                        // directly on top of it — otherwise repeated "Try Another" loops pile
+                        // up TryMoreOutfits/OutfitDetail entries and back navigation has to
+                        // walk back through all of them instead of returning to PhotoReview.
                         navController.navigate(Screen.TryOnResult.route) {
-                            popUpTo(Screen.TryOnProcessing.route) { inclusive = true }
+                            popUpTo(Screen.PhotoReview.route) { inclusive = false }
                         }
                     }
                 }
@@ -442,12 +465,16 @@ fun AppNavGraph(
                 TryOnResultPage(
                     resultImageUrl = url,
                     onBack = {
-                        if (!navController.popBackStack()) {
-                            navController.navigate(Screen.CategorySelection.route)
+                        hasEnteredTryMoreFlow = true
+                        navController.navigate(Screen.TryMoreOutfits.route) {
+                            popUpTo(Screen.PhotoReview.route) { inclusive = false }
                         }
                     },
                     onTryAnother = {
-                        navController.navigate(Screen.TryMoreOutfits.route)
+                        hasEnteredTryMoreFlow = true
+                        navController.navigate(Screen.TryMoreOutfits.route) {
+                            popUpTo(Screen.PhotoReview.route) { inclusive = false }
+                        }
                     },
                     onDownload = {
                         navController.navigate(Screen.Download.route)
@@ -469,7 +496,12 @@ fun AppNavGraph(
                 initialCategory = selectedCategory,
                 initialProduct = selectedProduct,
                 resultImageUrl = tryOnUiState.shareUrl,
-                onBack = { navController.popBackStack() },
+                onBack = {
+                    hasEnteredTryMoreFlow = true
+                    if (!navController.popBackStack(Screen.PhotoReview.route, inclusive = false)) {
+                        navController.navigate(Screen.PhotoReview.route)
+                    }
+                },
                 onGoToDownloads = {
                     navController.navigate(Screen.Download.route)
                 },
@@ -499,6 +531,7 @@ fun AppNavGraph(
                 resultsList = sessionTryOnResults,
                 onBack = { navController.popBackStack() },
                 onDeleteSession = {
+                    hasEnteredTryMoreFlow = false
                     sessionTryOnResults.clear()
                     tryOnViewModel.resetState()
                     navController.navigate(Screen.CategorySelection.route) {
@@ -506,6 +539,7 @@ fun AppNavGraph(
                     }
                 },
                 onCreateNew = {
+                    hasEnteredTryMoreFlow = false
                     tryOnViewModel.resetState()
                     navController.navigate(Screen.CategorySelection.route) {
                         popUpTo(Screen.CategorySelection.route) { inclusive = true }
