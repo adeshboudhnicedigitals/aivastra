@@ -953,6 +953,13 @@
       "when": 1785428990667,
       "tag": "0135_demo_catalog",
       "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "7",
+      "when": 1785451200000,
+      "tag": "0136_merchant_demo_data",
+      "breakpoints": true
     }
   ]
 }

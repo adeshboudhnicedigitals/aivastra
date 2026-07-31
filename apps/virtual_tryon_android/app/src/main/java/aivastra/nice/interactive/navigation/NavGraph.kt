@@ -1,0 +1,517 @@
+package aivastra.nice.interactive.navigation
+
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import androidx.compose.ui.Modifier
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
+import aivastra.nice.interactive.ui.screens.ProfilePage
+import aivastra.nice.interactive.ui.screens.CategorySelectionPage
+import aivastra.nice.interactive.ui.screens.OnboardingPage
+import aivastra.nice.interactive.ui.screens.OutfitSelectionPage
+import aivastra.nice.interactive.ui.screens.PendingActivationPage
+import aivastra.nice.interactive.ui.screens.SignInPage
+import aivastra.nice.interactive.ui.screens.SplashPage
+import aivastra.nice.interactive.ui.screens.OutfitDetailPage
+import aivastra.nice.interactive.ui.screens.PoseGuidePage
+import aivastra.nice.interactive.ui.screens.PhotoUploadPage
+import aivastra.nice.interactive.ui.screens.PhotoReviewPage
+import aivastra.nice.interactive.ui.screens.TryOnProcessingPage
+import aivastra.nice.interactive.ui.screens.TryOnResultPage
+import aivastra.nice.interactive.ui.screens.TryMoreOutfitsPage
+import aivastra.nice.interactive.ui.screens.DownloadPage
+import aivastra.nice.interactive.data.models.CatalogProduct
+import aivastra.nice.interactive.data.models.MerchantStatus
+import aivastra.nice.interactive.data.repository.AuthResult
+import aivastra.nice.interactive.data.repository.OnboardingRepository
+import aivastra.nice.interactive.data.repository.OnboardingResult
+import aivastra.nice.interactive.data.repository.UserRepository
+import aivastra.nice.interactive.data.session.SessionManager
+import aivastra.nice.interactive.api.ApiClient
+import aivastra.nice.interactive.viewmodels.TryOnState
+import aivastra.nice.interactive.viewmodels.TryOnViewModel
+
+/**
+ * Navigation routes definitions.
+ */
+sealed class Screen(val route: String) {
+    object Splash             : Screen("splash")
+    object SignIn             : Screen("signin")
+    object Onboarding         : Screen("onboarding")
+    object PendingActivation  : Screen("pending_activation")
+    object CategorySelection  : Screen("category_selection")
+    object Profile            : Screen("profile")
+    object OutfitSelection    : Screen("outfit_selection/{category}") {
+        fun createRoute(category: String) = "outfit_selection/$category"
+    }
+    object OutfitDetail       : Screen("outfit_detail")
+    object PoseGuide          : Screen("pose_guide/{category}") {
+        fun createRoute(category: String) = "pose_guide/$category"
+    }
+    object PhotoUpload        : Screen("photo_upload")
+    object PhotoReview        : Screen("photo_review")
+    object TryOnProcessing    : Screen("tryon_processing")
+    object TryOnResult        : Screen("tryon_result")
+    object TryMoreOutfits     : Screen("try_more_outfits")
+    object Download           : Screen("download")
+}
+
+/**
+ * AppNavGraph configures the standard Jetpack Compose NavHost with
+ * instantaneous (zero-lag) transition configurations.
+ */
+@Composable
+fun AppNavGraph(
+    navController: NavHostController,
+    modifier: Modifier = Modifier,
+    tryOnViewModel: TryOnViewModel = viewModel()
+) {
+    var selectedProduct by remember { mutableStateOf<CatalogProduct?>(null) }
+    var activeSubcategoryProductList by remember { mutableStateOf<List<CatalogProduct>>(emptyList()) }
+    var fromTryMoreOutfits by remember { mutableStateOf(false) }
+
+    var selectedCategory by remember { mutableStateOf("women") }
+    var capturedPhotoUri by remember { mutableStateOf<String?>(null) }
+    var customerPhotoR2Key by remember { mutableStateOf<String?>(null) }
+
+    // Google login includes a suggested name pair for the onboarding form; password
+    // login and the splash session-restore path never do, and OnboardingViewModel
+    // falls back to fetching prefill from the server when both are null/blank.
+    var onboardingSuggestedContactName by remember { mutableStateOf<String?>(null) }
+    var onboardingSuggestedCompanyName by remember { mutableStateOf<String?>(null) }
+
+    val sessionTryOnResults = remember { mutableStateListOf<String>() }
+
+    val tryOnUiState by tryOnViewModel.uiState.collectAsState()
+
+    NavHost(
+        navController = navController,
+        startDestination = Screen.Splash.route,
+        modifier = modifier
+    ) {
+        // ── Splash ───────────────────────────────────────────────────────
+        composable(
+            route = Screen.Splash.route,
+            exitTransition = { ExitTransition.None }
+        ) { entry ->
+            val scope = rememberCoroutineScope()
+            var isCheckingSession by remember { mutableStateOf(false) }
+
+            SplashPage(
+                isLoading = isCheckingSession,
+                onClick = {
+                    if (isCheckingSession) return@SplashPage
+                    isCheckingSession = true
+                    scope.launch {
+                        try {
+                            val destination = if (SessionManager.hasValidSession()) {
+                                ApiClient.setAccessToken(SessionManager.accessToken)
+                                // A session can be valid (token not expired) while the
+                                // merchant is still ONBOARDING_REQUIRED/PENDING_ACTIVATION
+                                // from a previous run — re-check status rather than
+                                // assuming ACTIVE, or catalog calls would 403 with no
+                                // explanation right after this navigation.
+                                when (val result = OnboardingRepository().getStatus()) {
+                                    is OnboardingResult.Success -> when (result.data.merchantStatus) {
+                                        MerchantStatus.ONBOARDING_REQUIRED -> {
+                                            onboardingSuggestedContactName = result.data.prefill.contactName
+                                            onboardingSuggestedCompanyName = result.data.prefill.companyName
+                                            Screen.Onboarding.route
+                                        }
+                                        MerchantStatus.PENDING_ACTIVATION -> Screen.PendingActivation.route
+                                        else -> Screen.CategorySelection.route
+                                    }
+                                    // Network hiccup at splash shouldn't block an otherwise
+                                    // valid session — fall through to Home as before.
+                                    is OnboardingResult.Failure -> Screen.CategorySelection.route
+                                }
+                            } else {
+                                Screen.SignIn.route
+                            }
+
+                            if (entry.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) &&
+                                navController.currentDestination?.route == Screen.Splash.route
+                            ) {
+                                navController.navigate(destination) {
+                                    popUpTo(Screen.Splash.route) { inclusive = true }
+                                    launchSingleTop = true
+                                }
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            val fallbackDestination = if (SessionManager.hasValidSession()) {
+                                Screen.CategorySelection.route
+                            } else {
+                                Screen.SignIn.route
+                            }
+                            navController.navigate(fallbackDestination) {
+                                popUpTo(Screen.Splash.route) { inclusive = true }
+                            }
+                        } finally {
+                            isCheckingSession = false
+                        }
+                    }
+                }
+            )
+        }
+
+        // ── Sign In ──────────────────────────────────────────────────────
+        composable(
+            route = Screen.SignIn.route,
+            enterTransition = { EnterTransition.None },
+            exitTransition  = { ExitTransition.None }
+        ) {
+            SignInPage(
+                onLoginSuccess = { response ->
+                    val destination = when (response.merchantStatus) {
+                        MerchantStatus.ONBOARDING_REQUIRED -> {
+                            onboardingSuggestedContactName = response.onboarding?.suggestedContactName
+                            onboardingSuggestedCompanyName = response.onboarding?.suggestedCompanyName
+                            Screen.Onboarding.route
+                        }
+                        MerchantStatus.PENDING_ACTIVATION -> Screen.PendingActivation.route
+                        // A null merchantStatus falls through to Home exactly like
+                        // before this was wired up.
+                        else -> Screen.CategorySelection.route
+                    }
+                    navController.navigate(destination) {
+                        popUpTo(Screen.SignIn.route) { inclusive = true }
+                    }
+                }
+            )
+        }
+
+        // ── Onboarding (merchantStatus = ONBOARDING_REQUIRED) ────────────
+        composable(
+            route = Screen.Onboarding.route,
+            enterTransition = { EnterTransition.None },
+            exitTransition  = { ExitTransition.None }
+        ) {
+            OnboardingPage(
+                suggestedContactName = onboardingSuggestedContactName,
+                suggestedCompanyName = onboardingSuggestedCompanyName,
+                onOnboardingComplete = {
+                    navController.navigate(Screen.CategorySelection.route) {
+                        popUpTo(Screen.Onboarding.route) { inclusive = true }
+                    }
+                }
+            )
+        }
+
+        // ── Pending Activation (merchantStatus = PENDING_ACTIVATION) ─────
+        composable(
+            route = Screen.PendingActivation.route,
+            enterTransition = { EnterTransition.None },
+            exitTransition  = { ExitTransition.None }
+        ) {
+            val scope = rememberCoroutineScope()
+            PendingActivationPage(
+                onLogout = {
+                    scope.launch {
+                        val refreshToken = SessionManager.refreshToken
+                        if (!refreshToken.isNullOrEmpty()) {
+                            UserRepository().logoutDevice(refreshToken)
+                        } else {
+                            SessionManager.clear()
+                        }
+                        navController.navigate(Screen.SignIn.route) {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    }
+                }
+            )
+        }
+
+        // ── Category Selection ───────────────────────────────────────────
+        composable(
+            route = Screen.CategorySelection.route,
+            enterTransition = { EnterTransition.None },
+            exitTransition  = { ExitTransition.None }
+        ) {
+            CategorySelectionPage(
+                onCategorySelected = { categoryId ->
+                    navController.navigate(Screen.OutfitSelection.createRoute(categoryId))
+                },
+                onProfileClick = {
+                    navController.navigate(Screen.Profile.route)
+                },
+                onLogoutSuccess = {
+                    navController.navigate(Screen.SignIn.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
+            )
+        }
+
+        // ── Dedicated Profile Page ───────────────────────────────────────
+        composable(
+            route = Screen.Profile.route,
+            enterTransition = { EnterTransition.None },
+            exitTransition  = { ExitTransition.None }
+        ) {
+            ProfilePage(
+                onBack = { navController.popBackStack() },
+                onLogoutSuccess = {
+                    navController.navigate(Screen.SignIn.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
+            )
+        }
+
+        composable(
+            route = Screen.OutfitSelection.route,
+            arguments = listOf(
+                navArgument("category") { type = NavType.StringType }
+            ),
+            enterTransition = { EnterTransition.None },
+            exitTransition = { ExitTransition.None }
+        ) { backStackEntry ->
+            OutfitSelectionPage(
+                category = backStackEntry.arguments?.getString("category").orEmpty(),
+                onBack = { navController.popBackStack() },
+                onOutfitSelected = { product, productList ->
+                    selectedCategory = backStackEntry.arguments?.getString("category").orEmpty()
+                    selectedProduct = product
+                    fromTryMoreOutfits = false
+                    activeSubcategoryProductList = productList
+                    navController.navigate(Screen.OutfitDetail.route)
+                }
+            )
+        }
+
+        composable(
+            route = Screen.OutfitDetail.route,
+            enterTransition = { EnterTransition.None },
+            exitTransition = { ExitTransition.None }
+        ) { entry ->
+            selectedProduct?.let { product ->
+                OutfitDetailPage(
+                    product = product,
+                    productList = activeSubcategoryProductList,
+                    onBack = { navController.popBackStack() },
+                    onStartTryOn = { targetProduct ->
+                        selectedProduct = targetProduct
+                        val photoKey = customerPhotoR2Key
+                        if (fromTryMoreOutfits && !photoKey.isNullOrBlank()) {
+                            tryOnViewModel.startTryOn(targetProduct.id, photoKey)
+                            navController.navigate(Screen.TryOnProcessing.route)
+                        } else {
+                            navController.navigate(Screen.PoseGuide.createRoute(selectedCategory))
+                        }
+                    }
+                )
+            } ?: LaunchedEffect(Unit) {
+                if (entry.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                    navController.popBackStack()
+                }
+            }
+        }
+
+        composable(
+            route = Screen.PoseGuide.route,
+            arguments = listOf(
+                navArgument("category") { type = NavType.StringType }
+            ),
+            enterTransition = { EnterTransition.None },
+            exitTransition = { ExitTransition.None }
+        ) { backStackEntry ->
+            PoseGuidePage(
+                category = backStackEntry.arguments?.getString("category").orEmpty(),
+                onBack = { navController.popBackStack() },
+                onReady = { navController.navigate(Screen.PhotoUpload.route) }
+            )
+        }
+
+        composable(
+            route = Screen.PhotoUpload.route,
+            enterTransition = { EnterTransition.None },
+            exitTransition = { ExitTransition.None }
+        ) {
+            PhotoUploadPage(
+                onBack = { navController.popBackStack() },
+                onUploadSuccess = { photoUri, r2Key ->
+                    capturedPhotoUri = photoUri
+                    customerPhotoR2Key = r2Key
+                    navController.navigate(Screen.PhotoReview.route)
+                }
+            )
+        }
+
+        composable(
+            route = Screen.PhotoReview.route,
+            enterTransition = { EnterTransition.None },
+            exitTransition = { ExitTransition.None }
+        ) { entry ->
+            val handleBackToUpload: () -> Unit = {
+                if (!navController.popBackStack(Screen.PhotoUpload.route, inclusive = false)) {
+                    navController.navigate(Screen.PhotoUpload.route)
+                }
+            }
+
+            capturedPhotoUri?.let { uri ->
+                PhotoReviewPage(
+                    photoUri = uri,
+                    onBack = handleBackToUpload,
+                    onRetake = handleBackToUpload,
+                    onProceed = {
+                        val garmentId = selectedProduct?.id
+                        val photoKey = customerPhotoR2Key
+                        if (!garmentId.isNullOrBlank() && !photoKey.isNullOrBlank()) {
+                            tryOnViewModel.startTryOn(garmentId, photoKey)
+                            navController.navigate(Screen.TryOnProcessing.route)
+                        }
+                    }
+                )
+            } ?: LaunchedEffect(Unit) {
+                if (entry.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                    handleBackToUpload()
+                }
+            }
+        }
+
+        composable(
+            route = Screen.TryOnProcessing.route,
+            enterTransition = { EnterTransition.None },
+            exitTransition = { ExitTransition.None }
+        ) { entry ->
+            LaunchedEffect(tryOnUiState.state) {
+                if (tryOnUiState.state == TryOnState.COMPLETED && tryOnUiState.shareUrl != null) {
+                    val url = tryOnUiState.shareUrl!!
+                    if (!sessionTryOnResults.contains(url)) {
+                        sessionTryOnResults.add(url)
+                    }
+                    if (entry.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                        navController.navigate(Screen.TryOnResult.route) {
+                            popUpTo(Screen.TryOnProcessing.route) { inclusive = true }
+                        }
+                    }
+                }
+            }
+
+            val handleCancel: () -> Unit = {
+                tryOnViewModel.cancelCurrentTryOnJob()
+                navController.popBackStack()
+            }
+
+            TryOnProcessingPage(
+                elapsedSeconds = tryOnUiState.elapsedTimeSeconds,
+                errorMessage = tryOnUiState.errorMessage,
+                onBack = handleCancel,
+                onCancel = handleCancel,
+                onRetry = {
+                    val msg = tryOnUiState.errorMessage.orEmpty().lowercase()
+                    val isSessionExpired = msg.contains("expired") || msg.contains("not owned")
+                    if (isSessionExpired) {
+                        navController.navigate(Screen.PhotoUpload.route) {
+                            popUpTo(Screen.PhotoUpload.route) { inclusive = true }
+                        }
+                    } else {
+                        val garmentId = selectedProduct?.id
+                        val photoKey = customerPhotoR2Key
+                        if (!garmentId.isNullOrBlank() && !photoKey.isNullOrBlank()) {
+                            tryOnViewModel.startTryOn(garmentId, photoKey)
+                        }
+                    }
+                }
+            )
+        }
+
+        composable(
+            route = Screen.TryOnResult.route,
+            enterTransition = { EnterTransition.None },
+            exitTransition = { ExitTransition.None }
+        ) { entry ->
+            tryOnUiState.shareUrl?.let { url ->
+                TryOnResultPage(
+                    resultImageUrl = url,
+                    onBack = {
+                        if (!navController.popBackStack()) {
+                            navController.navigate(Screen.CategorySelection.route)
+                        }
+                    },
+                    onTryAnother = {
+                        navController.navigate(Screen.TryMoreOutfits.route)
+                    },
+                    onDownload = {
+                        navController.navigate(Screen.Download.route)
+                    }
+                )
+            } ?: LaunchedEffect(Unit) {
+                if (entry.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                    navController.popBackStack()
+                }
+            }
+        }
+
+        composable(
+            route = Screen.TryMoreOutfits.route,
+            enterTransition = { EnterTransition.None },
+            exitTransition = { ExitTransition.None }
+        ) {
+            TryMoreOutfitsPage(
+                initialCategory = selectedCategory,
+                initialProduct = selectedProduct,
+                resultImageUrl = tryOnUiState.shareUrl,
+                onBack = { navController.popBackStack() },
+                onGoToDownloads = {
+                    navController.navigate(Screen.Download.route)
+                },
+                onSelectOutfitDetail = { product, subcategoryList ->
+                    selectedProduct = product
+                    activeSubcategoryProductList = subcategoryList
+                    fromTryMoreOutfits = true
+                    navController.navigate(Screen.OutfitDetail.route)
+                },
+                onTryLook = { newProduct ->
+                    selectedProduct = newProduct
+                    val photoKey = customerPhotoR2Key
+                    if (!photoKey.isNullOrBlank()) {
+                        tryOnViewModel.startTryOn(newProduct.id, photoKey)
+                        navController.navigate(Screen.TryOnProcessing.route)
+                    }
+                }
+            )
+        }
+
+        composable(
+            route = Screen.Download.route,
+            enterTransition = { EnterTransition.None },
+            exitTransition = { ExitTransition.None }
+        ) {
+            DownloadPage(
+                resultsList = sessionTryOnResults,
+                onBack = { navController.popBackStack() },
+                onDeleteSession = {
+                    sessionTryOnResults.clear()
+                    tryOnViewModel.resetState()
+                    navController.navigate(Screen.CategorySelection.route) {
+                        popUpTo(Screen.CategorySelection.route) { inclusive = true }
+                    }
+                },
+                onCreateNew = {
+                    tryOnViewModel.resetState()
+                    navController.navigate(Screen.CategorySelection.route) {
+                        popUpTo(Screen.CategorySelection.route) { inclusive = true }
+                    }
+                }
+            )
+        }
+    }
+}

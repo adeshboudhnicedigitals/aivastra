@@ -75,6 +75,7 @@ export async function merchantOnboardingRoutes(app: FastifyInstance) {
             // Same placeholder convention as POST /admin/merchants.
             businessAddress: body.businessAddress?.trim() || 'Not Provided',
             isActive: true,
+            demoData: true,
             signupSource: 'android_google',
             userId: req.userId,
           })
