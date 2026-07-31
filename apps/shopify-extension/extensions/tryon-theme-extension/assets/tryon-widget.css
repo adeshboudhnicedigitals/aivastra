@@ -517,3 +517,41 @@
 .aivastra-tryon__reuse-expired-note[hidden] {
   display: none;
 }
+
+.aivastra-tryon__email-input {
+  width: 100%;
+  padding: 12px 14px;
+  margin: 12px 0 10px;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  border-radius: var(--aivastra-border-radius, 4px);
+  font-size: 15px;
+  box-sizing: border-box;
+}
+
+.aivastra-tryon__email-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: left;
+  margin-bottom: 12px;
+}
+
+.aivastra-tryon__email-error {
+  color: #b42318;
+  font-size: 13px;
+  margin: 0 0 10px;
+}
+
+.aivastra-tryon__email-submit {
+  width: 100%;
+  padding: 12px 16px;
+  border: none;
+  border-radius: var(--aivastra-border-radius, 4px);
+  background: var(--aivastra-button-color, #000);
+  color: var(--aivastra-text-color, #fff);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}

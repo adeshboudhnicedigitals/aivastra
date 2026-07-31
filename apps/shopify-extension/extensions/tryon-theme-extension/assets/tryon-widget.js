@@ -23,11 +23,50 @@
       pending: root.querySelector('.aivastra-tryon__step--pending'),
       result: root.querySelector('.aivastra-tryon__step--result'),
       error: root.querySelector('.aivastra-tryon__step--error'),
+      email: root.querySelector('.aivastra-tryon__step--email'),
     };
     const resultImage = root.querySelector('.aivastra-tryon__result-image');
     const readyImage = root.querySelector('.aivastra-tryon__ready-image');
     const changePhotoBtn = root.querySelector('.aivastra-tryon__change-photo');
     const ctaBtn = root.querySelector('.aivastra-tryon__cta');
+
+    const emailInput = root.querySelector('.aivastra-tryon__email-input');
+    const emailConsentInput = root.querySelector('.aivastra-tryon__email-consent-input');
+    const emailSubmit = root.querySelector('.aivastra-tryon__email-submit');
+    const emailError = root.querySelector('.aivastra-tryon__email-error');
+    let awaitingEmailForPhotoKey = null;
+
+    // Declare these variables before use in email prefill (Step 3 variables)
+    const clientId = getClientId();
+    const shopifyCustomerId = root.dataset.customerId ? Number(root.dataset.customerId) : undefined;
+    let shopperEmail = root.dataset.customerEmail || null;
+    let shopperEmailConsent = false;
+
+    if (emailInput?.value && shopperEmail) emailInput.value = shopperEmail;
+
+    if (emailSubmit) {
+      emailSubmit.addEventListener('click', () => {
+        const value = (emailInput?.value ?? '').trim();
+        // Cheap client-side shape check only; the server's Zod schema is the
+        // real validation.
+        if (!value || value.indexOf('@') < 1) {
+          if (emailError) {
+            emailError.textContent = 'Enter a valid email address.';
+            emailError.hidden = false;
+          }
+          return;
+        }
+        if (emailError) emailError.hidden = true;
+        shopperEmail = value;
+        shopperEmailConsent = !!emailConsentInput?.checked;
+        const key = awaitingEmailForPhotoKey;
+        awaitingEmailForPhotoKey = null;
+        if (key) {
+          showStep('progress');
+          proceedWithPhoto(key, false);
+        }
+      });
+    }
 
     if (avatarImage && productImage) {
       avatarImage.src = productImage;
@@ -47,6 +86,26 @@
     const historyEmpty = root.querySelector('.aivastra-tryon__history-empty');
     const HISTORY_STORAGE_KEY = 'aivastra_tryon_history';
     const HISTORY_MAX_ITEMS = 12;
+
+    const CLIENT_ID_STORAGE_KEY = 'aivastra_client_id';
+
+    // One anonymous id per browser, minted once. This is a UX limiter, not a
+    // security control: incognito, cleared storage, or a script all defeat it.
+    // The store daily cap is what actually holds — see the design doc.
+    function getClientId() {
+      try {
+        let id = localStorage.getItem(CLIENT_ID_STORAGE_KEY);
+        if (!id) {
+          id = crypto.randomUUID();
+          localStorage.setItem(CLIENT_ID_STORAGE_KEY, id);
+        }
+        return id;
+      } catch (_err) {
+        // Storage blocked (Safari private mode, etc.) — a per-call id still
+        // lets the server create a row; it just won't persist across reloads.
+        return crypto.randomUUID();
+      }
+    }
 
     // Photo picked (new upload or "use this photo" reuse) but generation not
     // yet confirmed — set by showReady(), consumed and cleared once the CTA
@@ -291,7 +350,7 @@
       const presignRes = await fetch(`${apiBase}/v1/shopify/customer/presign`, {
         method: 'POST',
         headers: { 'x-widget-key': widgetKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contentType: file.type, contentLength: file.size }),
+        body: JSON.stringify({ contentType: file.type, contentLength: file.size, clientId }),
       });
       if (!presignRes.ok) throw new Error('presign failed');
       const body = await presignRes.json();
@@ -314,7 +373,13 @@
           'x-widget-key': widgetKey,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ shopifyProductId: productId, customerPhotoKey: customerPhotoKey }),
+        body: JSON.stringify({
+          shopifyProductId: productId,
+          customerPhotoKey: customerPhotoKey,
+          clientId,
+          ...(shopifyCustomerId ? { shopifyCustomerId } : {}),
+          ...(shopperEmail ? { email: shopperEmail, emailConsent: shopperEmailConsent } : {}),
+        }),
       });
       if (res.status === 402) {
         showPage('main');
@@ -331,7 +396,10 @@
         err.expiredReuse = true;
         throw err;
       }
-      if (res.status === 202) return { pending: true };
+      if (res.status === 202) {
+        const body = await res.json().catch(() => ({}));
+        return { pending: true, reason: body.reason, message: body.message };
+      }
       if (!res.ok) throw new Error(`job create failed: ${res.status}`);
       const body = await res.json();
       return { pending: false, jobId: body.jobId };
@@ -422,6 +490,17 @@
         const jobResult = await createJob(customerPhotoKey);
         if (jobResult.pending) {
           showPage('main');
+          if (jobResult.reason === 'email_required') {
+            // Hold the photo key: the retry reuses the same upload (its Redis
+            // ownership record lives 600s), so nothing is re-uploaded.
+            awaitingEmailForPhotoKey = customerPhotoKey;
+            showStep('email');
+            return;
+          }
+          if (jobResult.message) {
+            const pendingStep = steps.pending;
+            if (pendingStep) pendingStep.querySelector('p').textContent = jobResult.message;
+          }
           showStep('pending');
           return;
         }
@@ -431,7 +510,7 @@
         showStep('result');
         addToHistory(resultUrl);
       } catch (err) {
-        if (isReuse && err && err.expiredReuse) {
+        if (isReuse && err?.expiredReuse) {
           forgetPhoto();
           showPage('main');
           showStep('upload');
