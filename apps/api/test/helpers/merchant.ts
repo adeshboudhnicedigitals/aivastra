@@ -6,7 +6,7 @@ import type { TestApp } from './api.js';
 
 export async function createTestMerchant(
   app: TestApp,
-  opts: { isActive?: boolean; balance?: number } = {},
+  opts: { isActive?: boolean; balance?: number; demoData?: boolean } = {},
 ) {
   const [user] = await app.db
     .insert(schema.users)
@@ -26,6 +26,7 @@ export async function createTestMerchant(
       phone: '0000000000',
       businessAddress: 'Test Address',
       isActive: opts.isActive ?? true,
+      demoData: opts.demoData ?? true,
       userId: user.id,
     })
     .returning();

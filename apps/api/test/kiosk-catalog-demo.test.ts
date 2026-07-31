@@ -121,6 +121,18 @@ describe('kiosk catalog reads with demo data', () => {
     expect(res.json().items.map((i: { id: string }) => i.id)).not.toContain(demo.itemId);
   });
 
+  it('hides assigned demo items when merchant demoData is disabled', async () => {
+    const merchant = await createTestMerchant(app, { demoData: false });
+    const deviceId = await createKioskDevice(merchant.merchantId);
+    const token = await kioskToken(deviceId);
+    const demo = await seedDemoSet();
+    await assign(demo.setId, merchant.merchantId);
+
+    const res = await get('/v1/kiosk/catalog', token);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().items.map((i: { id: string }) => i.id)).not.toContain(demo.itemId);
+  });
+
   it('lists the merchant own item and the assigned demo item together, unconflated', async () => {
     const merchant = await createTestMerchant(app);
     const deviceId = await createKioskDevice(merchant.merchantId);
