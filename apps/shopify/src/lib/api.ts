@@ -67,7 +67,16 @@ async function fetchWithTimeout(url: string, init: RequestInit): Promise<Respons
   }
 }
 
-export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+/**
+ * Authenticated request returning the raw Response.
+ *
+ * Every callsite must go through this (or `apiFetch`, which wraps it) rather
+ * than a bare `fetch` or an `<a href>`: it is the only place that applies the
+ * absolute API base, the App Bridge bearer token, the 401 re-acquire retry and
+ * the reauth redirect. Exported for responses that are not JSON — a CSV
+ * download, for instance, needs the Blob, not a parsed body.
+ */
+export async function apiFetchResponse(path: string, init: RequestInit = {}): Promise<Response> {
   const url = `${API_BASE}${path}`;
   const token = await getIdToken();
   const res = await fetchWithTimeout(url, {
@@ -95,7 +104,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
       handleReauthIfNeeded(code);
       throw new ApiError(retryRes.status, message, code);
     }
-    return retryRes.json() as Promise<T>;
+    return retryRes;
   }
 
   if (!res.ok) {
@@ -103,5 +112,10 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     handleReauthIfNeeded(code);
     throw new ApiError(res.status, message, code);
   }
+  return res;
+}
+
+export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await apiFetchResponse(path, init);
   return res.json() as Promise<T>;
 }
