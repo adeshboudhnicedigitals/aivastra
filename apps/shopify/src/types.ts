@@ -27,6 +27,9 @@ export interface ShopifyStats {
   syncedProductCount: number;
   enabledProductCount: number;
   statusCounts: { active: number; processing: number; failed: number; disabled: number };
+  todayTryOns: number;
+  storeDailyCap: number | null;
+  capturedEmailCount: number;
 }
 
 export interface ShopifyMe {

@@ -94,6 +94,9 @@ describe('GET /v1/shopify/me stats', () => {
       syncedProductCount: 3,
       enabledProductCount: 1,
       statusCounts: { active: 1, processing: 0, failed: 0, disabled: 2 },
+      todayTryOns: 3,
+      storeDailyCap: null,
+      capturedEmailCount: 0,
     });
   });
 
@@ -154,5 +157,46 @@ describe('GET /v1/shopify/me store.connectedSince', () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(res.json().store.connectedSince).toBe(store.installedAt.toISOString());
+  });
+});
+
+describe('GET /v1/shopify/me stats', () => {
+  it('reports today usage against the store cap and the captured email count', async () => {
+    const testStore = await upsertShopifyStore(
+      app,
+      {
+        shopifyShopId: 999,
+        shopDomain: 'test.myshopify.com',
+        myshopifyDomain: 'test.myshopify.com',
+        name: 'Test Store',
+        email: 'test@test.com',
+      },
+      'tok',
+      'read_products',
+    );
+    const testToken = signSessionToken('test.myshopify.com', API_SECRET, API_KEY);
+    await app.db
+      .update(schema.shopifyStores)
+      .set({ settings: { limits: { storeDailyCap: 100 } } })
+      .where(eq(schema.shopifyStores.id, testStore.id));
+    await app.db
+      .insert(schema.shopifyShoppers)
+      .values({ storeId: testStore.id, clientId: 'c1', email: 'a@b.com' });
+    await app.db.insert(schema.jobs).values({
+      status: 'COMPLETED',
+      shopifyStoreId: testStore.id,
+      creditsCharged: 1,
+      source: 'shopify',
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/me',
+      headers: { authorization: `Bearer ${testToken}` },
+    });
+    const body = res.json();
+    expect(body.stats.storeDailyCap).toBe(100);
+    expect(body.stats.todayTryOns).toBe(1);
+    expect(body.stats.capturedEmailCount).toBe(1);
   });
 });
