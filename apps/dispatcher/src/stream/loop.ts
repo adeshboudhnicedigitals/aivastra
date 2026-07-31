@@ -11,6 +11,8 @@ export interface StreamMessage {
   messageId: string;
   jobId: string;
   userId: string;
+  /** Times this job has been re-XADDed after finding no free worker. 0 for a fresh message. */
+  retryCount: number;
 }
 
 export function parseMessage(stream: string, result: XReadGroupResult): StreamMessage | null {
@@ -26,7 +28,14 @@ export function parseMessage(stream: string, result: XReadGroupResult): StreamMe
   }
   // userId is absent for widget jobs (which use merchantId from the DB row instead)
   if (!fieldMap.jobId) return null;
-  return { stream, messageId, jobId: fieldMap.jobId, userId: fieldMap.userId ?? '' };
+  const retryCount = Number.parseInt(fieldMap.retryCount ?? '0', 10);
+  return {
+    stream,
+    messageId,
+    jobId: fieldMap.jobId,
+    userId: fieldMap.userId ?? '',
+    retryCount: Number.isFinite(retryCount) ? retryCount : 0,
+  };
 }
 
 export interface StreamLoopOptions {
@@ -69,10 +78,10 @@ export function runStreamLoop(
         await waitForSlot();
         const msg = await opts.read();
         if (!msg) continue;
-        const { stream, messageId, jobId, userId } = msg;
-        laneLog.info({ jobId, userId, stream }, 'consumed job from stream');
+        const { stream, messageId, jobId, userId, retryCount } = msg;
+        laneLog.info({ jobId, userId, stream, retryCount }, 'consumed job from stream');
         inFlight++;
-        processJob(cfg, jobId, userId, stream, messageId)
+        processJob(cfg, jobId, userId, stream, messageId, retryCount)
           .catch((err) => laneLog.error({ err, jobId }, 'job processing failed'))
           .finally(() => {
             inFlight--;
