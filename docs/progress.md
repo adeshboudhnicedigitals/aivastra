@@ -35,9 +35,13 @@
   files is within the 13-30 range observed twice independently earlier this session (parallel run: 30/70;
   serial run: 13/70). **`test/integration/shopify-customer.test.ts` passed 15/15**, and none of the 29
   failing files are shopify- or funnel-related. One secondary failure
-  (`catalog.test.ts` — `null value in column "type"` on `catalog_items`) traces to the separately
-  documented CLAUDE.md testing gotcha (parallel `catalog_types` slug-collision under shared Postgres),
-  not to this plan's changes.
+  (`catalog.test.ts` — `null value in column "type" of relation "catalog_items" violates not-null
+  constraint`) is a pre-existing, deterministic bug in the test helper itself, not the CLAUDE.md
+  slug-collision gotcha: `seedCatalog()` (`apps/api/test/integration/catalog.test.ts:51-57`) inserts into
+  `schema.catalogItems` without ever setting the `type` column, which `packages/db/src/schema/catalog.ts:26`
+  defines as `text('type').notNull()` with no default (migration `0021_catalog_item_direct_type.sql`
+  backfilled existing rows once and then set `NOT NULL`, but added no default). It fails on every run
+  regardless of parallelism, and is unrelated to this plan's changes.
 - **Step 5 — catalog surface untouched:** `git diff --stat main..HEAD -- apps/api/src/modules/shopify/catalog.routes.ts apps/api/src/modules/shopify/catalog-options.routes.ts apps/api/src/modules/shopify/catalog-publish.ts packages/db/src/schema/jobs.ts`
   → empty output. Confirmed the funnel-rules removal did not touch the catalog surface.
 
