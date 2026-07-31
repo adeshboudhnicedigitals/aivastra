@@ -125,6 +125,7 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
           phone: schema.merchants.phone,
           businessAddress: schema.merchants.businessAddress,
           isActive: schema.merchants.isActive,
+          demoData: schema.merchants.demoData,
           kioskEnabled: schema.merchants.kioskEnabled,
           maxKioskDevices: schema.merchants.maxKioskDevices,
           createdAt: schema.merchants.createdAt,
@@ -202,6 +203,7 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
             // an admin creating this record here IS the approval — no separate
             // activation step needed.
             isActive: true,
+            demoData: true,
           })
           .returning();
 
@@ -243,6 +245,7 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
           phone: schema.merchants.phone,
           businessAddress: schema.merchants.businessAddress,
           isActive: schema.merchants.isActive,
+          demoData: schema.merchants.demoData,
           kioskEnabled: schema.merchants.kioskEnabled,
           maxKioskDevices: schema.merchants.maxKioskDevices,
           userId: schema.merchants.userId,
@@ -321,6 +324,7 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
 
       const updates: Record<string, unknown> = { updatedAt: new Date() };
       if (body.isActive !== undefined) updates.isActive = body.isActive;
+      if (body.demoData !== undefined) updates.demoData = body.demoData;
       if (body.companyName !== undefined) updates.companyName = body.companyName;
       if (body.contactName !== undefined) updates.contactName = body.contactName;
       if (body.phone !== undefined) updates.phone = body.phone;
