@@ -416,7 +416,7 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
             // entry, and the FAILED transition either all land or none do —
             // see refundAndMarkFailed for why the old two-step version could
             // leave a partially-compensated job after a crash.
-            await refundAndMarkFailed(
+            const { compensated } = await refundAndMarkFailed(
               app.db,
               userId,
               jobCost,
@@ -424,6 +424,19 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
               'REFUND_ENQUEUE_FAIL',
               'ENQUEUE_FAIL',
             );
+            if (!compensated) {
+              // The XADD looked like it failed but actually landed: the
+              // dispatcher already picked the job up and moved it past QUEUED
+              // while we were in here. Not refunding is the right outcome —
+              // the generation is running or done — but the shopper's client
+              // still got a 503 from us for a job that will complete. Rare and
+              // expected; logged so it can be correlated if a shopper reports
+              // a "failed" try-on that produced an image anyway.
+              app.log.warn(
+                { jobId },
+                'enqueue looked failed but job already left QUEUED — refund skipped to avoid double-paying a delivered generation',
+              );
+            }
           }
         } finally {
           await releaseSlotWithRetry(slot, app.log, jobId);

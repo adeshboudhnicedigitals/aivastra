@@ -351,6 +351,122 @@ describe('shopify shopper limits', () => {
     expect(await app.redis.get(counterKey)).toBe('1');
   });
 
+  it('does not refund or fail a job the dispatcher already completed under an ambiguous enqueue', async () => {
+    // The reverse of the race the dispatcher-side test covers. XADD is
+    // ambiguous on failure: the message can land server-side while the client's
+    // ack is lost. The dispatcher then runs the job to COMPLETED while this
+    // route is still in its error path believing the enqueue failed. Without a
+    // status guard the compensation overwrites COMPLETED with FAILED and
+    // refunds a generation the shopper actually received — image AND credits.
+    await seedDefaultFunnelTemplate();
+    const owner = await seedOwner(100);
+    const store = await seedStore(owner.id);
+    await seedGarment(store.id, 5010);
+    const photo = await uploadCustomerPhoto(store.storeKey, Buffer.alloc(1024));
+
+    const realXadd = app.redis.xadd.bind(app.redis);
+    app.redis.xadd = (async () => {
+      // Stand in for a dispatcher that already picked the job up: the message
+      // really did land, we just never heard back about it.
+      await app.db
+        .update(schema.jobs)
+        .set({ status: 'COMPLETED' })
+        .where(eq(schema.jobs.shopifyStoreId, store.id));
+      throw new Error('redis down');
+    }) as typeof app.redis.xadd;
+
+    try {
+      const res = await createJob(store, {
+        customerPhotoKey: photo,
+        shopifyProductId: 5010,
+        clientId: randomUUID(),
+      });
+      // The caller still gets the 503 — we genuinely don't know the enqueue
+      // worked. That part is unchanged and correct.
+      expect.soft(res.statusCode).toBe(503);
+    } finally {
+      app.redis.xadd = realXadd;
+    }
+
+    const [job] = await app.db
+      .select()
+      .from(schema.jobs)
+      .where(eq(schema.jobs.shopifyStoreId, store.id));
+    // The delivered generation is left alone.
+    expect.soft(job.status).toBe('COMPLETED');
+    expect.soft(job.errorCode).toBeNull();
+
+    const refundRows = await app.db
+      .select()
+      .from(schema.creditLedger)
+      .where(
+        and(
+          eq(schema.creditLedger.jobId, job.id),
+          eq(schema.creditLedger.reason, 'REFUND_ENQUEUE_FAIL'),
+        ),
+      );
+    expect.soft(refundRows).toHaveLength(0);
+
+    // Credits stay spent: the job ran, so the charge is legitimate.
+    const [credits] = await app.db
+      .select()
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, owner.id));
+    expect(credits.balance).toBe(95);
+  });
+
+  it('reports the skipped compensation to its caller', async () => {
+    // The route logs a warning off this return value; without it the race is
+    // invisible in production.
+    const owner = await seedOwner(100);
+    const store = await seedStore(owner.id);
+    const [job] = await app.db
+      .insert(schema.jobs)
+      .values({
+        userId: owner.id,
+        shopifyStoreId: store.id,
+        status: 'COMPLETED',
+        creditsCharged: 5,
+        source: 'shopify',
+      })
+      .returning();
+
+    const { refundAndMarkFailed } = await import('../../src/modules/credits/ledger.js');
+    expect(
+      await refundAndMarkFailed(app.db, owner.id, 5, job.id, 'REFUND_ENQUEUE_FAIL', 'ENQUEUE_FAIL'),
+    ).toEqual({ compensated: false });
+
+    // And a still-QUEUED job is compensated exactly as before, so the guard
+    // did not turn the whole path into a no-op.
+    const [queued] = await app.db
+      .insert(schema.jobs)
+      .values({
+        userId: owner.id,
+        shopifyStoreId: store.id,
+        status: 'QUEUED',
+        creditsCharged: 5,
+        source: 'shopify',
+      })
+      .returning();
+    expect(
+      await refundAndMarkFailed(
+        app.db,
+        owner.id,
+        5,
+        queued.id,
+        'REFUND_ENQUEUE_FAIL',
+        'ENQUEUE_FAIL',
+      ),
+    ).toEqual({ compensated: true });
+    const [after] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, queued.id));
+    expect(after.status).toBe('FAILED');
+    const [credits] = await app.db
+      .select()
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, owner.id));
+    expect(credits.balance).toBe(105);
+  });
+
   it('releases quota and compensates billing when the post-commit upload marker write fails', async () => {
     await seedDefaultFunnelTemplate();
     const owner = await seedOwner(100);
