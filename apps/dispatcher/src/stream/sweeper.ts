@@ -43,10 +43,32 @@ export async function runSweeper(db: DB, pub: Redis, log: Logger): Promise<void>
   const inFlightThreshold = new Date(now - IN_FLIGHT_SLA_MS);
 
   try {
-    // Pass 1 — orphaned QUEUED jobs that were never dispatched.
+    // A job stuck with status=QUEUED looks identical whether the dispatcher never
+    // touched it (truly orphaned — e.g. crashed before its first attempt) or it's
+    // actively cycling through the no-free-worker backoff in processor.ts (which
+    // budgets up to MAX_QUEUE_WAIT_MS = 3h before giving up on its own). Every
+    // backoff cycle re-enters PREPROCESSING first (see requeueForNoWorker's callers),
+    // which transitionJob logs as a job_events row — so the most recent such row is
+    // a reliable "last touched by dispatcher" heartbeat. Falling back to createdAt
+    // only when no such row exists correctly identifies jobs that were NEVER picked
+    // up, without the sweeper contradicting the processor's own 3h retry budget for
+    // jobs it IS actively retrying.
+    const lastAttempt = db
+      .select({
+        jobId: schema.jobEvents.jobId,
+        lastAttemptAt: sql<string>`max(${schema.jobEvents.createdAt})`.as('last_attempt_at'),
+      })
+      .from(schema.jobEvents)
+      .where(eq(schema.jobEvents.eventType, 'PREPROCESSING'))
+      .groupBy(schema.jobEvents.jobId)
+      .as('last_attempt');
+    const staleness = sql`coalesce(${lastAttempt.lastAttemptAt}, ${schema.jobs.createdAt})`;
+
+    // Pass 1 — orphaned QUEUED jobs that were never dispatched (or never re-touched).
     const orphaned = await db
       .select(SELECT_COLS)
       .from(schema.jobs)
+      .leftJoin(lastAttempt, eq(lastAttempt.jobId, schema.jobs.id))
       .where(
         and(
           eq(schema.jobs.status, 'QUEUED'),
@@ -56,11 +78,11 @@ export async function runSweeper(db: DB, pub: Redis, log: Logger): Promise<void>
             // silently stop sweeping them.
             and(
               sql`coalesce(${schema.jobs.source}, '') <> ${VIDEO_SOURCE}`,
-              lte(schema.jobs.createdAt, sql`${queuedThreshold.toISOString()}`),
+              lte(staleness, sql`${queuedThreshold.toISOString()}`),
             ),
             and(
               eq(schema.jobs.source, VIDEO_SOURCE),
-              lte(schema.jobs.createdAt, sql`${videoQueuedThreshold.toISOString()}`),
+              lte(staleness, sql`${videoQueuedThreshold.toISOString()}`),
             ),
           ),
         ),
