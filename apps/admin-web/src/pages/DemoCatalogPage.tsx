@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
+import type { DemoItemEditData } from '../components/DemoItemModal';
+import { DemoItemModal } from '../components/DemoItemModal';
+import { DemoSetModal } from '../components/DemoSetModal';
+import type { DemoSubcategoryEditData } from '../components/DemoSubcategoryModal';
+import { DemoSubcategoryModal } from '../components/DemoSubcategoryModal';
+import { Icon } from '../components/Icons';
 import { apiErrorMessage, apiFetch } from '../lib/data';
-import { makeThumbnail } from '../lib/thumbnail';
 
 interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
@@ -12,7 +17,6 @@ interface DemoSet {
   name: string;
   description: string | null;
   isActive: boolean;
-  sortOrder: number;
   subcategoryCount: number;
   productCount: number;
   assignedMerchantCount: number;
@@ -42,44 +46,41 @@ interface GarmentType {
   genderSlug: string;
 }
 
-interface MerchantRow {
-  id: string;
-  companyName: string;
-  signupSource?: string;
-}
+type Category = 'men' | 'women' | 'boys' | 'girls';
+const CATEGORIES: { id: Category; label: string }[] = [
+  { id: 'men', label: 'Men' },
+  { id: 'women', label: 'Women' },
+  { id: 'boys', label: 'Boys' },
+  { id: 'girls', label: 'Girls' },
+];
 
-const CATEGORIES = ['men', 'women', 'boys', 'girls'] as const;
-
-/** Presigns, thumbnails where needed, and PUTs. Returns the resolved key. */
-async function uploadDemoAsset(file: File, kind: 'image' | 'thumbnail'): Promise<string> {
-  const body = kind === 'thumbnail' ? await makeThumbnail(file) : file;
-  const contentType =
-    file.type === 'image/png' || file.type === 'image/webp' ? file.type : 'image/jpeg';
-  const { uploadUrl, r2Key } = await apiFetch<{ uploadUrl: string; r2Key: string }>(
-    '/admin/demo-catalog/presign',
-    {
-      method: 'POST',
-      body: JSON.stringify({ kind, contentType, contentLength: body.size }),
-    },
-  );
-  const res = await fetch(uploadUrl, {
-    method: 'PUT',
-    body,
-    headers: { 'Content-Type': contentType },
-  });
-  if (!res.ok) throw new Error('Image upload failed. Please try again.');
-  return r2Key;
-}
-
+/**
+ * Only one demo set is ever used in practice — a single universal set spanning
+ * all genders — so this page skips straight to its subcategories instead of
+ * showing a sets list. `sets[0]` is that set (auto-selected on load); the
+ * bootstrap-create form below only appears the first time, when it doesn't
+ * exist yet.
+ */
 export default function DemoCatalogPage({ toast }: Props) {
   const [sets, setSets] = useState<DemoSet[]>([]);
-  const [selectedSetId, setSelectedSetId] = useState<string | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<Category>('men');
   const [subcategories, setSubcategories] = useState<DemoSubcategory[]>([]);
   const [selectedSubId, setSelectedSubId] = useState<string | null>(null);
   const [items, setItems] = useState<DemoItem[]>([]);
   const [garmentTypes, setGarmentTypes] = useState<GarmentType[]>([]);
-  const [merchants, setMerchants] = useState<MerchantRow[]>([]);
-  const [assignedIds, setAssignedIds] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // Modals
+  const [setModalOpen, setSetModalOpen] = useState(false);
+
+  const [subModalOpen, setSubModalOpen] = useState(false);
+  const [editingSub, setEditingSub] = useState<DemoSubcategoryEditData | undefined>(undefined);
+  const [deleteSub, setDeleteSubTarget] = useState<DemoSubcategory | undefined>(undefined);
+
+  const [itemModalOpen, setItemModalOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<DemoItemEditData | undefined>(undefined);
+  const [deleteItem, setDeleteItemTarget] = useState<DemoItem | undefined>(undefined);
+
   const [busy, setBusy] = useState(false);
 
   const notifyError = useCallback(
@@ -89,729 +90,513 @@ export default function DemoCatalogPage({ toast }: Props) {
     [toast],
   );
 
-  const notifySuccess = useCallback(
-    (title: string) => {
-      toast({ title });
-    },
-    [toast],
-  );
-
   const loadSets = useCallback(async () => {
     try {
       const res = await apiFetch<{ items: DemoSet[] }>('/admin/demo-catalog/sets');
       setSets(res.items);
     } catch (err) {
-      notifyError('Could not load demo sets', err);
+      notifyError('Could not load demo data', err);
     }
   }, [notifyError]);
 
   useEffect(() => {
-    void loadSets();
-    void (async () => {
-      try {
-        const [gt, m] = await Promise.all([
-          apiFetch<{ items: GarmentType[] }>('/admin/assets/garment-types'),
-          apiFetch<{ items: MerchantRow[] }>('/admin/merchants'),
-        ]);
-        setGarmentTypes(gt.items);
-        setMerchants(m.items);
-      } catch (err) {
-        notifyError('Could not load pickers', err);
-      }
-    })();
+    setLoading(true);
+    Promise.all([
+      loadSets(),
+      apiFetch<{ items: GarmentType[] }>('/admin/assets/garment-types').then((r) =>
+        setGarmentTypes(r.items),
+      ),
+    ])
+      .catch((err) => notifyError('Could not load pickers', err))
+      .finally(() => setLoading(false));
   }, [loadSets, notifyError]);
+
+  const theSet = sets[0] ?? null;
+  const selectedSetId = theSet?.id ?? null;
+
+  const loadSubcategories = useCallback(
+    async (setId: string) => {
+      try {
+        const res = await apiFetch<{ items: DemoSubcategory[] }>(
+          `/admin/demo-catalog/sets/${setId}/subcategories`,
+        );
+        setSubcategories(res.items);
+      } catch (err) {
+        notifyError('Could not load demo data', err);
+      }
+    },
+    [notifyError],
+  );
 
   useEffect(() => {
     if (!selectedSetId) {
       setSubcategories([]);
-      setAssignedIds([]);
       setSelectedSubId(null);
       return;
     }
-    void (async () => {
+    void loadSubcategories(selectedSetId);
+  }, [selectedSetId, loadSubcategories]);
+
+  const loadItems = useCallback(
+    async (subcategoryId: string) => {
       try {
-        const [subs, assignments] = await Promise.all([
-          apiFetch<{ items: DemoSubcategory[] }>(
-            `/admin/demo-catalog/sets/${selectedSetId}/subcategories`,
-          ),
-          apiFetch<{ items: { merchantId: string }[] }>(
-            `/admin/demo-catalog/sets/${selectedSetId}/assignments`,
-          ),
-        ]);
-        setSubcategories(subs.items);
-        setAssignedIds(assignments.items.map((a) => a.merchantId));
+        const res = await apiFetch<{ items: DemoItem[] }>(
+          `/admin/demo-catalog/items?subcategoryId=${subcategoryId}`,
+        );
+        setItems(res.items);
       } catch (err) {
-        notifyError('Could not load the demo set', err);
+        notifyError('Could not load demo products', err);
       }
-    })();
-  }, [selectedSetId, notifyError]);
+    },
+    [notifyError],
+  );
 
   useEffect(() => {
     if (!selectedSubId) {
       setItems([]);
       return;
     }
-    void (async () => {
-      try {
-        const res = await apiFetch<{ items: DemoItem[] }>(
-          `/admin/demo-catalog/items?subcategoryId=${selectedSubId}`,
-        );
-        setItems(res.items);
-      } catch (err) {
-        notifyError('Could not load demo products', err);
-      }
-    })();
-  }, [selectedSubId, notifyError]);
+    void loadItems(selectedSubId);
+  }, [selectedSubId, loadItems]);
 
-  async function run(title: string, fn: () => Promise<void>) {
+  const selectedSub = subcategories.find((s) => s.id === selectedSubId) ?? null;
+  const visibleSubs = subcategories.filter((s) => s.category === selectedCategory);
+  const categoryGarmentTypes = garmentTypes.filter((g) => g.genderSlug === selectedCategory);
+
+  // --- Bootstrap: create the one universal set ---
+  const handleCreateSet = async (name: string, description: string) => {
     setBusy(true);
     try {
-      await fn();
+      await apiFetch('/admin/demo-catalog/sets', {
+        method: 'POST',
+        body: JSON.stringify({ name, description: description || undefined }),
+      });
+      await loadSets();
+      setSetModalOpen(false);
+      toast({ title: 'Demo data set up' });
     } catch (err) {
-      notifyError(title, err);
+      notifyError('Could not set up demo data', err);
     } finally {
       setBusy(false);
     }
+  };
+
+  // --- Subcategory handlers ---
+  const openAddSubcategory = () => {
+    setEditingSub(undefined);
+    setSubModalOpen(true);
+  };
+
+  const handleSaveSubcategory = async (name: string, garmentSubcategoryId: string) => {
+    if (!selectedSetId) return;
+    setBusy(true);
+    try {
+      if (editingSub) {
+        await apiFetch(`/admin/demo-catalog/subcategories/${editingSub.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ name, garmentSubcategoryId }),
+        });
+      } else {
+        await apiFetch('/admin/demo-catalog/subcategories', {
+          method: 'POST',
+          body: JSON.stringify({
+            setId: selectedSetId,
+            category: selectedCategory,
+            name,
+            garmentSubcategoryId,
+          }),
+        });
+      }
+      await Promise.all([loadSubcategories(selectedSetId), loadSets()]);
+      setSubModalOpen(false);
+      setEditingSub(undefined);
+      toast({ title: editingSub ? 'Subcategory updated' : 'Subcategory created' });
+    } catch (err) {
+      notifyError('Could not save the subcategory', err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDeleteSub = async () => {
+    if (!deleteSub || !selectedSetId) return;
+    setBusy(true);
+    try {
+      await apiFetch(`/admin/demo-catalog/subcategories/${deleteSub.id}`, { method: 'DELETE' });
+      if (selectedSubId === deleteSub.id) setSelectedSubId(null);
+      setDeleteSubTarget(undefined);
+      await Promise.all([loadSubcategories(selectedSetId), loadSets()]);
+      toast({ title: 'Subcategory deleted' });
+    } catch (err) {
+      notifyError('Could not delete the subcategory', err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // --- Item handlers ---
+  const openAddItem = () => {
+    setEditingItem(undefined);
+    setItemModalOpen(true);
+  };
+
+  const handleItemSaved = async () => {
+    if (!selectedSubId || !selectedSetId) return;
+    await Promise.all([loadItems(selectedSubId), loadSubcategories(selectedSetId), loadSets()]);
+    setItemModalOpen(false);
+    setEditingItem(undefined);
+    toast({ title: editingItem ? 'Demo product updated' : 'Demo product added' });
+  };
+
+  const handleDeleteItem = async () => {
+    if (!deleteItem || !selectedSubId || !selectedSetId) return;
+    setBusy(true);
+    try {
+      await apiFetch(`/admin/demo-catalog/items/${deleteItem.id}`, { method: 'DELETE' });
+      setDeleteItemTarget(undefined);
+      await Promise.all([loadItems(selectedSubId), loadSubcategories(selectedSetId), loadSets()]);
+      toast({ title: 'Demo product deleted' });
+    } catch (err) {
+      notifyError('Could not delete the demo product', err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // --- Views ---
+
+  if (loading) {
+    return (
+      <div style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}>Loading…</div>
+    );
   }
 
-  const createSet = (form: HTMLFormElement) =>
-    run('Could not create the demo set', async () => {
-      const data = new FormData(form);
-      await apiFetch('/admin/demo-catalog/sets', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: String(data.get('name') ?? '').trim(),
-          description: String(data.get('description') ?? '').trim() || undefined,
-        }),
-      });
-      form.reset();
-      await loadSets();
-      notifySuccess('Demo set created');
-    });
+  // Bootstrap: no universal set exists yet
+  if (!theSet) {
+    return (
+      <>
+        <div className="page-head">
+          <div>
+            <h1>Kiosk Demo Data</h1>
+            <p className="lede">
+              Admin-authored demo products shown to merchants on the Android app.
+            </p>
+          </div>
+        </div>
+        <div className="empty">
+          <div className="ico">
+            <Icon.Catalog />
+          </div>
+          <h3 style={{ margin: '0 0 4px' }}>Demo data isn't set up yet</h3>
+          <p style={{ margin: '0 0 16px' }}>Create the demo data set to start adding products.</p>
+          <button className="btn primary" onClick={() => setSetModalOpen(true)}>
+            <Icon.Add /> Set up demo data
+          </button>
+        </div>
+        <DemoSetModal
+          open={setModalOpen}
+          onClose={() => setSetModalOpen(false)}
+          onSave={handleCreateSet}
+          isSaving={busy}
+        />
+      </>
+    );
+  }
 
-  const toggleSet = (set: DemoSet) =>
-    run('Could not update the demo set', async () => {
-      await apiFetch(`/admin/demo-catalog/sets/${set.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ isActive: !set.isActive }),
-      });
-      await loadSets();
-    });
+  // Products inside a subcategory
+  if (selectedSub) {
+    const garmentTypeLabel =
+      garmentTypes.find((g) => g.id === selectedSub.garmentSubcategoryId)?.label ?? 'Unknown';
 
-  const deleteSet = (set: DemoSet) =>
-    run('Could not delete the demo set', async () => {
-      if (
-        !window.confirm(
-          `Delete "${set.name}"? This removes ${set.productCount} demo product(s) from ${set.assignedMerchantCount} merchant(s).`,
-        )
-      ) {
-        return;
-      }
-      await apiFetch(`/admin/demo-catalog/sets/${set.id}`, { method: 'DELETE' });
-      if (selectedSetId === set.id) setSelectedSetId(null);
-      await loadSets();
-      notifySuccess('Demo set deleted');
-    });
-
-  const saveAssignments = (merchantIds: string[]) =>
-    run('Could not save merchant visibility', async () => {
-      if (!selectedSetId) return;
-      await apiFetch(`/admin/demo-catalog/sets/${selectedSetId}/assignments`, {
-        method: 'PUT',
-        body: JSON.stringify({ merchantIds }),
-      });
-      setAssignedIds(merchantIds);
-      await loadSets();
-      notifySuccess('Merchant visibility saved');
-    });
-
-  const createSubcategory = (form: HTMLFormElement) =>
-    run('Could not create the subcategory', async () => {
-      if (!selectedSetId) return;
-      const data = new FormData(form);
-      await apiFetch('/admin/demo-catalog/subcategories', {
-        method: 'POST',
-        body: JSON.stringify({
-          setId: selectedSetId,
-          category: String(data.get('category')),
-          name: String(data.get('name') ?? '').trim(),
-          garmentSubcategoryId: String(data.get('garmentSubcategoryId')),
-        }),
-      });
-      form.reset();
-      const subs = await apiFetch<{ items: DemoSubcategory[] }>(
-        `/admin/demo-catalog/sets/${selectedSetId}/subcategories`,
-      );
-      setSubcategories(subs.items);
-      await loadSets();
-      notifySuccess('Subcategory created');
-    });
-
-  const createItem = (form: HTMLFormElement) =>
-    run('Could not create the demo product', async () => {
-      if (!selectedSubId) return;
-      const data = new FormData(form);
-      const file = data.get('image');
-      if (!(file instanceof File) || file.size === 0) {
-        throw new Error('Choose an image for the demo product.');
-      }
-      // The same file becomes both objects — full-res image plus a downscaled thumb.
-      const [r2Key, thumbnailKey] = await Promise.all([
-        uploadDemoAsset(file, 'image'),
-        uploadDemoAsset(file, 'thumbnail'),
-      ]);
-      await apiFetch('/admin/demo-catalog/items', {
-        method: 'POST',
-        body: JSON.stringify({
-          subcategoryId: selectedSubId,
-          label: String(data.get('label') ?? '').trim(),
-          sku: String(data.get('sku') ?? '').trim() || undefined,
-          actualPrice: Number(data.get('actualPrice') ?? 0),
-          offerPrice: Number(data.get('offerPrice') ?? 0),
-          r2Key,
-          thumbnailKey,
-        }),
-      });
-      form.reset();
-      const res = await apiFetch<{ items: DemoItem[] }>(
-        `/admin/demo-catalog/items?subcategoryId=${selectedSubId}`,
-      );
-      setItems(res.items);
-      await loadSets();
-      notifySuccess('Demo product added');
-    });
-
-  const deleteItem = (item: DemoItem) =>
-    run('Could not delete the demo product', async () => {
-      if (!window.confirm(`Delete "${item.label}"?`)) return;
-      await apiFetch(`/admin/demo-catalog/items/${item.id}`, { method: 'DELETE' });
-      setItems((prev) => prev.filter((i) => i.id !== item.id));
-      await loadSets();
-    });
-
-  const selectedSet = sets.find((s) => s.id === selectedSetId) ?? null;
-
-  return (
-    <div className="page" style={{ padding: '1.5rem' }}>
-      <header className="page-head" style={{ marginBottom: '1.5rem' }}>
-        <h1 style={{ fontSize: '1.5rem', fontWeight: 600 }}>Kiosk Demo Data</h1>
-        <p className="muted" style={{ color: 'var(--muted, #666)', fontSize: '0.875rem' }}>
-          Admin-authored demo products. Merchants see them on the Android app but cannot edit or
-          delete them. A set is only visible to the merchants selected below.
-        </p>
-      </header>
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-          gap: '1.5rem',
-        }}
-      >
-        <section
-          className="card"
-          style={{
-            background: 'var(--card-bg, #fff)',
-            border: '1px solid var(--border, #e5e7eb)',
-            borderRadius: '0.5rem',
-            padding: '1.25rem',
-          }}
-        >
-          <h2 style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '1rem' }}>Demo sets</h2>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void createSet(e.currentTarget);
-            }}
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '0.75rem',
-              marginBottom: '1rem',
-            }}
-          >
-            <input
-              name="name"
-              placeholder="Set name"
-              required
-              maxLength={160}
-              style={{
-                padding: '0.5rem',
-                border: '1px solid var(--border, #ccc)',
-                borderRadius: '0.375rem',
-              }}
-            />
-            <input
-              name="description"
-              placeholder="Description (optional)"
-              maxLength={500}
-              style={{
-                padding: '0.5rem',
-                border: '1px solid var(--border, #ccc)',
-                borderRadius: '0.375rem',
-              }}
-            />
-            <button
-              type="submit"
-              disabled={busy}
-              style={{
-                padding: '0.5rem 1rem',
-                background: 'var(--primary, #2563eb)',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '0.375rem',
-                cursor: 'pointer',
-              }}
-            >
-              Add set
+    return (
+      <>
+        <div className="page-head">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button className="btn sm ghost" onClick={() => setSelectedSubId(null)}>
+              <Icon.Back />
             </button>
-          </form>
+            <div>
+              <h1>{selectedSub.name}</h1>
+              <p className="lede">{garmentTypeLabel}</p>
+            </div>
+          </div>
+          <div className="head-tools">
+            <button className="btn primary" onClick={openAddItem}>
+              <Icon.Add /> Add product
+            </button>
+          </div>
+        </div>
 
-          <ul
-            style={{
-              listStyle: 'none',
-              padding: 0,
-              margin: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '0.5rem',
-            }}
-          >
-            {sets.map((set) => (
-              <li
-                key={set.id}
-                style={{
-                  padding: '0.75rem',
-                  border: '1px solid var(--border, #eee)',
-                  borderRadius: '0.375rem',
-                  background:
-                    set.id === selectedSetId ? 'var(--highlight, #f0f9ff)' : 'transparent',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '0.5rem',
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={() => setSelectedSetId(set.id)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                    padding: 0,
-                  }}
-                >
-                  <strong style={{ display: 'block' }}>{set.name}</strong>
-                  <span
-                    className="muted"
-                    style={{ fontSize: '0.75rem', color: 'var(--muted, #666)' }}
-                  >
-                    {set.subcategoryCount} subcats · {set.productCount} products ·{' '}
-                    {set.assignedMerchantCount} merchants
-                  </span>
-                  {!set.isActive && (
-                    <span
-                      style={{
-                        marginLeft: '0.5rem',
-                        fontSize: '0.7rem',
-                        background: '#fee2e2',
-                        color: '#991b1b',
-                        padding: '0.1rem 0.4rem',
-                        borderRadius: '0.2rem',
-                      }}
-                    >
-                      Inactive
-                    </span>
-                  )}
-                </button>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
+        {items.length === 0 ? (
+          <div className="empty">
+            <div className="ico">
+              <Icon.Image />
+            </div>
+            <h3 style={{ margin: '0 0 4px' }}>No products yet</h3>
+            <p style={{ margin: '0 0 16px' }}>Add your first product to this subcategory.</p>
+            <button className="btn primary" onClick={openAddItem}>
+              <Icon.Add /> Add product
+            </button>
+          </div>
+        ) : (
+          <div className="cat-grid">
+            {items.map((item) => (
+              <div key={item.id} className="cat-card" style={{ cursor: 'default' }}>
+                <div className="corner-r" style={{ display: 'flex', gap: 4, zIndex: 2 }}>
                   <button
                     type="button"
-                    disabled={busy}
-                    onClick={() => void toggleSet(set)}
-                    style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', cursor: 'pointer' }}
+                    className="btn sm ghost"
+                    style={{ background: 'var(--surface)' }}
+                    onClick={() => {
+                      setEditingItem({
+                        id: item.id,
+                        label: item.label,
+                        sku: item.sku,
+                        actualPrice: item.actualPrice,
+                        offerPrice: item.offerPrice,
+                        isActive: item.isActive,
+                        thumbnailUrl: item.thumbnailUrl,
+                      });
+                      setItemModalOpen(true);
+                    }}
+                    title="Edit"
                   >
-                    {set.isActive ? 'Deactivate' : 'Activate'}
+                    <Icon.Edit />
                   </button>
                   <button
                     type="button"
-                    disabled={busy}
-                    onClick={() => void deleteSet(set)}
-                    style={{
-                      fontSize: '0.75rem',
-                      padding: '0.25rem 0.5rem',
-                      color: '#dc2626',
-                      cursor: 'pointer',
-                    }}
+                    className="btn sm ghost"
+                    style={{ background: 'var(--surface)' }}
+                    onClick={() => setDeleteItemTarget(item)}
+                    title="Delete"
                   >
-                    Delete
+                    <Icon.Trash />
                   </button>
                 </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <section
-          className="card"
-          style={{
-            background: 'var(--card-bg, #fff)',
-            border: '1px solid var(--border, #e5e7eb)',
-            borderRadius: '0.5rem',
-            padding: '1.25rem',
-          }}
-        >
-          <h2 style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '1rem' }}>
-            Subcategories
-          </h2>
-          {!selectedSet ? (
-            <p className="muted" style={{ color: 'var(--muted, #666)' }}>
-              Select a set.
-            </p>
-          ) : (
-            <>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void createSubcategory(e.currentTarget);
-                }}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '0.75rem',
-                  marginBottom: '1rem',
-                }}
-              >
-                <select
-                  name="category"
-                  required
-                  style={{
-                    padding: '0.5rem',
-                    border: '1px solid var(--border, #ccc)',
-                    borderRadius: '0.375rem',
-                  }}
-                >
-                  {CATEGORIES.map((cat) => (
-                    <option key={cat} value={cat}>
-                      {cat}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  name="name"
-                  placeholder="Subcategory name"
-                  required
-                  maxLength={160}
-                  style={{
-                    padding: '0.5rem',
-                    border: '1px solid var(--border, #ccc)',
-                    borderRadius: '0.375rem',
-                  }}
-                />
-                <select
-                  name="garmentSubcategoryId"
-                  required
-                  style={{
-                    padding: '0.5rem',
-                    border: '1px solid var(--border, #ccc)',
-                    borderRadius: '0.375rem',
-                  }}
-                >
-                  <option value="">Garment type…</option>
-                  {garmentTypes.map((gt) => (
-                    <option key={gt.id} value={gt.id}>
-                      {gt.genderSlug} · {gt.label}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="submit"
-                  disabled={busy}
-                  style={{
-                    padding: '0.5rem 1rem',
-                    background: 'var(--primary, #2563eb)',
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: '0.375rem',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Add subcategory
-                </button>
-              </form>
-
-              <ul
-                style={{
-                  listStyle: 'none',
-                  padding: 0,
-                  margin: '0 0 1.5rem 0',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '0.5rem',
-                }}
-              >
-                {subcategories.map((sub) => (
-                  <li
-                    key={sub.id}
-                    style={{
-                      padding: '0.5rem',
-                      border: '1px solid var(--border, #eee)',
-                      borderRadius: '0.375rem',
-                      background:
-                        sub.id === selectedSubId ? 'var(--highlight, #f0f9ff)' : 'transparent',
-                    }}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setSelectedSubId(sub.id)}
+                <div className="cat-thumb">
+                  {item.thumbnailUrl ? (
+                    // biome-ignore lint/performance/noImgElement: presigned R2 thumbnail
+                    <img
+                      src={item.thumbnailUrl}
+                      alt={item.label}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    />
+                  ) : (
+                    <div
                       style={{
-                        background: 'none',
-                        border: 'none',
-                        textAlign: 'left',
-                        cursor: 'pointer',
                         width: '100%',
-                        padding: 0,
+                        height: '100%',
+                        display: 'grid',
+                        placeItems: 'center',
+                        color: 'var(--muted-2)',
                       }}
                     >
-                      <strong style={{ display: 'block' }}>{sub.name}</strong>
-                      <span
-                        className="muted"
-                        style={{ fontSize: '0.75rem', color: 'var(--muted, #666)' }}
-                      >
-                        {sub.category} · {sub.productCount} products
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-
-              <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.5rem' }}>
-                Visible to merchants
-              </h3>
-              <select
-                multiple
-                size={8}
-                value={assignedIds}
-                onChange={(e) =>
-                  setAssignedIds(Array.from(e.currentTarget.selectedOptions, (o) => o.value))
-                }
-                style={{
-                  width: '100%',
-                  padding: '0.5rem',
-                  border: '1px solid var(--border, #ccc)',
-                  borderRadius: '0.375rem',
-                  marginBottom: '0.75rem',
-                }}
-              >
-                {merchants.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.companyName}
-                    {m.signupSource === 'android_google' ? ' (self-signup)' : ''}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void saveAssignments(assignedIds)}
-                style={{
-                  padding: '0.5rem 1rem',
-                  background: 'var(--primary, #2563eb)',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '0.375rem',
-                  cursor: 'pointer',
-                  width: '100%',
-                }}
-              >
-                Save visibility
-              </button>
-            </>
-          )}
-        </section>
-
-        <section
-          className="card"
-          style={{
-            background: 'var(--card-bg, #fff)',
-            border: '1px solid var(--border, #e5e7eb)',
-            borderRadius: '0.5rem',
-            padding: '1.25rem',
-          }}
-        >
-          <h2 style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '1rem' }}>
-            Demo products
-          </h2>
-          {!selectedSubId ? (
-            <p className="muted" style={{ color: 'var(--muted, #666)' }}>
-              Select a subcategory.
-            </p>
-          ) : (
-            <>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void createItem(e.currentTarget);
-                }}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '0.75rem',
-                  marginBottom: '1rem',
-                }}
-              >
-                <input
-                  name="label"
-                  placeholder="Product name"
-                  required
-                  maxLength={200}
-                  style={{
-                    padding: '0.5rem',
-                    border: '1px solid var(--border, #ccc)',
-                    borderRadius: '0.375rem',
-                  }}
-                />
-                <input
-                  name="sku"
-                  placeholder="SKU (optional)"
-                  maxLength={120}
-                  style={{
-                    padding: '0.5rem',
-                    border: '1px solid var(--border, #ccc)',
-                    borderRadius: '0.375rem',
-                  }}
-                />
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <input
-                    name="actualPrice"
-                    type="number"
-                    min={0}
-                    placeholder="MRP (₹)"
-                    required
-                    style={{
-                      flex: 1,
-                      padding: '0.5rem',
-                      border: '1px solid var(--border, #ccc)',
-                      borderRadius: '0.375rem',
-                    }}
-                  />
-                  <input
-                    name="offerPrice"
-                    type="number"
-                    min={0}
-                    placeholder="Offer (₹)"
-                    required
-                    style={{
-                      flex: 1,
-                      padding: '0.5rem',
-                      border: '1px solid var(--border, #ccc)',
-                      borderRadius: '0.375rem',
-                    }}
-                  />
+                      <Icon.Image />
+                    </div>
+                  )}
+                  {!item.isActive && <div className="inactive-overlay" />}
                 </div>
-                <input
-                  name="image"
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  required
-                  style={{
-                    padding: '0.25rem',
-                    fontSize: '0.875rem',
-                  }}
-                />
-                <button
-                  type="submit"
-                  disabled={busy}
-                  style={{
-                    padding: '0.5rem 1rem',
-                    background: 'var(--primary, #2563eb)',
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: '0.375rem',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Add product
-                </button>
-              </form>
+                <div className="info">
+                  <div className="label">{item.label}</div>
+                  <div className="meta">
+                    <span className="mono">{item.sku ?? '—'}</span>
+                  </div>
+                  <div className="meta" style={{ marginTop: 2 }}>
+                    <span style={{ fontWeight: 600, color: 'var(--ink)' }}>₹{item.offerPrice}</span>
+                    {item.offerPrice < item.actualPrice && (
+                      <span style={{ textDecoration: 'line-through' }}>₹{item.actualPrice}</span>
+                    )}
+                  </div>
+                  {!item.isActive && <span className="badge danger">Inactive</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
-              <ul
-                style={{
-                  listStyle: 'none',
-                  padding: 0,
-                  margin: 0,
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
-                  gap: '0.75rem',
+        <DemoItemModal
+          open={itemModalOpen}
+          onClose={() => {
+            setItemModalOpen(false);
+            setEditingItem(undefined);
+          }}
+          onSaved={handleItemSaved}
+          subcategoryId={selectedSubId}
+          initialData={editingItem}
+          toast={toast}
+        />
+
+        {deleteItem && (
+          <div className="modal-overlay" onClick={() => setDeleteItemTarget(undefined)}>
+            <div className="modal confirm" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <h3>Delete demo product</h3>
+              </div>
+              <div className="modal-body">
+                <p>
+                  Delete <strong>{deleteItem.label}</strong>? This cannot be undone.
+                </p>
+              </div>
+              <div className="modal-foot">
+                <button className="btn ghost" onClick={() => setDeleteItemTarget(undefined)}>
+                  Cancel
+                </button>
+                <button className="btn danger" disabled={busy} onClick={handleDeleteItem}>
+                  <Icon.Trash /> Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </>
+    );
+  }
+
+  // Subcategories in the universal set
+  return (
+    <>
+      <div className="page-head">
+        <div>
+          <h1>Kiosk Demo Data</h1>
+          <p className="lede">
+            Admin-authored demo products. Merchants see them on the Android app but cannot edit or
+            delete them.
+          </p>
+        </div>
+        <div className="head-tools">
+          <button className="btn primary" onClick={openAddSubcategory}>
+            <Icon.Add /> Add subcategory
+          </button>
+        </div>
+      </div>
+
+      <div className="tabs">
+        {CATEGORIES.map((cat) => (
+          <button
+            key={cat.id}
+            className={`tab ${selectedCategory === cat.id ? 'active' : ''}`}
+            onClick={() => setSelectedCategory(cat.id)}
+          >
+            {cat.label}
+          </button>
+        ))}
+      </div>
+
+      {visibleSubs.length === 0 ? (
+        <div className="empty">
+          <div className="ico">
+            <Icon.Catalog />
+          </div>
+          <h3 style={{ margin: '0 0 4px' }}>No subcategories yet</h3>
+          <p style={{ margin: '0 0 16px' }}>Create your first subcategory to start organizing.</p>
+          <button className="btn primary" onClick={openAddSubcategory}>
+            <Icon.Add /> Add subcategory
+          </button>
+        </div>
+      ) : (
+        <div className="cat-grid">
+          {visibleSubs.map((sub) => {
+            const garmentTypeLabel =
+              garmentTypes.find((g) => g.id === sub.garmentSubcategoryId)?.label ?? 'Unknown';
+            return (
+              // biome-ignore lint/a11y/useSemanticElements: contains nested interactive edit/delete <button>s — a real <button> here would be invalid HTML (no nesting)
+              <div
+                key={sub.id}
+                className="cat-card"
+                onClick={() => setSelectedSubId(sub.id)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setSelectedSubId(sub.id);
+                  }
                 }}
               >
-                {items.map((item) => (
-                  <li
-                    key={item.id}
-                    style={{
-                      border: '1px solid var(--border, #eee)',
-                      borderRadius: '0.375rem',
-                      padding: '0.5rem',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '0.25rem',
+                <div className="corner-r" style={{ display: 'flex', gap: 4, zIndex: 2 }}>
+                  <button
+                    type="button"
+                    className="btn sm ghost"
+                    style={{ background: 'var(--surface)' }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingSub({
+                        id: sub.id,
+                        name: sub.name,
+                        garmentSubcategoryId: sub.garmentSubcategoryId,
+                      });
+                      setSubModalOpen(true);
                     }}
+                    title="Edit"
                   >
-                    {item.thumbnailUrl && (
-                      <img
-                        src={item.thumbnailUrl}
-                        alt={item.label}
-                        style={{
-                          width: '100%',
-                          height: '100px',
-                          objectFit: 'cover',
-                          borderRadius: '0.25rem',
-                        }}
-                      />
-                    )}
-                    <strong style={{ fontSize: '0.875rem' }}>{item.label}</strong>
-                    <span
-                      className="muted"
-                      style={{ fontSize: '0.75rem', color: 'var(--muted, #666)' }}
-                    >
-                      {item.sku ?? '—'} · ₹{item.offerPrice} <s>₹{item.actualPrice}</s>
-                    </span>
-                    {!item.isActive && (
-                      <span
-                        style={{
-                          fontSize: '0.7rem',
-                          background: '#fee2e2',
-                          color: '#991b1b',
-                          padding: '0.1rem 0.4rem',
-                          borderRadius: '0.2rem',
-                          width: 'fit-content',
-                        }}
-                      >
-                        Inactive
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => void deleteItem(item)}
-                      style={{
-                        marginTop: 'auto',
-                        fontSize: '0.75rem',
-                        padding: '0.25rem',
-                        color: '#dc2626',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Delete
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </section>
-      </div>
-    </div>
+                    <Icon.Edit />
+                  </button>
+                  <button
+                    type="button"
+                    className="btn sm ghost"
+                    style={{ background: 'var(--surface)' }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteSubTarget(sub);
+                    }}
+                    title="Delete"
+                  >
+                    <Icon.Trash />
+                  </button>
+                </div>
+                <div className="cat-thumb" style={{ display: 'grid', placeItems: 'center' }}>
+                  <Icon.Catalog style={{ width: 32, height: 32, color: 'var(--muted-2)' }} />
+                </div>
+                <div className="info">
+                  <div className="label">{sub.name}</div>
+                  <div className="meta">
+                    <span className="badge">{garmentTypeLabel}</span>
+                    <span className="sep">•</span>
+                    <span>{sub.productCount} products</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <DemoSubcategoryModal
+        open={subModalOpen}
+        onClose={() => {
+          setSubModalOpen(false);
+          setEditingSub(undefined);
+        }}
+        onSave={handleSaveSubcategory}
+        initialData={editingSub}
+        category={selectedCategory}
+        garmentTypes={categoryGarmentTypes}
+        isSaving={busy}
+      />
+
+      {deleteSub && (
+        <div className="modal-overlay" onClick={() => setDeleteSubTarget(undefined)}>
+          <div className="modal confirm" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Delete subcategory</h3>
+            </div>
+            <div className="modal-body">
+              <p>
+                Delete <strong>{deleteSub.name}</strong>? All {deleteSub.productCount} product(s)
+                inside it will also be deleted.
+              </p>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setDeleteSubTarget(undefined)}>
+                Cancel
+              </button>
+              <button className="btn danger" disabled={busy} onClick={handleDeleteSub}>
+                <Icon.Trash /> Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
