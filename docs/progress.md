@@ -1,3 +1,19 @@
+## 2026-07-31 - Merchant demo data flag: resume and local verification
+
+### Done
+- Continued the in-progress merchant demo-data gate. Current patch adds `merchants.demo_data` with DB default `true`, backfills existing merchants to `false`, creates new admin/onboarded merchants with demo data enabled, and lets super admins toggle the flag through the user detail merchant panel.
+- Demo catalog reads and demo try-on resolution now require the assigned merchant to have `demoData=true`, so disabled merchants keep their assignments but stop seeing or using assigned demo rows from both merchant and kiosk surfaces.
+- Added focused regression coverage for disabled demo data in merchant catalog reads, kiosk catalog reads, merchant try-on, onboarding defaults, and the admin merchant toggle path.
+- Verification that completed in this environment: `@aivastra/api`, `@aivastra/db`, and `@aivastra/types` typecheck clean; admin TypeScript compiles via `node_modules/.bin/tsc.CMD -b apps/admin-web`; `git diff --check` clean; targeted Biome check on the 14 touched source/test files exits 0 with warnings only.
+
+### Failed / Not Done
+- Focused API integration tests did not run to assertions because local Postgres is not available (`ECONNREFUSED 127.0.0.1:5432`), and `pnpm.cmd docker:up` cannot start the harness here because `docker` is not on PATH.
+- `pnpm.cmd --filter @aivastra/admin build` reaches Vite but fails because the local install is missing `gifshot` from `node_modules`; admin TypeScript itself passed before Vite bundling.
+- Not committed.
+
+### Open Questions / Decisions
+- Existing merchant demo access is intentionally backfilled off while newly created/onboarded merchants default on. Confirm this rollout policy before applying migration in an environment with real merchants.
+
 ## 2026-07-31 - Merchant onboarding: restricted to device-app sessions (post-hoc audit fix)
 
 ### Done

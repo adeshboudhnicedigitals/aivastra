@@ -200,6 +200,7 @@ export interface UserMerchant {
   phone: string;
   businessAddress: string;
   isActive: boolean;
+  demoData: boolean;
   kioskEnabled: boolean;
   maxKioskDevices: number;
   logoKey: string | null;
@@ -223,6 +224,7 @@ export interface User {
   hasShopifyStore: boolean;
   isMerchant?: boolean;
   signupSource?: 'admin' | 'android_google' | null;
+  demoData?: boolean | null;
   balance: number;
   totalJobs: number;
   lastJobAt: string | null;
