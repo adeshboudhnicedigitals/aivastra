@@ -1,9 +1,9 @@
 import { schema } from '@aivastra/db';
 import { and, eq } from 'drizzle-orm';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 import { AppError } from '../../lib/errors.js';
-import { collectShopperData, redactShopperData } from './gdpr.js';
+import { collectShopperData, type RedactResult, redactShopperData } from './gdpr.js';
 import { enqueueSync, shopifyAdminFetch, verifyWebhookHmac } from './service.js';
 
 // NOTE: `shopifyRegisterWebhooks` on FastifyInstance is declared once in
@@ -11,6 +11,34 @@ import { enqueueSync, shopifyAdminFetch, verifyWebhookHmac } from './service.js'
 // Do not re-declare it here — TypeScript module augmentation is global, so a
 // second declaration site is unnecessary and risks drifting out of sync with
 // the original (e.g. differing parameter names/optionality).
+
+/**
+ * A GDPR redaction that only half-completed must not look like a success.
+ *
+ * Retention has an hourly sweeper that naturally retries whatever it left
+ * behind; redaction has no such loop — nothing revisits a subject whose object
+ * deletes failed. So a non-zero `incomplete` is logged at `error`, with the
+ * store id and topic, to be alertable and greppable against the 30-day
+ * statutory deadline. Building an actual retry/reconciliation mechanism is out
+ * of scope here; an operator has to see it and act.
+ */
+function logRedactResult(
+  req: FastifyRequest,
+  topic: string,
+  shopDomain: string | undefined,
+  storeId: string,
+  result: RedactResult,
+  message: string,
+): void {
+  if (result.incomplete > 0) {
+    req.log.error(
+      { topic, shopDomain, storeId, removed: result.removed, incomplete: result.incomplete },
+      `gdpr: ${message} INCOMPLETE — objects left undeleted, manual follow-up required`,
+    );
+    return;
+  }
+  req.log.info({ topic, shopDomain, storeId, removed: result.removed }, `gdpr: ${message}`);
+}
 
 export async function shopifyWebhookRoutes(app: FastifyInstance) {
   // Capture raw body for HMAC (scoped to this encapsulated plugin instance only,
@@ -92,18 +120,18 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
             break;
           case 'customers_redact': {
             if (store) {
-              const removed = await redactShopperData(app, store.id, {
+              const result = await redactShopperData(app, store.id, {
                 shopifyCustomerId: payload.customer?.id ?? null,
                 email: payload.customer?.email ?? null,
               });
-              req.log.info({ topic, shopDomain, removed }, 'gdpr: shopper data redacted');
+              logRedactResult(req, topic, shopDomain, store.id, result, 'shopper data redacted');
             }
             break;
           }
           case 'shop_redact': {
             if (store) {
-              const removed = await redactShopperData(app, store.id, { matchAll: true });
-              req.log.info({ topic, shopDomain, removed }, 'gdpr: store data purged');
+              const result = await redactShopperData(app, store.id, { matchAll: true });
+              logRedactResult(req, topic, shopDomain, store.id, result, 'store data purged');
             }
             break;
           }

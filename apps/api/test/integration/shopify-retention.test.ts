@@ -213,4 +213,94 @@ describe('shopify retention sweeper', () => {
     expect(after.thumbnailKey).toBe(thumbnailKey);
     await expect(app.storage.headObject(thumbnailKey)).resolves.toBeDefined();
   });
+
+  it('keeps an age-expired shopper whose job still references a live photo', async () => {
+    // shopperRecordDays is misconfigured shorter than shopperPhotoDays here
+    // (the UI tells merchants to do the opposite, but nothing enforces it), so
+    // the photo purge does not reach this job before the record purge would.
+    // Deleting the shopper row now would null jobs.shopify_shopper_id via
+    // ON DELETE SET NULL and destroy the only path redactShopperData has from
+    // the data subject to this object — it could never be erased on request.
+    const store = await seedStoreWithRetention({ shopperPhotoDays: 90, shopperRecordDays: 90 });
+    const photoKey = `shopify-inputs/${store.id}/live/photo`;
+    await app.storage.putObject(photoKey, Buffer.from('x'), 'image/jpeg');
+
+    const [shopper] = await app.db
+      .insert(schema.shopifyShoppers)
+      .values({
+        storeId: store.id,
+        clientId: 'stale-but-referenced',
+        lastSeenAt: daysAgo(200),
+      })
+      .returning();
+
+    const [job] = await app.db
+      .insert(schema.jobs)
+      .values({
+        status: 'COMPLETED',
+        shopifyStoreId: store.id,
+        shopifyShopperId: shopper.id,
+        customerPhotoKey: photoKey,
+        creditsCharged: 1,
+        source: 'shopify',
+        // Younger than shopperPhotoDays, so the photo branch leaves it alone.
+        createdAt: daysAgo(10),
+      })
+      .returning();
+
+    await runShopifyRetention(app.db, app.storage, app.log);
+
+    const rows = await app.db
+      .select()
+      .from(schema.shopifyShoppers)
+      .where(eq(schema.shopifyShoppers.id, shopper.id));
+    expect(rows).toHaveLength(1);
+
+    const [afterJob] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, job.id));
+    // The linkage — the thing GDPR redaction navigates — must survive too.
+    expect(afterJob.shopifyShopperId).toBe(shopper.id);
+    expect(afterJob.customerPhotoKey).toBe(photoKey);
+  });
+
+  it('deletes an age-expired shopper once nothing of theirs is left in storage', async () => {
+    // The complement of the test above: with every key already null there is no
+    // object left to orphan, so the guard must not block the delete. Without
+    // this, the fix could silently turn shopperRecordDays into a no-op.
+    const store = await seedStoreWithRetention({ shopperRecordDays: 90 });
+
+    const [shopper] = await app.db
+      .insert(schema.shopifyShoppers)
+      .values({ storeId: store.id, clientId: 'stale-and-clean', lastSeenAt: daysAgo(200) })
+      .returning();
+
+    const [job] = await app.db
+      .insert(schema.jobs)
+      .values({
+        status: 'COMPLETED',
+        shopifyStoreId: store.id,
+        shopifyShopperId: shopper.id,
+        customerPhotoKey: null,
+        creditsCharged: 1,
+        source: 'shopify',
+        createdAt: daysAgo(200),
+      })
+      .returning();
+    // A jobOutputs row exists but both keys are already purged.
+    await app.db
+      .insert(schema.jobOutputs)
+      .values({ jobId: job.id, resultKey: null, thumbnailKey: null });
+
+    await runShopifyRetention(app.db, app.storage, app.log);
+
+    const rows = await app.db
+      .select()
+      .from(schema.shopifyShoppers)
+      .where(eq(schema.shopifyShoppers.id, shopper.id));
+    expect(rows).toHaveLength(0);
+
+    // Billing row survives with the link severed, as designed.
+    const [afterJob] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, job.id));
+    expect(afterJob).toBeDefined();
+    expect(afterJob.shopifyShopperId).toBeNull();
+  });
 });
