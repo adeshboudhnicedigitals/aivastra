@@ -79,7 +79,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 
 
-// ─── Custom eye icons ────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Custom eye icons Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 private val VisibilityIcon: ImageVector = ImageVector.Builder(
     name = "Visibility", defaultWidth = 24.dp, defaultHeight = 24.dp,
@@ -144,12 +144,19 @@ private val VisibilityOffIcon: ImageVector = ImageVector.Builder(
     }
 }.build()
 
-// ─── Screen ──────────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Screen Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 /**
- * SignInPage — premium, fully responsive sign-in screen with real-time Google Sign-In
+ * SignInPage Ã¢â‚¬â€ premium, fully responsive sign-in screen with real-time Google Sign-In
  * and mandatory post-sign-in Business Details & Contact Form.
  */
+private enum class SignInAttempt {
+    None,
+    Password,
+    Google,
+    ForceLogout
+}
+
 @Composable
 fun SignInPage(
     onLoginSuccess: (DeviceLoginResponse) -> Unit = {},
@@ -158,7 +165,7 @@ fun SignInPage(
 ) {
     val context = LocalContext.current
     // Stable per-physical-device identity for the backend's device-login/session-limit system.
-    // Every install must send a distinct id here — a shared/hardcoded value makes the backend
+    // Every install must send a distinct id here Ã¢â‚¬â€ a shared/hardcoded value makes the backend
     // treat all kiosks as one device, so any of them logging in silently rotates (and kills)
     // whichever other kiosk was already using that "device"'s session.
     val deviceId = remember {
@@ -172,9 +179,9 @@ fun SignInPage(
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
-    // Tracks which button triggered the shared uiState.Loading, purely so the
-    // Google button shows its own spinner instead of both buttons lighting up.
-    var isGoogleAttempt by remember { mutableStateOf(false) }
+    // Tracks which action triggered the shared uiState.Loading so only the
+    // matching control renders a spinner.
+    var signInAttempt by remember { mutableStateOf(SignInAttempt.None) }
 
     // Toast local state
     var toastVisible by remember { mutableStateOf(false) }
@@ -189,19 +196,19 @@ fun SignInPage(
     LaunchedEffect(uiState) {
         when (val state = uiState) {
             is LoginUiState.Success -> {
-                isGoogleAttempt = false
+                signInAttempt = SignInAttempt.None
                 toastMessage = "Welcome back, ${state.response.user.displayName}!"
                 toastType = ToastType.SUCCESS
                 toastVisible = true
                 onLoginSuccess(state.response)
             }
             is LoginUiState.Error -> {
-                isGoogleAttempt = false
+                signInAttempt = SignInAttempt.None
                 toastMessage = state.message
                 toastType = ToastType.ERROR
                 toastVisible = true
             }
-            is LoginUiState.Idle -> isGoogleAttempt = false
+            is LoginUiState.Idle -> signInAttempt = SignInAttempt.None
             else -> Unit
         }
     }
@@ -232,7 +239,7 @@ fun SignInPage(
             val isPreview = LocalInspectionMode.current
             val statusBarHeight: Dp = (if (isPreview) sdp(R.dimen._28sdp) else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()) + sdp(R.dimen._10sdp)
 
-            // ── Logo (excluded from vertical centering, always pinned at top) ──
+            // Ã¢â€â‚¬Ã¢â€â‚¬ Logo (excluded from vertical centering, always pinned at top) Ã¢â€â‚¬Ã¢â€â‚¬
             Column(
                 modifier = Modifier
                     .widthIn(max = sdp(R.dimen._screen_container_width))
@@ -250,7 +257,7 @@ fun SignInPage(
                 )
             }
 
-            // ── Everything else: vertically centered, scrolls above the keyboard ──
+            // Ã¢â€â‚¬Ã¢â€â‚¬ Everything else: vertically centered, scrolls above the keyboard Ã¢â€â‚¬Ã¢â€â‚¬
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -300,7 +307,7 @@ fun SignInPage(
                     )
                     Box(Modifier.weight(1f).height(sdp(R.dimen._1sdp)).background(lineGradient()))
                     Text(
-                        text = "✦",
+                        text = "X",
                         color = Color(0xFFD88A18),
                         fontSize = ssp(R.dimen._12ssp),
                         modifier = Modifier.padding(horizontal = sdp(R.dimen._8sdp))
@@ -310,7 +317,7 @@ fun SignInPage(
 
                 Spacer(modifier = Modifier.height(sdp(R.dimen._8sdp)))
 
-                // ── Email field ──
+                // Ã¢â€â‚¬Ã¢â€â‚¬ Email field Ã¢â€â‚¬Ã¢â€â‚¬
                 FieldLabel(text = "USER NAME / EMAIL")
                 Spacer(modifier = Modifier.height(sdp(R.dimen._4sdp)))
                 AuthTextField(
@@ -325,7 +332,7 @@ fun SignInPage(
 
                 Spacer(modifier = Modifier.height(sdp(R.dimen._16sdp)))
 
-                // ── Password field ──
+                // Ã¢â€â‚¬Ã¢â€â‚¬ Password field Ã¢â€â‚¬Ã¢â€â‚¬
                 FieldLabel(text = "PASSWORD")
                 Spacer(modifier = Modifier.height(sdp(R.dimen._4sdp)))
                 AuthTextField(
@@ -350,29 +357,32 @@ fun SignInPage(
 
                 Spacer(modifier = Modifier.height(sdp(R.dimen._8sdp)))
 
-                // Forgot Password
-                Text(
-                    text = "Forgot Password?",
-                    color = Color(0xFFD88A18),
-                    fontSize = ssp(R.dimen._12ssp),
-                    fontWeight = FontWeight.Medium,
-                    fontFamily = PoppinsFamily,
-                    modifier = Modifier
-                        .align(Alignment.End)
-                        .clickable(enabled = !isLoading) { /* Forgot password handler */ }
-                )
+//                // Forgot Password
+//                Text(
+//                    text = "Forgot Password?",
+//                    color = Color(0xFFD88A18),
+//                    fontSize = ssp(R.dimen._12ssp),
+//                    fontWeight = FontWeight.Medium,
+//                    fontFamily = PoppinsFamily,
+//                    modifier = Modifier
+//                        .align(Alignment.End)
+//                        .clickable(enabled = !isLoading) { /* Forgot password handler */ }
+//                )
 
                 Spacer(modifier = Modifier.height(sdp(R.dimen._20sdp)))
 
                 // Login Button
                 GradientButton(
-                    onClick = { viewModel.login(email, password, deviceId = deviceId, deviceName = deviceName) },
+                    onClick = {
+                        signInAttempt = SignInAttempt.Password
+                        viewModel.login(email, password, deviceId = deviceId, deviceName = deviceName)
+                    },
                     enabled = !isLoading,
                     width = sdp(R.dimen._0sdp),
                     height = sdp(R.dimen._action_button_height),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    if (isLoading) {
+                    if (isLoading && signInAttempt == SignInAttempt.Password) {
                         AppLoadingIndicator(size = sdp(R.dimen._22sdp), color = Color.White)
                     } else {
                         Text(
@@ -394,7 +404,7 @@ fun SignInPage(
 
                 Spacer(modifier = Modifier.height(sdp(R.dimen._16sdp)))
 
-                // ── "OR" separator ──
+                // Ã¢â€â‚¬Ã¢â€â‚¬ "OR" separator Ã¢â€â‚¬Ã¢â€â‚¬
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center,
@@ -413,12 +423,12 @@ fun SignInPage(
 
                 Spacer(modifier = Modifier.height(sdp(R.dimen._16sdp)))
 
-                // ── Google Sign-In button ──
+                // Ã¢â€â‚¬Ã¢â€â‚¬ Google Sign-In button Ã¢â€â‚¬Ã¢â€â‚¬
                 GoogleSignInButton(
                     enabled = !isLoading,
-                    isLoading = isLoading && isGoogleAttempt,
+                    isLoading = isLoading && signInAttempt == SignInAttempt.Google,
                     onClick = {
-                        isGoogleAttempt = true
+                        signInAttempt = SignInAttempt.Google
                         viewModel.loginWithGoogle(context, deviceId = deviceId, deviceName = deviceName)
                     }
                 )
@@ -428,7 +438,7 @@ fun SignInPage(
             }
         }
 
-        // ── Snackbar overlay ──
+        // Ã¢â€â‚¬Ã¢â€â‚¬ Snackbar overlay Ã¢â€â‚¬Ã¢â€â‚¬
         val toastBottomInset = if (LocalInspectionMode.current) 14.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         Box(
             modifier = Modifier
@@ -448,7 +458,7 @@ fun SignInPage(
             )
         }
 
-        // ── Device Limit Dialog ──
+        // Ã¢â€â‚¬Ã¢â€â‚¬ Device Limit Dialog Ã¢â€â‚¬Ã¢â€â‚¬
         if (isDeviceLimitReached) {
             val state = uiState as LoginUiState.DeviceLimitReached
             AppDialog(
@@ -467,7 +477,7 @@ fun SignInPage(
     }
 }
 
-// ─── Reusable sub-components ─────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Reusable sub-components Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 @Composable
 private fun GoogleSignInButton(
@@ -556,7 +566,7 @@ private fun AuthTextField(
     )
 }
 
-// ─── Preview ─────────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Preview Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 @Preview(
     name = "Sign In - Phone",
@@ -570,3 +580,6 @@ private fun SignInPagePreview() {
         SignInPage(onLoginSuccess = {})
     }
 }
+
+
+

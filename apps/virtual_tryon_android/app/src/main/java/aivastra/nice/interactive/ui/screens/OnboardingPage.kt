@@ -1,4 +1,4 @@
-package aivastra.nice.interactive.ui.screens
+﻿package aivastra.nice.interactive.ui.screens
 
 import aivastra.nice.interactive.R
 import aivastra.nice.interactive.ui.components.AppHeaderLogo
@@ -64,7 +64,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 
 /**
  * Shown when login returns merchantStatus = ONBOARDING_REQUIRED (no merchants row
- * yet for this user — see apps/api/.../status.ts). Mandatory one-time business
+ * yet for this user â€” see apps/api/.../status.ts). Mandatory one-time business
  * details form; completing it creates an active, zero-review, 0-credit merchant
  * and unblocks every /v1/merchant/{...} call.
  */
@@ -76,14 +76,15 @@ fun OnboardingPage(
     modifier: Modifier = Modifier,
     viewModel: OnboardingViewModel = viewModel()
 ) {
-    LaunchedEffect(Unit) { viewModel.start(suggestedContactName, suggestedCompanyName) }
+    LaunchedEffect(suggestedContactName, suggestedCompanyName) {
+        viewModel.start(suggestedContactName, suggestedCompanyName)
+    }
 
     val uiState by viewModel.uiState.collectAsState()
 
     var contactName by remember { mutableStateOf("") }
     var companyName by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
-    var businessAddress by remember { mutableStateOf("") }
     var toastVisible by remember { mutableStateOf(false) }
     var toastMessage by remember { mutableStateOf("") }
 
@@ -94,7 +95,7 @@ fun OnboardingPage(
         if (contactName.isEmpty() && companyName.isEmpty() && phone.isEmpty()) {
             contactName = editing.contactName
             companyName = editing.companyName
-            phone = editing.phone
+            phone = editing.phone.filter(Char::isDigit).take(10)
         }
         if (editing.error != null) {
             toastMessage = editing.error
@@ -106,7 +107,11 @@ fun OnboardingPage(
         if (uiState is OnboardingUiState.Submitted) onOnboardingComplete()
     }
 
-    val isSubmitting = (uiState as? OnboardingUiState.Editing)?.isSubmitting ?: false
+    val editingState = uiState as? OnboardingUiState.Editing
+    val isSubmitting = editingState?.isSubmitting ?: false
+    val showCompanyNameField = editingState?.showCompanyNameField ?: true
+    val showPhoneField = editingState?.showPhoneField ?: true
+    val canSubmit = !isSubmitting && companyName.isNotBlank() && phone.filter(Char::isDigit).length == 10
 
     Box(modifier = modifier.fillMaxSize().background(Color.Black)) {
         Image(
@@ -175,33 +180,39 @@ fun OnboardingPage(
 
                 Spacer(modifier = Modifier.height(sdp(R.dimen._24sdp)))
 
-                OnboardingFieldLabel("CONTACT NAME")
-                Spacer(modifier = Modifier.height(sdp(R.dimen._4sdp)))
-                OnboardingTextField(value = contactName, onValueChange = { contactName = it }, enabled = !isSubmitting, placeholder = "Your name")
+                if (showCompanyNameField || showPhoneField) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(sdp(R.dimen._16sdp))
+                    ) {
 
-                Spacer(modifier = Modifier.height(sdp(R.dimen._16sdp)))
+                        if (showCompanyNameField) {
+                            OnboardingFieldSection(
+                                label = "COMPANY / STORE NAME",
+                                value = companyName,
+                                onValueChange = { companyName = it },
+                                enabled = !isSubmitting,
+                                placeholder = "Your business name"
+                            )
+                        }
 
-                OnboardingFieldLabel("COMPANY / STORE NAME")
-                Spacer(modifier = Modifier.height(sdp(R.dimen._4sdp)))
-                OnboardingTextField(value = companyName, onValueChange = { companyName = it }, enabled = !isSubmitting, placeholder = "Your business name")
-
-                Spacer(modifier = Modifier.height(sdp(R.dimen._16sdp)))
-
-                OnboardingFieldLabel("MOBILE NUMBER *")
-                Spacer(modifier = Modifier.height(sdp(R.dimen._4sdp)))
-                OnboardingTextField(value = phone, onValueChange = { phone = it }, enabled = !isSubmitting, placeholder = "10-digit mobile number")
-
-                Spacer(modifier = Modifier.height(sdp(R.dimen._16sdp)))
-
-                OnboardingFieldLabel("BUSINESS ADDRESS")
-                Spacer(modifier = Modifier.height(sdp(R.dimen._4sdp)))
-                OnboardingTextField(value = businessAddress, onValueChange = { businessAddress = it }, enabled = !isSubmitting, placeholder = "Optional")
+                        if (showPhoneField) {
+                            OnboardingFieldSection(
+                                label = "MOBILE NUMBER *",
+                                value = phone,
+                                onValueChange = { phone = it.filter(Char::isDigit).take(10) },
+                                enabled = !isSubmitting,
+                                placeholder = "10-digit mobile number"
+                            )
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(sdp(R.dimen._24sdp)))
 
                 GradientButton(
-                    onClick = { viewModel.submit(contactName, companyName, phone, businessAddress) },
-                    enabled = !isSubmitting,
+                    onClick = { viewModel.submit(contactName, companyName, phone, "") },
+                    enabled = canSubmit,
                     width = sdp(R.dimen._0sdp),
                     height = sdp(R.dimen._action_button_height),
                     modifier = Modifier.fillMaxWidth()
@@ -250,6 +261,28 @@ fun OnboardingPage(
 }
 
 @Composable
+private fun OnboardingFieldSection(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    enabled: Boolean,
+    placeholder: String
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(sdp(R.dimen._4sdp))
+    ) {
+        OnboardingFieldLabel(text = label)
+        OnboardingTextField(
+            value = value,
+            onValueChange = onValueChange,
+            enabled = enabled,
+            placeholder = placeholder
+        )
+    }
+}
+
+@Composable
 private fun OnboardingFieldLabel(text: String) {
     Text(
         text = text,
@@ -294,3 +327,5 @@ private fun OnboardingTextField(
 private fun OnboardingPagePreview() {
     AiVastraTheme { OnboardingPage() }
 }
+
+
