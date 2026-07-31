@@ -182,7 +182,7 @@ export default function ManagePage() {
               {filteredItems.map((item, index) => {
                 const status = displayStatus(item);
                 // The API rejects enabling a product that is not active
-                // (products.routes.ts:125-127), so the control must not offer it.
+                // (products.routes.ts:121-123), so the control must not offer it.
                 const locked = !item.enabled && item.status !== 'active';
                 return (
                   <IndexTable.Row
