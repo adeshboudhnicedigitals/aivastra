@@ -93,6 +93,7 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [savingMerchantEdit, setSavingMerchantEdit] = useState(false);
   const [togglingMerchant, setTogglingMerchant] = useState(false);
+  const [togglingDemoData, setTogglingDemoData] = useState(false);
   const [showCreateUser, setShowCreateUser] = useState(false);
   const [createUserForm, setCreateUserForm] = useState(EMPTY_CREATE_USER_FORM);
   const [creatingUser, setCreatingUser] = useState(false);
@@ -438,6 +439,26 @@ export default function UsersPage({ onNav, toast }: Props) {
       setTogglingMerchant(false);
     }
   }
+
+  async function handleToggleMerchantDemoData() {
+    if (!detail?.merchant) return;
+    setTogglingDemoData(true);
+    try {
+      await apiFetch(`/admin/merchants/${detail.merchant.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ demoData: !detail.merchant.demoData }),
+      });
+      toast({
+        title: `Demo data ${detail.merchant.demoData ? 'disabled' : 'enabled'}`,
+      });
+      await openDetail(detail);
+    } catch (err) {
+      toast({ kind: 'error', title: apiErrorMessage(err, 'Failed to update demo data access') });
+    } finally {
+      setTogglingDemoData(false);
+    }
+  }
+
   function openCreateUser() {
     setCreateUserForm(EMPTY_CREATE_USER_FORM);
     setCreateUserError('');
@@ -741,6 +762,27 @@ export default function UsersPage({ onNav, toast }: Props) {
                         u.merchant.kioskEnabled
                           ? `Enabled (${u.merchant.maxKioskDevices})`
                           : 'Disabled'
+                      }
+                    />
+                    <KV
+                      k="Demo data"
+                      v={
+                        <label
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            cursor: isSuperAdmin && !togglingDemoData ? 'pointer' : 'not-allowed',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={u.merchant.demoData}
+                            disabled={!isSuperAdmin || togglingDemoData}
+                            onChange={() => void handleToggleMerchantDemoData()}
+                          />
+                          <span>{u.merchant.demoData ? 'Enabled' : 'Disabled'}</span>
+                        </label>
                       }
                     />
                     <KV
