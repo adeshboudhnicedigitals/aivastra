@@ -36,38 +36,6 @@
     const emailError = root.querySelector('.aivastra-tryon__email-error');
     let awaitingEmailForPhotoKey = null;
 
-    // Declare these variables before use in email prefill (Step 3 variables)
-    const clientId = getClientId();
-    const shopifyCustomerId = root.dataset.customerId ? Number(root.dataset.customerId) : undefined;
-    let shopperEmail = root.dataset.customerEmail || null;
-    let shopperEmailConsent = false;
-
-    if (emailInput?.value && shopperEmail) emailInput.value = shopperEmail;
-
-    if (emailSubmit) {
-      emailSubmit.addEventListener('click', () => {
-        const value = (emailInput?.value ?? '').trim();
-        // Cheap client-side shape check only; the server's Zod schema is the
-        // real validation.
-        if (!value || value.indexOf('@') < 1) {
-          if (emailError) {
-            emailError.textContent = 'Enter a valid email address.';
-            emailError.hidden = false;
-          }
-          return;
-        }
-        if (emailError) emailError.hidden = true;
-        shopperEmail = value;
-        shopperEmailConsent = !!emailConsentInput?.checked;
-        const key = awaitingEmailForPhotoKey;
-        awaitingEmailForPhotoKey = null;
-        if (key) {
-          showStep('progress');
-          proceedWithPhoto(key, false);
-        }
-      });
-    }
-
     if (avatarImage && productImage) {
       avatarImage.src = productImage;
       avatarImage.hidden = false;
@@ -105,6 +73,38 @@
         // lets the server create a row; it just won't persist across reloads.
         return crypto.randomUUID();
       }
+    }
+
+    const clientId = getClientId();
+    const shopifyCustomerId = root.dataset.customerId ? Number(root.dataset.customerId) : undefined;
+    // Prefill only. The server never trusts this for authorization.
+    let shopperEmail = root.dataset.customerEmail || null;
+    let shopperEmailConsent = false;
+
+    if (emailInput && shopperEmail) emailInput.value = shopperEmail;
+
+    if (emailSubmit) {
+      emailSubmit.addEventListener('click', () => {
+        const value = (emailInput && emailInput.value ? emailInput.value : '').trim();
+        // Cheap client-side shape check only; the server's Zod schema is the
+        // real validation.
+        if (!value || value.indexOf('@') < 1) {
+          if (emailError) {
+            emailError.textContent = 'Enter a valid email address.';
+            emailError.hidden = false;
+          }
+          return;
+        }
+        if (emailError) emailError.hidden = true;
+        shopperEmail = value;
+        shopperEmailConsent = !!(emailConsentInput && emailConsentInput.checked);
+        const key = awaitingEmailForPhotoKey;
+        awaitingEmailForPhotoKey = null;
+        if (key) {
+          showStep('progress');
+          proceedWithPhoto(key, false);
+        }
+      });
     }
 
     // Photo picked (new upload or "use this photo" reuse) but generation not
@@ -510,7 +510,7 @@
         showStep('result');
         addToHistory(resultUrl);
       } catch (err) {
-        if (isReuse && err?.expiredReuse) {
+        if (isReuse && err && err.expiredReuse) {
           forgetPhoto();
           showPage('main');
           showStep('upload');
