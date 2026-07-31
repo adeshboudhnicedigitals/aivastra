@@ -15,7 +15,7 @@ import {
   Toast,
 } from '@shopify/polaris';
 import { useCallback, useEffect, useState } from 'react';
-import { apiFetch } from '../lib/api';
+import { apiFetch, apiFetchResponse } from '../lib/api';
 import type {
   ShopifyMe,
   ShopifyShopperListItem,
@@ -43,12 +43,25 @@ function numericOptions(values: number[], offLabel: string, format: (n: number) 
   ];
 }
 
+/**
+ * Parse a Select option value into the numeric limit to persist.
+ *
+ * `Number.isFinite` rather than a `||` fallback: `0` is a legitimate option
+ * ("Before the first try-on") and is falsy, so `Number(raw) || preselected`
+ * silently replaced it with the preselected value.
+ */
+export function resolveNumericLimit(raw: string, preselected: number): number {
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : preselected;
+}
+
 export default function SettingsPage() {
   const [selectedTab, setSelectedTab] = useState(0);
   const [limits, setLimits] = useState<ShopifyStoreLimits>({});
   const [retention, setRetention] = useState<ShopifyStoreRetention>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [shoppers, setShoppers] = useState<ShopifyShopperListItem[] | null>(null);
@@ -75,7 +88,13 @@ export default function SettingsPage() {
     if (selectedTab !== 1 || shoppers) return;
     apiFetch<{ items: ShopifyShopperListItem[] }>('/v1/shopify/shoppers')
       .then((res) => setShoppers(res.items))
-      .catch((err) => setError((err as Error).message));
+      .catch((err) => {
+        setError((err as Error).message);
+        // Without this the list stays null and IndexTable's `loading={!shoppers}`
+        // spins forever behind the error banner. An empty list is the honest
+        // rendering: we have nothing to show, and the banner says why.
+        setShoppers([]);
+      });
   }, [selectedTab, shoppers]);
 
   async function save() {
@@ -94,11 +113,47 @@ export default function SettingsPage() {
     }
   }
 
+  /**
+   * Resolve a Select value into the numeric limit to store.
+   *
+   * Pure and exported so the `0` case stays pinned by the comment below: `0` is
+   * a real, selectable option ("Before the first try-on"), and a `||` fallback
+   * would silently discard it because `0` is falsy — a merchant asking for the
+   * email gate up front would have been saved as "after 2 try-ons" instead.
+   * `preselected` is only the parse-failure fallback, which should never fire
+   * since `raw` always comes from one of the rendered option values.
+   */
   function setNumeric(key: keyof ShopifyStoreLimits, raw: string, preselected: number) {
     setLimits((prev) => ({
       ...prev,
-      [key]: raw === OFF ? null : Number(raw) || preselected,
+      [key]: raw === OFF ? null : resolveNumericLimit(raw, preselected),
     }));
+  }
+
+  async function exportCsv() {
+    // Not a plain <a href>: this SPA is served from a different origin than the
+    // API in production, and /v1/shopify/shoppers.csv is behind
+    // requireShopifySession, which needs the App Bridge bearer token that a
+    // link navigation cannot carry. Fetch it authenticated, then hand the
+    // browser a blob URL to download.
+    setExporting(true);
+    setError(null);
+    try {
+      const res = await apiFetchResponse('/v1/shopify/shoppers.csv');
+      const blob = await res.blob();
+      const href = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = href;
+      anchor.download = 'shoppers.csv';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(href);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setExporting(false);
+    }
   }
 
   if (loading) return <SkeletonPage title="Settings" />;
@@ -272,7 +327,8 @@ export default function SettingsPage() {
                     Collected emails
                   </Text>
                   <Button
-                    url="/v1/shopify/shoppers.csv"
+                    onClick={exportCsv}
+                    loading={exporting}
                     disabled={!shoppers || shoppers.length === 0}
                   >
                     Export CSV
