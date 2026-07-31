@@ -1,4 +1,4 @@
-import { HomeIcon, ProductIcon, QuestionCircleIcon } from '@shopify/polaris-icons';
+import { HomeIcon, ProductIcon, QuestionCircleIcon, SettingsIcon } from '@shopify/polaris-icons';
 import { useNavigate } from 'react-router-dom';
 
 // Must match BrowserRouter's basename in main.tsx. <ui-nav-menu> hands its
@@ -9,6 +9,7 @@ const BASENAME = import.meta.env.PROD ? '/shopify-admin' : '';
 export const NAV_ITEMS = [
   { path: '/', label: 'Dashboard', icon: HomeIcon },
   { path: '/manage', label: 'Manage', icon: ProductIcon },
+  { path: '/settings', label: 'Settings', icon: SettingsIcon },
   { path: '/support', label: 'Support', icon: QuestionCircleIcon },
 ];
 
