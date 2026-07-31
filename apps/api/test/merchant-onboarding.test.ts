@@ -437,3 +437,107 @@ describe('merchant demoData defaults and admin toggle', () => {
     expect(patched.json().demoData).toBe(false);
   });
 });
+
+describe('demo catalog auto-assignment on demoData', () => {
+  async function seedActiveDemoSet() {
+    const [gt] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({
+        genderSlug: 'women',
+        slug: `demo-assign-gt-${randomUUID()}`,
+        label: 'Demo Assign Garment Type',
+        isActive: true,
+      })
+      .returning();
+    if (!gt) throw new Error('failed to seed garment type');
+    const [set] = await app.db
+      .insert(schema.demoCatalogSets)
+      .values({ name: `Auto Assign Set ${randomUUID()}`, isActive: true })
+      .returning();
+    if (!set) throw new Error('failed to seed demo set');
+    const [sub] = await app.db
+      .insert(schema.demoCatalogSubcategories)
+      .values({
+        setId: set.id,
+        category: 'women',
+        name: 'Auto Assign Sub',
+        garmentSubcategoryId: gt.id,
+      })
+      .returning();
+    if (!sub) throw new Error('failed to seed demo subcategory');
+    return { subcategoryId: sub.id };
+  }
+
+  // Nothing writes to demoCatalogAssignments except this auto-assign path (the
+  // per-set assignment UI was removed — apps/admin-web's Kiosk Demo Data page
+  // only ever has one universal set). Without it, no merchant could ever see
+  // demo data regardless of the demoData toggle.
+  it('PATCHing demoData to true auto-assigns the merchant to the active demo set', async () => {
+    const adminHeaders = await adminAuthHeader(app, 'SUPER_ADMIN');
+    const merchant = await createTestMerchant(app, { demoData: false });
+    const demo = await seedActiveDemoSet();
+    const token = await webTokenFor(merchant.userId);
+
+    const before = await app.inject({
+      method: 'GET',
+      url: '/v1/merchant/catalog/subcategories',
+      headers: auth(token),
+    });
+    expect(
+      before.json().items.find((s: { id: string }) => s.id === demo.subcategoryId),
+    ).toBeUndefined();
+
+    const patched = await app.inject({
+      method: 'PATCH',
+      url: `/admin/merchants/${merchant.merchantId}`,
+      headers: adminHeaders,
+      payload: { demoData: true },
+    });
+    expect(patched.statusCode).toBe(200);
+
+    const after = await app.inject({
+      method: 'GET',
+      url: '/v1/merchant/catalog/subcategories',
+      headers: auth(token),
+    });
+    expect(
+      after.json().items.find((s: { id: string }) => s.id === demo.subcategoryId),
+    ).toBeDefined();
+  });
+
+  it('a merchant created via POST /admin/merchants (demoData defaults true) is auto-assigned', async () => {
+    const adminHeaders = await adminAuthHeader(app, 'SUPER_ADMIN');
+    const demo = await seedActiveDemoSet();
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/admin/merchants',
+      headers: adminHeaders,
+      payload: {
+        email: `merchant-auto-assign-${randomUUID()}@example.com`,
+        companyName: 'Auto Assign Co',
+        contactName: 'Auto Owner',
+        phone: '9000000008',
+        businessAddress: '8 Auto Street',
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const merchantId = created.json().id as string;
+
+    const [merchantRow] = await app.db
+      .select({ userId: schema.merchants.userId })
+      .from(schema.merchants)
+      .where(eq(schema.merchants.id, merchantId));
+    if (!merchantRow) throw new Error('merchant row not found');
+    const token = await webTokenFor(merchantRow.userId);
+
+    const subs = await app.inject({
+      method: 'GET',
+      url: '/v1/merchant/catalog/subcategories',
+      headers: auth(token),
+    });
+    expect(
+      subs.json().items.find((s: { id: string }) => s.id === demo.subcategoryId),
+    ).toBeDefined();
+  });
+});
