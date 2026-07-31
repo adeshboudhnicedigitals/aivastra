@@ -17,11 +17,14 @@
   `shop/redact` GDPR webhook handlers following the same per-object retry-safe nulling pattern and only
   deleting a shopper row once every one of its object deletes succeeded (`apps/api/src/modules/shopify/gdpr.ts`);
   and the dashboard usage card surfacing `todayTryOns` / `storeDailyCap` / `capturedEmailCount`. Several
-  tasks went through one corrective fix round during review before being approved: Task 5 (a per-shopper
-  concurrency race and non-atomic compensation), Task 6 (a TDZ crash and a dead email-prefill guard in
-  the widget), Task 9 (a retention retry-safety gap that could permanently orphan a thumbnail object),
-  and Task 11 (a test-fixture cleanup). All were resolved and re-reviewed clean; see
-  `.superpowers/sdd/2026-07-31-shopify-shopper-limits/progress.md` for the full per-task ledger.
+  tasks required a correction before being approved: Task 5 (a per-shopper concurrency race and
+  non-atomic compensation, fixed in one review round), Task 6 (a TDZ crash and a dead email-prefill
+  guard in the widget, fixed in one review round), Task 9 (a retention retry-safety gap that could
+  permanently orphan a thumbnail object, fixed in one review round), Task 10 (the GDPR redact handler's
+  unconditional key-nulling and shopper-row deletion, corrected to the Task-9 retry-safe pattern before
+  approval), and Task 11 (a test-fixture cleanup, fixed in one review round). All were resolved and
+  re-reviewed clean; see `.superpowers/sdd/2026-07-31-shopify-shopper-limits/progress.md` for the full
+  per-task ledger.
 - **Task 12, Step 1:** In `renderHistoryList()`
   (`apps/shopify-extension/extensions/tryon-theme-extension/assets/tryon-widget.js`), added an `error`
   listener on the history-card thumbnail `<img>` immediately after `img.alt = ''`. Retention can delete
