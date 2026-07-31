@@ -12,7 +12,7 @@ import {
   shouldAttemptRecoveryReload,
 } from './lib/appBridge';
 import DashboardPage from './pages/DashboardPage';
-import ProductsPage from './pages/ProductsPage';
+import ManagePage from './pages/ManagePage';
 import type { ShopifyMe } from './types';
 
 export default function App() {
@@ -88,7 +88,10 @@ export default function App() {
       <Frame>
         <Routes>
           <Route path="/" element={<DashboardPage />} />
-          <Route path="/products" element={<ProductsPage />} />
+          <Route path="/manage" element={<ManagePage />} />
+          {/* Merchants may have bookmarked the old path while it was the only
+              product surface. */}
+          <Route path="/products" element={<Navigate to="/manage" replace />} />
           <Route path="/embedded" element={<Navigate to="/" replace />} />
         </Routes>
       </Frame>
