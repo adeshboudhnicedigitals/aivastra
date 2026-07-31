@@ -122,6 +122,12 @@ export default function ManagePage() {
     setStatusFilter('all');
   }, []);
 
+  // Cancel only reverts the pending (unsaved) search-text edit — it must not
+  // also reset the already-committed status tab (see task-9 review finding).
+  const cancelSearch = useCallback(() => {
+    setSearchQuery('');
+  }, []);
+
   const tabs = STATUS_FILTERS.map((key) => ({ id: key, content: TAB_LABEL[key] }));
 
   return (
@@ -161,7 +167,7 @@ export default function ManagePage() {
               tabs={tabs}
               mode={mode}
               setMode={setMode}
-              cancelAction={{ onAction: clearFilters }}
+              cancelAction={{ onAction: cancelSearch }}
             />
             <IndexTable
               selectable={false}
