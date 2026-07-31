@@ -112,4 +112,41 @@ describe('shopify settings routes', () => {
       .where(eq(schema.shopifyStores.id, storeId));
     expect(row.settings.limits?.storeDailyCap).toBeNull();
   });
+
+  it('lists only shoppers who gave an email, with consent and try-on count', async () => {
+    await app.db.insert(schema.shopifyShoppers).values([
+      { storeId, clientId: 'c-anon' },
+      { storeId, clientId: 'c-mail', email: 'a@b.com', emailConsent: true },
+    ]);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/shoppers',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    const { items } = res.json() as { items: { email: string; emailConsent: boolean }[] };
+    // Scoped to this test's own rows: the file shares one store across tests,
+    // so an absolute count would break as soon as another test seeds a shopper.
+    expect(items.find((i) => i.email === 'a@b.com')?.emailConsent).toBe(true);
+    // The anonymous row must never appear — it exists for limit counting, and
+    // is not a mailing-list entry.
+    expect(items.some((i) => i.email == null)).toBe(false);
+  });
+
+  it('exports the same rows as CSV', async () => {
+    await app.db
+      .insert(schema.shopifyShoppers)
+      .values({ storeId, clientId: 'c-csv', email: 'csv@b.com', emailConsent: false });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/shoppers.csv',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toContain('text/csv');
+    expect(res.body).toContain('email,consent,first_seen,try_ons');
+    expect(res.body).toContain('csv@b.com,no,');
+  });
 });

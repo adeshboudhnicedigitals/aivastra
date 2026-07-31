@@ -8,6 +8,7 @@ import { shopifyOnboardingRoutes } from './onboarding.routes.js';
 import { shopifyProductsRoutes } from './products.routes.js';
 import { enqueueSync } from './service.js';
 import { shopifySettingsRoutes } from './settings.routes.js';
+import { shopifyShoppersRoutes } from './shoppers.routes.js';
 import { registerWebhooksDecorator, shopifyWebhookRoutes } from './webhook.routes.js';
 
 export async function shopifyRoutes(app: FastifyInstance) {
@@ -24,6 +25,7 @@ export async function shopifyRoutes(app: FastifyInstance) {
   await app.register(shopifyCatalogRoutes);
   await app.register(shopifyOnboardingRoutes);
   await app.register(shopifySettingsRoutes);
+  await app.register(shopifyShoppersRoutes);
   // Plain (non-fp) function: gets its own encapsulated child context, so the
   // raw-body JSON content-type parser registered inside stays scoped to these
   // webhook routes only and never leaks to sibling routes or the rest of the app.
