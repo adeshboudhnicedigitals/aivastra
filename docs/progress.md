@@ -1,3 +1,59 @@
+## 2026-07-31 - Merchant onboarding: restricted to device-app sessions (post-hoc audit fix)
+
+### Done
+- Independent post-hoc audit of the Android Google sign-in + merchant onboarding plan found `POST/GET /v1/merchant/onboarding` guarded by `requireUser`, which accepts any authenticated session (plain web password login, web Google OAuth, or Android device login) with no restriction to the Android-app flow it was designed for. Since onboarding creates an active, zero-admin-review, 0-credit merchant row, this meant any web account — not just "anyone with a Google account" as the plan's own Flagged Risk section assumed — could reach the same unbounded-free-tryon exposure the plan explicitly accepted as a known risk. It also broke the plan's own stated mitigation: the route unconditionally wrote `signupSource: 'android_google'` regardless of how the caller actually authenticated, so a plain web account exploiting the gap would be mislabeled identically to a genuine Android signup in the Task 6 admin audit trail.
+- Root cause: access tokens minted by `issueDeviceSession` (shared by all three device-login routes — password, force-login, Google) carried no `aud` claim, making them structurally identical to a plain web-session token.
+- Fix: `issueDeviceSession` now mints tokens with `aud: 'device'` (`apps/api/src/modules/auth/routes.ts`). Added a `requireDeviceUser` guard (`apps/api/src/plugins/auth.ts`), modeled on the existing `requireUser`, requiring that audience. Both onboarding routes now use it instead of `requireUser`.
+- Verified before implementing: `verifyAccess` applies no audience restriction, and none of `requireMerchant`, `requireKioskDevice`, `requireUserOrCatalogApp`, or `requireResultsUser` inspect `aud` at all — only `requireUser`'s explicit `catalog-app` rejection touches audience, which is orthogonal to the new `'device'` value. Zero collateral impact confirmed by both spec-compliance and code-quality review passes.
+- Added 4 tests to `apps/api/test/merchant-onboarding.test.ts` (12 → 16): GET/POST 401 for a plain web-session token (POST case also confirms no merchant row is created), an end-to-end test through the real `/v1/auth/device-login/google` route proving a genuine Android session reaches onboarding, and an end-to-end test through real `/v1/auth/register` + `/v1/auth/login` proving a genuine web session is rejected.
+- Isolated run: 16/16 passing (verified independently, twice). Full API suite: 407/407 passing (verified independently). `pnpm --filter @aivastra/api typecheck` clean. Both a spec-compliance review and a code-quality review (held to a higher bar as a security-relevant fix) returned zero Critical/Important findings — code-quality review returned "Ready to merge: Yes" on the first pass, no rework needed. Committed as `c0a4bf8c`.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- Deliberately left the `signupSource` enum/labeling as-is: a user who onboards via *password* device-login (not Google) will still get `signupSource: 'android_google'`, a residual imprecision much narrower than the original gap (which affected any web account, any auth method). Fixing this would require touching the already-shipped DB CHECK constraint, migration, and admin UI badge logic for comparatively little benefit — flagged as a known, accepted minor inaccuracy rather than silently left unmentioned.
+- `/v1/merchant/onboarding` had shipped only on this unmerged feature branch with no production callers, so no deploy-coordination note or migration is needed for existing sessions.
+
+## 2026-07-31 - Kiosk demo catalog data: post-hoc test-coverage gap closed
+
+### Done
+- Independent post-hoc audit found `GET /v1/kiosk/catalog` (`apps/api/src/modules/kiosk/catalog.routes.ts`) had zero test coverage for the demo-item mapping block added in `4a640fdc` (Task 6 below) — and no pre-existing test file for the route at all. Added `apps/api/test/kiosk-catalog-demo.test.ts` (3 tests): assigned demo item maps `gender`/`category` from its subcategory (using non-default values so a silent fallback-to-`'women'`/`'Demo'` regression would be caught), an unassigned demo set stays absent from the response, and the merchant's own catalog item and an assigned demo item both appear together with correct, unconflated shapes. Auth built directly via a `kioskDevices` row + `signAccess(..., 'kiosk')`, bypassing the pairing-code claim flow per the plugin's actual authorization surface (`app.requireKioskDevice` in `apps/api/src/plugins/portal-auth.ts`).
+- Isolated run: 3/3 passing. Full suite: 403/403 passing (up from 400). `pnpm --filter @aivastra/api typecheck` clean. `npx biome check` on the new file: 0 errors, 7 `noNonNullAssertion` warnings (same pre-existing pattern as `demo-catalog-merchant.test.ts`, non-blocking). Committed as `db6363b5`.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None new — this closes a coverage gap only, no behavior change to the shipped route.
+
+## 2026-07-31 - Kiosk demo catalog data (Tasks 6-9 complete)
+
+### Done
+- Task 6: Added `resolveTryonGarment` resolver and wired `POST /v1/merchant/tryon/jobs` and `POST /v1/kiosk/jobs` to allow try-on against assigned demo catalog items. Appended assigned demo items to `GET /v1/kiosk/catalog`. Added integration test suite (`apps/api/test/demo-catalog-tryon.test.ts`, 5/5 passing). Landed in `4a640fdc`.
+- Task 7: Added `includeDemo=false` to merchant-facing web catalogue management UIs (`CatalogueManagerContent.tsx`, `tryon-library-app` pages) so admin-owned demo rows stay out of the merchant's editable product library. Landed in `aa9cbeb6`.
+- Task 8: Created "Kiosk Demo Data" admin page (`apps/admin-web/src/pages/DemoCatalogPage.tsx`), registered `/demo-catalog` route and sidebar entry in `App.tsx` and `Sidebar.tsx`. Verified `@aivastra/admin` builds cleanly. Landed in `0f1019d1`.
+- Task 9: End-to-end verification — ran full API integration test suite (400/400 tests passing across 49 files), repo-wide typecheck (`pnpm typecheck`) clean across all 11 workspace packages, repo-wide lint (`pnpm lint`) clean. All 9 plan tasks checked off.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- Merchant try-ons on assigned demo products do not deduct credits (merchant try-ons are free by design). While this is the intended kiosk demo experience, monitor usage to ensure merchants do not abuse demo set assignments as an unintended free try-on surface.
+
+## 2026-07-30 - Native Google device login for Android
+
+### Done
+- Added `POST /v1/auth/device-login/google`: verifies Android Google ID tokens, reuses the shared Google account-link/upsert ladder, preserves the kiosk device-cap/force-logout and refresh-token contract, and returns merchant status, logo URL, and onboarding prefill when no merchant exists.
+- Added nine API integration tests for onboarding, existing-account linking, repeat subject, ban/audience/configuration errors, kiosk/mobile device behavior, and device refresh. Focused suite: 9/9 passing.
+- Committed the route and its tests as `1798b153` (`feat(auth): add native Google device login for the Android app`).
+
+### Failed / Not Done
+- `pnpm --filter @aivastra/api build` is blocked by pre-existing `publicApiSlug` schema/type errors in `apps/api/src/modules/admin/catalog.routes.ts` and `apps/api/src/modules/admin/dev-api.routes.ts`; Task 4 files do not appear in those errors.
+
+### Open Questions / Decisions
+- The test harness keeps rate limiting active. The 11 native-login requests in the suite use unique RFC 5737 test IPs so the test cases do not accidentally test the route's 10/minute limiter bucket.
+
 ## 2026-07-31 - Job taxonomy registry — consolidate drifted job-type vocabulary
 
 ### Done

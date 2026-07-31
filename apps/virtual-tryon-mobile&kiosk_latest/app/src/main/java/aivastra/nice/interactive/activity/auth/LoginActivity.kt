@@ -1,23 +1,33 @@
 package aivastra.nice.interactive.activity.auth
 
+import aivastra.nice.interactive.BuildConfig
 import aivastra.nice.interactive.Loader.LoaderManager
 import aivastra.nice.interactive.R
-import aivastra.nice.interactive.activity.Home.HomeDressesForActivity
 import aivastra.nice.interactive.activity.launch.BaseActivity
 import aivastra.nice.interactive.databinding.ActivityLoginBinding
 import aivastra.nice.interactive.utils.PrefsManager
 import aivastra.nice.interactive.utils.ViewControll
+import aivastra.nice.interactive.viewmodel.category.DeviceLimitReachedException
 import aivastra.nice.interactive.viewmodel.category.DeviceLimitState
+import aivastra.nice.interactive.viewmodel.category.SareeCategoryDataRepository
 import aivastra.nice.interactive.viewmodel.category.SareecategoryDataViewModel
 import android.app.AlertDialog
-import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.os.Bundle
 import android.provider.Settings
 import android.text.InputType
 import android.view.MotionEvent
+import androidx.credentials.CredentialManager
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialException
 import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
+import com.example.facewixlatest.ApiUtils.ApiErrorPresenter
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 class LoginActivity : BaseActivity() {
 
@@ -39,6 +49,9 @@ class LoginActivity : BaseActivity() {
             if (checkValidation()) {
                 callLoginAPI()
             }
+        }
+        binding.btnGoogleSignIn.setOnClickListener {
+            startGoogleSignIn()
         }
         setupPasswordToggle()
     }
@@ -110,11 +123,7 @@ class LoginActivity : BaseActivity() {
             if (userLoginDataModel != null) {
                 ViewControll.showMessage(this, userLoginDataModel.message)
                 PrefsManager.saveLoginUserData(userLoginDataModel)
-                val intent = Intent(this, HomeDressesForActivity::class.java)
-                intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                startActivity(intent)
-                finish()
-                overridePendingTransition(R.anim.fade_and_scale_in, R.anim.fade_and_scale_out)
+                routeAfterLogin()
             }
         })
         sareeCatViewmodel.deviceLimitReached.observe(this, Observer { state ->
@@ -132,6 +141,70 @@ class LoginActivity : BaseActivity() {
             }
         })
     }
+
+    private fun startGoogleSignIn() {
+        val clientId = BuildConfig.GOOGLE_WEB_CLIENT_ID
+        if (clientId.isBlank()) {
+            ViewControll.showMessage(this, "Google sign-in is not configured for this build.")
+            return
+        }
+
+        val option = GetGoogleIdOption.Builder()
+            .setServerClientId(clientId)
+            .setFilterByAuthorizedAccounts(false)
+            .build()
+        val request = GetCredentialRequest.Builder()
+            .addCredentialOption(option)
+            .build()
+
+        lifecycleScope.launch {
+            var loaderShown = false
+            try {
+                val result = CredentialManager.create(this@LoginActivity)
+                    .getCredential(this@LoginActivity, request)
+                val idToken = GoogleIdTokenCredential
+                    .createFrom(result.credential.data)
+                    .idToken
+                val deviceId = Settings.Secure
+                    .getString(contentResolver, Settings.Secure.ANDROID_ID)
+                    .orEmpty()
+
+                LoaderManager.show(this@LoginActivity, findViewById(android.R.id.content), false)
+                loaderShown = true
+                val login = SareeCategoryDataRepository.loginWithGoogle(idToken, deviceId)
+                PrefsManager.saveLoginUserData(login)
+                routeAfterLogin()
+            } catch (_: GetCredentialException) {
+                if (canShowUi()) {
+                    ViewControll.showMessage(this@LoginActivity, "Google sign-in was cancelled.")
+                }
+            } catch (error: DeviceLimitReachedException) {
+                if (canShowUi()) {
+                    showDeviceLimitDialog(
+                        DeviceLimitState(error.message.orEmpty(), error.forceLogoutToken),
+                        Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID).orEmpty(),
+                    )
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                if (canShowUi()) {
+                    val (title, message) = ApiErrorPresenter.present(error)
+                    ViewControll.showSnackErrorMsg(this@LoginActivity, "$title: $message")
+                }
+            } finally {
+                if (loaderShown) LoaderManager.remove(this@LoginActivity)
+            }
+        }
+    }
+
+    private fun routeAfterLogin() {
+        if (canShowUi()) {
+            MerchantStatusNavigator.route(this, SareeCategoryDataRepository.lastMerchantStatus)
+        }
+    }
+
+    private fun canShowUi(): Boolean = !isFinishing && !isDestroyed
 
     private fun showDeviceLimitDialog(state: DeviceLimitState, deviceId: String) {
         AlertDialog.Builder(this)

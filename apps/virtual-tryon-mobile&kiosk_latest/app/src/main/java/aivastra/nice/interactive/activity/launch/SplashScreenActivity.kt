@@ -7,14 +7,16 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import aivastra.nice.interactive.Loader.LoaderManager
 import aivastra.nice.interactive.R
-import aivastra.nice.interactive.activity.Home.HomeDressesForActivity
+import aivastra.nice.interactive.activity.auth.MerchantStatusNavigator
 import aivastra.nice.interactive.activity.auth.LoginActivity
 import aivastra.nice.interactive.databinding.ActivitySplashScreenBinding
 import aivastra.nice.interactive.databinding.PopupProfileMenuBinding
 import aivastra.nice.interactive.dialog.ShowAppAlertDialog
 import aivastra.nice.interactive.utils.PrefsManager
 import aivastra.nice.interactive.utils.ViewControll
+import aivastra.nice.interactive.viewmodel.category.SareeCategoryDataRepository
 import aivastra.nice.interactive.viewmodel.category.SareecategoryDataViewModel
+import android.app.AlertDialog
 import android.content.Intent
 import android.provider.Settings
 import android.util.Log
@@ -26,8 +28,12 @@ import android.widget.PopupWindow
 import android.widget.Toast
 import androidx.core.view.isVisible
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
 import com.bumptech.glide.Glide
 import com.example.facewixlatest.ApiUtils.APIConstant
+import com.example.facewixlatest.ApiUtils.ApiErrorPresenter
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 class SplashScreenActivity : AppCompatActivity() {
 
@@ -41,23 +47,58 @@ class SplashScreenActivity : AppCompatActivity() {
         setContentView(binding.root)
         sareeCatViewmodel = ViewModelProvider(this).get(SareecategoryDataViewModel::class.java)
         binding.btnTryNow.setOnClickListener {
-            if(PrefsManager.isUserExist){
-                val intent = Intent(this@SplashScreenActivity, HomeDressesForActivity::class.java)
-                intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                startActivity(intent)
-                overridePendingTransition(R.anim.fade_and_scale_in, R.anim.fade_and_scale_out)
-            }else{
+            if (PrefsManager.isUserExist) {
+                resolveRestoredSession()
+            } else {
                 val intent = Intent(this@SplashScreenActivity, LoginActivity::class.java)
                 intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
                 startActivity(intent)
                 overridePendingTransition(R.anim.fade_and_scale_in, R.anim.fade_and_scale_out)
-//                callAppLoginAPI()
             }
         }
         binding.imgProfile.setOnClickListener {
             showProfileMenu(it)
         }
     }
+
+    private fun resolveRestoredSession() {
+        if (!canShowUi()) return
+        binding.btnTryNow.isEnabled = false
+        LoaderManager.show(this, findViewById(android.R.id.content), false)
+        lifecycleScope.launch {
+            try {
+                val state = SareeCategoryDataRepository.fetchOnboardingState()
+                if (canShowUi()) {
+                    MerchantStatusNavigator.route(
+                        this@SplashScreenActivity,
+                        state.getString("merchantStatus"),
+                    )
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                if (canShowUi()) showStatusLoadError(error)
+            } finally {
+                LoaderManager.remove(this@SplashScreenActivity)
+                if (canShowUi()) binding.btnTryNow.isEnabled = true
+            }
+        }
+    }
+
+    private fun showStatusLoadError(error: Exception) {
+        val (title, message) = ApiErrorPresenter.present(error)
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage("Couldn't verify your account status. $message")
+            .setNegativeButton("Log out") { _, _ ->
+                PrefsManager.clearKioskSession()
+                recreate()
+            }
+            .setPositiveButton("Retry") { _, _ -> resolveRestoredSession() }
+            .show()
+    }
+
+    private fun canShowUi(): Boolean = !isFinishing && !isDestroyed
 
     private fun showProfileMenu(anchor: View) {
         val popupBinding = PopupProfileMenuBinding.inflate(layoutInflater)

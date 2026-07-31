@@ -109,6 +109,22 @@
                 android:src="@drawable/btn_login"
                 android:id="@+id/btn_login"/>
 
+            <TextView
+                android:id="@+id/btn_google_sign_in"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginHorizontal="@dimen/_30sdp"
+                android:layout_marginTop="@dimen/_5sdp"
+                android:background="@drawable/app_background_corner"
+                android:fontFamily="@font/popins_regular"
+                android:gravity="center"
+                android:minHeight="@dimen/_40sdp"
+                android:paddingHorizontal="@dimen/_15sdp"
+                android:paddingVertical="@dimen/_8sdp"
+                android:text="Continue with Google"
+                android:textColor="@color/purple"
+                android:textSize="@dimen/_12sdp" />
+
         </LinearLayout>
 
 
