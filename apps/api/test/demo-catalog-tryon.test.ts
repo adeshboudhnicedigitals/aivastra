@@ -154,6 +154,24 @@ describe('POST /v1/merchant/tryon/jobs with a demo item', () => {
     expect(res.statusCode).toBe(404);
   });
 
+  it('404s an assigned demo item when merchant demoData is disabled', async () => {
+    const merchant = await createTestMerchant(app, { demoData: false });
+    const token = await merchantToken(merchant.userId);
+    const demo = await seedDemoItem();
+    await app.db
+      .insert(schema.demoCatalogAssignments)
+      .values({ setId: demo.setId, merchantId: merchant.merchantId });
+
+    const customerPhotoKey = await uploadCustomerPhoto(token);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/tryon/jobs',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { merchantCatalogItemId: demo.itemId, customerPhotoKey },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
   it('403s an inactive demo item', async () => {
     const merchant = await createTestMerchant(app);
     const token = await merchantToken(merchant.userId);

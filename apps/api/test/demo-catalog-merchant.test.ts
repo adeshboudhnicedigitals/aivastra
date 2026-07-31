@@ -135,6 +135,16 @@ describe('merchant catalog reads with demo data', () => {
     expect((await get('/v1/merchant/catalog', token)).json().items).toEqual([]);
   });
 
+  it('hides assigned demo rows when merchant demoData is disabled', async () => {
+    const merchant = await createTestMerchant(app, { demoData: false });
+    const token = await merchantToken(merchant.userId);
+    const demo = await seedDemoSet();
+    await assign(demo.setId, merchant.merchantId);
+
+    expect((await get('/v1/merchant/catalog/subcategories', token)).json().items).toEqual([]);
+    expect((await get('/v1/merchant/catalog?includeDemo=true', token)).json().items).toEqual([]);
+  });
+
   it('drops demo rows again when the set is unassigned', async () => {
     const merchant = await createTestMerchant(app);
     const token = await merchantToken(merchant.userId);

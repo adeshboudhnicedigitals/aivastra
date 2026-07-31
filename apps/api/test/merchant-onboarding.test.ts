@@ -139,6 +139,7 @@ describe('POST /v1/merchant/onboarding', () => {
       businessAddress: 'Not Provided',
       phone: '9876543210',
       isActive: true,
+      demoData: true,
       signupSource: 'android_google',
     });
 
@@ -395,5 +396,44 @@ describe('GET /admin/users signupSource', () => {
     expect(rows.find((row) => row.id === seeded.userId)?.signupSource).toBe('admin');
     expect(rows.find((row) => row.id === selfServe.userId)?.signupSource).toBe('android_google');
     expect(rows.find((row) => row.id === nonMerchant.userId)?.signupSource).toBeNull();
+  });
+});
+
+describe('merchant demoData defaults and admin toggle', () => {
+  it('defaults admin-created merchants to demoData=true and lets admins disable it', async () => {
+    const adminHeaders = await adminAuthHeader(app, 'SUPER_ADMIN');
+    const email = `merchant-demo-data-${randomUUID()}@example.com`;
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/admin/merchants',
+      headers: adminHeaders,
+      payload: {
+        email,
+        companyName: 'Demo Data Merchant',
+        contactName: 'Demo Owner',
+        phone: '9000000007',
+        businessAddress: '7 Demo Street',
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const merchantId = created.json().id as string;
+
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/admin/merchants/${merchantId}`,
+      headers: adminHeaders,
+    });
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json().demoData).toBe(true);
+
+    const patched = await app.inject({
+      method: 'PATCH',
+      url: `/admin/merchants/${merchantId}`,
+      headers: adminHeaders,
+      payload: { demoData: false },
+    });
+    expect(patched.statusCode).toBe(200);
+    expect(patched.json().demoData).toBe(false);
   });
 });
