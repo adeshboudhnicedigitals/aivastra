@@ -162,4 +162,55 @@ describe('shopify retention sweeper', () => {
     expect(after.thumbnailKey).toBe(thumbnailKey);
     await expect(app.storage.headObject(resultKey)).rejects.toThrow();
   });
+
+  it('keeps a row in scope across passes when one key clears and its sibling keeps failing', async () => {
+    const store = await seedStoreWithRetention({ resultDays: 30 });
+    const resultKey = `shopify-results/${store.id}/old2/result`;
+    const thumbnailKey = `shopify-results/${store.id}/old2/thumbnail`;
+    await app.storage.putObject(resultKey, Buffer.from('x'), 'image/jpeg');
+    await app.storage.putObject(thumbnailKey, Buffer.from('x'), 'image/jpeg');
+
+    const [job] = await app.db
+      .insert(schema.jobs)
+      .values({
+        status: 'COMPLETED',
+        shopifyStoreId: store.id,
+        creditsCharged: 1,
+        source: 'shopify',
+        createdAt: daysAgo(100),
+      })
+      .returning();
+    await app.db.insert(schema.jobOutputs).values({
+      jobId: job.id,
+      resultKey,
+      thumbnailKey,
+    });
+
+    // thumbnailKey's delete fails on every call (permanent, not just
+    // transient), so pass 1 should clear resultKey but leave thumbnailKey.
+    // The bug this guards against: once resultKey goes null, a WHERE clause
+    // that only checks isNotNull(resultKey) would drop the row from every
+    // future pass, silently orphaning the still-populated thumbnailKey.
+    const alwaysFailsThumbnail: typeof app.storage = {
+      ...app.storage,
+      deleteObject: async (key: string) => {
+        if (key === thumbnailKey) throw new Error('permanent simulated failure');
+        return app.storage.deleteObject(key);
+      },
+    };
+
+    await runShopifyRetention(app.db, alwaysFailsThumbnail, app.log);
+    await runShopifyRetention(app.db, alwaysFailsThumbnail, app.log);
+
+    const [after] = await app.db
+      .select()
+      .from(schema.jobOutputs)
+      .where(eq(schema.jobOutputs.jobId, job.id));
+    expect(after).toBeDefined();
+    expect(after.resultKey).toBeNull();
+    // Still non-null after a SECOND pass proves the row was still selected
+    // by the WHERE clause and its delete retried, not silently dropped.
+    expect(after.thumbnailKey).toBe(thumbnailKey);
+    await expect(app.storage.headObject(thumbnailKey)).resolves.toBeDefined();
+  });
 });

@@ -1,7 +1,7 @@
 import { type DB, schema } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
 import type { StorageProvider } from '@aivastra/storage';
-import { and, eq, isNotNull, lt } from 'drizzle-orm';
+import { and, eq, isNotNull, lt, or } from 'drizzle-orm';
 
 // Bounded so one store with a long backlog cannot monopolise a pass. The
 // sweeper runs hourly; anything left over is picked up next time.
@@ -79,7 +79,11 @@ export async function runShopifyRetention(
         .where(
           and(
             eq(schema.jobs.shopifyStoreId, store.id),
-            isNotNull(schema.jobOutputs.resultKey),
+            // Either key alone still makes this row a retry candidate: a row
+            // whose resultKey delete succeeded but whose thumbnailKey delete
+            // failed must stay in scope on the next pass, or the orphaned
+            // thumbnail object and its stale reference are never retried.
+            or(isNotNull(schema.jobOutputs.resultKey), isNotNull(schema.jobOutputs.thumbnailKey)),
             lt(schema.jobs.createdAt, daysAgo(retention.resultDays)),
           ),
         )
