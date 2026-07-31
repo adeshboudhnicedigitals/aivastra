@@ -54,8 +54,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import coil.ImageLoader
 import coil.compose.AsyncImage
+import coil.imageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import aivastra.nice.interactive.R
@@ -63,6 +63,7 @@ import aivastra.nice.interactive.ui.theme.AiVastraTheme
 import aivastra.nice.interactive.ui.theme.PoppinsFamily
 import aivastra.nice.interactive.utils.sdp
 import aivastra.nice.interactive.utils.ssp
+import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -80,6 +81,7 @@ fun TryOnResultPage(
     val isPreview = LocalInspectionMode.current
     val statusBarH: Dp = (if (isPreview) sdp(R.dimen._28sdp) else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()) + sdp(R.dimen._10sdp)
     val navBarH: Dp = if (isPreview) 14.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val coroutineScope = rememberCoroutineScope()
 
     BackHandler(onBack = onBack)
 
@@ -197,7 +199,7 @@ fun TryOnResultPage(
                             )
                         )
                         .clickable {
-                            downloadResultImage(context, resultImageUrl)
+                            downloadResultImage(context, resultImageUrl, coroutineScope)
                             onDownload()
                         },
                     contentAlignment = Alignment.Center
@@ -242,16 +244,17 @@ private fun DownloadIcon(tint: Color, modifier: Modifier = Modifier) {
     }
 }
 
-private fun downloadResultImage(context: Context, imageUrl: String) {
-    val scope = CoroutineScope(Dispatchers.IO)
-    scope.launch {
+private fun downloadResultImage(context: Context, imageUrl: String, scope: CoroutineScope) {
+    scope.launch(Dispatchers.IO) {
         try {
-            val loader = ImageLoader(context)
+            // Reuse Coil's shared singleton loader (already warm from the AsyncImage above,
+            // with its own memory/disk cache) instead of spinning up a brand new ImageLoader —
+            // and its own OkHttpClient/caches — on every tap.
             val request = ImageRequest.Builder(context)
                 .data(imageUrl)
                 .allowHardware(false)
                 .build()
-            val result = (loader.execute(request) as? SuccessResult)?.drawable
+            val result = (context.imageLoader.execute(request) as? SuccessResult)?.drawable
             val bitmap = (result as? BitmapDrawable)?.bitmap
 
             if (bitmap != null) {

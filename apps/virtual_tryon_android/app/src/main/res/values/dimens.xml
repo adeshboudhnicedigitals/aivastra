@@ -114,4 +114,9 @@
     <dimen name="_action_button_height">50dp</dimen>
     <dimen name="_review_action_button_height">48dp</dimen>
     <dimen name="_bottom_action_button_height">52dp</dimen>
+
+    <!-- Camera view bottom-bar control icons (Timer / Settings / Flip) -->
+    <dimen name="_camera_control_button_size">44dp</dimen>
+    <dimen name="_camera_control_icon_size">30dp</dimen>
+    <dimen name="_camera_control_timer_icon_size">22dp</dimen>
 </resources>

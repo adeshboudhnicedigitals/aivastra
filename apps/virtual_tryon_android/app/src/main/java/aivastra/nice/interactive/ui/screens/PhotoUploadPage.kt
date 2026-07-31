@@ -67,7 +67,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -83,6 +82,8 @@ import aivastra.nice.interactive.camera.PhotoEditView
 import aivastra.nice.interactive.ui.components.GradientButton
 import aivastra.nice.interactive.ui.theme.AiVastraTheme
 import aivastra.nice.interactive.ui.components.AppHeaderLogo
+import aivastra.nice.interactive.ui.components.AppToast
+import aivastra.nice.interactive.ui.components.ToastType
 import aivastra.nice.interactive.ui.theme.PoppinsFamily
 import aivastra.nice.interactive.utils.sdp
 import aivastra.nice.interactive.utils.ssp
@@ -424,20 +425,25 @@ fun PhotoUploadPage(
 
                                 Spacer(Modifier.height(sdp(R.dimen._24sdp)))
                                 PrivacyNotice()
-
-                                uiState.errorMessage?.let {
-                                    Spacer(Modifier.height(sdp(R.dimen._12sdp)))
-                                    Text(
-                                        text = it,
-                                        color = Color(0xFFFF7777),
-                                        fontSize = ssp(R.dimen._9ssp),
-                                        fontFamily = PoppinsFamily,
-                                        textAlign = TextAlign.Center,
-                                        modifier = Modifier.fillMaxWidth().padding(bottom = sdp(R.dimen._10sdp))
-                                    )
-                                }
                             }
                         }
+                    }
+
+                    // ── Snackbar overlay for upload/session API errors ──────────
+                    val toastBottomInset = if (isPreview) 14.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = sdp(R.dimen._12sdp) + toastBottomInset)
+                    ) {
+                        AppToast(
+                            visible = uiState.errorMessage != null,
+                            message = uiState.errorMessage.orEmpty(),
+                            type = ToastType.ERROR,
+                            autoDismissMs = 4000L,
+                            onDismiss = { viewModel.clearError() }
+                        )
                     }
 
                     if (showSourceDialog) {

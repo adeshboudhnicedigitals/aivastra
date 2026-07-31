@@ -5,6 +5,14 @@ import android.media.MediaPlayer
 import android.net.Uri
 import android.widget.VideoView
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -17,6 +25,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -38,6 +47,7 @@ import androidx.compose.material3.Text
 import aivastra.nice.interactive.ui.components.AppDialog
 import aivastra.nice.interactive.ui.components.AppHeaderLogo
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,6 +56,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import android.util.Log
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.layout.ContentScale
@@ -62,6 +73,7 @@ import aivastra.nice.interactive.R
 import aivastra.nice.interactive.ui.theme.PoppinsFamily
 import aivastra.nice.interactive.utils.sdp
 import aivastra.nice.interactive.utils.ssp
+import kotlinx.coroutines.delay
 
 /**
  * Custom VideoView subclass that forces layout measurement to occupy 100% of available parent container,
@@ -74,6 +86,16 @@ private class FullScreenVideoView(context: Context) : VideoView(context) {
         setMeasuredDimension(width, height)
     }
 }
+
+// Rotates under the headline while the AI generation call is in flight, so the wait feels
+// active rather than stalled on one static line.
+private val processingStatusMessages = listOf(
+    "Analyzing your photo…",
+    "Matching the garment drape…",
+    "Blending fabric textures…",
+    "Applying AI styling…",
+    "Adding finishing touches…"
+)
 
 @Composable
 fun TryOnProcessingPage(
@@ -121,6 +143,26 @@ fun TryOnProcessingContent(
 
     var hasVideoError by remember { mutableStateOf(false) }
 
+    // Fake-but-reassuring progress: climbs fast at first, then eases off and caps below 100%
+    // while still generating, so it never looks "stuck" — real completion navigates away
+    // before it would matter.
+    var messageIndex by remember { mutableIntStateOf(0) }
+    LaunchedEffect(errorMessage) {
+        if (errorMessage != null) return@LaunchedEffect
+        while (true) {
+            delay(2600)
+            messageIndex = (messageIndex + 1) % processingStatusMessages.size
+        }
+    }
+    val targetProgress = remember(elapsedSeconds) {
+        (1f - 1f / (1f + elapsedSeconds / 12f)).times(0.92f).coerceIn(0.06f, 0.92f)
+    }
+    val animatedProgress by animateFloatAsState(
+        targetValue = targetProgress,
+        animationSpec = tween(durationMillis = 900),
+        label = "tryOnProgress"
+    )
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -158,6 +200,14 @@ fun TryOnProcessingContent(
                 modifier = Modifier.fillMaxSize()
             )
         }
+
+        // ── Layer 1b: Warm Amber Wash — ties the video into the app's gold theme instead
+        // of sitting neutral/dark against it ─────────────────────────────────────
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFFE7A52C).copy(alpha = 0.12f))
+        )
 
         // ── Layer 2: Top & Bottom Gradient Scrims for Readability ───────────────
         // Top Gradient Scrim
@@ -227,22 +277,13 @@ fun TryOnProcessingContent(
                 // ── Headline & Subtitle ─────────────────────────────────────
                 Text(
                     "Generating Your AI Try-On...",
-                    color = Color.White,
-                    fontSize = ssp(R.dimen._18ssp),
+                    color = Color(0xB3F3C65E),
+                    fontSize = ssp(R.dimen._20ssp),
                     fontWeight = FontWeight.Bold,
                     fontFamily = PoppinsFamily,
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(Modifier.height(sdp(R.dimen._4sdp)))
-
-                Text(
-                    "Please wait while our AI creates your perfect drape",
-                    color = Color.White.copy(alpha = 0.85f),
-                    fontSize = ssp(R.dimen._12ssp),
-                    fontFamily = PoppinsFamily,
-                    textAlign = TextAlign.Center
-                )
             }
 
             // Cancel Button & Error Action Container
@@ -252,9 +293,75 @@ fun TryOnProcessingContent(
                     .widthIn(max = sdp(R.dimen._screen_container_width)),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Glassmorphic Cancel Generation Button on Video Overlay
-                // (hidden once the error dialog is showing to avoid a duplicate cancel action)
+                // Rotating status text, progress bar, and Cancel Generation button —
+                // all hidden together once the error dialog takes over.
                 if (errorMessage == null) {
+                    // ── Rotating status line — keeps the wait feeling active ────
+                    AnimatedContent(
+                        targetState = messageIndex,
+                        transitionSpec = {
+                            (fadeIn(tween(400)) + slideInVertically(tween(400)) { it / 3 }) togetherWith
+                                (fadeOut(tween(250)) + slideOutVertically(tween(250)) { -it / 3 })
+                        },
+                        contentAlignment = Alignment.Center,
+                        label = "processingStatusMessage"
+                    ) { idx ->
+                        Text(
+                            processingStatusMessages[idx],
+                            color = Color.White.copy(alpha = 0.85f),
+                            fontSize = ssp(R.dimen._15ssp),
+                            fontWeight = FontWeight.Medium,
+                            fontFamily = PoppinsFamily,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+
+                    Spacer(Modifier.height(sdp(R.dimen._12sdp)))
+
+                    // ── Progress Bar (gold gradient, matches app theme) ─────────
+                    Row(
+                        modifier = Modifier.fillMaxWidth(0.7f),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            "Processing",
+                            color = Color.White.copy(alpha = 0.7f),
+                            fontSize = ssp(R.dimen._11ssp),
+                            fontFamily = PoppinsFamily,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            "${(animatedProgress * 100).toInt()}%",
+                            color = Color(0xFFE7A52C),
+                            fontSize = ssp(R.dimen._11ssp),
+                            fontFamily = PoppinsFamily,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Spacer(Modifier.height(sdp(R.dimen._6sdp)))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(0.7f)
+                            .height(sdp(R.dimen._6sdp))
+                            .clip(RoundedCornerShape(50))
+                            .background(Color.White.copy(alpha = 0.18f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(animatedProgress)
+                                .clip(RoundedCornerShape(50))
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(Color(0xFFE7A52C), Color(0xFF9B5100))
+                                    )
+                                )
+                        )
+                    }
+
+                    Spacer(Modifier.height(sdp(R.dimen._18sdp)))
+
+                    // Glassmorphic Cancel Generation Button on Video Overlay
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(sdp(R.dimen._20sdp)))
@@ -297,11 +404,12 @@ fun TryOnProcessingContent(
 
         // ── Error Dialog: shown on any generation / API failure ────────────────
         errorMessage?.let { msg ->
-            val isSessionExpired = msg.contains("expired", ignoreCase = true) || msg.contains("not owned", ignoreCase = true)
+            val cleanMsg = aivastra.nice.interactive.utils.ErrorParser.parseErrorMessage(msg, msg)
+            val isSessionExpired = cleanMsg.contains("expired", ignoreCase = true) || cleanMsg.contains("not owned", ignoreCase = true)
             val displayText = if (isSessionExpired) {
                 "Your photo upload session expired. Please re-upload your photo to continue."
             } else {
-                msg
+                cleanMsg
             }
             AppDialog(
                 title = "Try-On Failed",
