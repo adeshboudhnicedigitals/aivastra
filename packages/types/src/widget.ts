@@ -412,6 +412,7 @@ export const AdminMerchantUpdateBody = z
     contactName: z.string().min(1).max(120).optional(),
     phone: z.string().min(1).max(40).optional(),
     businessAddress: z.string().min(1).optional(),
+    demoData: z.boolean().optional(),
     webhookUrl: z.string().url().nullable().optional(),
     webhookSecret: z.string().max(512).nullable().optional(),
     kioskEnabled: z.boolean().optional(),
