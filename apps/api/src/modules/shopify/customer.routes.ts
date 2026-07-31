@@ -6,15 +6,61 @@ import {
   ShopifyCustomerPresignRequest,
 } from '@aivastra/types';
 import { and, eq } from 'drizzle-orm';
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from 'fastify';
 import type { Redis } from 'ioredis';
 import { AppError } from '../../lib/errors.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
-import { atomicDeduct, refund } from '../credits/ledger.js';
+import { atomicDeduct, refundAndMarkFailed } from '../credits/ledger.js';
 import { mintAccountLinkCode } from './customer-auth.js';
-import { checkShopperLimits, reserveStoreDailySlot } from './limits.js';
+import {
+  checkShopperLimits,
+  lockAndRecheckShopperLimits,
+  reserveStoreDailySlot,
+  ShopperLimitRaceRefusal,
+} from './limits.js';
 import { resolveShopper } from './shopper.js';
+
+const SLOT_RELEASE_MAX_ATTEMPTS = 3;
+const SLOT_RELEASE_RETRY_DELAY_MS = 100;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Release a reserved store-daily-cap slot with bounded retries.
+ *
+ * A transient DECR failure must not permanently leak a reserved slot — the
+ * 48h key expiry is the only other backstop, and that's a full day-plus of
+ * lost capacity for one blip. `slot.release()` is already idempotent (see
+ * `reserveStoreDailySlot`), so retrying it after a failure is always safe:
+ * we're never at risk of double-releasing, only of giving up too early.
+ * Exhausting retries is logged and swallowed rather than thrown — a release
+ * failure must never mask the response the caller was already producing
+ * (a refusal or a compensated failure).
+ */
+async function releaseSlotWithRetry(
+  slot: { release: () => Promise<void> },
+  log: FastifyBaseLogger,
+  jobId?: string,
+): Promise<void> {
+  for (let attempt = 1; attempt <= SLOT_RELEASE_MAX_ATTEMPTS; attempt++) {
+    try {
+      await slot.release();
+      return;
+    } catch (err) {
+      if (attempt === SLOT_RELEASE_MAX_ATTEMPTS) {
+        log.error(
+          { err, jobId, attempts: attempt },
+          'shopify store daily slot release failed after retries — slot will remain reserved until the 48h key expiry',
+        );
+        return;
+      }
+      await sleep(SLOT_RELEASE_RETRY_DELAY_MS * attempt);
+    }
+  }
+}
 
 // biome-ignore lint/suspicious/noExplicitAny: lazy import avoids circular dependency with service.js
 let _enqueueSync: ((...args: any[]) => Promise<void>) | null = null;
@@ -274,7 +320,11 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
           shopper = { ...shopper, emailConsent: true };
         }
 
-        const refusal = await checkShopperLimits(app, store, shopper);
+        // Fast path only — see lockAndRecheckShopperLimits for why this alone
+        // does not close the per-shopper race. This just avoids reserving a
+        // store slot and opening a transaction for a request that's already
+        // over quota with no possibility of a concurrent winner.
+        const refusal = await checkShopperLimits(app.db, store, shopper);
         if (refusal) return reply.code(202).send(refusal);
       }
 
@@ -290,6 +340,15 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
 
       try {
         await app.db.transaction(async (tx) => {
+          if (shopper) {
+            // Serializes this shopper's requests: acquires a transaction-scoped
+            // advisory lock on (store, counting identity) and rechecks the
+            // limit under it, immediately before the job insert below. Throws
+            // ShopperLimitRaceRefusal (caught below, rolling this transaction
+            // back) if a concurrent request already consumed the slot between
+            // the fast-path check above and this recheck.
+            await lockAndRecheckShopperLimits(tx as never, store, shopper);
+          }
           // biome-ignore lint/suspicious/noExplicitAny: Drizzle infers non-null for nullable FKs. The plan explicitly notes this is the intended pattern.
           await (tx.insert(schema.jobs).values as any)({
             id: jobId,
@@ -339,20 +398,35 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
           'WIDGET_TRYON',
         );
       } catch (err) {
+        if (err instanceof ShopperLimitRaceRefusal) {
+          // Transaction already rolled back — no job, no deducted credit.
+          // Only the store slot (reserved before the transaction) needs
+          // releasing.
+          await releaseSlotWithRetry(slot, app.log);
+          return reply.code(202).send(err.refusal);
+        }
+
         try {
           if (jobCommitted) {
             app.log.error(
               { err, jobId },
               'redis enqueue preparation failed — job will be refunded',
             );
-            await refund(app.db, userId, jobCost, jobId, 'REFUND_ENQUEUE_FAIL');
-            await app.db
-              .update(schema.jobs)
-              .set({ status: 'FAILED', errorCode: 'ENQUEUE_FAIL' })
-              .where(eq(schema.jobs.id, jobId));
+            // One atomic, idempotent transaction: the refund, its ledger
+            // entry, and the FAILED transition either all land or none do —
+            // see refundAndMarkFailed for why the old two-step version could
+            // leave a partially-compensated job after a crash.
+            await refundAndMarkFailed(
+              app.db,
+              userId,
+              jobCost,
+              jobId,
+              'REFUND_ENQUEUE_FAIL',
+              'ENQUEUE_FAIL',
+            );
           }
         } finally {
-          await slot.release();
+          await releaseSlotWithRetry(slot, app.log, jobId);
         }
 
         if (!jobCommitted) throw err;
