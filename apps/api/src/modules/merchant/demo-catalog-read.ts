@@ -1,3 +1,4 @@
+import type { DB } from '@aivastra/db';
 import { schema } from '@aivastra/db';
 import { and, asc, count, desc, eq, ilike, inArray, or, type SQL } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
@@ -15,6 +16,30 @@ export const IncludeDemoQuery = z
 
 type DemoSubcategoryRow = typeof schema.demoCatalogSubcategories.$inferSelect;
 type DemoItemRow = typeof schema.demoCatalogItems.$inferSelect;
+
+/**
+ * Only one demo set is ever used in practice (see apps/admin-web's Kiosk Demo
+ * Data page), so there is no per-set assignment UI — demoData=true is the only
+ * signal an admin gives. Call this everywhere a merchant ends up with
+ * demoData=true (creation or PATCH) so demoCatalogAssignments — the actual
+ * authorization check in assignedSetFilter/resolve-tryon-garment.ts — has a
+ * row to match against.
+ */
+export async function assignMerchantToActiveDemoSets(
+  db: DB,
+  merchantId: string,
+  assignedByUserId: string | null,
+): Promise<void> {
+  const activeSets = await db
+    .select({ id: schema.demoCatalogSets.id })
+    .from(schema.demoCatalogSets)
+    .where(eq(schema.demoCatalogSets.isActive, true));
+  if (activeSets.length === 0) return;
+  await db
+    .insert(schema.demoCatalogAssignments)
+    .values(activeSets.map((set) => ({ setId: set.id, merchantId, assignedByUserId })))
+    .onConflictDoNothing();
+}
 
 /**
  * Subquery-free base filter: only sets assigned to this merchant and still

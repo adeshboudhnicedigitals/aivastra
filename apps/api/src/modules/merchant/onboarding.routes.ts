@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { assignMerchantToActiveDemoSets } from './demo-catalog-read.js';
 import { resolveMerchantStatus } from './status.js';
 
 function fallbackContactName(displayName: string | null, email: string | null): string {
@@ -94,6 +95,8 @@ export async function merchantOnboardingRoutes(app: FastifyInstance) {
 
         return created.id;
       });
+
+      await assignMerchantToActiveDemoSets(app.db, merchantId, req.userId);
 
       app.log.info(
         { userId: req.userId, merchantId, signupSource: 'android_google' },
