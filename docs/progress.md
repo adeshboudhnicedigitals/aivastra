@@ -1,3 +1,40 @@
+## 2026-07-31 — Shopify shopper limits: route enforcement (Task 5)
+
+### Done
+- Added test-first enforcement for the Shopify store daily cap, per-shopper cap across linked identity
+  rows, and email gate. Missing or `null` limit settings remain unenforced, while limit refusals return
+  HTTP `202` with exact reason values and non-disclosing store-cap copy.
+- Resolves and links the persisted shopper on accepted jobs, records supplied email consent, and
+  keeps the store cap active when legacy callers omit `clientId`.
+- Added an atomic Redis store-day reservation with a 48-hour expiry. Rejections and downstream
+  failures release the slot; expiry setup failures roll back the increment; release is idempotent and
+  remains retryable if Redis rejects the first decrement.
+- Kept job insertion, inputs, and credit deduction in one Postgres transaction. Redis upload-marker
+  or XADD failures after commit now use the repository's established compensation contract: refund
+  credits, mark the job `FAILED` / `ENQUEUE_FAIL`, release quota, and return HTTP `503`.
+- Excluded compensated `FAILED` jobs from shopper usage counts, so a same-shopper retry does not lose
+  per-shopper quota after an enqueue failure. The focused regression was RED at HTTP `202` before the
+  status filter and GREEN at the deployed success HTTP `201` afterward.
+- Strict TDD evidence: the first focused run was RED (1 passed / 5 failed); separate RED tests exposed
+  missing XADD compensation, upload-marker compensation, expiry rollback, and retryable release before
+  each implementation change. Final focused limits suite passes 9/9.
+- Final verification: existing Shopify customer integration 15/15, API typecheck exit 0, scoped Biome
+  clean (3 TypeScript files), and `git diff --check` clean.
+- Preserved both concurrent widget-design documentation commits: `819180e3` (design) and `139d858b`
+  (implementation plan). The latter is the current Task 5 review base; neither commit's files were
+  changed by Task 5.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- Resolved: successful job creation remains HTTP `201` (the deployed route contract), despite the task
+  brief's `200` sample; limit refusals use HTTP `202` as specified.
+- Resolved: after the RED enqueue test demonstrated that slot-only handling leaves a charged `QUEUED`
+  job, explicit approval was given to use refund + `FAILED` / `ENQUEUE_FAIL` + HTTP `503` compensation.
+- Operational caveat: as with the design's Redis reservation approach, a process crash between slot
+  reservation and cleanup can temporarily fail closed until the 48-hour key expiry.
+
 ## 2026-07-31 — Shopify shopper limits: settings PATCH endpoint (Task 4)
 
 ### Done
