@@ -11,8 +11,10 @@ import type { Redis } from 'ioredis';
 import { AppError } from '../../lib/errors.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
-import { atomicDeduct } from '../credits/ledger.js';
+import { atomicDeduct, refund } from '../credits/ledger.js';
 import { mintAccountLinkCode } from './customer-auth.js';
+import { checkShopperLimits, reserveStoreDailySlot } from './limits.js';
+import { resolveShopper } from './shopper.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: lazy import avoids circular dependency with service.js
 let _enqueueSync: ((...args: any[]) => Promise<void>) | null = null;
@@ -180,9 +182,20 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
       const jobCost = await getTryonCreditCost(app);
       const userId = await requireStoreOwnerWithCredits(app, store, jobCost);
 
-      const { customerPhotoKey, shopifyProductId } = req.body as {
+      const {
+        customerPhotoKey,
+        shopifyProductId,
+        clientId,
+        shopifyCustomerId,
+        email,
+        emailConsent,
+      } = req.body as {
         customerPhotoKey: string;
         shopifyProductId: number;
+        clientId?: string;
+        shopifyCustomerId?: number;
+        email?: string;
+        emailConsent?: boolean;
       };
 
       if (!(await isCustomerPhotoOwnedByStore(app, storeId, customerPhotoKey))) {
@@ -244,55 +257,107 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
           .send({ message: 'This product is not available for try-on right now.' });
       }
 
+      // Deployed widget versions did not send clientId. They still receive the
+      // store cap, while shopper-specific limits wait until an identity exists.
+      let shopper: Awaited<ReturnType<typeof resolveShopper>> | null = null;
+      if (clientId) {
+        shopper = await resolveShopper(app, storeId, {
+          clientId,
+          shopifyCustomerId: shopifyCustomerId ?? null,
+          email: email ?? null,
+        });
+        if (email && emailConsent && !shopper.emailConsent) {
+          await app.db
+            .update(schema.shopifyShoppers)
+            .set({ emailConsent: true })
+            .where(eq(schema.shopifyShoppers.id, shopper.id));
+          shopper = { ...shopper, emailConsent: true };
+        }
+
+        const refusal = await checkShopperLimits(app, store, shopper);
+        if (refusal) return reply.code(202).send(refusal);
+      }
+
+      const slot = await reserveStoreDailySlot(app, store);
+      if (!slot.ok) {
+        return reply
+          .code(202)
+          .send({ reason: 'store_limit', message: "Try-on isn't available right now." });
+      }
+
       const jobId = randomUUID();
+      let jobCommitted = false;
 
-      await app.db.transaction(async (tx) => {
-        // biome-ignore lint/suspicious/noExplicitAny: Drizzle infers non-null for nullable FKs. The plan explicitly notes this is the intended pattern.
-        await (tx.insert(schema.jobs).values as any)({
-          id: jobId,
-          userId,
-          shopifyStoreId: storeId,
-          customerPhotoKey,
-          status: 'QUEUED',
-          creditsCharged: jobCost,
-          source: 'shopify',
+      try {
+        await app.db.transaction(async (tx) => {
+          // biome-ignore lint/suspicious/noExplicitAny: Drizzle infers non-null for nullable FKs. The plan explicitly notes this is the intended pattern.
+          await (tx.insert(schema.jobs).values as any)({
+            id: jobId,
+            userId,
+            shopifyStoreId: storeId,
+            shopifyShopperId: shopper?.id ?? null,
+            customerPhotoKey,
+            status: 'QUEUED',
+            creditsCharged: jobCost,
+            source: 'shopify',
+          });
+          // biome-ignore lint/suspicious/noExplicitAny: Drizzle infers non-null for nullable FKs. The plan explicitly notes this is the intended pattern.
+          await (tx.insert(schema.jobInputs).values as any)({
+            jobId,
+            upperGarmentKey: garment.r2Key,
+            faceId: null,
+            backgroundId: null,
+            poseId: null,
+            params: {
+              kind: 'shopify',
+              shopifyProductId,
+              // Resolved above and pinned here so the dispatcher trusts it rather
+              // than re-resolving — a default promoted mid-flight can't change the
+              // workflow under a job whose credits are already deducted.
+              workflowTemplateId,
+            },
+          });
+          await atomicDeduct(tx as never, userId, jobCost, jobId);
         });
-        // biome-ignore lint/suspicious/noExplicitAny: Drizzle infers non-null for nullable FKs. The plan explicitly notes this is the intended pattern.
-        await (tx.insert(schema.jobInputs).values as any)({
+        jobCommitted = true;
+
+        // Extends the presign-time ownership marker (originally EX 600, matching the
+        // presigned URL's own expiry) to 24h now that the photo has proven itself real
+        // and usable — this is what lets a returning shopper reuse it for a different
+        // product without re-uploading. Idempotent: re-extends on every reuse too.
+        await app.redis.set(`shopify:upload:${customerPhotoKey}`, storeId, 'EX', 86400);
+
+        await app.redis.xadd(
+          'jobs:normal',
+          'MAXLEN',
+          '~',
+          10000,
+          '*',
+          'jobId',
           jobId,
-          upperGarmentKey: garment.r2Key,
-          faceId: null,
-          backgroundId: null,
-          poseId: null,
-          params: {
-            kind: 'shopify',
-            shopifyProductId,
-            // Resolved above and pinned here so the dispatcher trusts it rather
-            // than re-resolving — a default promoted mid-flight can't change the
-            // workflow under a job whose credits are already deducted.
-            workflowTemplateId,
-          },
-        });
-        await atomicDeduct(tx as never, userId, jobCost, jobId);
-      });
+          'type',
+          'WIDGET_TRYON',
+        );
+      } catch (err) {
+        try {
+          if (jobCommitted) {
+            app.log.error(
+              { err, jobId },
+              'redis enqueue preparation failed — job will be refunded',
+            );
+            await refund(app.db, userId, jobCost, jobId, 'REFUND_ENQUEUE_FAIL');
+            await app.db
+              .update(schema.jobs)
+              .set({ status: 'FAILED', errorCode: 'ENQUEUE_FAIL' })
+              .where(eq(schema.jobs.id, jobId));
+          }
+        } finally {
+          await slot.release();
+        }
 
-      // Extends the presign-time ownership marker (originally EX 600, matching the
-      // presigned URL's own expiry) to 24h now that the photo has proven itself real
-      // and usable — this is what lets a returning shopper reuse it for a different
-      // product without re-uploading. Idempotent: re-extends on every reuse too.
-      await app.redis.set(`shopify:upload:${customerPhotoKey}`, storeId, 'EX', 86400);
-
-      await app.redis.xadd(
-        'jobs:normal',
-        'MAXLEN',
-        '~',
-        10000,
-        '*',
-        'jobId',
-        jobId,
-        'type',
-        'WIDGET_TRYON',
-      );
+        if (!jobCommitted) throw err;
+        throw new AppError('ENQUEUE_FAIL', 503, 'queue unavailable');
+      }
 
       return reply.code(201).send({ jobId });
     },
