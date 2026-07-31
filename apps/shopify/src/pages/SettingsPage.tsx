@@ -16,7 +16,12 @@ import {
 } from '@shopify/polaris';
 import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from '../lib/api';
-import type { ShopifyMe, ShopifyShopperListItem, ShopifyStoreLimits } from '../types';
+import type {
+  ShopifyMe,
+  ShopifyShopperListItem,
+  ShopifyStoreLimits,
+  ShopifyStoreRetention,
+} from '../types';
 
 const OFF = 'off';
 
@@ -41,6 +46,7 @@ function numericOptions(values: number[], offLabel: string, format: (n: number) 
 export default function SettingsPage() {
   const [selectedTab, setSelectedTab] = useState(0);
   const [limits, setLimits] = useState<ShopifyStoreLimits>({});
+  const [retention, setRetention] = useState<ShopifyStoreRetention>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +58,7 @@ export default function SettingsPage() {
     apiFetch<ShopifyMe>('/v1/shopify/me')
       .then((res) => {
         setLimits(res.store.settings.limits ?? {});
+        setRetention(res.store.settings.retention ?? {});
         setLoading(false);
       })
       .catch((err) => {
@@ -77,7 +84,7 @@ export default function SettingsPage() {
     try {
       await apiFetch('/v1/shopify/settings', {
         method: 'PATCH',
-        body: JSON.stringify({ limits }),
+        body: JSON.stringify({ limits, retention }),
       });
       setToastMessage('Limits saved.');
     } catch (err) {
@@ -201,6 +208,60 @@ export default function SettingsPage() {
                 </Button>
               </InlineStack>
             </>
+          )}
+
+          {selectedTab === 1 && (
+            <Card>
+              <BlockStack gap="300">
+                <Text as="h2" variant="headingMd">
+                  Automatic deletion
+                </Text>
+                <Text as="p" tone="subdued">
+                  Shopper photos and generated images are deleted from storage on this schedule.
+                  Try-on records used for billing are always kept. Note that deleting shopper
+                  records also resets their limits — set it longer than your per-shopper window.
+                </Text>
+                <Select
+                  label="Delete shopper photos after"
+                  options={numericOptions([7, 30, 90], 'Keep forever', (n) => `${n} days`)}
+                  value={
+                    retention.shopperPhotoDays == null ? OFF : String(retention.shopperPhotoDays)
+                  }
+                  onChange={(v) =>
+                    setRetention((p) => ({
+                      ...p,
+                      shopperPhotoDays: v === OFF ? null : Number(v),
+                    }))
+                  }
+                />
+                <Select
+                  label="Delete generated images after"
+                  options={numericOptions([30, 90, 180, 365], 'Keep forever', (n) => `${n} days`)}
+                  value={retention.resultDays == null ? OFF : String(retention.resultDays)}
+                  onChange={(v) =>
+                    setRetention((p) => ({ ...p, resultDays: v === OFF ? null : Number(v) }))
+                  }
+                />
+                <Select
+                  label="Delete shopper records after"
+                  options={numericOptions([90, 180, 365], 'Keep forever', (n) => `${n} days`)}
+                  value={
+                    retention.shopperRecordDays == null ? OFF : String(retention.shopperRecordDays)
+                  }
+                  onChange={(v) =>
+                    setRetention((p) => ({
+                      ...p,
+                      shopperRecordDays: v === OFF ? null : Number(v),
+                    }))
+                  }
+                />
+                <InlineStack align="end">
+                  <Button variant="primary" loading={saving} onClick={save}>
+                    Save
+                  </Button>
+                </InlineStack>
+              </BlockStack>
+            </Card>
           )}
 
           {selectedTab === 1 && (
