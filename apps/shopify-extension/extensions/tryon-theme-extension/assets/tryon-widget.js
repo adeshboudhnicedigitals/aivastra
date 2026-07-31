@@ -80,6 +80,13 @@
     // Prefill only. The server never trusts this for authorization.
     let shopperEmail = root.dataset.customerEmail || null;
     let shopperEmailConsent = false;
+    // Whether the shopper actually submitted the email-gate step, as opposed to
+    // us merely knowing their address because Liquid rendered it for a
+    // logged-in customer. Only a true value permits sending the address to the
+    // server: a prefilled value is a convenience, not an act of consent, and
+    // the merchant's "Collected emails" list is supposed to contain only
+    // addresses a shopper deliberately handed over.
+    let emailConfirmedByShopper = false;
 
     if (emailInput && shopperEmail) emailInput.value = shopperEmail;
 
@@ -98,6 +105,10 @@
         if (emailError) emailError.hidden = true;
         shopperEmail = value;
         shopperEmailConsent = !!(emailConsentInput && emailConsentInput.checked);
+        // This click is the affirmative action. Until it happens, createJob
+        // sends no email at all, even for a logged-in customer whose address
+        // was prefilled into the input above.
+        emailConfirmedByShopper = true;
         const key = awaitingEmailForPhotoKey;
         awaitingEmailForPhotoKey = null;
         if (key) {
@@ -390,7 +401,13 @@
           customerPhotoKey: customerPhotoKey,
           clientId,
           ...(shopifyCustomerId ? { shopifyCustomerId } : {}),
-          ...(shopperEmail ? { email: shopperEmail, emailConsent: shopperEmailConsent } : {}),
+          // Gated on the shopper having submitted the email step, not merely on
+          // having an address: `shopperEmail` is prefilled from Liquid for any
+          // logged-in customer, so keying off it captured their address on the
+          // very first try-on without ever showing them the consent checkbox.
+          ...(emailConfirmedByShopper && shopperEmail
+            ? { email: shopperEmail, emailConsent: shopperEmailConsent }
+            : {}),
         }),
       });
       if (res.status === 402) {
