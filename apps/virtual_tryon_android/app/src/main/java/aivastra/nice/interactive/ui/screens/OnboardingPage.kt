@@ -66,7 +66,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
  * Shown when login returns merchantStatus = ONBOARDING_REQUIRED (no merchants row
  * yet for this user — see apps/api/.../status.ts). Mandatory one-time business
  * details form; completing it creates an active, zero-review, 0-credit merchant
- * and unblocks every /v1/merchant/* call.
+ * and unblocks every /v1/merchant/{...} call.
  */
 @Composable
 fun OnboardingPage(

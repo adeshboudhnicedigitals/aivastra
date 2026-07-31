@@ -1,6 +1,7 @@
 package aivastra.nice.interactive.auth
 
 import android.content.Context
+import android.util.Log
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
@@ -60,13 +61,16 @@ suspend fun requestGoogleIdToken(context: Context): GoogleSignInResult {
                 GoogleSignInResult.Failure("Unexpected credential type")
             }
         } catch (e: GoogleIdTokenParsingException) {
+            Log.e("GoogleSignIn", "Token parsing failed", e)
             GoogleSignInResult.Failure("Invalid Google credential")
         } catch (e: NoCredentialException) {
+            Log.e("GoogleSignIn", "NoCredentialException (filterByAuthorizedAccounts=$filterByAuthorizedAccounts): ${e.type} ${e.message}", e)
             if (filterByAuthorizedAccounts) attempt(filterByAuthorizedAccounts = false)
             else GoogleSignInResult.Failure("No Google account available on this device")
         } catch (e: GetCredentialCancellationException) {
             GoogleSignInResult.Cancelled
         } catch (e: GetCredentialException) {
+            Log.e("GoogleSignIn", "GetCredentialException: ${e.type} ${e.message}", e)
             GoogleSignInResult.Failure(e.message ?: "Google sign-in failed")
         }
     }
