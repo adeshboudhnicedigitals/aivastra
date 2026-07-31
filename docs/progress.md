@@ -1,3 +1,72 @@
+## 2026-07-31 - Shopify embedded admin restructure: verification (Task 13)
+
+### Done
+- Final verification pass for the 13-task Shopify app restructure (`feat/shopify-app-refactor`, 18 commits
+  ahead of `main`): removed the old per-product `shopify_funnel_rules` routing model and its UI/API
+  entirely, replaced it with a single admin-set `is_default` flag on `shopify_funnel_templates` (the
+  dispatcher now trusts `params.workflowTemplateId` the API pinned at enqueue time — `dc57bda1`,
+  `aa8a293b` — instead of doing its own funnel-rule lookup), and rebuilt the embedded admin app
+  (`apps/shopify`) on stock Polaris behind App Bridge `<ui-nav-menu>` navigation (Dashboard / Manage /
+  Support pages — `7f552eb8`, `6c9a9b21`, `48e8c8da`, `42ab64f8`, `d6ac8e12`).
+- **Step 1 — `pnpm typecheck`:** exit 0. All 10 packages/apps that declare a `typecheck` script report
+  `Done` with no errors (`packages/db`, `apps/shopify`, `packages/logger`, `packages/observability`,
+  `packages/storage`, `packages/types`, `apps/api`, `apps/chatbot`, `apps/admin-mobile`,
+  `apps/catalogues-web`). `apps/admin-web` and `apps/dispatcher` have no `typecheck` script (pre-existing,
+  unrelated to this plan).
+- **Step 2 — `pnpm lint`:** exit 0 (`biome check .`), 158 warnings / 3 infos, zero errors. All warnings
+  are pre-existing and outside the touched surface (`apps/admin-web/src/components/SearchableSelect.tsx`,
+  `apps/api/src/modules/dev/create-saree-mannequin-job.ts`, `apps/api/src/modules/merchant/create-job.ts`,
+  `apps/api/test/admin-dev-api.test.ts`, `apps/api/test/integration/jobs-create.test.ts`,
+  `scripts/ci/lib/classify.mts`). Scoped re-checks confirm both `apps/shopify` (18 files) and
+  `apps/api/src/modules/shopify` (17 files) are fully clean — zero warnings.
+- **Step 3 — unit suite (`pnpm --filter @aivastra/api test`):** **39/39 files, 305/305 tests passed**,
+  exit 0. The known pre-existing intermittent flake, `test/admin-dev-api.test.ts`, happened to pass
+  (13/13) on this run — it is flaky under the full run, not deterministically broken, per this session's
+  earlier isolation testing. No `funnel-rules` or `funnel-routes` test file exists anymore;
+  `test/shopify-funnel-templates-admin.test.ts` (5 tests, passed) covers the new default-template
+  admin flag, a different concept from the removed per-product funnel-rules routing.
+- **Step 4 — integration suite (`vitest run --config vitest.integration.config.ts`):** **41/70 files
+  passed, 239/327 tests passed, 34 skipped**; 29 files / 54 tests failed. This reproduces the
+  established, pre-existing, repo-wide test-infra issue: the shared real-Redis global rate limiter
+  (`apps/api/src/server.ts:168`, `max: 200/min`) is never reset between test files, so registration/login
+  calls get 429'd partway through the run, cascading into `adminAuthHeader: registered user not found`
+  and downstream assertion failures across unrelated auth-dependent files (`auth`, `admin-approval`,
+  `backgrounds-mine`, `jobs-create`, `saree-jobs`, `credits`, `e2e`, `payments-tier`, etc.). 29 failed
+  files is within the 13-30 range observed twice independently earlier this session (parallel run: 30/70;
+  serial run: 13/70). **`test/integration/shopify-customer.test.ts` passed 15/15**, and none of the 29
+  failing files are shopify- or funnel-related. One secondary failure
+  (`catalog.test.ts` — `null value in column "type"` on `catalog_items`) traces to the separately
+  documented CLAUDE.md testing gotcha (parallel `catalog_types` slug-collision under shared Postgres),
+  not to this plan's changes.
+- **Step 5 — catalog surface untouched:** `git diff --stat main..HEAD -- apps/api/src/modules/shopify/catalog.routes.ts apps/api/src/modules/shopify/catalog-options.routes.ts apps/api/src/modules/shopify/catalog-publish.ts packages/db/src/schema/jobs.ts`
+  → empty output. Confirmed the funnel-rules removal did not touch the catalog surface.
+
+### Failed / Not Done
+- **The integration suite does not fully pass, and this is a known, pre-existing, out-of-scope
+  condition — not a regression introduced by this plan.** 29/70 integration test files fail due to the
+  untracked shared rate-limiter described above. This has been true of the full integration run all
+  session (verified independently twice before this task), is unrelated to shopify/funnel code, and is
+  not fixed here. Anyone re-running the full suite in one process should expect the same cascade;
+  running `shopify-customer.test.ts` (or any single file) in isolation is unaffected.
+- Step 6 (manual smoke in a real embedded admin) could not be performed — see Open Questions below.
+
+### Open Questions / Decisions
+- **Manual smoke test not yet performed** — `<ui-nav-menu>` only renders inside the real Shopify admin
+  iframe on a dev store, so this is not automatable from this environment. A human needs to confirm,
+  on a dev store, before shipping:
+  1. The sidebar shows Dashboard, Manage and Support, and each navigates without a full iframe reload.
+  2. Dashboard shows a 3-step checklist and collapses to `All set` once all three are done.
+  3. `Sync now` toasts and refreshes the list.
+  4. Enabling and disabling a product persists across a reload.
+  5. The disconnect modal cancels cleanly and, when confirmed, returns you to the link-account gate.
+  6. Visiting `/products` redirects to `/manage`.
+- **Three Support-page URLs are unverified** (`apps/shopify/src/pages/SupportPage.tsx`): `mailto:support@aivastra.com`,
+  `https://app.aivastra.com/support`, `https://app.aivastra.com/demo`. These were added in Task 10 and
+  need team confirmation that the mailbox and pages actually exist/resolve before shipping.
+- The pre-existing shared-rate-limiter test-infra issue (see Failed / Not Done) has no owner or fix
+  scheduled; it should probably get its own follow-up ticket (e.g., a per-test-run Redis flush or a
+  test-only rate-limit bypass) independent of this plan.
+
 ## 2026-07-30 - Bulk backfill for public_api_slug + admin panel button
 
 ### Done
