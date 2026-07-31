@@ -260,6 +260,10 @@ export const PatchSampleVideoBody = z.object({
   sortOrder: z.number().int().optional(),
 });
 
+export const PresignAppVideoBody = z.object({
+  contentType: z.literal('video/mp4'),
+});
+
 // ── Workflow template schemas ─────────────────────────────────────────────
 
 export const CreateWorkflowBody = z
