@@ -1,7 +1,7 @@
 import { type DB, schema } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
 import type { StorageProvider } from '@aivastra/storage';
-import { and, eq, isNotNull, lt, or } from 'drizzle-orm';
+import { and, eq, isNotNull, lt, notExists, or, sql } from 'drizzle-orm';
 
 // Bounded so one store with a long backlog cannot monopolise a pass. The
 // sweeper runs hourly; anything left over is picked up next time.
@@ -116,12 +116,44 @@ export async function runShopifyRetention(
     if (retention.shopperRecordDays != null) {
       // jobs.shopify_shopper_id is ON DELETE SET NULL, so this severs the link
       // without touching billing history.
+      //
+      // But that link is also the ONLY path GDPR redaction has from a data
+      // subject to their stored objects (see redactShopperData in
+      // apps/api/src/modules/shopify/gdpr.ts, which iterates shopifyShoppers).
+      // Deleting a shopper row while any of their objects still exist would
+      // orphan those objects permanently: nothing could ever find them again to
+      // honour an erasure request. So a shopper is only removable once every
+      // R2 reference on their jobs is gone — same "never destroy the last
+      // reference to an undeleted object" invariant the photo/result branches
+      // above enforce at the key-column level.
+      //
+      // In steady state this holds trivially: the two purge branches run
+      // earlier in this same pass and shopperRecordDays is meant to be the
+      // longest window. It matters when a merchant misconfigures the knobs
+      // (records shorter than photos), or when an object delete has been
+      // failing and leaving its key in place pass after pass.
+      const shopperStillHasObjects = db
+        .select({ one: sql`1` })
+        .from(schema.jobs)
+        .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
+        .where(
+          and(
+            eq(schema.jobs.shopifyShopperId, schema.shopifyShoppers.id),
+            or(
+              isNotNull(schema.jobs.customerPhotoKey),
+              isNotNull(schema.jobOutputs.resultKey),
+              isNotNull(schema.jobOutputs.thumbnailKey),
+            ),
+          ),
+        );
+
       const deleted = await db
         .delete(schema.shopifyShoppers)
         .where(
           and(
             eq(schema.shopifyShoppers.storeId, store.id),
             lt(schema.shopifyShoppers.lastSeenAt, daysAgo(retention.shopperRecordDays)),
+            notExists(shopperStillHasObjects),
           ),
         )
         .returning({ id: schema.shopifyShoppers.id });

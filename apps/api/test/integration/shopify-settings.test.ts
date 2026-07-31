@@ -167,7 +167,8 @@ describe('shopify settings routes', () => {
       email: null,
     });
 
-    expect(removed).toBe(1);
+    expect(removed.removed).toBe(1);
+    expect(removed.incomplete).toBe(0);
     const rows = await app.db
       .select()
       .from(schema.shopifyShoppers)
@@ -185,13 +186,13 @@ describe('shopify settings routes', () => {
       shopifyCustomerId: null,
       email: 'only-mail@example.com',
     });
-    expect(removed).toBe(1);
+    expect(removed.removed).toBe(1);
   });
 
   it('refuses to match anything when the payload identifies no subject', async () => {
     const { redactShopperData } = await import('../../src/modules/shopify/gdpr.js');
     // An empty payload must never be read as "delete everything".
-    expect(await redactShopperData(app, storeId, {})).toBe(0);
+    expect(await redactShopperData(app, storeId, {})).toEqual({ removed: 0, incomplete: 0 });
   });
 
   it('leaves the shopper row and the failed key in place when an object delete fails', async () => {
@@ -246,7 +247,10 @@ describe('shopify settings routes', () => {
       });
 
       // (a) the returned count does not include this shopper
-      expect(removed).toBe(0);
+      expect(removed.removed).toBe(0);
+      // ...and the partial failure is visible to the caller, which is the only
+      // signal an operator gets: nothing ever retries a GDPR redaction.
+      expect(removed.incomplete).toBe(1);
 
       // (b) the shopifyShoppers row for this shopper still exists
       const rows = await app.db
@@ -269,5 +273,102 @@ describe('shopify settings routes', () => {
     } finally {
       app.storage.deleteObject = originalDelete;
     }
+  });
+
+  // Its own store: matchAll erases every shopper of the store it is pointed at,
+  // which would wipe the shared store's rows out from under the other tests.
+  async function seedIsolatedStore(shopId: number, domain: string) {
+    const store = await upsertShopifyStore(
+      app,
+      {
+        shopifyShopId: shopId,
+        shopDomain: domain,
+        myshopifyDomain: domain,
+        name: 'S',
+        email: 's@s.com',
+      },
+      'tok',
+      'read_products',
+    );
+    return store.id;
+  }
+
+  async function seedUnlinkedJob(otherStoreId: string, tag: string) {
+    const photoKey = `shopify-inputs/${otherStoreId}/${tag}/photo`;
+    const resultKey = `shopify-results/${otherStoreId}/${tag}/result`;
+    await app.storage.putObject(photoKey, Buffer.from('x'), 'image/jpeg');
+    await app.storage.putObject(resultKey, Buffer.from('x'), 'image/jpeg');
+    const [job] = await app.db
+      .insert(schema.jobs)
+      .values({
+        status: 'COMPLETED',
+        shopifyStoreId: otherStoreId,
+        // The whole point: no shopper row has ever pointed at this job.
+        shopifyShopperId: null,
+        customerPhotoKey: photoKey,
+        creditsCharged: 1,
+        source: 'shopify',
+      })
+      .returning();
+    await app.db.insert(schema.jobOutputs).values({ jobId: job.id, resultKey });
+    return { job, photoKey, resultKey };
+  }
+
+  it('shop_redact also purges jobs no shopper row points at', async () => {
+    // Legacy widget traffic that never sent a clientId, or a job whose link
+    // retention already severed, is invisible to the per-shopper walk. Before
+    // this fix its photo and result survived a full-store erasure forever.
+    const otherStoreId = await seedIsolatedStore(781, 'shop-redact.myshopify.com');
+    const { job, photoKey, resultKey } = await seedUnlinkedJob(otherStoreId, 'unlinked');
+
+    const { redactShopperData } = await import('../../src/modules/shopify/gdpr.js');
+    const result = await redactShopperData(app, otherStoreId, { matchAll: true });
+    expect(result.incomplete).toBe(0);
+
+    const [afterJob] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, job.id));
+    const [afterOut] = await app.db
+      .select()
+      .from(schema.jobOutputs)
+      .where(eq(schema.jobOutputs.jobId, job.id));
+    expect(afterJob.customerPhotoKey).toBeNull();
+    expect(afterOut.resultKey).toBeNull();
+
+    // The billing row itself is never deleted.
+    expect(afterJob.id).toBe(job.id);
+
+    // And the objects really are gone from storage, not just dereferenced.
+    await expect(app.storage.headObject(photoKey)).rejects.toBeTruthy();
+    await expect(app.storage.headObject(resultKey)).rejects.toBeTruthy();
+  });
+
+  it('customers_redact leaves unlinked jobs alone — it erases one subject, not the shop', async () => {
+    const otherStoreId = await seedIsolatedStore(782, 'cust-redact.myshopify.com');
+    const { job, photoKey } = await seedUnlinkedJob(otherStoreId, 'not-mine');
+
+    const [shopper] = await app.db
+      .insert(schema.shopifyShoppers)
+      .values({ storeId: otherStoreId, clientId: 'subject', shopifyCustomerId: 5150 })
+      .returning();
+
+    const { redactShopperData } = await import('../../src/modules/shopify/gdpr.js');
+    const result = await redactShopperData(app, otherStoreId, {
+      shopifyCustomerId: 5150,
+      email: null,
+    });
+    expect(result.removed).toBe(1);
+    expect(result.incomplete).toBe(0);
+
+    // The named subject is gone...
+    const rows = await app.db
+      .select()
+      .from(schema.shopifyShoppers)
+      .where(eq(schema.shopifyShoppers.id, shopper.id));
+    expect(rows).toHaveLength(0);
+
+    // ...but somebody else's unlinked job is untouched. Widening
+    // customers_redact to the whole store would erase data of subjects who
+    // never asked for it.
+    const [afterJob] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, job.id));
+    expect(afterJob.customerPhotoKey).toBe(photoKey);
   });
 });
