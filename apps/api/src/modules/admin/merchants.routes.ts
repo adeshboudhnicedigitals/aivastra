@@ -6,6 +6,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { createKioskDevice, generatePairingCode, hashPairingCode } from '../kiosk/provisioning.js';
+import { assignMerchantToActiveDemoSets } from '../merchant/demo-catalog-read.js';
 import { merchantAdminGrant } from '../merchant/ledger.js';
 import { findOrCreateUserForMerchant } from '../merchant/user-link.js';
 import { requireAdmin } from './guard.js';
@@ -215,6 +216,8 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
         return created;
       });
 
+      await assignMerchantToActiveDemoSets(app.db, client.id, req.userId);
+
       if (body.initialCredits && body.initialCredits > 0) {
         await merchantAdminGrant(
           // biome-ignore lint/suspicious/noExplicitAny: DB type narrowing
@@ -349,6 +352,11 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
         .returning();
 
       if (!updated) throw new AppError('NOT_FOUND', 404, 'Merchant not found');
+
+      if (body.demoData === true) {
+        await assignMerchantToActiveDemoSets(app.db, id, req.userId);
+      }
+
       return updated;
     },
   );
