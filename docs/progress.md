@@ -1,3 +1,60 @@
+## 2026-07-31 — Shopify shopper limits: widget dead-history handling + full verification (Task 12)
+
+### Done
+- Closes out the 12-task shopper-limits plan (`docs/superpowers/plans/2026-07-31-shopify-shopper-limits.md`,
+  `.superpowers/sdd/2026-07-31-shopify-shopper-limits/`). Across the plan: the shopper identity model
+  (per-browser `shopify_shoppers` rows keyed on `(storeId, clientId)`, upgraded in place by Shopify
+  customer id or email — `apps/api/src/modules/shopify/shopper.ts`); the three limits (store daily cap,
+  per-shopper cap over a configurable window, and an email-after-N-try-ons gate) enforced with a
+  Redis-backed atomic store-day reservation plus a Postgres advisory lock serializing concurrent
+  requests from the same shopper, with transactional refund-and-compensate on any downstream failure
+  (`apps/api/src/modules/shopify/limits.ts`, `customer.routes.ts`); email capture with consent recorded
+  on the shopper row at job-creation time; the Settings page Limits tab for merchants to configure caps
+  and retention; the captured-email list with CSV export; an hourly retention sweeper that independently
+  nulls `customerPhotoKey`/`resultKey`/`thumbnailKey` only after each object's own R2 delete succeeds,
+  so a partial failure retries just that object next pass instead of orphaning it or wedging the store
+  (`apps/dispatcher/src/shopify/retention.ts`); real `customers/redact`, `customers/data_request`, and
+  `shop/redact` GDPR webhook handlers following the same per-object retry-safe nulling pattern and only
+  deleting a shopper row once every one of its object deletes succeeded (`apps/api/src/modules/shopify/gdpr.ts`);
+  and the dashboard usage card surfacing `todayTryOns` / `storeDailyCap` / `capturedEmailCount`. Several
+  tasks went through one corrective fix round during review before being approved: Task 5 (a per-shopper
+  concurrency race and non-atomic compensation), Task 6 (a TDZ crash and a dead email-prefill guard in
+  the widget), Task 9 (a retention retry-safety gap that could permanently orphan a thumbnail object),
+  and Task 11 (a test-fixture cleanup). All were resolved and re-reviewed clean; see
+  `.superpowers/sdd/2026-07-31-shopify-shopper-limits/progress.md` for the full per-task ledger.
+- **Task 12, Step 1:** In `renderHistoryList()`
+  (`apps/shopify-extension/extensions/tryon-theme-extension/assets/tryon-widget.js`), added an `error`
+  listener on the history-card thumbnail `<img>` immediately after `img.alt = ''`. Retention can delete
+  the R2 result object a shopper's browser still has cached in `localStorage` history; on a load failure
+  the listener now drops that entry from `getHistory()`, rewrites `HISTORY_STORAGE_KEY`, and re-renders,
+  so a broken image never lingers in the history list.
+- **Task 12, Step 2 (`node --check` on the widget file):** exit 0, no output.
+- **Task 12, Step 3 (`pnpm --filter @aivastra/api test`):** 42/42 files, 323/323 tests passed, exit 0.
+  `test/admin-dev-api.test.ts` — the documented pre-existing full-suite flake — passed on this run.
+- **Task 12, Step 4 (`vitest run --config vitest.integration.config.ts` on the four Shopify integration
+  files together):** `shopify-customer.test.ts`, `shopify-limits.test.ts`, `shopify-settings.test.ts`,
+  `shopify-retention.test.ts` — 4/4 files, 42/42 tests passed, exit 0. Run in isolation from the rest of
+  the integration suite as instructed, so the shared real-Redis rate limiter's 429 cascade (documented
+  below and in the Task 13 entry) did not trigger.
+- **Task 12, Step 5 (`pnpm typecheck && pnpm lint`):** both exit 0. Typecheck: all packages/apps with a
+  `typecheck` script report `Done`, no errors (`apps/admin-web` and `apps/dispatcher` still have no
+  `typecheck` script — pre-existing, unrelated). Lint: 160 warnings / 3 infos, zero errors, all
+  pre-existing and outside this task's touched file; the new widget listener produced no new findings.
+
+### Failed / Not Done
+- (none) — all four verification commands (Steps 2-5) passed cleanly; the pre-existing shared-rate-limiter
+  429 cascade was not encountered because Step 4 ran only the four named Shopify integration files
+  together rather than the full integration suite, as the brief specifies.
+
+### Open Questions / Decisions
+- **Manual smoke test still required** in a real Shopify admin iframe and a real storefront — the email
+  gate (Task 6) and `<ui-nav-menu>` navigation cannot be exercised any other way from this environment.
+- Existing stores have `iana_timezone = NULL` until their next reinstall and fall back to UTC day
+  boundaries for the store-daily-cap and per-shopper-window calculations until then.
+- Deferred (out of scope for this plan): pushing captured emails into Shopify customer records (needs
+  `write_customers` scope plus Shopify's protected-customer-data approval); migrating the widget off
+  direct API calls onto the Shopify App Proxy; notifying the merchant when a store's daily cap is hit.
+
 ## 2026-07-31 — Shopify shopper limits: route enforcement (Task 5)
 
 ### Done

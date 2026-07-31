@@ -272,6 +272,18 @@
         const img = document.createElement('img');
         img.src = entry.resultUrl;
         img.alt = '';
+        // Retention may have deleted this result since it was cached locally.
+        // A broken image is worse than a missing row, so drop the entry and
+        // rewrite the stored history.
+        img.addEventListener('error', () => {
+          const remaining = getHistory().filter((h) => h.resultUrl !== entry.resultUrl);
+          try {
+            localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(remaining));
+          } catch (_err) {
+            // Storage blocked — the entry reappears next load; harmless.
+          }
+          renderHistoryList();
+        });
         media.appendChild(img);
         card.appendChild(media);
 
