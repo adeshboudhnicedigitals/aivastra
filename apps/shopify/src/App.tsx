@@ -13,6 +13,7 @@ import {
 } from './lib/appBridge';
 import DashboardPage from './pages/DashboardPage';
 import ManagePage from './pages/ManagePage';
+import SupportPage from './pages/SupportPage';
 import type { ShopifyMe } from './types';
 
 export default function App() {
@@ -89,6 +90,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/manage" element={<ManagePage />} />
+          <Route path="/support" element={<SupportPage />} />
           {/* Merchants may have bookmarked the old path while it was the only
               product surface. */}
           <Route path="/products" element={<Navigate to="/manage" replace />} />
