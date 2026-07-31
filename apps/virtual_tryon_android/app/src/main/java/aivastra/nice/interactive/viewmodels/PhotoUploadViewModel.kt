@@ -45,14 +45,20 @@ class PhotoUploadViewModel @JvmOverloads constructor(
         currentToken = null
         _uiState.update { it.copy(isQrLoading = true, qrUrl = null, errorMessage = null) }
         sessionJob = viewModelScope.launch {
-            when (val result = repository.createUploadSession()) {
-                is PhotoUploadResult.Success -> {
-                    currentToken = result.data.token
-                    _uiState.update { it.copy(isQrLoading = false, qrUrl = result.data.qrUrl) }
-                    pollUploadStatus(result.data.token)
+            try {
+                when (val result = repository.createUploadSession()) {
+                    is PhotoUploadResult.Success -> {
+                        currentToken = result.data.token
+                        _uiState.update { it.copy(isQrLoading = false, qrUrl = result.data.qrUrl) }
+                        pollUploadStatus(result.data.token)
+                    }
+                    is PhotoUploadResult.Failure -> _uiState.update {
+                        it.copy(isQrLoading = false, errorMessage = result.message)
+                    }
                 }
-                is PhotoUploadResult.Failure -> _uiState.update {
-                    it.copy(isQrLoading = false, errorMessage = result.message)
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(isQrLoading = false, errorMessage = e.message ?: "Failed to create upload session")
                 }
             }
         }
@@ -90,20 +96,24 @@ class PhotoUploadViewModel @JvmOverloads constructor(
             it.copy(isUploading = true, capturedPhotoUri = uri.toString(), errorMessage = null)
         }
         viewModelScope.launch {
-            val bytes = try {
-                getApplication<Application>().contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                    ?: error("Unable to read captured photo")
-            } catch (exception: Exception) {
-                _uiState.update { it.copy(isUploading = false, errorMessage = exception.message) }
-                return@launch
-            }
-            when (val result = repository.uploadJpeg(bytes)) {
-                is PhotoUploadResult.Success -> _uiState.update {
-                    it.copy(isUploading = false, uploadedR2Key = result.data)
+            try {
+                val bytes = try {
+                    getApplication<Application>().contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        ?: error("Unable to read captured photo")
+                } catch (exception: Exception) {
+                    _uiState.update { it.copy(isUploading = false, errorMessage = exception.message) }
+                    return@launch
                 }
-                is PhotoUploadResult.Failure -> _uiState.update {
-                    it.copy(isUploading = false, errorMessage = result.message)
+                when (val result = repository.uploadJpeg(bytes)) {
+                    is PhotoUploadResult.Success -> _uiState.update {
+                        it.copy(isUploading = false, uploadedR2Key = result.data)
+                    }
+                    is PhotoUploadResult.Failure -> _uiState.update {
+                        it.copy(isUploading = false, errorMessage = result.message)
+                    }
                 }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isUploading = false, errorMessage = e.message ?: "Photo upload failed") }
             }
         }
     }

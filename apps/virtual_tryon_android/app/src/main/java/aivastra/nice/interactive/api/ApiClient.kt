@@ -119,9 +119,11 @@ object ApiClient {
 
     private val okHttpClient = OkHttpClient.Builder()
         .addInterceptor { chain ->
-            if (!SessionManager.hasValidAccessToken() && !SessionManager.refreshToken.isNullOrBlank()) {
-                refreshAccessTokenBlocking()
-            }
+            try {
+                if (!SessionManager.hasValidAccessToken() && !SessionManager.refreshToken.isNullOrBlank()) {
+                    refreshAccessTokenBlocking()
+                }
+            } catch (_: Exception) {}
             val activeToken = SessionManager.accessToken ?: tokenOverride
             val request = chain.request().newBuilder().apply {
                 activeToken?.takeIf { it.isNotBlank() }?.let {

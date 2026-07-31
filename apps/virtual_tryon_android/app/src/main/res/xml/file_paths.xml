@@ -3,4 +3,10 @@
     <cache-path
         name="captured_photos"
         path="captured_photos/" />
+    <!-- Covers cacheDir root, where camera_capture_*.jpg, fixed_*.jpg, edited_photo_*.jpg,
+         and qr_downloaded_*.jpg are written — without this, FileProvider.getUriForFile()
+         throws IllegalArgumentException for any of those files. -->
+    <cache-path
+        name="cache_root"
+        path="." />
 </paths>

@@ -72,6 +72,9 @@ suspend fun requestGoogleIdToken(context: Context): GoogleSignInResult {
         } catch (e: GetCredentialException) {
             Log.e("GoogleSignIn", "GetCredentialException: ${e.type} ${e.message}", e)
             GoogleSignInResult.Failure(e.message ?: "Google sign-in failed")
+        } catch (e: Exception) {
+            Log.e("GoogleSignIn", "Unexpected exception during Google sign-in: ${e.message}", e)
+            GoogleSignInResult.Failure(e.message ?: "Google sign-in failed")
         }
     }
 
