@@ -406,12 +406,20 @@ export const ShopifyCustomerPresignRequest = z.object({
     .int()
     .positive()
     .max(20 * 1024 * 1024),
+  clientId: z.string().uuid().optional(),
 });
 export type ShopifyCustomerPresignRequest = z.infer<typeof ShopifyCustomerPresignRequest>;
 
 export const ShopifyCustomerJobRequest = z.object({
   customerPhotoKey: z.string(),
   shopifyProductId: z.number().int().positive(),
+  // All three are client-supplied and forgeable. That is acceptable because
+  // supplying identity can only narrow the bucket a shopper counts against,
+  // never widen it — no authorization decision depends on them.
+  clientId: z.string().uuid().optional(),
+  shopifyCustomerId: z.number().int().positive().optional(),
+  email: z.string().email().max(320).optional(),
+  emailConsent: z.boolean().optional(),
 });
 export type ShopifyCustomerJobRequest = z.infer<typeof ShopifyCustomerJobRequest>;
 
@@ -419,3 +427,35 @@ export const ShopifyCustomerPhotoPreviewRequest = z.object({
   r2Key: z.string().min(1),
 });
 export type ShopifyCustomerPhotoPreviewRequest = z.infer<typeof ShopifyCustomerPhotoPreviewRequest>;
+
+// Fixed option sets, not free ranges. A dropdown of allowed values eliminates
+// the "2000 instead of 200" typo class, and an out-of-set value is a 400
+// rather than something that lands silently in JSONB.
+export const STORE_DAILY_CAP_OPTIONS = [50, 100, 250, 500, 1000, 2500, 5000] as const;
+export const PER_SHOPPER_CAP_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
+export const EMAIL_AFTER_N_OPTIONS = [0, 1, 2, 3, 5] as const;
+export const SHOPPER_PHOTO_RETENTION_DAYS = [7, 30, 90] as const;
+export const RESULT_RETENTION_DAYS = [30, 90, 180, 365] as const;
+export const SHOPPER_RECORD_RETENTION_DAYS = [90, 180, 365] as const;
+
+const optionOrOff = <T extends number>(options: readonly T[]) =>
+  z.union([z.literal(null), z.number().refine((n) => (options as readonly number[]).includes(n))]);
+
+export const ShopifyStoreLimitsPatch = z.object({
+  storeDailyCap: optionOrOff(STORE_DAILY_CAP_OPTIONS).optional(),
+  perShopperCap: optionOrOff(PER_SHOPPER_CAP_OPTIONS).optional(),
+  perShopperWindow: z.enum(['day', 'week', 'month']).optional(),
+  emailAfterNTryOns: optionOrOff(EMAIL_AFTER_N_OPTIONS).optional(),
+});
+
+export const ShopifyStoreRetentionPatch = z.object({
+  shopperPhotoDays: optionOrOff(SHOPPER_PHOTO_RETENTION_DAYS).optional(),
+  resultDays: optionOrOff(RESULT_RETENTION_DAYS).optional(),
+  shopperRecordDays: optionOrOff(SHOPPER_RECORD_RETENTION_DAYS).optional(),
+});
+
+export const ShopifyStoreSettingsPatch = z.object({
+  limits: ShopifyStoreLimitsPatch.optional(),
+  retention: ShopifyStoreRetentionPatch.optional(),
+});
+export type ShopifyStoreSettingsPatch = z.infer<typeof ShopifyStoreSettingsPatch>;

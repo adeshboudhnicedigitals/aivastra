@@ -1,3 +1,21 @@
+## 2026-07-31 — Shopify shopper limits: settings PATCH endpoint (Task 4)
+
+### Done
+- Added fixed-option Zod patch schemas for Shopify store limits and retention. `null` explicitly
+  represents Off; the schema accepts no free numeric range or platform default.
+- Added signed-session-protected `PATCH /v1/shopify/settings`, which shallow-merges a nested
+  `limits` or `retention` patch while preserving all unrelated JSONB settings.
+- Extended optional widget request identity fields for the next shopper-limits task without making
+  them required for existing widget calls.
+- Added authenticated integration coverage for out-of-set rejection, unrelated-setting preservation,
+  and turning a configured limit off with `null`.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- (none)
+
 ## 2026-07-31 — Shopify shopper limits: database foundation
 
 ### Done
