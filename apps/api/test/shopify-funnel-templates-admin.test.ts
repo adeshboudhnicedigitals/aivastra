@@ -144,6 +144,31 @@ describe('admin shopify funnel templates CRUD', () => {
     expect(still.isDefault).toBe(true);
   });
 
+  it('refuses to deactivate the current default', async () => {
+    const [current] = await app.db
+      .select()
+      .from(schema.shopifyFunnelTemplates)
+      .where(eq(schema.shopifyFunnelTemplates.isDefault, true));
+    expect(current).toBeDefined();
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/admin/shopify/funnel-templates/${current.id}`,
+      headers: adminHeaders,
+      payload: { isActive: false },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.message).toContain('default');
+    expect(res.json().error.message).toContain('active');
+
+    const [still] = await app.db
+      .select()
+      .from(schema.shopifyFunnelTemplates)
+      .where(eq(schema.shopifyFunnelTemplates.id, current.id));
+    expect(still.isDefault).toBe(true);
+    expect(still.isActive).toBe(true);
+  });
+
   it('reports whether a default exists so admin can surface it', async () => {
     const res = await app.inject({
       method: 'GET',
