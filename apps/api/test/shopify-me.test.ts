@@ -160,8 +160,10 @@ describe('GET /v1/shopify/me store.connectedSince', () => {
   });
 });
 
-describe('GET /v1/shopify/me stats', () => {
+describe('GET /v1/shopify/me stats — daily cap & captured emails', () => {
   it('reports today usage against the store cap and the captured email count', async () => {
+    // Isolated store: the shared `storeId` already has 3 same-day jobs from this file's beforeAll,
+    // which would make the brief's literal todayTryOns===1 assertion false.
     const testStore = await upsertShopifyStore(
       app,
       {
