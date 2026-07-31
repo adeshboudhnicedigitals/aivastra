@@ -56,3 +56,11 @@ export interface ShopifyProductImage {
   id: number;
   src: string;
 }
+
+export interface ShopifyShopperListItem {
+  id: string;
+  email: string;
+  emailConsent: boolean;
+  firstSeenAt: string;
+  tryOnCount: number;
+}

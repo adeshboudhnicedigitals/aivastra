@@ -1,8 +1,11 @@
 import {
+  Badge,
   Banner,
   BlockStack,
   Button,
   Card,
+  EmptyState,
+  IndexTable,
   InlineStack,
   Page,
   Select,
@@ -13,7 +16,7 @@ import {
 } from '@shopify/polaris';
 import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from '../lib/api';
-import type { ShopifyMe, ShopifyStoreLimits } from '../types';
+import type { ShopifyMe, ShopifyShopperListItem, ShopifyStoreLimits } from '../types';
 
 const OFF = 'off';
 
@@ -42,6 +45,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [shoppers, setShoppers] = useState<ShopifyShopperListItem[] | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -59,6 +63,13 @@ export default function SettingsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (selectedTab !== 1 || shoppers) return;
+    apiFetch<{ items: ShopifyShopperListItem[] }>('/v1/shopify/shoppers')
+      .then((res) => setShoppers(res.items))
+      .catch((err) => setError((err as Error).message));
+  }, [selectedTab, shoppers]);
 
   async function save() {
     setSaving(true);
@@ -194,9 +205,56 @@ export default function SettingsPage() {
 
           {selectedTab === 1 && (
             <Card>
-              <Text as="p" tone="subdued">
-                Retention and collected emails appear here.
-              </Text>
+              <BlockStack gap="300">
+                <InlineStack align="space-between" blockAlign="center">
+                  <Text as="h2" variant="headingMd">
+                    Collected emails
+                  </Text>
+                  <Button
+                    url="/v1/shopify/shoppers.csv"
+                    disabled={!shoppers || shoppers.length === 0}
+                  >
+                    Export CSV
+                  </Button>
+                </InlineStack>
+                <Text as="p" tone="subdued">
+                  Only shoppers who ticked the consent box have agreed to marketing. Check the
+                  Consent column before adding an address to a mailing list.
+                </Text>
+                {shoppers && shoppers.length === 0 ? (
+                  <EmptyState heading="No emails collected yet" image="">
+                    <p>Turn on "Ask for an email" under Limits to start collecting.</p>
+                  </EmptyState>
+                ) : (
+                  <IndexTable
+                    resourceName={{ singular: 'shopper', plural: 'shoppers' }}
+                    itemCount={shoppers?.length ?? 0}
+                    selectable={false}
+                    loading={!shoppers}
+                    headings={[
+                      { title: 'Email' },
+                      { title: 'Consent' },
+                      { title: 'First seen' },
+                      { title: 'Try-ons' },
+                    ]}
+                  >
+                    {(shoppers ?? []).map((s, index) => (
+                      <IndexTable.Row id={s.id} key={s.id} position={index}>
+                        <IndexTable.Cell>{s.email}</IndexTable.Cell>
+                        <IndexTable.Cell>
+                          <Badge tone={s.emailConsent ? 'success' : undefined}>
+                            {s.emailConsent ? 'Consented' : 'No consent'}
+                          </Badge>
+                        </IndexTable.Cell>
+                        <IndexTable.Cell>
+                          {new Date(s.firstSeenAt).toLocaleDateString()}
+                        </IndexTable.Cell>
+                        <IndexTable.Cell>{String(s.tryOnCount)}</IndexTable.Cell>
+                      </IndexTable.Row>
+                    ))}
+                  </IndexTable>
+                )}
+              </BlockStack>
             </Card>
           )}
         </BlockStack>
