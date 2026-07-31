@@ -24,6 +24,10 @@
     data-product-title="{{ product.title | escape }}"
     data-product-url="{{ product.url }}"
     data-product-image="{% if product.featured_image %}{{ product.featured_image | image_url: width: 200 }}{% endif %}"
+    {%- if customer -%}
+      data-customer-id="{{ customer.id }}"
+      data-customer-email="{{ customer.email }}"
+    {%- endif -%}
     data-api-base="{{ block.settings.api_base | default: 'https://app.aivastra.com' }}"
     data-placement-selector="{{ block.settings.placement_selector }}"
     data-block-alignment="{{ block.settings.block_alignment }}"
@@ -113,6 +117,26 @@
                 Terms and Privacy Policy.<br />
                 AI can make mistakes.
               </p>
+            </div>
+
+            <div class="aivastra-tryon__step aivastra-tryon__step--email" hidden>
+              <h2 class="aivastra-tryon__upload-title">One quick thing</h2>
+              <p class="aivastra-tryon__upload-lead aivastra-tryon__email-lead">
+                Enter your email to continue.
+              </p>
+              <input
+                type="email"
+                class="aivastra-tryon__email-input"
+                placeholder="you@example.com"
+                autocomplete="email"
+                required
+              />
+              <label class="aivastra-tryon__email-consent">
+                <input type="checkbox" class="aivastra-tryon__email-consent-input" />
+                <span>Email me offers and updates from this store.</span>
+              </label>
+              <p class="aivastra-tryon__email-error" hidden></p>
+              <button type="button" class="aivastra-tryon__email-submit">Continue</button>
             </div>
 
             <div class="aivastra-tryon__step aivastra-tryon__step--progress" hidden>
