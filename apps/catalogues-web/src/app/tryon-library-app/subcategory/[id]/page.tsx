@@ -26,7 +26,9 @@ export default function ProductsScreen() {
   const subcategoriesQuery = useQuery({
     queryKey: ['merchant-catalog-subcategories'],
     queryFn: () =>
-      api.get<MerchantCatalogSubcategoryListResponse>('/v1/merchant/catalog/subcategories'),
+      api.get<MerchantCatalogSubcategoryListResponse>(
+        '/v1/merchant/catalog/subcategories?includeDemo=false',
+      ),
   });
   const subcategory = subcategoriesQuery.data?.items.find((s) => s.id === subcategoryId);
 
@@ -45,7 +47,9 @@ export default function ProductsScreen() {
   const productsQuery = useQuery({
     queryKey: ['merchant-catalog-products', subcategoryId],
     queryFn: () =>
-      api.get<MerchantCatalogListResponse>(`/v1/merchant/catalog?subcategoryId=${subcategoryId}`),
+      api.get<MerchantCatalogListResponse>(
+        `/v1/merchant/catalog?includeDemo=false&subcategoryId=${subcategoryId}`,
+      ),
   });
   const products = productsQuery.data?.items ?? [];
 

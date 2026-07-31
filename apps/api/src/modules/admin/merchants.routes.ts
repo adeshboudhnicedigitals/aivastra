@@ -118,6 +118,7 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
       const clients = await app.db
         .select({
           id: schema.merchants.id,
+          signupSource: schema.merchants.signupSource,
           companyName: schema.merchants.companyName,
           contactName: schema.merchants.contactName,
           email: schema.users.email,

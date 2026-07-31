@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 import { merchantRefund } from '../merchant/ledger.js';
+import { resolveTryonGarment } from '../merchant/resolve-tryon-garment.js';
 import { createKioskJob, KIOSK_JOB_COST } from './create-job.js';
 
 async function checkRateLimit(
@@ -151,56 +152,8 @@ export async function kioskJobsRoutes(app: FastifyInstance) {
       const { merchantCatalogItemId, customerPhotoKey } = req.body as z.infer<
         typeof KioskJobCreateBody
       >;
-      const [item] = await app.db
-        .select({
-          id: schema.merchantCatalogItems.id,
-          merchantId: schema.merchantCatalogItems.merchantId,
-          r2Key: schema.merchantCatalogItems.r2Key,
-          isActive: schema.merchantCatalogItems.isActive,
-          moderationStatus: schema.merchantCatalogItems.moderationStatus,
-          workflowTemplateId: schema.tryonCategories.workflowTemplateId,
-          tryonCategoryIsActive: schema.tryonCategories.isActive,
-          workflowTemplateIsActive: schema.workflowTemplates.isActive,
-        })
-        .from(schema.merchantCatalogItems)
-        .innerJoin(
-          schema.merchantCatalogSubcategories,
-          eq(schema.merchantCatalogSubcategories.id, schema.merchantCatalogItems.subcategoryId),
-        )
-        .leftJoin(
-          schema.garmentSubcategories,
-          eq(
-            schema.garmentSubcategories.id,
-            schema.merchantCatalogSubcategories.garmentSubcategoryId,
-          ),
-        )
-        .leftJoin(
-          schema.tryonCategories,
-          eq(schema.tryonCategories.id, schema.garmentSubcategories.tryonCategoryId),
-        )
-        .leftJoin(
-          schema.workflowTemplates,
-          eq(schema.workflowTemplates.id, schema.tryonCategories.workflowTemplateId),
-        )
-        .where(eq(schema.merchantCatalogItems.id, merchantCatalogItemId))
-        .limit(1);
+      const garment = await resolveTryonGarment(app, merchantId, merchantCatalogItemId);
 
-      if (!item || item.merchantId !== merchantId) {
-        throw new AppError('NOT_FOUND', 404, 'catalog item not found');
-      }
-      if (!item.isActive || item.moderationStatus !== 'approved') {
-        throw new AppError('FORBIDDEN', 403, 'catalog item is not available');
-      }
-      // Kill-switch parity with createSimpleTryonJob: a tryon category (or its workflow
-      // template) that an admin deactivated after garment types were mapped to it must
-      // not resolve.
-      if (
-        !item.workflowTemplateId ||
-        !item.tryonCategoryIsActive ||
-        !item.workflowTemplateIsActive
-      ) {
-        throw new AppError('VALIDATION', 400, 'garment type has no tryon category configured');
-      }
       if (!customerPhotoKey.startsWith(`kiosk-inputs/${kioskDeviceId}/`)) {
         throw new AppError('FORBIDDEN', 403, 'customer photo key does not belong to this device');
       }
@@ -228,10 +181,10 @@ export async function kioskJobsRoutes(app: FastifyInstance) {
       const jobId = await createKioskJob(app, {
         merchantId,
         kioskDeviceId,
-        upperGarmentKey: item.r2Key,
+        upperGarmentKey: garment.r2Key,
         customerPhotoKey,
         cost: KIOSK_JOB_COST,
-        workflowTemplateId: item.workflowTemplateId,
+        workflowTemplateId: garment.workflowTemplateId,
       });
 
       reply.code(201);

@@ -1296,6 +1296,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                     Plan
                   </Th>
                   <th>Access</th>
+                  <th>Signup</th>
                   <Th k="balance" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
                     Credits
                   </Th>
@@ -1373,6 +1374,17 @@ export default function UsersPage({ onNav, toast }: Props) {
                       </div>
                     </td>
                     <td>
+                      {u.isMerchant ? (
+                        u.signupSource === 'android_google' ? (
+                          <span className="badge warn">Self-signup</span>
+                        ) : (
+                          <span className="badge">Admin</span>
+                        )
+                      ) : (
+                        <span className="sub">&mdash;</span>
+                      )}
+                    </td>
+                    <td>
                       <span className="mono" style={{ fontVariantNumeric: 'tabular-nums' }}>
                         {u.balance.toLocaleString()}
                       </span>
@@ -1407,7 +1419,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                 {sorted.length === 0 && (
                   <tr>
                     <td
-                      colSpan={9}
+                      colSpan={10}
                       style={{ textAlign: 'center', color: 'var(--muted)', padding: '2.5rem' }}
                     >
                       No users found.
