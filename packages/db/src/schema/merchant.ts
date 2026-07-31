@@ -20,6 +20,7 @@ export const merchants = pgTable('merchants', {
   phone: text('phone').notNull(),
   businessAddress: text('business_address').notNull(),
   isActive: boolean('is_active').notNull().default(false),
+  demoData: boolean('demo_data').notNull().default(true),
   kioskEnabled: boolean('kiosk_enabled').notNull().default(false),
   maxKioskDevices: integer('max_kiosk_devices').notNull().default(5),
   webhookUrl: text('webhook_url'),
