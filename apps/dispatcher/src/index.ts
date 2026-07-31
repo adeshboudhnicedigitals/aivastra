@@ -73,6 +73,16 @@ async function main(): Promise<void> {
       secretAccessKey: env.R2_SECRET_ACCESS_KEY,
     },
     forcePathStyle: env.R2_FORCE_PATH_STYLE,
+    // Default NodeHttpHandler timeouts are 0 (disabled) — a stalled R2 connection would
+    // otherwise hang r2Download() forever, parking the job in PREPROCESSING with no error
+    // and no retry until the 15-min sweeper SLA. Mirror the bounded timeouts already used
+    // for every ComfyUI HTTP call (comfyui/client.ts).
+    requestHandler: {
+      connectionTimeout: 10_000,
+      requestTimeout: 60_000,
+      throwOnRequestTimeout: true,
+      socketTimeout: 60_000,
+    },
   });
 
   // Load workers from DB (source of truth — managed via admin panel)
