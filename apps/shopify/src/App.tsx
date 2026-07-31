@@ -1,9 +1,9 @@
 import '@shopify/polaris/build/esm/styles.css';
 import './theme.css';
-import { AppProvider, Banner, Box, Spinner } from '@shopify/polaris';
+import { AppProvider, Banner, Box, Frame, Spinner } from '@shopify/polaris';
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
-import { AppShell } from './components/AppShell';
+import { AppNavMenu } from './components/AppNavMenu';
 import { LinkAccountGate } from './components/LinkAccountGate';
 import { apiFetch, setShopDomain } from './lib/api';
 import {
@@ -84,13 +84,14 @@ export default function App() {
 
   return (
     <AppProvider i18n={{}}>
-      <AppShell shopDomain={me.store.shopDomain}>
+      <AppNavMenu />
+      <Frame>
         <Routes>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/products" element={<ProductsPage />} />
           <Route path="/embedded" element={<Navigate to="/" replace />} />
         </Routes>
-      </AppShell>
+      </Frame>
     </AppProvider>
   );
 }
