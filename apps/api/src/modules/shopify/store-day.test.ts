@@ -36,6 +36,24 @@ describe('windowStart', () => {
     expect(windowStart('Asia/Amman', 'day', at).toISOString()).toBe('2020-10-29T21:00:00.000Z');
   });
 
+  it('uses the first day crossing when a rollback regresses the local date', () => {
+    // St. John's first entered Oct 25 at UTC-2:30, then rolled into Oct 24
+    // before entering Oct 25 again at UTC-3:30.
+    const at = new Date('1987-10-25T12:00:00Z');
+    expect(windowStart('America/St_Johns', 'day', at).toISOString()).toBe(
+      '1987-10-25T02:30:00.000Z',
+    );
+  });
+
+  it('handles a multi-hour rollback that regresses the local date', () => {
+    // Casey first entered Mar 5 at UTC+11, then rolled back three hours and
+    // entered Mar 5 again at UTC+8.
+    const at = new Date('2010-03-05T10:00:00Z');
+    expect(windowStart('Antarctica/Casey', 'day', at).toISOString()).toBe(
+      '2010-03-04T13:00:00.000Z',
+    );
+  });
+
   it('starts the week window on Monday', () => {
     const at = new Date('2026-03-05T12:00:00Z'); // a Thursday
     expect(windowStart('UTC', 'week', at).toISOString()).toBe('2026-03-02T00:00:00.000Z');
