@@ -231,8 +231,12 @@ fun OnboardingPage(
             }
         }
 
+        val toastBottomInset = if (LocalInspectionMode.current) 14.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         Box(
-            modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter).padding(top = sdp(R.dimen._24sdp))
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.BottomCenter)
+                .padding(bottom = sdp(R.dimen._12sdp) + toastBottomInset)
         ) {
             AppToast(
                 visible = toastVisible,
