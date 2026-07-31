@@ -8,6 +8,7 @@ import {
   jobsProcessedTotal,
 } from '@aivastra/observability';
 import { keys, type StorageProvider } from '@aivastra/storage';
+import { WORKER_POOL } from '@aivastra/types';
 import type { S3Client } from '@aws-sdk/client-s3';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { and, eq, sql } from 'drizzle-orm';
@@ -420,7 +421,7 @@ export async function processJob(
 
   // 3. Claim a worker
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
-  const worker = await selectWorker(redis, 'catalogue');
+  const worker = await selectWorker(redis, WORKER_POOL.CATALOGUE);
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn('no idle worker — job exceeded max queue wait, terminating with refund');
@@ -817,7 +818,7 @@ async function processTryonDirectJob(
     return;
   }
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
-  const worker = await selectWorker(redis, 'tryon');
+  const worker = await selectWorker(redis, WORKER_POOL.TRYON);
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn('no idle tryon worker — job exceeded max queue wait, terminating with refund');
@@ -1143,7 +1144,7 @@ async function processSareeMannequinJob(
 
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
 
-  const worker = await selectWorker(redis, 'saree');
+  const worker = await selectWorker(redis, WORKER_POOL.SAREE);
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn('no idle saree worker — mannequin job exceeded max queue wait, terminating');
@@ -1361,7 +1362,7 @@ async function processSareeJob(
 
   // Saree jobs route to workers with 'saree' in their allowedJobTypes. Workers
   // self-declare this in the workers table (admin can edit from the Workers page).
-  const worker = await selectWorker(redis, 'saree');
+  const worker = await selectWorker(redis, WORKER_POOL.SAREE);
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn('no idle saree worker — job exceeded max queue wait, terminating with refund');
@@ -1641,7 +1642,7 @@ async function processWidgetJob(
   // (or an empty allowedJobTypes, i.e. "accepts any") — the same admin-managed pool the
   // main studio flow and Shopify jobs use, via selectWorker. See processShopifyJob for
   // the precedent this mirrors.
-  const worker = await selectWorker(redis, 'merchant');
+  const worker = await selectWorker(redis, WORKER_POOL.MERCHANT);
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn(
@@ -1918,7 +1919,7 @@ async function processShopifyJob(
   // Shopify jobs route to workers with 'shopify' in their allowedJobTypes. An admin
   // must configure at least one such worker (or one with an empty allowedJobTypes,
   // i.e. "accepts any") for these jobs to ever be picked up — see selectWorker.
-  const worker = await selectWorker(redis, 'shopify');
+  const worker = await selectWorker(redis, WORKER_POOL.SHOPIFY);
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn(

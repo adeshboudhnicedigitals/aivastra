@@ -1,5 +1,6 @@
 import { type DB, schema } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
+import { JOB_SOURCE } from '@aivastra/types';
 import { and, eq, inArray, lte, or, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 import { transitionJob } from '../job/state.js';
@@ -12,7 +13,7 @@ const QUEUED_SLA_MS = 10 * 60 * 1000;
 // legitimately for far longer than a GPU job ever should, and failing those at 10 min
 // would refund healthy work that was about to run.
 const VIDEO_QUEUED_SLA_MS = 30 * 60 * 1000;
-const VIDEO_SOURCE = 'catalog_video';
+const VIDEO_SOURCE = JOB_SOURCE.CATALOG_VIDEO;
 // In-flight jobs whose work started (or, for PREPROCESSING, were created) longer ago than
 // this are stuck — a normal try-on completes in ~30-60s, so 15m means the dispatcher died
 // mid-flight. Longer than the QUEUED SLA because these are legitimately mid-processing.

@@ -7,6 +7,8 @@ import {
   type CreateCatalogVideoJobRequest,
   type CreateSimpleTryonRequest,
   type CreateTryOnJobRequest,
+  JOB_SOURCE,
+  type JobSource,
   type Resolution,
   resolutionFromDims,
   type SareeStep2Inputs,
@@ -631,10 +633,11 @@ export async function createJob(
     trustedGarmentKeys?: Set<string>;
     /** Set by the public developer API so the resulting jobs are readable through
      *  /v1/dev/jobs/:id and /v1/dev/catalogues/:id, which scope by merchant via a
-     *  join on api_keys and filter jobs.source = 'api'. Omitting either field there
-     *  makes every generated job 404 on its own status endpoint. */
+     *  join on api_keys and filter jobs.source against the api_* JobSource values.
+     *  Omitting either field there makes every generated job 404 on its own status
+     *  endpoint. */
     apiKeyId?: string;
-    source?: string;
+    source?: JobSource;
   },
 ) {
   const {
@@ -723,7 +726,7 @@ export async function createJob(
           queueStream,
           watermark,
           creditsCharged: plan.cost,
-          source: opts?.source ?? 'catalog',
+          source: opts?.source ?? JOB_SOURCE.CATALOG,
         })
         .returning();
       await atomicDeduct(tx as unknown as DB, userId, plan.cost, job.id);
@@ -751,7 +754,7 @@ export async function createJob(
   for (const jobId of jobIds) {
     try {
       await app.redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId, 'userId', userId);
-      jobsCreatedTotal.inc({ priority: queueStream, kind: 'catalogue' });
+      jobsCreatedTotal.inc({ priority: queueStream, kind: JOB_SOURCE.CATALOG });
     } catch (err) {
       app.log.error({ err, jobId }, 'redis xadd failed — job will be refunded');
       failedEnqueues.push(jobId);
@@ -887,7 +890,7 @@ export async function createSimpleTryonJob(
         queueStream,
         watermark,
         creditsCharged: COST,
-        source: 'tryon',
+        source: JOB_SOURCE.TRYON,
       })
       .returning();
     await atomicDeduct(tx as unknown as DB, userId, COST, newJob.id);
@@ -907,7 +910,7 @@ export async function createSimpleTryonJob(
   const stream = `jobs:${queueStream}`;
   try {
     await app.redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', job.id, 'userId', userId);
-    jobsCreatedTotal.inc({ priority: queueStream, kind: 'tryon' });
+    jobsCreatedTotal.inc({ priority: queueStream, kind: JOB_SOURCE.TRYON });
   } catch (err) {
     app.log.error({ err, jobId: job.id }, 'redis xadd failed — simple tryon job will be refunded');
     await refund(app.db, userId, COST, job.id, 'REFUND_ENQUEUE_FAIL');
@@ -968,7 +971,7 @@ export async function createCatalogVideoJob(
         queueStream: 'video',
         watermark: false,
         creditsCharged: cost,
-        source: 'catalog_video',
+        source: JOB_SOURCE.CATALOG_VIDEO,
       })
       .returning();
     await atomicDeduct(tx as unknown as DB, userId, cost, newJob.id);
@@ -996,7 +999,7 @@ export async function createCatalogVideoJob(
       'userId',
       userId,
     );
-    jobsCreatedTotal.inc({ priority: 'video', kind: 'catalog_video' });
+    jobsCreatedTotal.inc({ priority: 'video', kind: JOB_SOURCE.CATALOG_VIDEO });
   } catch (err) {
     app.log.error({ err, jobId: job.id }, 'redis xadd failed');
     await refund(app.db, userId, cost, job.id, 'REFUND_ENQUEUE_FAIL');

@@ -1,4 +1,5 @@
 import { schema } from '@aivastra/db';
+import { JOB_SOURCE } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { buildTestApp, type TestApp } from './helpers/api.js';
@@ -100,7 +101,7 @@ describe('POST /v1/dev/tryon', () => {
     expect(body.status).toBe('QUEUED');
 
     const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, body.jobId));
-    expect(job?.source).toBe('api');
+    expect(job?.source).toBe(JOB_SOURCE.API_TRYON);
     // Dispatcher routing precondition (apps/dispatcher/src/job/processor.ts:122-134):
     // merchantId must stay null — a non-null merchantId misroutes the job into
     // processWidgetJob instead of processTryonDirectJob. apiKeyId is the only
@@ -215,7 +216,7 @@ describe('POST /v1/dev/tryon (JSON/base64 body)', () => {
     expect(body.status).toBe('QUEUED');
 
     const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, body.jobId));
-    expect(job?.source).toBe('api');
+    expect(job?.source).toBe(JOB_SOURCE.API_TRYON);
     // Same dispatcher-routing precondition as the multipart path — see the
     // comment on the multipart test above.
     expect(job?.merchantId).toBeNull();

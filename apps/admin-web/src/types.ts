@@ -240,18 +240,6 @@ export interface User {
   merchant?: UserMerchant | null;
 }
 
-export type JobType =
-  | 'catalog'
-  | 'tryon'
-  | 'saree'
-  | 'saree_mannequin'
-  | 'shopify'
-  | 'merchant_tryon'
-  | 'kiosk'
-  | 'merchant_catalog'
-  | 'merchant_catalog_saree_mannequin'
-  | 'api';
-
 export type JobStatus =
   | 'QUEUED'
   | 'PREPROCESSING'
