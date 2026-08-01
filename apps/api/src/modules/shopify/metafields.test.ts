@@ -28,7 +28,13 @@ describe('writeWidgetConfigMetafield', () => {
     expect(ok).toBe(true);
     const [url, init] = fetchFn.mock.calls[0];
     expect(url).toContain('/graphql.json');
+    expect((init as RequestInit).method).toBe('POST');
+    expect((init as RequestInit).headers).toMatchObject({
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': 'tok',
+    });
     const sent = JSON.parse((init as RequestInit).body as string);
+    expect(sent.query).toContain('mutation SetWidgetConfig');
     const mf = sent.variables.metafields[0];
     expect(mf.ownerId).toBe('gid://shopify/Shop/4242');
     expect(mf.namespace).toBe('aivastra');
@@ -43,6 +49,38 @@ describe('writeWidgetConfigMetafield', () => {
         data: { metafieldsSet: { userErrors: [{ field: ['value'], message: 'bad' }] } },
       }),
     );
+
+    const ok = await writeWidgetConfigMetafield(
+      's.myshopify.com',
+      'tok',
+      1,
+      {},
+      log,
+      fetchFn as unknown as typeof fetch,
+    );
+
+    expect(ok).toBe(false);
+  });
+
+  it('returns false when Shopify reports top-level GraphQL errors', async () => {
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ errors: [{ message: 'invalid mutation' }] }));
+
+    const ok = await writeWidgetConfigMetafield(
+      's.myshopify.com',
+      'tok',
+      1,
+      {},
+      log,
+      fetchFn as unknown as typeof fetch,
+    );
+
+    expect(ok).toBe(false);
+  });
+
+  it('returns false when Shopify omits metafieldsSet from a 200 response', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ data: {} }));
 
     const ok = await writeWidgetConfigMetafield(
       's.myshopify.com',

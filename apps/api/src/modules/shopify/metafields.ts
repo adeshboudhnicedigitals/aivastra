@@ -91,8 +91,15 @@ export async function writeWidgetConfigMetafield(
     // A GraphQL mutation can answer 200 and still have refused the write.
     const body = (await res.json()) as {
       data?: { metafieldsSet?: { userErrors?: { field: string[]; message: string }[] } };
+      errors?: { message: string }[];
     };
-    const errors = body.data?.metafieldsSet?.userErrors ?? [];
+    const metafieldsSet = body.data?.metafieldsSet;
+    if (body.errors?.length || !metafieldsSet) {
+      log.error({ shop, errors: body.errors }, 'shopify rejected widget_config metafield');
+      return false;
+    }
+
+    const errors = metafieldsSet.userErrors ?? [];
     if (errors.length > 0) {
       log.error({ shop, errors }, 'shopify rejected widget_config metafield');
       return false;
