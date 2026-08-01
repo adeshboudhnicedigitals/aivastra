@@ -13,6 +13,7 @@ import CreditAnalysisPage from './pages/CreditAnalysisPage';
 import DashboardPage from './pages/DashboardPage';
 import DemoCatalogPage from './pages/DemoCatalogPage';
 import DevApiPage from './pages/DevApiPage';
+import HeldBatchesPage from './pages/HeldBatchesPage';
 import JobsPage from './pages/JobsPage';
 import LoginPage from './pages/LoginPage';
 import RecycleBinPage from './pages/RecycleBinPage';
@@ -33,6 +34,7 @@ const PATH_LABELS: Record<string, string> = {
   'demo-catalog': 'Kiosk Demo Data',
   users: 'Users',
   jobs: 'Jobs',
+  'held-batches': 'Held Batches',
   workflows: 'Workflows',
   'dev-api': 'Dev API',
   'chat-inbox': 'Chat Inbox',
@@ -214,6 +216,7 @@ export default function App() {
             <Route path="/assets" element={<AssetsPage {...pageProps} />} />
             <Route path="/users" element={<UsersPage {...pageProps} />} />
             <Route path="/jobs" element={<JobsPage {...pageProps} />} />
+            <Route path="/held-batches" element={<HeldBatchesPage {...pageProps} />} />
             <Route path="/workflows" element={<WorkflowsPage {...pageProps} />} />
             <Route path="/shopify-funnels" element={<ShopifyFunnelsPage {...pageProps} />} />
             <Route path="/credit-analysis" element={<CreditAnalysisPage {...pageProps} />} />

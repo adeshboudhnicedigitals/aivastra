@@ -106,6 +106,12 @@ const groups: NavGroup[] = [
         roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN'],
       },
       {
+        k: 'held-batches',
+        label: 'Held Batches',
+        icon: Icon.Jobs,
+        roles: ['SUPER_ADMIN', 'ADMIN'],
+      },
+      {
         k: 'workers',
         label: 'Workers',
         icon: Icon.Server,
