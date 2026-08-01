@@ -152,6 +152,62 @@ describe('PATCH /v1/shopify/widget-config', () => {
     expect(settings.widget?.copy?.heading).toBe('Concurrent');
   });
 
+  it('waits to publish the combined config after an in-flight patch', async () => {
+    await app.db
+      .update(schema.shopifyStores)
+      .set({ settings: {} })
+      .where(eq(schema.shopifyStores.id, storeId));
+
+    let releaseFirst!: () => void;
+    const firstWrite = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let firstStarted!: () => void;
+    const firstStartedPromise = new Promise<void>((resolve) => {
+      firstStarted = resolve;
+    });
+    const published: unknown[] = [];
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as {
+        variables: { metafields: { value: string }[] };
+      };
+      const config = JSON.parse(body.variables.metafields[0].value);
+      if (published.length === 0) {
+        firstStarted();
+        await firstWrite;
+      }
+      published.push(config);
+      return new Response(JSON.stringify({ data: { metafieldsSet: { userErrors: [] } } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const first = patch({ copy: { heading: 'First' } });
+    await firstStartedPromise;
+    const second = patch({ copy: { subheading: 'Second' } });
+
+    await expect
+      .poll(async () => (await readSettings()).widget?.copy?.subheading, {
+        interval: 10,
+        timeout: 1000,
+      })
+      .toBe('Second');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    releaseFirst();
+    const [firstRes, secondRes] = await Promise.all([first, second]);
+    expect(firstRes.json().widget).toEqual({ copy: { heading: 'First' } });
+    expect(secondRes.json().widget).toEqual({
+      copy: { heading: 'First', subheading: 'Second' },
+    });
+    expect(published).toEqual([
+      { copy: { heading: 'First' } },
+      { copy: { heading: 'First', subheading: 'Second' } },
+    ]);
+  });
+
   it('does not clobber sibling settings keys', async () => {
     stubShopifyOk();
     await app.db
