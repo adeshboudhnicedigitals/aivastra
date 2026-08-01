@@ -2,7 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { analyticsCards, analyticsDaily } from '../src/modules/shopify/analytics.js';
+import {
+  analyticsCards,
+  analyticsDaily,
+  analyticsFunnel,
+  analyticsProducts,
+} from '../src/modules/shopify/analytics.js';
 import { upsertShopifyStore } from '../src/modules/shopify/auth.routes.js';
 import { localDayStart } from '../src/modules/shopify/store-day.js';
 import { buildTestApp, type TestApp } from './helpers/api.js';
@@ -199,5 +204,87 @@ describe('analyticsDaily', () => {
     const daily = await analyticsDaily(app.db, storeId, range);
     expect(daily.find((d) => d.day === '2026-07-06')?.tryOns).toBe(1);
     expect(daily.find((d) => d.day === '2026-07-05')?.tryOns).toBe(0);
+  });
+});
+
+describe('analyticsFunnel', () => {
+  it('counts distinct shoppers per step, not raw events', async () => {
+    const c = randomUUID();
+    const s = await seedShopper(storeId, c);
+    await seedJob(storeId, s, '2026-07-03T06:00:00Z');
+
+    await seedEvent(storeId, 'button_click', c, '2026-07-03T05:00:00Z');
+    await seedEvent(storeId, 'button_click', c, '2026-07-03T05:01:00Z');
+    await seedEvent(storeId, 'button_click', c, '2026-07-03T05:02:00Z');
+    await seedEvent(storeId, 'upload', c, '2026-07-03T05:03:00Z');
+    await seedEvent(storeId, 'result_view', c, '2026-07-03T06:05:00Z');
+
+    const funnel = await analyticsFunnel(app.db, storeId, range);
+
+    // One enthusiastic shopper clicking three times is one shopper.
+    expect(funnel.buttonClick).toBe(1);
+    expect(funnel.upload).toBe(1);
+    expect(funnel.resultView).toBe(1);
+  });
+
+  it('reports try-ons with no client_id as unattributed rather than dropping them', async () => {
+    const funnel = await analyticsFunnel(app.db, storeId, range);
+    // Seeded in the cards suite: one job with a null shopper.
+    expect(funnel.unattributed).toBeGreaterThanOrEqual(1);
+  });
+
+  it('does not clamp a step to the one above it', async () => {
+    // A shopper whose event calls were blocked still generated a real try-on,
+    // so tryOn can legitimately exceed buttonClick. Clamping would hide that
+    // the client-side steps are lossy.
+    const c = randomUUID();
+    const s = await seedShopper(storeId, c);
+    await seedJob(storeId, s, '2026-07-07T06:00:00Z');
+
+    const funnel = await analyticsFunnel(app.db, storeId, range);
+    expect(funnel.tryOn).toBeGreaterThan(funnel.buttonClick);
+  });
+});
+
+describe('analyticsProducts', () => {
+  it('aggregates try-ons and add-to-carts per product', async () => {
+    const c = randomUUID();
+    const s = await seedShopper(storeId, c);
+    await seedJob(storeId, s, '2026-07-02T08:00:00Z', 777);
+    await seedJob(storeId, s, '2026-07-02T09:00:00Z', 777);
+    await seedJob(storeId, s, '2026-07-02T10:00:00Z', 888);
+    await seedEvent(storeId, 'add_to_cart', c, '2026-07-02T11:00:00Z', 777);
+
+    await app.db.insert(schema.shopifyProductGarments).values({
+      storeId,
+      shopifyProductId: 777,
+      shopifyVariantId: null,
+      r2Key: 'x/777.jpg',
+      title: 'Blue Shirt',
+      status: 'active',
+      enabled: true,
+    });
+
+    const products = await analyticsProducts(app.db, storeId, range);
+
+    const p777 = products.find((p) => p.shopifyProductId === 777);
+    expect(p777).toMatchObject({
+      title: 'Blue Shirt',
+      tryOns: 2,
+      uniqueShoppers: 1,
+      addedToCart: 1,
+    });
+    expect(p777?.addToCartRate).toBeCloseTo(1, 5);
+
+    // A product with no garment row still appears — it just has no title.
+    const p888 = products.find((p) => p.shopifyProductId === 888);
+    expect(p888).toMatchObject({ title: null, tryOns: 1, addedToCart: 0 });
+  });
+
+  it('orders by try-ons descending', async () => {
+    const products = await analyticsProducts(app.db, storeId, range);
+    for (let i = 1; i < products.length; i++) {
+      expect(products[i - 1].tryOns).toBeGreaterThanOrEqual(products[i].tryOns);
+    }
   });
 });
