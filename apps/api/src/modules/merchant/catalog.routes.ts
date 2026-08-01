@@ -11,7 +11,7 @@ import {
   MerchantCatalogSubcategoryUpdateBody,
   MerchantCatalogUpdateBody,
 } from '@aivastra/types';
-import { and, count, desc, eq, ilike, inArray, isNull, or, type SQL, sql } from 'drizzle-orm';
+import { and, count, desc, eq, ilike, inArray, or, type SQL, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -606,7 +606,10 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         existing.actualPricePaise === 0 &&
         existing.offerPricePaise === 0;
       const completesDetails =
-        !!body.sku?.trim() && body.actualPrice !== undefined && body.offerPrice !== undefined;
+        !!body.sku?.trim() &&
+        body.actualPrice !== undefined &&
+        body.actualPrice > 0 &&
+        body.offerPrice !== undefined;
       const autoActivate = isPendingHeldProduct && completesDetails && body.isActive === undefined;
 
       const [updated] = await app.db
@@ -1100,21 +1103,18 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         .from(schema.jobs)
         .innerJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
         .innerJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
-        .leftJoin(
-          schema.merchantCatalogItems,
-          eq(schema.merchantCatalogItems.sourceJobId, schema.jobs.id),
-        )
         .where(
           and(
             eq(schema.jobs.userId, client.userId),
             eq(schema.jobs.status, 'COMPLETED'),
             sql`${schema.jobInputs.params}->>'heldBatch' = 'true'`,
-            isNull(schema.merchantCatalogItems.id),
+            sql`coalesce(${schema.jobInputs.params}->>'heldReconciled', 'false') <> 'true'`,
           ),
         )
         .limit(200);
 
       const created: Awaited<ReturnType<typeof serializeCatalogItem>>[] = [];
+      let failed = 0;
       for (const row of rows) {
         const subcategoryId = (row.params as { subcategoryId?: string } | null)?.subcategoryId;
         if (!row.resultKey || !subcategoryId) continue;
@@ -1131,13 +1131,34 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
           });
           created.push(await serializeCatalogItem(app, item));
         } catch (err) {
-          // 409 = another concurrent reconcile already claimed this job.
-          if (err instanceof AppError && err.statusCode === 409) continue;
-          app.log.warn({ err, jobId: row.jobId }, 'reconcile-held: failed to finalize job');
+          // 409 = a concurrent reconcile already claimed this job and created
+          // its product — still mark reconciled below so this job stops being
+          // re-selected, exactly as if this call had won the race itself.
+          if (!(err instanceof AppError && err.statusCode === 409)) {
+            failed++;
+            app.log.warn({ err, jobId: row.jobId }, 'reconcile-held: failed to finalize job');
+            continue;
+          }
         }
+        // Marks the job reconciled regardless of who actually created the
+        // product (this call or a concurrent one), so a merchant deleting the
+        // resulting product later never makes reconcile-held resurrect it —
+        // idempotency lives on the job, not on whether the product row exists.
+        await app.db
+          .update(schema.jobInputs)
+          .set({
+            params: sql`${schema.jobInputs.params} || '{"heldReconciled": true}'::jsonb`,
+          })
+          .where(eq(schema.jobInputs.jobId, row.jobId));
       }
 
-      return { created };
+      if (failed > 0) {
+        app.log.error(
+          { failed, total: rows.length },
+          'reconcile-held: some jobs failed to finalize',
+        );
+      }
+      return { created, failed };
     },
   );
 }

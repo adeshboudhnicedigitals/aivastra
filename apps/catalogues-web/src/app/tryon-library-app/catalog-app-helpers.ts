@@ -48,35 +48,6 @@ export async function pollGenerateJob(
   }
 }
 
-/**
- * Polls a batch of Path B generate jobs via the single-request batch status
- * endpoint until every job reaches a terminal status, reporting each tick so
- * the caller can update per-item UI (and import each job as soon as it's done
- * rather than waiting for the whole batch).
- */
-export async function pollGenerateBatch(
-  jobIds: string[],
-  onTick: (items: MerchantCatalogGenerateStatus[]) => void,
-  opts: { intervalMs?: number; timeoutMs?: number } = {},
-): Promise<void> {
-  const intervalMs = opts.intervalMs ?? 2500;
-  const timeoutMs = opts.timeoutMs ?? 300_000;
-  const startedAt = Date.now();
-  let pending = jobIds;
-  while (pending.length > 0) {
-    const { items } = await api.get<{ items: MerchantCatalogGenerateStatus[] }>(
-      `/v1/merchant/catalog/generate/status?jobIds=${pending.join(',')}`,
-    );
-    onTick(items);
-    pending = items.filter((i) => !TERMINAL_STATUSES.has(i.status)).map((i) => i.jobId);
-    if (pending.length === 0) return;
-    if (Date.now() - startedAt > timeoutMs) {
-      throw new Error('Timed out waiting for the catalogue images to generate.');
-    }
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
-  }
-}
-
 /** Copies a completed job's output into a merchant_catalog_items row (Path A import, also used to finalize Path B generates). */
 export function finalizeGeneratedProduct(
   jobId: string,
@@ -96,8 +67,14 @@ export function deleteProduct(id: string): Promise<void> {
  * to finalize them — the products screen calls this on mount instead. Rows come
  * back inactive until the merchant fills in SKU and prices.
  */
-export function reconcileHeldProducts(): Promise<{ created: MerchantCatalogItem[] }> {
+export function reconcileHeldProducts(): Promise<{
+  created: MerchantCatalogItem[];
+  failed: number;
+}> {
   return api
-    .post<{ created: MerchantCatalogItem[] }>('/v1/merchant/catalog/reconcile-held', {})
-    .catch(() => ({ created: [] }));
+    .post<{ created: MerchantCatalogItem[]; failed: number }>(
+      '/v1/merchant/catalog/reconcile-held',
+      {},
+    )
+    .catch(() => ({ created: [], failed: 0 }));
 }

@@ -1,31 +1,20 @@
+import type { AdminHeldJobsReleaseResponse, AdminHeldJobsResponse } from '@aivastra/types';
 import { useCallback, useEffect, useState } from 'react';
 import { apiErrorMessage, apiFetch } from '../lib/data';
-
-interface HeldByUser {
-  userId: string | null;
-  email: string | null;
-  count: number;
-  oldestCreatedAt: string;
-}
-
-interface HeldJobsResponse {
-  total: number;
-  byUser: HeldByUser[];
-}
 
 interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
 export default function HeldBatchesPage({ toast }: Props) {
-  const [data, setData] = useState<HeldJobsResponse | null>(null);
+  const [data, setData] = useState<AdminHeldJobsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isReleasing, setIsReleasing] = useState(false);
 
   const load = useCallback(async () => {
     setIsLoading(true);
     try {
-      setData(await apiFetch<HeldJobsResponse>('/admin/held-jobs'));
+      setData(await apiFetch<AdminHeldJobsResponse>('/admin/held-jobs'));
     } catch (e) {
       toast({
         kind: 'error',
@@ -44,10 +33,16 @@ export default function HeldBatchesPage({ toast }: Props) {
   const release = async () => {
     setIsReleasing(true);
     try {
-      const { released } = await apiFetch<{ released: number }>('/admin/held-jobs/release', {
-        method: 'POST',
+      const { released, remaining } = await apiFetch<AdminHeldJobsReleaseResponse>(
+        '/admin/held-jobs/release',
+        { method: 'POST' },
+      );
+      toast({
+        title:
+          remaining > 0
+            ? `Released ${released} job${released === 1 ? '' : 's'} — ${remaining} still held, click Release again`
+            : `Released ${released} job${released === 1 ? '' : 's'} to the GPU queue`,
       });
-      toast({ title: `Released ${released} job${released === 1 ? '' : 's'} to the GPU queue` });
       await load();
     } catch (e) {
       toast({

@@ -78,7 +78,10 @@ describe('admin held jobs', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect((res.json() as { released: number }).released).toBe(2);
+    const body = res.json() as { released: number; remaining: number };
+    expect(body.released).toBe(2);
+    // The whole backlog fit in one call, so nothing is left held.
+    expect(body.remaining).toBe(0);
 
     for (const { jobId } of [a, b]) {
       const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
@@ -141,6 +144,11 @@ describe('admin held jobs', () => {
 
   it('rejects unauthenticated callers', async () => {
     const res = await app.inject({ method: 'POST', url: '/admin/held-jobs/release' });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('rejects unauthenticated callers on the GET summary too', async () => {
+    const res = await app.inject({ method: 'GET', url: '/admin/held-jobs' });
     expect(res.statusCode).toBe(401);
   });
 });

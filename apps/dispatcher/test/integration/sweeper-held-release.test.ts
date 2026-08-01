@@ -75,13 +75,27 @@ describe('sweeper — held-then-released jobs', () => {
     expect(await statusOf(genuinelyOrphaned)).toBe('FAILED');
   });
 
-  it('sweeps a released job once it exceeds the SLA measured from queued_at', async () => {
+  it('spares a released job past the old 10-minute mark but within the new SLA', async () => {
+    const log = createLogger('test');
+
+    const recentlyReleased = await seedJob({
+      status: 'QUEUED',
+      createdAt: new Date(Date.now() - 3 * DAY),
+      queuedAt: new Date(Date.now() - 12 * MIN),
+    });
+
+    await runSweeper(env.db, pub, log);
+
+    expect(await statusOf(recentlyReleased)).toBe('QUEUED');
+  });
+
+  it('sweeps a released job once it exceeds the held-release SLA', async () => {
     const log = createLogger('test');
 
     const staleRelease = await seedJob({
       status: 'QUEUED',
       createdAt: new Date(Date.now() - 3 * DAY),
-      queuedAt: new Date(Date.now() - 12 * MIN),
+      queuedAt: new Date(Date.now() - (3 * 60 + 1) * MIN), // just past the 3h SLA
     });
 
     await runSweeper(env.db, pub, log);

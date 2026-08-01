@@ -593,5 +593,6 @@ export type AdminHeldJobsResponse = z.infer<typeof AdminHeldJobsResponse>;
 
 export const AdminHeldJobsReleaseResponse = z.object({
   released: z.number().int(),
+  remaining: z.number().int(),
 });
 export type AdminHeldJobsReleaseResponse = z.infer<typeof AdminHeldJobsReleaseResponse>;
