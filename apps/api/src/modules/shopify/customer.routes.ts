@@ -15,6 +15,7 @@ import { atomicDeduct, refundAndMarkFailed } from '../credits/ledger.js';
 import { mintAccountLinkCode } from './customer-auth.js';
 import {
   checkShopperLimits,
+  type LimitRefusal,
   lockAndRecheckShopperLimits,
   reserveStoreDailySlot,
   ShopperLimitRaceRefusal,
@@ -83,6 +84,45 @@ async function checkRateLimit(redis: Redis, storeId: string, reply: FastifyReply
   if (count > 60) {
     reply.header('Retry-After', Math.max(0, ttl === -1 ? 60 : ttl).toString());
     throw new AppError('RATE_LIMITED', 429, 'rate limit exceeded');
+  }
+}
+
+/**
+ * Record a refusal the shopper actually saw.
+ *
+ * Deliberately NOT inside limits.ts, despite the design doc suggesting it:
+ * `checkShopperLimits` runs twice per request — once as a fast path and again
+ * inside the job transaction via `lockAndRecheckShopperLimits` — so an insert
+ * there would double-count, and the transactional call rolls back on refusal
+ * anyway. `reserveStoreDailySlot` has no db handle at all. The three points
+ * where a 202 reaches the shopper are unambiguous, and this is called from
+ * exactly those.
+ *
+ * Best-effort: a failed analytics write must never turn a soft refusal into a
+ * 500.
+ */
+const REFUSAL_EVENT_TYPE: Record<LimitRefusal['reason'], string> = {
+  email_required: 'refused_email_gate',
+  shopper_limit: 'refused_shopper_cap',
+  store_limit: 'refused_store_cap',
+};
+
+async function recordRefusal(
+  app: FastifyInstance,
+  storeId: string,
+  reason: LimitRefusal['reason'],
+  clientId: string | null,
+  shopifyProductId: number | null,
+): Promise<void> {
+  try {
+    await app.db.insert(schema.shopifyWidgetEvents).values({
+      storeId,
+      clientId,
+      shopifyProductId,
+      type: REFUSAL_EVENT_TYPE[reason],
+    });
+  } catch (err) {
+    app.log.warn({ err, storeId, reason }, 'shopify refusal event not recorded');
   }
 }
 
@@ -325,11 +365,15 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
         // store slot and opening a transaction for a request that's already
         // over quota with no possibility of a concurrent winner.
         const refusal = await checkShopperLimits(app.db, store, shopper);
-        if (refusal) return reply.code(202).send(refusal);
+        if (refusal) {
+          await recordRefusal(app, storeId, refusal.reason, clientId ?? null, shopifyProductId);
+          return reply.code(202).send(refusal);
+        }
       }
 
       const slot = await reserveStoreDailySlot(app, store);
       if (!slot.ok) {
+        await recordRefusal(app, storeId, 'store_limit', clientId ?? null, shopifyProductId);
         return reply
           .code(202)
           .send({ reason: 'store_limit', message: "Try-on isn't available right now." });
@@ -401,8 +445,10 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
         if (err instanceof ShopperLimitRaceRefusal) {
           // Transaction already rolled back — no job, no deducted credit.
           // Only the store slot (reserved before the transaction) needs
-          // releasing.
+          // releasing. The event insert happens after the rollback too, so a
+          // failed write can never be undone by it.
           await releaseSlotWithRetry(slot, app.log);
+          await recordRefusal(app, storeId, err.refusal.reason, clientId ?? null, shopifyProductId);
           return reply.code(202).send(err.refusal);
         }
 
