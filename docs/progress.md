@@ -1,3 +1,18 @@
+## 2026-08-01 - Gartex expo QR signup campaign (25% bonus credits)
+
+### Done
+- Added `signup_campaigns` table (code, name, bonusPercent, date window, isActive) and `users.signupCampaignId` FK, set once at signup.
+- Email/password register (`?src=` query param -> `RegisterBody.signupSource`) and Google OAuth (`google_src` cookie, mirroring `google_next`) both attribute brand-new signups to a matching active, in-window campaign.
+- `FREE_TRIAL` grant (both the `PATCH /v1/me` profile-completion path and the Google new-account path) is boosted by the campaign's `bonusPercent` when attributed.
+- First plan purchase for a campaign-attributed user grants an extra `CAMPAIGN_BONUS` ledger entry (bonusPercent of the plan's credits), applied once via a shared `grantPurchaseCredits` helper used by both `/v1/payments/verify` and the Razorpay webhook.
+- Admin CRUD (`/admin/signup-campaigns`) + a new "Signup Campaigns" tab in the admin Settings page (`apps/admin-web/src/pages/SettingsPage.tsx`).
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- The actual `gartex2026` campaign row still needs to be created via the admin UI in production, with the real expo dates, before the QR code is printed (see `docs/superpowers/specs/2026-08-01-gartex-expo-qr-campaign-design.md` §3.6) — this is an operational step, not a code task.
+
 ## 2026-07-31 - Virtual Try-On Android unused raster drawable cleanup
 
 ### Done
@@ -5061,15 +5076,3 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 ---
 
 <!-- Add new entries above this line, newest first -->
-## 2026-08-01 - Google OAuth QR campaign attribution
-
-### Done
-- Threaded the `src` query parameter through Google OAuth using a short-lived `google_src` cookie, then resolved the active campaign during the callback.
-- New Google-created accounts now store `signupCampaignId` and receive campaign-boosted free credits; existing Google/email links and native device login retain their null-campaign behavior.
-- Added the Google OAuth integration regression test and verified it with the API integration configuration.
-
-### Failed / Not Done
-- None.
-
-### Open Questions / Decisions
-- The default API Vitest configuration excludes `test/integration/**`; focused Google OAuth verification therefore uses `vitest.integration.config.ts`.
