@@ -6,6 +6,7 @@ import {
   SettingsIcon,
 } from '@shopify/polaris-icons';
 import { useNavigate } from 'react-router-dom';
+import { runNavGuard } from '../lib/navGuard';
 
 // Must match BrowserRouter's basename in main.tsx. <ui-nav-menu> hands its
 // hrefs to Shopify admin, which navigates the iframe to that exact path — a
@@ -48,7 +49,7 @@ export function AppNavMenu() {
             // change in-app — a real navigation would reload the iframe and
             // re-run the App Bridge handshake on every nav click.
             e.preventDefault();
-            navigate(item.path);
+            if (runNavGuard()) navigate(item.path);
           }}
         >
           {item.label}

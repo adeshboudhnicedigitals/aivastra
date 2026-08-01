@@ -2,6 +2,10 @@ declare global {
   interface Window {
     shopify?: {
       idToken(): Promise<string>;
+      saveBar?: {
+        show(id: string): Promise<void>;
+        hide(id: string): Promise<void>;
+      };
     };
   }
 
@@ -14,6 +18,10 @@ declare global {
     namespace JSX {
       interface IntrinsicElements {
         'ui-nav-menu': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement>;
+        'ui-save-bar': React.DetailedHTMLProps<
+          React.HTMLAttributes<HTMLElement> & { id: string },
+          HTMLElement
+        >;
       }
     }
   }

@@ -5,17 +5,20 @@ import {
   Button,
   Card,
   Checkbox,
+  ContextualSaveBar,
   InlineStack,
   Layout,
+  Modal,
   Page,
   Tabs,
   Text,
   TextField,
 } from '@shopify/polaris';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import '../components/widgetPreview.css';
 import { type PreviewStep, WidgetPreview } from '../components/WidgetPreview';
 import { apiFetch } from '../lib/api';
+import { setNavGuard } from '../lib/navGuard';
 import {
   normalizeWidgetConfigForSave,
   WIDGET_BEHAVIOR_DEFAULTS,
@@ -35,17 +38,29 @@ const PREVIEW_TABS: { id: PreviewStep; content: string }[] = [
 
 export default function WidgetDesignPage() {
   const [config, setConfig] = useState<ShopifyWidgetConfig>({});
+  const [saved, setSaved] = useState<ShopifyWidgetConfig>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [synced, setSynced] = useState(true);
+  const [republishing, setRepublishing] = useState(false);
+  const [blocked, setBlocked] = useState(false);
   const [tab, setTab] = useState(0);
 
   useEffect(() => {
     apiFetch<ShopifyMe>('/v1/shopify/me')
-      .then((me) => setConfig(me.store.settings.widget ?? {}))
+      .then((me) => {
+        const w = me.store.settings.widget ?? {};
+        setConfig(w);
+        setSaved(w);
+      })
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false));
   }, []);
+
+  // Structural compare, not reference: editing a field and undoing the edit
+  // must clear the save bar rather than leave it stuck open.
+  const dirty = useMemo(() => JSON.stringify(config) !== JSON.stringify(saved), [config, saved]);
 
   const setCopy = useCallback((key: WidgetCopyField, value: string) => {
     setConfig((c) => ({ ...c, copy: { ...c.copy, [key]: value } }));
@@ -61,6 +76,8 @@ export default function WidgetDesignPage() {
         body: JSON.stringify(normalizedConfig),
       });
       setConfig(res.widget);
+      setSaved(res.widget);
+      setSynced(res.synced);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -68,13 +85,129 @@ export default function WidgetDesignPage() {
     }
   }, [config]);
 
+  const discard = useCallback(() => setConfig(saved), [saved]);
+
+  const republish = useCallback(async () => {
+    setRepublishing(true);
+    try {
+      const res = await apiFetch<{ synced: boolean }>('/v1/shopify/widget-config/republish', {
+        method: 'POST',
+      });
+      setSynced(res.synced);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setRepublishing(false);
+    }
+  }, []);
+
+  // Register the guard while this page is mounted. Returning false abandons the
+  // navigation outright and opens the modal — the merchant re-clicks the nav
+  // item after deciding. Deliberately not queuing and replaying the pending
+  // navigation: the guard is called from two different call sites with no
+  // shared notion of "the navigation that was attempted", and a stale queued
+  // target is worse than a second click.
+  //
+  // A ref, not `dirty` in the dep array: re-registering the guard on every
+  // keystroke would race with a nav click landing between unregister and
+  // register.
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  useEffect(() => {
+    setNavGuard(() => {
+      if (!dirtyRef.current) return true;
+      setBlocked(true);
+      return false;
+    });
+    return () => setNavGuard(null);
+  }, []);
+
+  // App Bridge's save bar lives in the admin's own top chrome, outside this
+  // iframe, so it is shown imperatively rather than by rendering.
+  useEffect(() => {
+    const bar = window.shopify?.saveBar;
+    if (!bar) return;
+    if (dirty) bar.show('widget-design-save').catch(() => {});
+    else bar.hide('widget-design-save').catch(() => {});
+  }, [dirty]);
+
+  // Covers reload and tab close, which no in-app guard can see.
+  useEffect(() => {
+    if (!dirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [dirty]);
+
   const accent = config.theme?.accentColor ?? '';
 
   return (
     <Page title="Widget Design">
+      {window.shopify ? (
+        <ui-save-bar id="widget-design-save">
+          <button {...{ variant: 'primary' }} disabled={loading} onClick={save} type="button">
+            Save
+          </button>
+          <button onClick={discard} type="button">
+            Discard
+          </button>
+        </ui-save-bar>
+      ) : dirty ? (
+        <ContextualSaveBar
+          message="Unsaved changes"
+          saveAction={{ onAction: save, loading: saving, disabled: loading }}
+          discardAction={{ onAction: discard }}
+        />
+      ) : null}
+
+      {blocked && (
+        <Modal
+          open
+          title="You have unsaved changes"
+          onClose={() => setBlocked(false)}
+          primaryAction={{
+            content: 'Save',
+            onAction: async () => {
+              await save();
+              setBlocked(false);
+            },
+            loading: saving,
+          }}
+          secondaryActions={[
+            {
+              content: 'Discard',
+              onAction: () => {
+                discard();
+                setBlocked(false);
+              },
+            },
+            { content: 'Keep editing', onAction: () => setBlocked(false) },
+          ]}
+        >
+          <Modal.Section>
+            <Text as="p">Your widget changes have not been saved yet.</Text>
+          </Modal.Section>
+        </Modal>
+      )}
+
       <Layout>
         <Layout.Section variant="oneHalf">
           <BlockStack gap="400">
+            {!synced && (
+              <Banner
+                tone="warning"
+                title="Storefront not updated"
+                action={{
+                  content: 'Retry',
+                  onAction: republish,
+                  loading: republishing,
+                }}
+              >
+                Your settings were saved, but we could not update your storefront. Shoppers still
+                see the previous text.
+              </Banner>
+            )}
+
             {error && (
               <Banner tone="critical" onDismiss={() => setError(null)}>
                 {error}
@@ -186,10 +319,6 @@ export default function WidgetDesignPage() {
                 />
               </BlockStack>
             </Card>
-
-            <Button variant="primary" loading={saving} disabled={loading} onClick={save}>
-              Save
-            </Button>
           </BlockStack>
         </Layout.Section>
 
