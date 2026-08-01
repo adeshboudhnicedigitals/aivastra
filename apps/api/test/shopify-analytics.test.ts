@@ -12,6 +12,7 @@ import { upsertShopifyStore } from '../src/modules/shopify/auth.routes.js';
 import { localDayStart } from '../src/modules/shopify/store-day.js';
 import { buildTestApp, type TestApp } from './helpers/api.js';
 import { type Containers, startContainers } from './helpers/containers.js';
+import { signSessionToken } from './helpers/shopify-session.js';
 
 const ENC_KEY = Buffer.alloc(32, 11).toString('base64');
 const TZ = 'Asia/Kolkata'; // UTC+5:30 — a half-hour offset catches naive UTC math
@@ -20,6 +21,7 @@ let app: TestApp;
 let storeId: string;
 let otherStoreId: string;
 let userId: string;
+let token: string;
 
 const range = {
   from: localDayStart(TZ, '2026-07-01'),
@@ -78,7 +80,11 @@ async function seedEvent(
 
 beforeAll(async () => {
   c = await startContainers();
-  app = await buildTestApp(c, { SHOPIFY_TOKEN_ENC_KEY: ENC_KEY });
+  app = await buildTestApp(c, {
+    SHOPIFY_TOKEN_ENC_KEY: ENC_KEY,
+    SHOPIFY_API_SECRET: 'test-secret',
+    SHOPIFY_API_KEY: 'test-key',
+  });
 
   const [user] = await app.db
     .insert(schema.users)
@@ -103,6 +109,7 @@ beforeAll(async () => {
     .update(schema.shopifyStores)
     .set({ ianaTimezone: TZ })
     .where(eq(schema.shopifyStores.id, storeId));
+  token = signSessionToken('an.myshopify.com', 'test-secret', 'test-key');
 
   const other = await upsertShopifyStore(
     app,
@@ -286,5 +293,50 @@ describe('analyticsProducts', () => {
     for (let i = 1; i < products.length; i++) {
       expect(products[i - 1].tryOns).toBeGreaterThanOrEqual(products[i].tryOns);
     }
+  });
+});
+
+describe('GET /v1/shopify/analytics', () => {
+  function get(qs: string) {
+    return app.inject({
+      method: 'GET',
+      url: `/v1/shopify/analytics?${qs}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+  }
+
+  it('returns every section for a valid range', async () => {
+    const res = await get('from=2026-07-01&to=2026-07-07');
+    expect(res.statusCode).toBe(200);
+
+    const body = res.json();
+    expect(body.range.timezone).toBe(TZ);
+    expect(body.cards.tryOns).toBeGreaterThan(0);
+    expect(body.daily).toHaveLength(7);
+    expect(body.funnel).toHaveProperty('unattributed');
+    expect(Array.isArray(body.products)).toBe(true);
+  });
+
+  it('includes the last day of the range', async () => {
+    // `to` is inclusive to the merchant; the resolved instant is exclusive.
+    const res = await get('from=2026-07-07&to=2026-07-07');
+    expect(res.json().daily).toEqual([{ day: '2026-07-07', tryOns: expect.any(Number) }]);
+  });
+
+  it('rejects a reversed range', async () => {
+    const res = await get('from=2026-07-08&to=2026-07-01');
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('rejects a range longer than 400 days', async () => {
+    // Beyond the events retention horizon the window is partly swept, which
+    // would read as a traffic collapse rather than as missing data.
+    const res = await get('from=2024-01-01&to=2026-07-07');
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('rejects a malformed date', async () => {
+    const res = await get('from=July&to=2026-07-07');
+    expect(res.statusCode).toBe(400);
   });
 });

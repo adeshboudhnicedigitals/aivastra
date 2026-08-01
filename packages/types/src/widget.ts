@@ -529,3 +529,27 @@ export const ShopifyWidgetEventRequest = z.object({
   device: z.enum(['mobile', 'desktop']).optional(),
 });
 export type ShopifyWidgetEventRequest = z.infer<typeof ShopifyWidgetEventRequest>;
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * `from` and `to` are bare calendar dates naming days in the STORE's timezone,
+ * both inclusive from the merchant's point of view. The server resolves them to
+ * instants; see localDayStart.
+ */
+export const ShopifyAnalyticsQuery = z
+  .object({
+    from: z.string().regex(ISO_DATE, 'must be YYYY-MM-DD'),
+    to: z.string().regex(ISO_DATE, 'must be YYYY-MM-DD'),
+  })
+  .refine((q) => q.to >= q.from, { message: 'to must not be before from' })
+  .refine(
+    (q) => {
+      // Compared as UTC purely to bound the span — a few hours of timezone
+      // skew cannot matter against a 400-day ceiling.
+      const days = (Date.parse(q.to) - Date.parse(q.from)) / 86_400_000;
+      return days <= 400;
+    },
+    { message: 'range must not exceed 400 days' },
+  );
+export type ShopifyAnalyticsQuery = z.infer<typeof ShopifyAnalyticsQuery>;
