@@ -5,6 +5,43 @@ import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { requireAdmin } from './guard.js';
 
+const RFC3339_DATE_TIME =
+  /^(\d{4})-(\d{2})-(\d{2})T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
+
+const Rfc3339DateTime = z
+  .string()
+  .regex(RFC3339_DATE_TIME, 'must be an RFC3339 date-time')
+  .refine((value) => {
+    const match = value.match(RFC3339_DATE_TIME);
+    if (!match) return true;
+
+    const [, year, month, day] = match;
+    const numericYear = Number(year);
+    const numericMonth = Number(month);
+    const numericDay = Number(day);
+    const daysInMonth = [
+      31,
+      numericYear % 4 === 0 && (numericYear % 100 !== 0 || numericYear % 400 === 0) ? 29 : 28,
+      31,
+      30,
+      31,
+      30,
+      31,
+      31,
+      30,
+      31,
+      30,
+      31,
+    ];
+    return (
+      numericMonth >= 1 &&
+      numericMonth <= 12 &&
+      numericDay >= 1 &&
+      numericDay <= daysInMonth[numericMonth - 1]
+    );
+  }, 'must be a valid RFC3339 date-time')
+  .transform((value) => new Date(value));
+
 const CampaignBody = z.object({
   code: z
     .string()
@@ -13,8 +50,8 @@ const CampaignBody = z.object({
     .regex(/^[a-z0-9-]+$/, 'code must be lowercase letters, numbers, hyphens only'),
   name: z.string().min(1).max(100),
   bonusPercent: z.number().int().min(0).max(100),
-  startAt: z.coerce.date(),
-  endAt: z.coerce.date(),
+  startAt: Rfc3339DateTime,
+  endAt: Rfc3339DateTime,
   isActive: z.boolean().default(true),
 });
 

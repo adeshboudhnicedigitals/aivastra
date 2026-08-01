@@ -100,6 +100,42 @@ describe('signup-campaigns admin CRUD', () => {
     expect(res.statusCode).toBe(400);
   });
 
+  it.each([
+    { field: 'startAt', startAt: null, endAt: '2026-08-08T00:00:00.000Z' },
+    { field: 'startAt', startAt: false, endAt: '2026-08-08T00:00:00.000Z' },
+    { field: 'startAt', startAt: 0, endAt: '2026-08-08T00:00:00.000Z' },
+    { field: 'endAt', startAt: '1960-08-06T00:00:00.000Z', endAt: null },
+    { field: 'endAt', startAt: '1960-08-06T00:00:00.000Z', endAt: false },
+    { field: 'endAt', startAt: '1960-08-06T00:00:00.000Z', endAt: 0 },
+    { field: 'startAt', startAt: '2026-08-06T00:00:00+0530', endAt: '2026-08-08T00:00:00Z' },
+    { field: 'startAt', startAt: '2026-08-06T00:00:00+99:99', endAt: '2026-08-08T00:00:00Z' },
+  ])('rejects invalid $field values on create', async ({ startAt, endAt }) => {
+    const res = await authed('POST', '/admin/signup-campaigns', {
+      code: `invalid-date-${Math.random().toString(36).slice(2, 8)}`,
+      name: 'Invalid Date Type',
+      bonusPercent: 25,
+      startAt,
+      endAt,
+      isActive: true,
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('rejects a non-string date value on partial update', async () => {
+    const created = await authed('POST', '/admin/signup-campaigns', {
+      code: 'invalid-patch-date',
+      name: 'Invalid Patch Date',
+      bonusPercent: 25,
+      startAt: '2026-08-06T00:00:00.000Z',
+      endAt: '2026-08-08T00:00:00.000Z',
+      isActive: true,
+    });
+    const res = await authed('PATCH', `/admin/signup-campaigns/${created.json().id}`, {
+      startAt: false,
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
   it('blocks deleting a campaign that a user is attributed to (409)', async () => {
     const created = await authed('POST', '/admin/signup-campaigns', {
       code: 'attributed-delete-test',
@@ -131,6 +167,82 @@ describe('signup-campaigns admin CRUD', () => {
 
     const delRes = await authed('DELETE', `/admin/signup-campaigns/${campaign.id}`);
     expect(delRes.statusCode).toBe(409);
+  });
+
+  it('preserves an attribution that commits while delete is waiting for its campaign lock', async () => {
+    const created = await authed('POST', '/admin/signup-campaigns', {
+      code: 'attribution-delete-race',
+      name: 'Attribution Delete Race',
+      bonusPercent: 25,
+      startAt: '2026-08-06T00:00:00.000Z',
+      endAt: '2026-08-08T23:59:59.000Z',
+      isActive: true,
+    });
+    const campaign = created.json();
+    await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        displayName: 'Race Attributed User',
+        email: 'race-attributed-user@x.com',
+        password: 'password123',
+      },
+    });
+    const [user] = await app.db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.email, 'race-attributed-user@x.com'));
+    const writer = postgres(c.pgUrl, { max: 1 });
+    const observer = postgres(c.pgUrl, { max: 1 });
+    let releaseWriter!: () => void;
+    const writerCanCommit = new Promise<void>((resolve) => {
+      releaseWriter = resolve;
+    });
+    let writerReady!: () => void;
+    const writerHasAttribution = new Promise<void>((resolve) => {
+      writerReady = resolve;
+    });
+
+    try {
+      const writerTransaction = writer.begin(async (tx) => {
+        await tx`select id from signup_campaigns where id = ${campaign.id} for key share`;
+        await tx`update users set signup_campaign_id = ${campaign.id} where id = ${user?.id}`;
+        writerReady();
+        await writerCanCommit;
+      });
+      await writerHasAttribution;
+
+      const deleting = authed('DELETE', `/admin/signup-campaigns/${campaign.id}`);
+      const deadline = Date.now() + 5_000;
+      while (true) {
+        const [waitingDelete] = await observer`
+          select pid
+          from pg_stat_activity
+          where datname = current_database()
+            and state = 'active'
+            and wait_event_type = 'Lock'
+            and query like '%signup_campaigns%'
+          limit 1
+        `;
+        if (waitingDelete) break;
+        if (Date.now() >= deadline) throw new Error('delete did not wait for the campaign lock');
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+
+      releaseWriter();
+      await writerTransaction;
+      const deleted = await deleting;
+      expect(deleted.statusCode).toBe(409);
+
+      const [attributedUser] = await app.db
+        .select({ signupCampaignId: schema.users.signupCampaignId })
+        .from(schema.users)
+        .where(eq(schema.users.id, user?.id));
+      expect(attributedUser?.signupCampaignId).toBe(campaign.id);
+    } finally {
+      await writer.end();
+      await observer.end();
+    }
   });
 
   it('serializes concurrent partial window updates', async () => {
