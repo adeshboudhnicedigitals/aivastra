@@ -262,7 +262,7 @@
 }
 
 .aivastra-tryon__step-dot.is-active {
-  background: var(--aivastra-button-color, #000000);
+  background: var(--aivastra-accent, var(--aivastra-button-color, #000000));
   color: var(--aivastra-text-color, #ffffff);
 }
 
@@ -326,7 +326,7 @@
   border-radius: 999px;
   font-size: 13.5px;
   cursor: pointer;
-  background: var(--aivastra-button-color, #000000);
+  background: var(--aivastra-accent, var(--aivastra-button-color, #000000));
   color: var(--aivastra-text-color, #ffffff);
   box-shadow: 0 7px 16px rgba(0, 0, 0, 0.15);
 }
@@ -432,7 +432,7 @@
   padding: 16px 24px;
   border: none;
   border-radius: 12px;
-  background: var(--aivastra-button-color, #000000);
+  background: var(--aivastra-accent, var(--aivastra-button-color, #000000));
   color: var(--aivastra-text-color, #ffffff);
   font-size: 17px;
   font-weight: 700;
@@ -472,7 +472,7 @@
   height: 100%;
   width: 40%;
   border-radius: 999px;
-  background: var(--aivastra-button-color, #000000);
+  background: var(--aivastra-accent, var(--aivastra-button-color, #000000));
   animation: aivastra-progress-indeterminate 1.4s ease-in-out infinite;
 }
 
