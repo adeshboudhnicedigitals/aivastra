@@ -207,134 +207,140 @@ export default function WidgetDesignPage() {
 
       <Layout>
         <Layout.Section variant="oneHalf">
-          <BlockStack gap="400">
-            {!synced && (
-              <Banner
-                tone="warning"
-                title="Storefront not updated"
-                action={{
-                  content: 'Retry',
-                  onAction: republish,
-                  loading: republishing,
-                }}
-              >
-                Your settings were saved, but we could not update your storefront. Shoppers still
-                see the previous text.
-              </Banner>
-            )}
+          <fieldset
+            disabled={loading}
+            aria-busy={loading}
+            style={{ border: 0, margin: 0, minWidth: 0, padding: 0 }}
+          >
+            <BlockStack gap="400">
+              {!synced && (
+                <Banner
+                  tone="warning"
+                  title="Storefront not updated"
+                  action={{
+                    content: 'Retry',
+                    onAction: republish,
+                    loading: republishing,
+                  }}
+                >
+                  Your settings were saved, but we could not update your storefront. Shoppers still
+                  see the previous text.
+                </Banner>
+              )}
 
-            {error && (
-              <Banner tone="critical" onDismiss={() => setError(null)}>
-                {error}
-              </Banner>
-            )}
+              {error && (
+                <Banner tone="critical" onDismiss={() => setError(null)}>
+                  {error}
+                </Banner>
+              )}
 
-            <Card>
-              <BlockStack gap="300">
-                <Text as="h2" variant="headingMd">
-                  Theme
-                </Text>
-                <InlineStack gap="300" blockAlign="center">
-                  <input
-                    type="color"
-                    aria-label="Accent color"
-                    value={accent || '#000000'}
-                    onChange={(e) =>
-                      setConfig((c) => ({ ...c, theme: { accentColor: e.target.value } }))
-                    }
-                  />
-                  <Box width="140px">
-                    <TextField
-                      label="Accent color"
-                      labelHidden
-                      autoComplete="off"
-                      placeholder="#000000"
-                      value={accent}
-                      onChange={(v) =>
-                        setConfig((c) => ({ ...c, theme: { accentColor: v || null } }))
+              <Card>
+                <BlockStack gap="300">
+                  <Text as="h2" variant="headingMd">
+                    Theme
+                  </Text>
+                  <InlineStack gap="300" blockAlign="center">
+                    <input
+                      type="color"
+                      aria-label="Accent color"
+                      value={accent || '#000000'}
+                      onChange={(e) =>
+                        setConfig((c) => ({ ...c, theme: { accentColor: e.target.value } }))
                       }
                     />
-                  </Box>
-                  <Button
-                    onClick={() => setConfig((c) => ({ ...c, theme: { accentColor: null } }))}
-                  >
-                    Use button color
-                  </Button>
-                </InlineStack>
-                <Text as="p" tone="subdued">
-                  Applies to the modal only. Your storefront button keeps the colors set in the
-                  theme editor.
-                </Text>
-              </BlockStack>
-            </Card>
+                    <Box width="140px">
+                      <TextField
+                        label="Accent color"
+                        labelHidden
+                        autoComplete="off"
+                        placeholder="#000000"
+                        value={accent}
+                        onChange={(v) =>
+                          setConfig((c) => ({ ...c, theme: { accentColor: v || null } }))
+                        }
+                      />
+                    </Box>
+                    <Button
+                      onClick={() => setConfig((c) => ({ ...c, theme: { accentColor: null } }))}
+                    >
+                      Use button color
+                    </Button>
+                  </InlineStack>
+                  <Text as="p" tone="subdued">
+                    Applies to the modal only. Your storefront button keeps the colors set in the
+                    theme editor.
+                  </Text>
+                </BlockStack>
+              </Card>
 
-            <Card>
-              <BlockStack gap="300">
-                <Text as="h2" variant="headingMd">
-                  Copy
-                </Text>
-                {WIDGET_COPY_FIELDS.map((f) => (
-                  <TextField
-                    key={f.key}
-                    label={f.label}
-                    autoComplete="off"
-                    maxLength={f.max}
-                    showCharacterCount
-                    placeholder={WIDGET_COPY_DEFAULTS[f.key]}
-                    value={config.copy?.[f.key] ?? ''}
-                    onChange={(v) => setCopy(f.key, v)}
+              <Card>
+                <BlockStack gap="300">
+                  <Text as="h2" variant="headingMd">
+                    Copy
+                  </Text>
+                  {WIDGET_COPY_FIELDS.map((f) => (
+                    <TextField
+                      key={f.key}
+                      label={f.label}
+                      autoComplete="off"
+                      maxLength={f.max}
+                      showCharacterCount
+                      placeholder={WIDGET_COPY_DEFAULTS[f.key]}
+                      value={config.copy?.[f.key] ?? ''}
+                      onChange={(v) => setCopy(f.key, v)}
+                    />
+                  ))}
+                  <Text as="p" tone="subdued">
+                    Leave a field empty to use the default shown in grey.
+                  </Text>
+                </BlockStack>
+              </Card>
+
+              <Card>
+                <BlockStack gap="300">
+                  <Text as="h2" variant="headingMd">
+                    Behavior
+                  </Text>
+                  <Checkbox
+                    label="Show Add to Cart on the result"
+                    checked={config.behavior?.addToCart !== false}
+                    onChange={(v) =>
+                      setConfig((c) => ({ ...c, behavior: { ...c.behavior, addToCart: v } }))
+                    }
                   />
-                ))}
-                <Text as="p" tone="subdued">
-                  Leave a field empty to use the default shown in grey.
-                </Text>
-              </BlockStack>
-            </Card>
-
-            <Card>
-              <BlockStack gap="300">
-                <Text as="h2" variant="headingMd">
-                  Behavior
-                </Text>
-                <Checkbox
-                  label="Show Add to Cart on the result"
-                  checked={config.behavior?.addToCart !== false}
-                  onChange={(v) =>
-                    setConfig((c) => ({ ...c, behavior: { ...c.behavior, addToCart: v } }))
-                  }
-                />
-                <TextField
-                  label="Add to Cart label"
-                  autoComplete="off"
-                  maxLength={30}
-                  disabled={config.behavior?.addToCart === false}
-                  placeholder={WIDGET_BEHAVIOR_DEFAULTS.addToCartLabel}
-                  value={config.behavior?.addToCartLabel ?? ''}
-                  onChange={(v) =>
-                    setConfig((c) => ({ ...c, behavior: { ...c.behavior, addToCartLabel: v } }))
-                  }
-                />
-                <Checkbox
-                  label="Show Share on the result"
-                  checked={config.behavior?.share !== false}
-                  onChange={(v) =>
-                    setConfig((c) => ({ ...c, behavior: { ...c.behavior, share: v } }))
-                  }
-                />
-                <TextField
-                  label="Share label"
-                  autoComplete="off"
-                  maxLength={30}
-                  disabled={config.behavior?.share === false}
-                  placeholder={WIDGET_BEHAVIOR_DEFAULTS.shareLabel}
-                  value={config.behavior?.shareLabel ?? ''}
-                  onChange={(v) =>
-                    setConfig((c) => ({ ...c, behavior: { ...c.behavior, shareLabel: v } }))
-                  }
-                />
-              </BlockStack>
-            </Card>
-          </BlockStack>
+                  <TextField
+                    label="Add to Cart label"
+                    autoComplete="off"
+                    maxLength={30}
+                    disabled={config.behavior?.addToCart === false}
+                    placeholder={WIDGET_BEHAVIOR_DEFAULTS.addToCartLabel}
+                    value={config.behavior?.addToCartLabel ?? ''}
+                    onChange={(v) =>
+                      setConfig((c) => ({ ...c, behavior: { ...c.behavior, addToCartLabel: v } }))
+                    }
+                  />
+                  <Checkbox
+                    label="Show Share on the result"
+                    checked={config.behavior?.share !== false}
+                    onChange={(v) =>
+                      setConfig((c) => ({ ...c, behavior: { ...c.behavior, share: v } }))
+                    }
+                  />
+                  <TextField
+                    label="Share label"
+                    autoComplete="off"
+                    maxLength={30}
+                    disabled={config.behavior?.share === false}
+                    placeholder={WIDGET_BEHAVIOR_DEFAULTS.shareLabel}
+                    value={config.behavior?.shareLabel ?? ''}
+                    onChange={(v) =>
+                      setConfig((c) => ({ ...c, behavior: { ...c.behavior, shareLabel: v } }))
+                    }
+                  />
+                </BlockStack>
+              </Card>
+            </BlockStack>
+          </fieldset>
         </Layout.Section>
 
         <Layout.Section variant="oneHalf">

@@ -135,9 +135,21 @@ function canonicalizeValue(value: unknown): unknown {
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
+function canonicalizeWidgetConfig(config: ShopifyWidgetConfig): unknown {
+  return canonicalizeValue({
+    ...config,
+    behavior: {
+      ...config.behavior,
+      addToCart: config.behavior?.addToCart ?? true,
+      share: config.behavior?.share ?? true,
+    },
+  });
+}
+
 /** Compare the form meaning, not transient empty objects or field whitespace. */
 export function widgetConfigsEqual(left: ShopifyWidgetConfig, right: ShopifyWidgetConfig): boolean {
   return (
-    JSON.stringify(canonicalizeValue(left) ?? {}) === JSON.stringify(canonicalizeValue(right) ?? {})
+    JSON.stringify(canonicalizeWidgetConfig(left) ?? {}) ===
+    JSON.stringify(canonicalizeWidgetConfig(right) ?? {})
   );
 }
