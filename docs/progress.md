@@ -1,3 +1,37 @@
+## 2026-08-01 — Shopify widget final reviewer fixes
+
+**Done**
+- Preserved `SHOPIFY_REAUTH_REQUIRED` from Admin API metafield writes so the
+  Widget Design save route reaches the embedded SPA's OAuth redirect handling.
+  Other post-commit publication failures, including Redis lock failures, now
+  return the committed widget config with `synced: false` instead of a false
+  500 indicating the settings were not saved.
+- Widget Design saves now send a leaf-level PATCH relative to the last server
+  snapshot. Unrelated stale fields are no longer sent across concurrent browser
+  tabs, and edits or discard reversals made during the in-flight Shopify
+  publication are rebased onto the response instead of overwritten by it.
+- Escaped the merchant-configured `api_base` Liquid attribute. Moved retry
+  button typography, spacing, text color, and control resets from preview-only
+  CSS into the shared storefront stylesheet, retaining a readable black/white
+  default in both contexts.
+- Added red-green regressions for metafield reauthorization, route-level OAuth
+  propagation, Redis post-commit degradation, partial PATCH generation, and
+  in-flight edit/discard rebasing.
+- Verification: Shopify admin 31/31 tests and production build passed; focused
+  API 17/17 tests, typecheck, and build passed; touched TypeScript Biome checks,
+  widget JavaScript syntax check, and `git diff --check` passed.
+
+**Failed / Not Done**
+- Shopify CLI/theme-check is not installed in this workspace, so there was no
+  separate theme-extension validator beyond the shared CSS being consumed by
+  the passing SPA build/drift tests and the Liquid change being a single
+  standard `escape` filter.
+
+**Open Questions / Decisions**
+- This fix round adds no new decisions. The existing real-Shopify manual
+  acceptance items documented in the entry below remain outstanding. No
+  migrations were needed, and no push was performed.
+
 ## 2026-07-31 — Shopify Widget Design + app block migration
 
 **Done**

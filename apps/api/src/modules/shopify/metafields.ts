@@ -1,5 +1,6 @@
 import type { ShopifyWidgetConfig } from '@aivastra/db';
 import type { FastifyBaseLogger } from 'fastify';
+import { AppError } from '../../lib/errors.js';
 import { shopifyAdminFetch } from './service.js';
 
 export async function writeWidgetKeyMetafield(
@@ -106,6 +107,7 @@ export async function writeWidgetConfigMetafield(
     }
     return true;
   } catch (err) {
+    if (err instanceof AppError && err.code === 'SHOPIFY_REAUTH_REQUIRED') throw err;
     log.error({ err, shop }, 'failed to write widget_config metafield');
     return false;
   }

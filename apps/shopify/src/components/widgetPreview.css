@@ -29,16 +29,6 @@
   padding: 0;
 }
 
-.widget-preview-modal-content .aivastra-tryon__retry {
-  margin-top: 12px;
-  padding: 12px 20px;
-  border: 0;
-  border-radius: 12px;
-  color: var(--aivastra-text-color, #ffffff);
-  font-size: 15px;
-  font-weight: 600;
-}
-
 .widget-preview-sample-media {
   position: relative;
 }

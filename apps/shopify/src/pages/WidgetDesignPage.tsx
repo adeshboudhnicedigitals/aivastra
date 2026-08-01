@@ -20,7 +20,8 @@ import { type PreviewStep, WidgetPreview } from '../components/WidgetPreview';
 import { apiFetch } from '../lib/api';
 import { setNavGuard } from '../lib/navGuard';
 import {
-  normalizeWidgetConfigForSave,
+  createWidgetConfigPatch,
+  rebaseWidgetConfigAfterSave,
   WIDGET_BEHAVIOR_DEFAULTS,
   WIDGET_COPY_DEFAULTS,
   WIDGET_COPY_FIELDS,
@@ -70,13 +71,17 @@ export default function WidgetDesignPage() {
   const save = useCallback(async (): Promise<boolean> => {
     setSaving(true);
     setError(null);
+    const submittedConfig = config;
+    const patch = createWidgetConfigPatch(submittedConfig, saved);
     try {
-      const normalizedConfig = normalizeWidgetConfigForSave(config);
       const res = await apiFetch<ShopifyWidgetConfigResponse>('/v1/shopify/widget-config', {
         method: 'PATCH',
-        body: JSON.stringify(normalizedConfig),
+        body: JSON.stringify(patch),
       });
-      setConfig(res.widget);
+      // The Shopify call can take up to ten seconds. Rebase any edits (or a
+      // discard) made during that window rather than replacing them with the
+      // request's response snapshot.
+      setConfig((current) => rebaseWidgetConfigAfterSave(current, submittedConfig, res.widget));
       setSaved(res.widget);
       setSynced(res.synced);
       return true;
@@ -86,7 +91,7 @@ export default function WidgetDesignPage() {
     } finally {
       setSaving(false);
     }
-  }, [config]);
+  }, [config, saved]);
 
   const discard = useCallback(() => setConfig(saved), [saved]);
 

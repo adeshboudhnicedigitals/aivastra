@@ -42,23 +42,82 @@ export const WIDGET_COPY_FIELDS: { key: WidgetCopyField; label: string; max: num
   { key: 'errorText', label: 'Error message', max: 160 },
 ];
 
-function normalizeTextFields<T extends object>(fields: T): T {
-  return Object.fromEntries(
-    Object.entries(fields).map(([key, value]) => [
-      key,
-      typeof value === 'string' ? value.trim() || null : value,
-    ]),
-  ) as T;
+function normalizeTextValue(value: string | null | undefined): string | null {
+  return value?.trim() || null;
 }
 
-/** Match Liquid defaults by clearing blank text while preserving absent keys. */
-export function normalizeWidgetConfigForSave(config: ShopifyWidgetConfig): ShopifyWidgetConfig {
+function textFieldPatch<T extends object>(
+  current: T | undefined,
+  saved: T | undefined,
+  keys: readonly (keyof T)[],
+): Partial<T> | undefined {
+  const patch: Partial<T> = {};
+
+  for (const key of keys) {
+    const currentValue = normalizeTextValue(current?.[key] as string | null | undefined);
+    const savedValue = normalizeTextValue(saved?.[key] as string | null | undefined);
+    if (currentValue !== savedValue) patch[key] = currentValue as T[keyof T];
+  }
+
+  return Object.keys(patch).length > 0 ? patch : undefined;
+}
+
+/**
+ * Build the leaf-level PATCH represented by the form.
+ *
+ * Sending only changed fields prevents one browser tab's stale snapshot from
+ * replacing unrelated fields saved by another tab. Missing booleans mean the
+ * storefront default (`true`), while blank text means an explicit null that
+ * clears a stored override.
+ */
+export function createWidgetConfigPatch(
+  current: ShopifyWidgetConfig,
+  saved: ShopifyWidgetConfig,
+): ShopifyWidgetConfig {
+  const patch: ShopifyWidgetConfig = {};
+  const theme = textFieldPatch(current.theme, saved.theme, ['accentColor']);
+  const copy = textFieldPatch(
+    current.copy,
+    saved.copy,
+    WIDGET_COPY_FIELDS.map(({ key }) => key),
+  );
+  const behavior =
+    textFieldPatch(current.behavior, saved.behavior, ['addToCartLabel', 'shareLabel']) ?? {};
+
+  const currentAddToCart = current.behavior?.addToCart ?? true;
+  if (currentAddToCart !== (saved.behavior?.addToCart ?? true)) {
+    behavior.addToCart = currentAddToCart;
+  }
+  const currentShare = current.behavior?.share ?? true;
+  if (currentShare !== (saved.behavior?.share ?? true)) {
+    behavior.share = currentShare;
+  }
+
+  if (theme) patch.theme = theme;
+  if (copy) patch.copy = copy;
+  if (Object.keys(behavior).length > 0) patch.behavior = behavior;
+  return patch;
+}
+
+function applyWidgetConfigPatch(
+  config: ShopifyWidgetConfig,
+  patch: ShopifyWidgetConfig,
+): ShopifyWidgetConfig {
   return {
     ...config,
-    ...(config.theme ? { theme: normalizeTextFields(config.theme) } : {}),
-    ...(config.copy ? { copy: normalizeTextFields(config.copy) } : {}),
-    ...(config.behavior ? { behavior: normalizeTextFields(config.behavior) } : {}),
+    ...(patch.theme ? { theme: { ...config.theme, ...patch.theme } } : {}),
+    ...(patch.copy ? { copy: { ...config.copy, ...patch.copy } } : {}),
+    ...(patch.behavior ? { behavior: { ...config.behavior, ...patch.behavior } } : {}),
   };
+}
+
+/** Keep edits made after Save was clicked while accepting the server snapshot. */
+export function rebaseWidgetConfigAfterSave(
+  current: ShopifyWidgetConfig,
+  submitted: ShopifyWidgetConfig,
+  response: ShopifyWidgetConfig,
+): ShopifyWidgetConfig {
+  return applyWidgetConfigPatch(response, createWidgetConfigPatch(current, submitted));
 }
 
 function canonicalizeValue(value: unknown): unknown {

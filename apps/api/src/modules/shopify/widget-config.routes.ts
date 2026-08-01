@@ -149,7 +149,21 @@ export async function shopifyWidgetConfigRoutes(app: FastifyInstance) {
       // Postgres is authoritative and already committed. The metafield is a
       // cache, so a failed mirror is reported as synced:false on a 200 — a 5xx
       // here would tell the merchant their copy was lost when it was not.
-      const { widget, synced } = await publishLatestConfig(app, authenticatedStore.id, req.log);
+      let widget = updated.settings.widget ?? {};
+      let synced = false;
+      try {
+        ({ widget, synced } = await publishLatestConfig(app, authenticatedStore.id, req.log));
+      } catch (err) {
+        // A dead or scope-stale token is actionable and must reach the SPA's
+        // OAuth redirect handler. Every other publication failure is cache
+        // drift after a successful commit, so report it as unsynced instead of
+        // falsely telling the merchant their settings were not saved.
+        if (err instanceof AppError && err.code === 'SHOPIFY_REAUTH_REQUIRED') throw err;
+        req.log.error(
+          { err, storeId: authenticatedStore.id },
+          'failed to publish saved shopify widget config',
+        );
+      }
 
       req.log.info(
         { storeId: authenticatedStore.id, changed: Object.keys(body), synced },

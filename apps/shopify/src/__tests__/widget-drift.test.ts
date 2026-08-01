@@ -14,6 +14,14 @@ const liquid = readFileSync(
   'utf8',
 );
 const preview = readFileSync(resolve(here, '../components/WidgetPreview.tsx'), 'utf8');
+const storefrontCss = readFileSync(
+  resolve(
+    here,
+    '../../../shopify-extension/extensions/tryon-theme-extension/assets/tryon-widget.css',
+  ),
+  'utf8',
+);
+const previewCss = readFileSync(resolve(here, '../components/widgetPreview.css'), 'utf8');
 
 function widgetClasses(source: string): Set<string> {
   return new Set(
@@ -41,6 +49,32 @@ function hasLiquidDefault(
 
   const defaults = defaultsByKey.get(`${section}.${key}`);
   return defaults?.every((candidate) => candidate === value) ?? false;
+}
+
+function selectorForRuleContaining(source: string, declaration: string): string {
+  for (const match of source.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    if (match[2].includes(declaration)) return match[1].trim();
+  }
+  throw new Error(`CSS declaration not found: ${declaration}`);
+}
+
+function specificity(selector: string): [number, number, number] {
+  const ids = selector.match(/#[A-Za-z0-9_-]+/g)?.length ?? 0;
+  const classes = selector.match(/\.[A-Za-z0-9_-]+/g)?.length ?? 0;
+  const withoutClassesOrIds = selector.replace(/[.#][A-Za-z0-9_-]+/g, '');
+  const elements =
+    withoutClassesOrIds.match(/(?:^|[\s>+~])\s*[A-Za-z][A-Za-z0-9_-]*/g)?.length ?? 0;
+  return [ids, classes, elements];
+}
+
+function compareSpecificity(
+  left: [number, number, number],
+  right: [number, number, number],
+): number {
+  for (let index = 0; index < left.length; index++) {
+    if (left[index] !== right[index]) return left[index] - right[index];
+  }
+  return 0;
 }
 
 describe('drift guard parser regressions', () => {
@@ -82,6 +116,15 @@ describe('WidgetPreview mirrors the Liquid markup', () => {
     // the Liquid does not means the preview has drifted or the Liquid renamed
     // something out from under it.
     expect(missing).toEqual([]);
+  });
+
+  it('keeps the shared retry spacing above the preview button reset', () => {
+    const retrySelector = selectorForRuleContaining(storefrontCss, 'margin: 12px 0 0');
+    const previewResetSelector = selectorForRuleContaining(previewCss, 'margin: 0');
+
+    expect(
+      compareSpecificity(specificity(retrySelector), specificity(previewResetSelector)),
+    ).toBeGreaterThan(0);
   });
 });
 
