@@ -101,7 +101,8 @@ export default function App() {
         items={NAV_ITEMS.map((item) => ({
           label: item.label,
           icon: item.icon,
-          url: item.path,
+          // Deliberately omit `url`: Polaris renders URL items as anchors and
+          // navigates after onClick, even when the guard rejects the attempt.
           selected: location.pathname === item.path,
           onClick: () => {
             if (runNavGuard()) navigate(item.path);

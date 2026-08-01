@@ -60,3 +60,25 @@ export function normalizeWidgetConfigForSave(config: ShopifyWidgetConfig): Shopi
     ...(config.behavior ? { behavior: normalizeTextFields(config.behavior) } : {}),
   };
 }
+
+function canonicalizeValue(value: unknown): unknown {
+  if (value == null) return undefined;
+  if (typeof value === 'string') return value.trim() || undefined;
+  if (typeof value !== 'object' || Array.isArray(value)) return value;
+
+  const entries = Object.entries(value)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .flatMap(([key, child]) => {
+      const canonical = canonicalizeValue(child);
+      return canonical === undefined ? [] : [[key, canonical] as const];
+    });
+
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+/** Compare the form meaning, not transient empty objects or field whitespace. */
+export function widgetConfigsEqual(left: ShopifyWidgetConfig, right: ShopifyWidgetConfig): boolean {
+  return (
+    JSON.stringify(canonicalizeValue(left) ?? {}) === JSON.stringify(canonicalizeValue(right) ?? {})
+  );
+}
