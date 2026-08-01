@@ -5061,3 +5061,15 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 ---
 
 <!-- Add new entries above this line, newest first -->
+## 2026-08-01 - Google OAuth QR campaign attribution
+
+### Done
+- Threaded the `src` query parameter through Google OAuth using a short-lived `google_src` cookie, then resolved the active campaign during the callback.
+- New Google-created accounts now store `signupCampaignId` and receive campaign-boosted free credits; existing Google/email links and native device login retain their null-campaign behavior.
+- Added the Google OAuth integration regression test and verified it with the API integration configuration.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- The default API Vitest configuration excludes `test/integration/**`; focused Google OAuth verification therefore uses `vitest.integration.config.ts`.
