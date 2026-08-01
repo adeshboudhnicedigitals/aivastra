@@ -389,9 +389,14 @@ const EMPTY_CAMPAIGN_FORM = {
   isActive: true,
 };
 
-// "2026-08-06T00:00:00.000Z" -> "2026-08-06T00:00" for <input type="datetime-local">
+// Converts an ISO instant to the local wall time required by <input type="datetime-local">.
 function toDatetimeLocal(iso: string): string {
-  return iso.slice(0, 16);
+  const date = new Date(iso);
+  const pad = (value: number) => value.toString().padStart(2, '0');
+
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
+    date.getHours(),
+  )}:${pad(date.getMinutes())}`;
 }
 
 function CampaignModal({
