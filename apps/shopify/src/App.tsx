@@ -10,6 +10,7 @@ import {
   clearRecoveryReloadMarker,
   shouldAttemptRecoveryReload,
 } from './lib/appBridge';
+import { runNavGuard } from './lib/navGuard';
 import DashboardPage from './pages/DashboardPage';
 import ManagePage from './pages/ManagePage';
 import SettingsPage from './pages/SettingsPage';
@@ -102,7 +103,9 @@ export default function App() {
           icon: item.icon,
           url: item.path,
           selected: location.pathname === item.path,
-          onClick: () => navigate(item.path),
+          onClick: () => {
+            if (runNavGuard()) navigate(item.path);
+          },
         }))}
       />
     </Navigation>
