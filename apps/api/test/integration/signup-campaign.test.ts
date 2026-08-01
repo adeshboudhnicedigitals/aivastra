@@ -141,4 +141,106 @@ describe('signup campaign attribution — register', () => {
       .where(eq(schema.users.email, 'plain-user@x.com'));
     expect(user?.signupCampaignId).toBeNull();
   });
+
+  it('boosts the FREE_TRIAL grant by bonusPercent when the user completed profile is campaign-attributed', async () => {
+    // Free plan must actually grant something for the boost to be observable.
+    await app.db
+      .update(schema.creditPlans)
+      .set({ credits: 100 })
+      .where(eq(schema.creditPlans.slug, 'free'));
+
+    const campaign = await seedCampaign({ code: 'boost-test', bonusPercent: 25 });
+
+    await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        displayName: 'Boosted User',
+        email: 'boosted-user@x.com',
+        password: 'password123',
+        signupSource: 'boost-test',
+      },
+    });
+    const [user] = await app.db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.email, 'boosted-user@x.com'));
+    expect(user?.signupCampaignId).toBe(campaign?.id);
+
+    await app.db
+      .update(schema.users)
+      .set({ emailVerified: true })
+      .where(eq(schema.users.id, user?.id));
+    const login = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: { email: 'boosted-user@x.com', password: 'password123' },
+    });
+    const { accessToken } = login.json() as { accessToken: string };
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/v1/me',
+      headers: { authorization: `Bearer ${accessToken}` },
+      payload: { phone: '9876543210' }, // email already set at register â€” this completes the profile
+    });
+    expect(res.statusCode).toBe(200);
+
+    const [credits] = await app.db
+      .select()
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, user?.id));
+    expect(credits?.balance).toBe(125); // 100 base * 1.25
+
+    const ledger = await app.db
+      .select()
+      .from(schema.creditLedger)
+      .where(eq(schema.creditLedger.userId, user?.id));
+    expect(ledger.some((l) => l.delta === 125 && l.reason === 'FREE_TRIAL')).toBe(true);
+  });
+
+  it('grants the plain (non-boosted) FREE_TRIAL amount for a non-attributed user', async () => {
+    await app.db
+      .update(schema.creditPlans)
+      .set({ credits: 100 })
+      .where(eq(schema.creditPlans.slug, 'free'));
+
+    await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        displayName: 'Plain Trial User',
+        email: 'plain-trial@x.com',
+        password: 'password123',
+      },
+    });
+    const [user] = await app.db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.email, 'plain-trial@x.com'));
+
+    await app.db
+      .update(schema.users)
+      .set({ emailVerified: true })
+      .where(eq(schema.users.id, user?.id));
+    const login = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: { email: 'plain-trial@x.com', password: 'password123' },
+    });
+    const { accessToken } = login.json() as { accessToken: string };
+
+    await app.inject({
+      method: 'PATCH',
+      url: '/v1/me',
+      headers: { authorization: `Bearer ${accessToken}` },
+      payload: { phone: '9876543211' },
+    });
+
+    const [credits] = await app.db
+      .select()
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, user?.id));
+    expect(credits?.balance).toBe(100); // unboosted
+  });
 });

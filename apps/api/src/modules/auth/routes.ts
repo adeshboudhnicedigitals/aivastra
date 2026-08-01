@@ -670,6 +670,7 @@ export async function authRoutes(app: FastifyInstance) {
             defaultResolution: schema.users.defaultResolution,
             defaultAspectRatio: schema.users.defaultAspectRatio,
             defaultPlatform: schema.users.defaultPlatform,
+            signupCampaignId: schema.users.signupCampaignId,
           });
         if (!updated) throw new AppError('NOT_FOUND', 404, 'user not found');
 
@@ -680,7 +681,16 @@ export async function authRoutes(app: FastifyInstance) {
           .select({ credits: schema.creditPlans.credits })
           .from(schema.creditPlans)
           .where(and(eq(schema.creditPlans.slug, 'free'), eq(schema.creditPlans.isActive, true)));
-        const freeCredits = freePlan?.credits ?? 0;
+        let freeCredits = freePlan?.credits ?? 0;
+        if (freeCredits > 0 && updated.signupCampaignId) {
+          const [campaign] = await tx
+            .select({ bonusPercent: schema.signupCampaigns.bonusPercent })
+            .from(schema.signupCampaigns)
+            .where(eq(schema.signupCampaigns.id, updated.signupCampaignId));
+          if (campaign) {
+            freeCredits = Math.round(freeCredits * (1 + campaign.bonusPercent / 100));
+          }
+        }
         if (freeCredits <= 0) return updated;
 
         const [inserted] = await tx
