@@ -50,18 +50,34 @@ export async function adminHeldJobsRoutes(app: FastifyInstance) {
           .returning({ id: schema.jobs.id });
         if (!claimed) continue;
 
-        await app.redis.xadd(
-          'jobs:low',
-          'MAXLEN',
-          '~',
-          10000,
-          '*',
-          'jobId',
-          job.id,
-          'userId',
-          job.userId ?? '',
-        );
-        released++;
+        try {
+          await app.redis.xadd(
+            'jobs:low',
+            'MAXLEN',
+            '~',
+            10000,
+            '*',
+            'jobId',
+            job.id,
+            'userId',
+            job.userId ?? '',
+          );
+          released++;
+        } catch (err) {
+          // XADD failed after the DB flip already committed. Revert to HELD
+          // rather than leaving this a permanently stranded, un-enqueued
+          // QUEUED row with credits already spent and no way for an admin to
+          // rediscover it (it would no longer appear in GET /admin/held-jobs).
+          // The next release attempt will pick it back up.
+          req.log.error(
+            { err, jobId: job.id },
+            'held-job release: XADD failed, reverting job to HELD',
+          );
+          await app.db
+            .update(schema.jobs)
+            .set({ status: 'HELD', queuedAt: null })
+            .where(eq(schema.jobs.id, job.id));
+        }
       }
 
       req.log.info({ released }, 'released held bulk-flat jobs');
