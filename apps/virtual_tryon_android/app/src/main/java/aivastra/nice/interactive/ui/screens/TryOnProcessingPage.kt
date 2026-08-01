@@ -88,11 +88,11 @@ private class FullScreenVideoView(context: Context) : VideoView(context) {
 // Rotates under the headline while the AI generation call is in flight, so the wait feels
 // active rather than stalled on one static line.
 private val processingStatusMessages = listOf(
-    "Analyzing your photoâ€¦",
-    "Matching the garment drapeâ€¦",
-    "Blending fabric texturesâ€¦",
-    "Applying AI stylingâ€¦",
-    "Adding finishing touchesâ€¦"
+    "Analyzing your photo...",
+    "Matching the garment drape...",
+    "Blending fabric textures...",
+    "Applying AI styling...",
+    "Adding finishing touches..."
 )
 
 @Composable
@@ -135,7 +135,7 @@ fun TryOnProcessingContent(
     var hasVideoError by remember { mutableStateOf(false) }
 
     // Fake-but-reassuring progress: climbs fast at first, then eases off and caps below 100%
-    // while still generating, so it never looks "stuck" â€” real completion navigates away
+    // while still generating, so it never looks "stuck" - real completion navigates away
     // before it would matter.
     var messageIndex by remember { mutableIntStateOf(0) }
     LaunchedEffect(errorMessage) {
@@ -159,7 +159,7 @@ fun TryOnProcessingContent(
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // â”€â”€ Layer 1: Full-Screen Background Video Player (Loaded from API config) â”€â”€â”€
+        // Layer 1: Full-Screen Background Video Player (Loaded from API config)
         if (videoUri != null && !hasVideoError && errorMessage == null) {
             AndroidView(
                 factory = { ctx ->
@@ -193,15 +193,14 @@ fun TryOnProcessingContent(
             )
         }
 
-        // â”€â”€ Layer 1b: Warm Amber Wash â€” ties the video into the app's gold theme instead
-        // of sitting neutral/dark against it â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // Layer 1b: Warm Amber Wash - ties the video into the app's gold theme
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color(0xFFE7A52C).copy(alpha = 0.12f))
         )
 
-        // â”€â”€ Layer 2: Top & Bottom Gradient Scrims for Readability â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // Layer 2: Top & Bottom Gradient Scrims for Readability
         // Top Gradient Scrim
         Box(
             modifier = Modifier
@@ -236,7 +235,7 @@ fun TryOnProcessingContent(
                 )
         )
 
-        // â”€â”€ Layer 3: Floating UI Content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // Layer 3: Floating UI Content
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -256,7 +255,7 @@ fun TryOnProcessingContent(
                     .widthIn(max = sdp(R.dimen._screen_container_width)),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // â”€â”€ Top Header Bar (Centered Logo without back button) â”€â”€â”€â”€â”€â”€
+                // Top Header Bar (Centered Logo without back button)
                 Box(
                     modifier = Modifier.fillMaxWidth(),
                     contentAlignment = Alignment.Center
@@ -266,7 +265,7 @@ fun TryOnProcessingContent(
 
                 Spacer(Modifier.height(sdp(R.dimen._18sdp)))
 
-                // â”€â”€ Headline & Subtitle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                // Headline & Subtitle
                 Text(
                     "Generating Your AI Try-On...",
                     color = Color(0xB3F3C65E),
@@ -285,10 +284,10 @@ fun TryOnProcessingContent(
                     .widthIn(max = sdp(R.dimen._screen_container_width)),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Rotating status text, progress bar, and Cancel Generation button â€”
+                // Rotating status text, progress bar, and Cancel Generation button -
                 // all hidden together once the error dialog takes over.
                 if (errorMessage == null) {
-                    // â”€â”€ Rotating status line â€” keeps the wait feeling active â”€â”€â”€â”€
+                    // Rotating status line - keeps the wait feeling active
                     AnimatedContent(
                         targetState = messageIndex,
                         transitionSpec = {
@@ -310,7 +309,7 @@ fun TryOnProcessingContent(
 
                     Spacer(Modifier.height(sdp(R.dimen._12sdp)))
 
-                    // â”€â”€ Progress Bar (gold gradient, matches app theme) â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                    // Progress Bar (gold gradient, matches app theme)
                     Row(
                         modifier = Modifier.fillMaxWidth(0.7f),
                         horizontalArrangement = Arrangement.SpaceBetween
@@ -394,7 +393,7 @@ fun TryOnProcessingContent(
             }
         }
 
-        // â”€â”€ Error Dialog: shown on any generation / API failure â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // Error Dialog: shown on any generation / API failure
         errorMessage?.let { msg ->
             val cleanMsg = aivastra.nice.interactive.utils.ErrorParser.parseErrorMessage(msg, msg)
             val isSessionExpired = cleanMsg.contains("expired", ignoreCase = true) || cleanMsg.contains("not owned", ignoreCase = true)
