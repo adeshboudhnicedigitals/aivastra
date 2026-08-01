@@ -444,6 +444,10 @@
   filter: brightness(1.1);
 }
 
+.aivastra-tryon__retry {
+  background: var(--aivastra-accent, var(--aivastra-button-color, #000000));
+}
+
 .aivastra-tryon__progress-canvas {
   display: flex;
   flex-direction: column;
