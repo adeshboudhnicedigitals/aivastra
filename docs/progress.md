@@ -1,3 +1,21 @@
+## 2026-08-01 — Bulk upload: catalogue images + admin-held flat batches
+
+**Done**
+- `jobs.queued_at` (migration 0137) so the dispatcher sweeper dates QUEUED staleness from release, not creation — without it every released batch was fail-and-refunded on the next tick.
+- New `jobs.status` value `HELD`. `createMerchantCatalogJob(..., { hold: true })` deducts credits and writes the job/inputs rows as usual but skips the `XADD`; `POST /v1/merchant/catalog/generate-bulk` now always holds. Single-item `/generate` stays interactive.
+- `GET /admin/held-jobs` + `POST /admin/held-jobs/release` — global, status-guarded release into `jobs:low`. Admin page at Operations → Held Batches.
+- `POST /v1/merchant/catalog/reconcile-held` materializes completed held jobs into `isActive: false` products; `PATCH /v1/merchant/catalog/:id` publishes one when a SKU and both prices are supplied.
+- Bulk upload screen gained a Catalogue / Flat toggle: catalogue mode uploads finished photos directly (no job), flat mode is fire-and-forget.
+
+**Failed / Not Done**
+- No way for a merchant to cancel or refund a held batch before release; credits are deducted at upload.
+- No notification when a batch completes — the merchant discovers it by opening the app.
+
+**Open Questions / Decisions**
+- Decided: credits deduct at upload (keeps the deduct+insert transaction invariant, and a released batch can never fail for lack of balance).
+- Decided: release is manual-only. A scheduled off-peak window was considered and deferred.
+- Open: should released batches get their own queue lane rather than sharing `jobs:low` with other low-priority work?
+
 ## 2026-07-31 - Virtual Try-On Android unused raster drawable cleanup
 
 ### Done
