@@ -1,3 +1,45 @@
+## 2026-07-31 — Shopify Widget Design + app block migration
+
+**Done**
+- Try-on button moved from app embed (`target: "body"`) to app block
+  (`target: "section"`, `enabled_on.templates: ["product"]`). Deleted
+  `tryon-block.liquid`, `FALLBACK_PLACEMENT_SELECTORS`, `placeWidget()` (~48
+  lines), and the `placement_selector` / `block_alignment` settings. Theme-editor
+  deep link switched from `activateAppId` to
+  `template=product&addAppBlockId=…&target=mainSection`.
+- Widget config stored in `shopify_stores.settings.widget` (no migration) and
+  mirrored to the `aivastra.widget_config` shop metafield via the GraphQL
+  `metafieldsSet` mutation — REST `POST /metafields.json` cannot upsert.
+- `PATCH /v1/shopify/widget-config` and
+  `POST /v1/shopify/widget-config/republish`. Postgres authoritative; failed
+  mirror returns `synced: false` on a 200.
+- Nine configurable copy fields, accent color, and Add to Cart / Share on the
+  result step. Add to Cart reads the theme product form's selected variant and
+  shows Shopify's own 422 message on refusal.
+- Widget Design page: Polaris two-half layout, live preview built on the real
+  `tryon-widget.css`, five step tabs, App Bridge `ui-save-bar` (Polaris
+  `ContextualSaveBar` in dev), unsaved-changes guard, sync-failure retry banner.
+- vitest added to `apps/shopify` with two drift guards binding the preview and
+  its default copy to `tryon-button.liquid`.
+
+**Failed / Not Done**
+- Vintage (non-OS-2.0) theme support dropped by decision — app blocks require
+  JSON templates. Acceptable at zero installs; revisiting means reintroducing a
+  second render path.
+- "Show remaining try-ons" deferred: needs a shopper-limits read endpoint that
+  returns remaining quota before generation.
+- Result-step cart and share logic has no automated test — the theme extension
+  has no test runner. Verified on a dev store per the plan's manual checklists.
+
+**Open Questions / Decisions**
+- `useBlocker` was unusable (app mounts `<BrowserRouter>`, not a data router), so
+  a module-level `navGuard` consulted by both nav call sites replaced it. If the
+  app ever moves to `createBrowserRouter`, that module should go away.
+- `WIDGET_COPY_DEFAULTS` lives in `apps/shopify/src/lib/widgetDefaults.ts` rather
+  than `packages/types`, because `apps/shopify` deliberately has no
+  `@aivastra/types` dependency (keeps zod out of the SPA bundle) and the server
+  never needs the defaults.
+
 ## 2026-07-31 — Shopify shopper limits: final whole-branch review + fix wave
 
 ### Done
