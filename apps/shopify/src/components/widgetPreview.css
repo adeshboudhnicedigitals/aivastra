@@ -1,0 +1,10 @@
+.widget-preview-sticky {
+  position: sticky;
+  top: var(--p-space-400, 16px);
+}
+
+@media (max-width: 768px) {
+  .widget-preview-sticky {
+    position: static;
+  }
+}

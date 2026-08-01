@@ -14,6 +14,7 @@ import DashboardPage from './pages/DashboardPage';
 import ManagePage from './pages/ManagePage';
 import SettingsPage from './pages/SettingsPage';
 import SupportPage from './pages/SupportPage';
+import WidgetDesignPage from './pages/WidgetDesignPage';
 import type { ShopifyMe } from './types';
 
 export default function App() {
@@ -114,6 +115,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/manage" element={<ManagePage />} />
+          <Route path="/widget-design" element={<WidgetDesignPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/support" element={<SupportPage />} />
           {/* Merchants may have bookmarked the old path while it was the only

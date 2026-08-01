@@ -20,6 +20,41 @@ export interface ShopifyStoreSettings {
   themeBlockConfirmed?: boolean;
   limits?: ShopifyStoreLimits;
   retention?: ShopifyStoreRetention;
+  widget?: ShopifyWidgetConfig;
+}
+
+export interface ShopifyWidgetTheme {
+  accentColor?: string | null;
+}
+
+export interface ShopifyWidgetCopy {
+  heading?: string | null;
+  subheading?: string | null;
+  uploadTitle?: string | null;
+  uploadLead?: string | null;
+  chooseLabel?: string | null;
+  ctaLabel?: string | null;
+  legalText?: string | null;
+  generatingText?: string | null;
+  errorText?: string | null;
+}
+
+export interface ShopifyWidgetBehavior {
+  addToCart?: boolean;
+  addToCartLabel?: string | null;
+  share?: boolean;
+  shareLabel?: string | null;
+}
+
+export interface ShopifyWidgetConfig {
+  theme?: ShopifyWidgetTheme;
+  copy?: ShopifyWidgetCopy;
+  behavior?: ShopifyWidgetBehavior;
+}
+
+export interface ShopifyWidgetConfigResponse {
+  widget: ShopifyWidgetConfig;
+  synced: boolean;
 }
 
 export interface ShopifyStats {
