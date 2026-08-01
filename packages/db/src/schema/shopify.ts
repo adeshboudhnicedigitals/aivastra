@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   bigint,
+  bigserial,
   boolean,
   index,
   integer,
@@ -205,5 +206,54 @@ export const shopifyShoppers = pgTable(
     uq: unique().on(t.storeId, t.clientId),
     byEmail: index('shopify_shoppers_store_email_idx').on(t.storeId, t.email),
     byCustomer: index('shopify_shoppers_store_customer_idx').on(t.storeId, t.shopifyCustomerId),
+  }),
+);
+
+/**
+ * Append-only storefront interaction log, the source for the merchant
+ * Analytics page.
+ *
+ * `bigserial`, not `uuid` — a deliberate break from this repo's convention.
+ * This is the highest-write-rate table in the system and random UUIDs scatter
+ * B-tree inserts across the whole index and fragment it, where a monotonic key
+ * appends to one page. Nothing references these rows across services and there
+ * is no need for an unguessable id, so the reason the uuid convention exists
+ * does not apply.
+ *
+ * Rows are ADVISORY. No credit decision, limit check, or authorization read
+ * may ever consult this table — the client-reported types are forgeable by
+ * anyone who can open devtools.
+ */
+export const shopifyWidgetEvents = pgTable(
+  'shopify_widget_events',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    storeId: uuid('store_id')
+      .notNull()
+      .references(() => shopifyStores.id, { onDelete: 'cascade' }),
+    // Matches shopify_shoppers.client_id — how a funnel step joins to a person.
+    // Nullable: widget versions predating shopper identity send none.
+    clientId: text('client_id'),
+    shopifyProductId: bigint('shopify_product_id', { mode: 'number' }),
+    // Client-reported, forgeable:
+    //   button_click | upload | result_view | add_to_cart | share
+    // Server-written, unforgeable:
+    //   refused_store_cap | refused_shopper_cap | refused_email_gate
+    type: text('type').notNull(),
+    device: text('device'), // 'mobile' | 'desktop'
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    byStoreTime: index('shopify_widget_events_store_time_idx').on(t.storeId, t.createdAt),
+    byStoreTypeTime: index('shopify_widget_events_store_type_time_idx').on(
+      t.storeId,
+      t.type,
+      t.createdAt,
+    ),
+    byStoreProductTime: index('shopify_widget_events_store_product_time_idx').on(
+      t.storeId,
+      t.shopifyProductId,
+      t.createdAt,
+    ),
   }),
 );
