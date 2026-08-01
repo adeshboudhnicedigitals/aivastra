@@ -31,6 +31,10 @@ describe('widget config dirty comparison', () => {
   it('retains meaningful boolean changes', () => {
     expect(widgetConfigsEqual({}, { behavior: { share: false } })).toBe(false);
   });
+
+  it('treats explicit default-true behavior flags as equivalent to absent flags', () => {
+    expect(widgetConfigsEqual({}, { behavior: { addToCart: true, share: true } })).toBe(true);
+  });
 });
 
 describe('widget config PATCH state', () => {

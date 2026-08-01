@@ -1,3 +1,24 @@
+## 2026-08-01 — Shopify widget final timeout and state fixes
+
+**Done**
+- Gave only `PATCH /v1/shopify/widget-config` a 45-second SPA deadline, covering
+  the server's bounded publication-lock wait plus Shopify request while keeping
+  the generic API timeout at 12 seconds. A committed save can now reach the UI
+  as `200 { synced: false }` instead of being reported as a failed request.
+- Canonicalized absent `behavior.addToCart` and `behavior.share` as their
+  storefront-default `true` values during dirty comparison, so disabling and
+  re-enabling either control clears the save bar.
+- Disabled the editable Widget Design form while `/v1/shopify/me` initializes
+  its config snapshot, preventing a slow response from overwriting early input.
+- Added focused red-green regressions for the long save response, unchanged
+  ordinary-request deadline, default-true equality, and initial loading gate.
+
+**Failed / Not Done**
+- No migrations were needed, and no push was performed.
+
+**Open Questions / Decisions**
+- None.
+
 ## 2026-08-01 — Shopify widget final reviewer fixes
 
 **Done**
