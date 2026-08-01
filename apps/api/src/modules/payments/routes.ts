@@ -78,11 +78,13 @@ type DbOrTx = Parameters<Parameters<FastifyInstance['db']['transaction']>[0]>[0]
 // Credits `payment.credits` (the base plan grant) plus, for a campaign-attributed
 // user's first successful purchase, a CAMPAIGN_BONUS ledger row on top. Shared by
 // /verify and the webhook handler so the two credit-grant paths can't drift.
+// Returns the total credited (base + bonus, if any) so callers can report the
+// true amount rather than assuming it's always just the plan's base credits.
 async function grantPurchaseCredits(
   tx: DbOrTx,
   userId: string,
   payment: { id: string; credits: number },
-): Promise<void> {
+): Promise<number> {
   await tx
     .insert(schema.userCredits)
     .values({ userId, balance: payment.credits })
@@ -112,22 +114,22 @@ async function grantPurchaseCredits(
       ),
     )
     .limit(1);
-  if (priorPaid) return; // not their first purchase — no campaign bonus
+  if (priorPaid) return payment.credits; // not their first purchase — no campaign bonus
 
   const [user] = await tx
     .select({ campaignId: schema.users.signupCampaignId })
     .from(schema.users)
     .where(eq(schema.users.id, userId));
-  if (!user?.campaignId) return;
+  if (!user?.campaignId) return payment.credits;
 
   const [campaign] = await tx
     .select({ bonusPercent: schema.signupCampaigns.bonusPercent })
     .from(schema.signupCampaigns)
     .where(eq(schema.signupCampaigns.id, user.campaignId));
-  if (!campaign) return;
+  if (!campaign) return payment.credits;
 
   const bonus = Math.round(payment.credits * (campaign.bonusPercent / 100));
-  if (bonus <= 0) return;
+  if (bonus <= 0) return payment.credits;
 
   await tx
     .update(schema.userCredits)
@@ -139,6 +141,8 @@ async function grantPurchaseCredits(
     delta: bonus,
     reason: 'CAMPAIGN_BONUS',
   });
+
+  return payment.credits + bonus;
 }
 
 export async function paymentsRoutes(app: FastifyInstance) {
@@ -282,6 +286,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
       // The UPDATE filters on status='created' so only one concurrent caller wins;
       // if updated.length === 0, another call already claimed it.
       let credited = false;
+      let creditsGranted = payment.credits;
       await app.db.transaction(async (tx) => {
         const updated = await tx
           .update(schema.payments)
@@ -303,7 +308,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
 
         credited = true;
 
-        await grantPurchaseCredits(tx, req.userId, payment);
+        creditsGranted = await grantPurchaseCredits(tx, req.userId, payment);
 
         // Promote the user's tier to this plan's slug so job queue priority kicks in.
         await tx
@@ -325,7 +330,12 @@ export async function paymentsRoutes(app: FastifyInstance) {
         paidAt: new Date(),
       });
 
-      return { ok: true, alreadyCredited: false, balance: bal?.balance ?? payment.credits };
+      return {
+        ok: true,
+        alreadyCredited: false,
+        balance: bal?.balance ?? payment.credits,
+        creditsGranted,
+      };
     },
   );
 

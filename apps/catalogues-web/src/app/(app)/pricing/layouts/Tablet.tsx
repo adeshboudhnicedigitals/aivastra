@@ -21,6 +21,7 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
     isNonIn,
     visiblePlans,
     plansLoading,
+    firstPurchaseBonusPercent,
     resolutions,
     displayBase,
     buy,
@@ -597,6 +598,24 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
                             {plan.credits.toLocaleString('en-IN')} Credits included
                           </span>
                         </div>
+
+                        {firstPurchaseBonusPercent ? (
+                          <div
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              padding: '3px 10px',
+                              borderRadius: 999,
+                              background: grad,
+                              marginBottom: 12,
+                            }}
+                          >
+                            <span style={{ fontSize: 12, color: '#fff', fontWeight: 700 }}>
+                              +{firstPurchaseBonusPercent}% bonus credits on this purchase
+                            </span>
+                          </div>
+                        ) : null}
 
                         {features.map((feat) => (
                           <div
