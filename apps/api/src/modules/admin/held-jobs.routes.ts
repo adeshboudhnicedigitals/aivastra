@@ -1,4 +1,5 @@
 import { schema } from '@aivastra/db';
+import { AdminHeldJobsReleaseResponse, AdminHeldJobsResponse } from '@aivastra/types';
 import { and, count, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { requireAdmin } from './guard.js';
@@ -10,33 +11,56 @@ import { requireAdmin } from './guard.js';
  * merchant's backlog at once, rather than per-merchant scheduling.
  */
 export async function adminHeldJobsRoutes(app: FastifyInstance) {
-  app.get('/admin/held-jobs', { preHandler: requireAdmin(['SUPER_ADMIN', 'ADMIN']) }, async () => {
-    const rows = await app.db
-      .select({
-        userId: schema.jobs.userId,
-        email: schema.users.email,
-        count: count(),
-        oldestCreatedAt: sql<string>`min(${schema.jobs.createdAt})`,
-      })
-      .from(schema.jobs)
-      .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
-      .where(eq(schema.jobs.status, 'HELD'))
-      .groupBy(schema.jobs.userId, schema.users.email);
+  app.get(
+    '/admin/held-jobs',
+    {
+      preHandler: requireAdmin(['SUPER_ADMIN', 'ADMIN']),
+      schema: { response: { 200: AdminHeldJobsResponse } },
+    },
+    async () => {
+      const rows = await app.db
+        .select({
+          userId: schema.jobs.userId,
+          email: schema.users.email,
+          count: count(),
+          oldestCreatedAt: sql<string>`min(${schema.jobs.createdAt})`,
+        })
+        .from(schema.jobs)
+        .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
+        .where(eq(schema.jobs.status, 'HELD'))
+        .groupBy(schema.jobs.userId, schema.users.email);
 
-    return {
-      total: rows.reduce((sum, row) => sum + row.count, 0),
-      byUser: rows,
-    };
-  });
+      return {
+        total: rows.reduce((sum, row) => sum + row.count, 0),
+        byUser: rows.map((row) => ({
+          ...row,
+          // Postgres returns a Date for min(timestamp), not a string — stringify
+          // here rather than trust the SQL template's type annotation, which
+          // does nothing to the actual runtime value.
+          oldestCreatedAt:
+            (row.oldestCreatedAt as unknown) instanceof Date
+              ? (row.oldestCreatedAt as unknown as Date).toISOString()
+              : row.oldestCreatedAt,
+        })),
+      };
+    },
+  );
 
   app.post(
     '/admin/held-jobs/release',
-    { preHandler: requireAdmin(['SUPER_ADMIN', 'ADMIN']) },
+    {
+      preHandler: requireAdmin(['SUPER_ADMIN', 'ADMIN']),
+      schema: { response: { 200: AdminHeldJobsReleaseResponse } },
+    },
     async (req) => {
+      const RELEASE_BATCH_LIMIT = 200;
       const held = await app.db
         .select({ id: schema.jobs.id, userId: schema.jobs.userId })
         .from(schema.jobs)
-        .where(eq(schema.jobs.status, 'HELD'));
+        .where(eq(schema.jobs.status, 'HELD'))
+        .limit(RELEASE_BATCH_LIMIT + 1);
+      const hasMore = held.length > RELEASE_BATCH_LIMIT;
+      if (hasMore) held.pop();
 
       const now = new Date();
       let released = 0;
@@ -73,15 +97,27 @@ export async function adminHeldJobsRoutes(app: FastifyInstance) {
             { err, jobId: job.id },
             'held-job release: XADD failed, reverting job to HELD',
           );
-          await app.db
-            .update(schema.jobs)
-            .set({ status: 'HELD', queuedAt: null })
-            .where(eq(schema.jobs.id, job.id));
+          try {
+            await app.db
+              .update(schema.jobs)
+              .set({ status: 'HELD', queuedAt: null })
+              .where(eq(schema.jobs.id, job.id));
+          } catch (revertErr) {
+            req.log.error(
+              { err: revertErr, jobId: job.id },
+              'held-job release: revert-to-HELD also failed; job is stranded as QUEUED with no stream entry',
+            );
+          }
         }
       }
 
-      req.log.info({ released }, 'released held bulk-flat jobs');
-      return { released };
+      const [{ remaining }] = await app.db
+        .select({ remaining: count() })
+        .from(schema.jobs)
+        .where(eq(schema.jobs.status, 'HELD'));
+
+      req.log.info({ released, remaining }, 'released held bulk-flat jobs');
+      return { released, remaining };
     },
   );
 }

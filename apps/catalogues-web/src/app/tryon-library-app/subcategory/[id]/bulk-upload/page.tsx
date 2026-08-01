@@ -18,7 +18,8 @@ interface QueueItem {
   // 'uploaded' is catalogue mode's counterpart to 'generated': the merchant
   // supplied a finished product photo, so there is nothing to generate and the
   // detail fields open immediately. No server row exists until Save.
-  status: 'queued' | 'uploading' | 'generating' | 'generated' | 'uploaded' | 'failed';
+  // 'sent' — a flat-mode batch that was successfully handed off to the held-job pipeline; nothing more happens in this screen for it.
+  status: 'queued' | 'uploading' | 'generating' | 'sent' | 'generated' | 'uploaded' | 'failed';
   jobId?: string;
   itemId?: string;
   sku: string;
@@ -175,9 +176,7 @@ export default function BulkUploadScreen() {
     // Held batches run only when an admin releases them, so there is nothing to
     // poll here. The images land in the products list (marked "Needs details")
     // once generation finishes — see reconcileHeldProducts on that screen.
-    setItems((prev) =>
-      prev.map((p) => (jobIdByLocalId.get(p.id) ? { ...p, status: 'generating' } : p)),
-    );
+    setItems((prev) => prev.map((p) => (jobIdByLocalId.get(p.id) ? { ...p, status: 'sent' } : p)));
     setIsGeneratingAll(false);
     setSentForProcessing(jobIds.length);
   };
@@ -555,6 +554,21 @@ export default function BulkUploadScreen() {
                       }}
                     >
                       Failed
+                    </span>
+                  )}
+                  {item.status === 'sent' && (
+                    <span
+                      style={{
+                        background: C.mid,
+                        color: C.white,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        padding: '2px 6px',
+                        borderRadius: 4,
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      Sent
                     </span>
                   )}
                 </div>

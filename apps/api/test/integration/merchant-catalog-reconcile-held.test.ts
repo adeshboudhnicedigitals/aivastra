@@ -162,4 +162,45 @@ describe('merchant catalog reconcile-held', () => {
       .where(eq(schema.merchantCatalogItems.isActive, true));
     expect(rows).toHaveLength(0);
   });
+
+  it('does not resurrect a deleted product on a later reconcile (idempotency lives on the job)', async () => {
+    const { auth, jobId } = await seedMerchantWithCompletedHeldJob();
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/reconcile-held',
+      headers: auth,
+    });
+    const { created } = first.json() as { created: Array<{ id: string }> };
+    expect(created).toHaveLength(1);
+
+    // The job is marked reconciled after the first successful pass.
+    const [inputRow] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, jobId));
+    expect((inputRow.params as { heldReconciled?: boolean }).heldReconciled).toBe(true);
+
+    // Merchant doesn't want it — hard-deletes the product.
+    const deleteRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/merchant/catalog/${created[0].id}`,
+      headers: auth,
+    });
+    expect(deleteRes.statusCode).toBeLessThan(400);
+
+    const remaining = await app.db
+      .select()
+      .from(schema.merchantCatalogItems)
+      .where(eq(schema.merchantCatalogItems.id, created[0].id));
+    expect(remaining).toHaveLength(0);
+
+    // Calling reconcile-held again must NOT recreate the deleted product.
+    const second = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/reconcile-held',
+      headers: auth,
+    });
+    expect((second.json() as { created: unknown[] }).created).toHaveLength(0);
+  });
 });
