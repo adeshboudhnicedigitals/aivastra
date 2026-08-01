@@ -2,6 +2,7 @@ import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
+import { mergeStoreSettingsObject, storeSettingsJson } from './settings-json.js';
 
 /**
  * Handle of the app-embed block to activate, i.e. the filename of
@@ -43,14 +44,18 @@ export async function shopifyOnboardingRoutes(app: FastifyInstance) {
     { preHandler: app.requireShopifySession },
     async (req) => {
       const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
-      const settings = { ...store.settings, themeBlockConfirmed: true };
+      const settings = mergeStoreSettingsObject(storeSettingsJson(), [], {
+        themeBlockConfirmed: true,
+      });
 
-      await app.db
+      const [updated] = await app.db
         .update(schema.shopifyStores)
         .set({ settings, updatedAt: new Date() })
-        .where(eq(schema.shopifyStores.id, store.id));
+        .where(eq(schema.shopifyStores.id, store.id))
+        .returning({ settings: schema.shopifyStores.settings });
+      if (!updated) throw new AppError('FORBIDDEN', 403, 'Store not installed');
 
-      return { settings };
+      return { settings: updated.settings };
     },
   );
 

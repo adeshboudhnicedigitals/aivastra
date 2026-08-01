@@ -1,65 +1,14 @@
 import type { ShopifyWidgetConfig } from '@aivastra/db';
 import { schema } from '@aivastra/db';
 import { ShopifyWidgetConfigPatch } from '@aivastra/types';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import { writeWidgetConfigMetafield } from './metafields.js';
+import { mergeStoreSettingsObject, storeSettingsJson } from './settings-json.js';
 import { getValidAccessToken } from './token.js';
 
 type Store = typeof schema.shopifyStores.$inferSelect;
-
-const WIDGET_CONFIG_LOCK_TTL_S = 30;
-const WIDGET_CONFIG_LOCK_WAIT_MS = 250;
-const WIDGET_CONFIG_LOCK_ATTEMPTS = 20;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Serializes config reads, writes, and Shopify mirrors for one store.
- *
- * `requireShopifySession` intentionally supplies a request-start snapshot for
- * authentication. It cannot safely be used for read-modify-write config
- * updates: two requests can authenticate against the same snapshot and the
- * later write then erases the earlier one. Holding this cross-process Redis
- * lease through the metafield write also means an older mirror cannot complete
- * after a newer one and make Liquid read stale config.
- */
-async function withWidgetConfigLock<T>(
-  app: FastifyInstance,
-  storeId: string,
-  fn: () => Promise<T>,
-): Promise<T> {
-  const lockKey = `shopify:widget-config:${storeId}`;
-
-  for (let attempt = 0; attempt < WIDGET_CONFIG_LOCK_ATTEMPTS; attempt++) {
-    const held = await app.redis.set(lockKey, '1', 'EX', WIDGET_CONFIG_LOCK_TTL_S, 'NX');
-    if (held) {
-      try {
-        return await fn();
-      } finally {
-        await app.redis.del(lockKey).catch(() => {
-          // The lease TTL makes a failed release temporary rather than permanent.
-        });
-      }
-    }
-    await sleep(WIDGET_CONFIG_LOCK_WAIT_MS);
-  }
-
-  throw new AppError('SHOPIFY', 503, 'Widget config update in progress, retry shortly');
-}
-
-async function getCurrentStore(app: FastifyInstance, storeId: string): Promise<Store> {
-  const [store] = await app.db
-    .select()
-    .from(schema.shopifyStores)
-    .where(eq(schema.shopifyStores.id, storeId))
-    .limit(1);
-  if (!store || store.uninstalledAt) throw new AppError('FORBIDDEN', 403, 'Store not installed');
-  return store;
-}
 
 /**
  * Mirror the stored config into the shop metafield Liquid reads.
@@ -84,6 +33,35 @@ async function publishConfig(
   );
 }
 
+/**
+ * Serialize outbound metafield writes with a transaction-scoped database lock.
+ *
+ * The lock deliberately spans the Shopify call: unlike a Redis lease it cannot
+ * expire while an unbounded network request is in flight, and Postgres releases
+ * it automatically on commit, rollback, or connection loss. Each holder
+ * re-reads the row after acquiring the lock, so a later PATCH mirrors the
+ * complete latest config even if an earlier request began publishing first.
+ */
+async function publishLatestConfig(
+  app: FastifyInstance,
+  storeId: string,
+  log: FastifyBaseLogger,
+): Promise<boolean> {
+  return app.db.transaction(async (tx) => {
+    const lockKey = `shopify-widget-config:${storeId}`;
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`);
+
+    const [store] = await tx
+      .select()
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, storeId))
+      .limit(1);
+    if (!store || store.uninstalledAt) throw new AppError('FORBIDDEN', 403, 'Store not installed');
+
+    return publishConfig(app, store, log);
+  });
+}
+
 export async function shopifyWidgetConfigRoutes(app: FastifyInstance) {
   app.patch(
     '/v1/shopify/widget-config',
@@ -91,37 +69,32 @@ export async function shopifyWidgetConfigRoutes(app: FastifyInstance) {
     async (req) => {
       const authenticatedStore = req.shopifyStore as Store;
       const body = req.body as ShopifyWidgetConfigPatch;
-      return withWidgetConfigLock(app, authenticatedStore.id, async () => {
-        const store = await getCurrentStore(app, authenticatedStore.id);
-        const current = store.settings.widget ?? {};
+      let settings = storeSettingsJson();
+      if (body.theme)
+        settings = mergeStoreSettingsObject(settings, ['widget', 'theme'], body.theme);
+      if (body.copy) settings = mergeStoreSettingsObject(settings, ['widget', 'copy'], body.copy);
+      if (body.behavior) {
+        settings = mergeStoreSettingsObject(settings, ['widget', 'behavior'], body.behavior);
+      }
 
-        // Shallow-merge each sub-object so a PATCH touching only `copy` cannot
-        // drop `theme` or `behavior`, and so patching one copy field cannot drop
-        // the other eight.
-        const widget: ShopifyWidgetConfig = {
-          ...current,
-          ...(body.theme ? { theme: { ...current.theme, ...body.theme } } : {}),
-          ...(body.copy ? { copy: { ...current.copy, ...body.copy } } : {}),
-          ...(body.behavior ? { behavior: { ...current.behavior, ...body.behavior } } : {}),
-        };
-        const settings = { ...store.settings, widget };
+      const [updated] = await app.db
+        .update(schema.shopifyStores)
+        .set({ settings, updatedAt: new Date() })
+        .where(eq(schema.shopifyStores.id, authenticatedStore.id))
+        .returning({ settings: schema.shopifyStores.settings });
+      if (!updated) throw new AppError('FORBIDDEN', 403, 'Store not installed');
 
-        await app.db
-          .update(schema.shopifyStores)
-          .set({ settings, updatedAt: new Date() })
-          .where(eq(schema.shopifyStores.id, store.id));
+      // Postgres is authoritative and already committed. The metafield is a
+      // cache, so a failed mirror is reported as synced:false on a 200 — a 5xx
+      // here would tell the merchant their copy was lost when it was not.
+      const synced = await publishLatestConfig(app, authenticatedStore.id, req.log);
+      const widget: ShopifyWidgetConfig = updated.settings.widget ?? {};
 
-        // Postgres is authoritative and already committed. The metafield is a
-        // cache, so a failed mirror is reported as synced:false on a 200 — a 5xx
-        // here would tell the merchant their copy was lost when it was not.
-        const synced = await publishConfig(app, { ...store, settings }, req.log);
-
-        req.log.info(
-          { storeId: store.id, changed: Object.keys(body), synced },
-          'shopify widget config updated',
-        );
-        return { widget, synced };
-      });
+      req.log.info(
+        { storeId: authenticatedStore.id, changed: Object.keys(body), synced },
+        'shopify widget config updated',
+      );
+      return { widget, synced };
     },
   );
 
@@ -130,12 +103,9 @@ export async function shopifyWidgetConfigRoutes(app: FastifyInstance) {
     { preValidation: app.requireShopifySession },
     async (req) => {
       const authenticatedStore = req.shopifyStore as Store;
-      return withWidgetConfigLock(app, authenticatedStore.id, async () => {
-        const store = await getCurrentStore(app, authenticatedStore.id);
-        const synced = await publishConfig(app, store, req.log);
-        req.log.info({ storeId: store.id, synced }, 'shopify widget config republished');
-        return { synced };
-      });
+      const synced = await publishLatestConfig(app, authenticatedStore.id, req.log);
+      req.log.info({ storeId: authenticatedStore.id, synced }, 'shopify widget config republished');
+      return { synced };
     },
   );
 }
