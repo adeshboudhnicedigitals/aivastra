@@ -245,6 +245,97 @@ describe('signup-campaigns admin CRUD', () => {
     }
   });
 
+  it('serializes email campaign attribution with admin deletion', async () => {
+    const now = Date.now();
+    const created = await authed('POST', '/admin/signup-campaigns', {
+      code: 'email-signup-delete-race',
+      name: 'Email Signup Delete Race',
+      bonusPercent: 25,
+      startAt: new Date(now - 86_400_000).toISOString(),
+      endAt: new Date(now + 86_400_000).toISOString(),
+      isActive: true,
+    });
+    const campaign = created.json();
+    const blocker = postgres(c.pgUrl, { max: 1 });
+    const observer = postgres(c.pgUrl, { max: 1 });
+    let registering!: ReturnType<typeof app.inject>;
+    let deleting!: ReturnType<typeof app.inject>;
+    let deleteCompleted = false;
+    let deleteCompletedBeforeSignupCouldCommit = false;
+
+    try {
+      await blocker.begin(async (tx) => {
+        // INSERT takes ROW EXCLUSIVE, so this lets registration resolve its
+        // campaign but deterministically pauses before the user FK is written.
+        await tx`lock table users in share mode`;
+        registering = app.inject({
+          method: 'POST',
+          url: '/v1/auth/register',
+          payload: {
+            displayName: 'Email Delete Race User',
+            email: 'email-delete-race-user@x.com',
+            password: 'password123',
+            signupSource: 'email-signup-delete-race',
+          },
+        });
+
+        const insertDeadline = Date.now() + 5_000;
+        while (true) {
+          const [waitingInsert] = await observer`
+            select pid
+            from pg_stat_activity
+            where datname = current_database()
+              and state = 'active'
+              and wait_event_type = 'Lock'
+              and query like 'insert into "users"%'
+            limit 1
+          `;
+          if (waitingInsert) break;
+          if (Date.now() >= insertDeadline) throw new Error('signup did not reach the user insert');
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+
+        deleting = authed('DELETE', `/admin/signup-campaigns/${campaign.id}`);
+        void deleting.then(() => {
+          deleteCompleted = true;
+        });
+
+        const deleteDeadline = Date.now() + 5_000;
+        while (!deleteCompleted) {
+          const [waitingDelete] = await observer`
+            select pid
+            from pg_stat_activity
+            where datname = current_database()
+              and state = 'active'
+              and wait_event_type = 'Lock'
+              and query like '%signup_campaigns%'
+            limit 1
+          `;
+          if (waitingDelete) break;
+          if (Date.now() >= deleteDeadline) {
+            throw new Error('delete neither completed nor waited for the campaign lock');
+          }
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        deleteCompletedBeforeSignupCouldCommit = deleteCompleted;
+      });
+
+      const [registerResponse, deleteResponse] = await Promise.all([registering, deleting]);
+      expect(deleteCompletedBeforeSignupCouldCommit).toBe(false);
+      expect(registerResponse.statusCode).toBe(201);
+      expect(deleteResponse.statusCode).toBe(409);
+
+      const [attributedUser] = await app.db
+        .select({ signupCampaignId: schema.users.signupCampaignId })
+        .from(schema.users)
+        .where(eq(schema.users.email, 'email-delete-race-user@x.com'));
+      expect(attributedUser?.signupCampaignId).toBe(campaign.id);
+    } finally {
+      await blocker.end();
+      await observer.end();
+    }
+  }, 15_000);
+
   it('serializes concurrent partial window updates', async () => {
     const created = await authed('POST', '/admin/signup-campaigns', {
       code: 'concurrent-window-test',

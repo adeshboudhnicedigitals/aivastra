@@ -1,11 +1,8 @@
 import { schema } from '@aivastra/db';
 import { and, eq, sql } from 'drizzle-orm';
-import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
+import type { DbOrTx } from './campaign.js';
 import type { GoogleIdentity } from './google-id-token.js';
-
-type Db = FastifyInstance['db'];
-export type DbOrTx = Db | Parameters<Parameters<Db['transaction']>[0]>[0];
 
 /**
  * Credits granted to a brand-new account, from the active `free` credit plan --
@@ -14,17 +11,17 @@ export type DbOrTx = Db | Parameters<Parameters<Db['transaction']>[0]>[0];
  * there) and for any signup that didn't carry a matching ?src=.
  */
 export async function resolveFreeCredits(
-  app: FastifyInstance,
+  db: DbOrTx,
   campaignId: string | null = null,
 ): Promise<number> {
-  const [plan] = await app.db
+  const [plan] = await db
     .select({ credits: schema.creditPlans.credits })
     .from(schema.creditPlans)
     .where(and(eq(schema.creditPlans.slug, 'free'), eq(schema.creditPlans.isActive, true)));
   const baseCredits = plan?.credits ?? 0;
   if (baseCredits <= 0 || !campaignId) return baseCredits;
 
-  const [campaign] = await app.db
+  const [campaign] = await db
     .select({ bonusPercent: schema.signupCampaigns.bonusPercent })
     .from(schema.signupCampaigns)
     .where(eq(schema.signupCampaigns.id, campaignId));
