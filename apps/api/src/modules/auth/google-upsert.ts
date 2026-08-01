@@ -7,13 +7,30 @@ import type { GoogleIdentity } from './google-id-token.js';
 type Db = FastifyInstance['db'];
 export type DbOrTx = Db | Parameters<Parameters<Db['transaction']>[0]>[0];
 
-/** Credits granted to a brand-new account, from the active `free` credit plan. */
-export async function resolveFreeCredits(app: FastifyInstance): Promise<number> {
+/**
+ * Credits granted to a brand-new account, from the active `free` credit plan --
+ * boosted by campaignId's bonusPercent if the signup is campaign-attributed.
+ * campaignId is null for the native Android device-login route (no QR concept
+ * there) and for any signup that didn't carry a matching ?src=.
+ */
+export async function resolveFreeCredits(
+  app: FastifyInstance,
+  campaignId: string | null = null,
+): Promise<number> {
   const [plan] = await app.db
     .select({ credits: schema.creditPlans.credits })
     .from(schema.creditPlans)
     .where(and(eq(schema.creditPlans.slug, 'free'), eq(schema.creditPlans.isActive, true)));
-  return plan?.credits ?? 0;
+  const baseCredits = plan?.credits ?? 0;
+  if (baseCredits <= 0 || !campaignId) return baseCredits;
+
+  const [campaign] = await app.db
+    .select({ bonusPercent: schema.signupCampaigns.bonusPercent })
+    .from(schema.signupCampaigns)
+    .where(eq(schema.signupCampaigns.id, campaignId));
+  if (!campaign) return baseCredits;
+
+  return Math.round(baseCredits * (1 + campaign.bonusPercent / 100));
 }
 
 /**
@@ -28,6 +45,7 @@ export async function upsertGoogleUser(
   tx: DbOrTx,
   googleUser: GoogleIdentity,
   freeCredits: number,
+  campaignId: string | null = null,
 ): Promise<string> {
   // 1. Existing OAuth link wins outright.
   const [existingLink] = await tx
@@ -86,6 +104,7 @@ export async function upsertGoogleUser(
         companyName: null,
         emailVerified: true,
         tier: 'free',
+        signupCampaignId: campaignId,
       })
       .returning({ id: schema.users.id });
     if (!newUser) throw new AppError('INTERNAL', 500, 'failed to create user');

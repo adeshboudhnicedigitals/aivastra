@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { resolveCampaignId } from './campaign.js';
 import { resolveFreeCredits, upsertGoogleUser } from './google-upsert.js';
 import { createSessionTokens } from './tokens.js';
 
@@ -30,7 +31,7 @@ export async function googleAuthRoutes(app: FastifyInstance) {
     // the merchant/shopper account-link flow, which relies on the popup
     // posting back to window.opener after this OAuth round trip completes.
     reply.header('Cross-Origin-Opener-Policy', 'unsafe-none');
-    const { next } = req.query as { next?: string };
+    const { next, src } = req.query as { next?: string; src?: string };
     const state = randomBytes(32).toString('base64url');
     reply.setCookie('google_state', state, {
       httpOnly: true,
@@ -53,6 +54,18 @@ export async function googleAuthRoutes(app: FastifyInstance) {
         signed: false,
       });
     }
+    if (src) {
+      reply.setCookie('google_src', encodeURIComponent(src), {
+        httpOnly: true,
+        secure: app.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/v1/auth/google',
+        maxAge: 300,
+        signed: false,
+      });
+    } else {
+      reply.clearCookie('google_src', { path: '/v1/auth/google' });
+    }
     const url = new URL(GOOGLE_AUTH_URL);
     url.searchParams.set('client_id', clientId);
     url.searchParams.set('redirect_uri', callbackUrl);
@@ -68,6 +81,7 @@ export async function googleAuthRoutes(app: FastifyInstance) {
     const { code, state } = req.query as { code?: string; state?: string };
     const storedState = req.cookies.google_state;
     const next = req.cookies.google_next ? decodeURIComponent(req.cookies.google_next) : undefined;
+    const src = req.cookies.google_src ? decodeURIComponent(req.cookies.google_src) : undefined;
 
     if (!code || !state || !storedState || state !== storedState) {
       throw new AppError('INVALID_STATE', 400, 'invalid OAuth state');
@@ -75,6 +89,7 @@ export async function googleAuthRoutes(app: FastifyInstance) {
 
     reply.clearCookie('google_state', { path: '/v1/auth/google' });
     if (next) reply.clearCookie('google_next', { path: '/v1/auth/google' });
+    if (src) reply.clearCookie('google_src', { path: '/v1/auth/google' });
 
     // Exchange code for Google access token
     const tokenRes = await fetch(GOOGLE_TOKEN_URL, {
@@ -105,7 +120,8 @@ export async function googleAuthRoutes(app: FastifyInstance) {
       picture?: string;
     };
 
-    const freeCredits = await resolveFreeCredits(app);
+    const campaignId = await resolveCampaignId(app, src);
+    const freeCredits = await resolveFreeCredits(app, campaignId);
     const userId = await app.db.transaction((tx) =>
       upsertGoogleUser(
         tx,
@@ -116,6 +132,7 @@ export async function googleAuthRoutes(app: FastifyInstance) {
           picture: googleUser.picture,
         },
         freeCredits,
+        campaignId,
       ),
     );
     // Issue one-time OTP for web handoff

@@ -71,6 +71,22 @@ describe('google oauth', () => {
     expect(cookies.some((c: string) => c.startsWith('google_state='))).toBe(true);
   });
 
+  it('GET /v1/auth/google/init without src clears a stale campaign source cookie', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/auth/google/init',
+      headers: { cookie: 'google_src=gartex2026' },
+    });
+
+    expect(res.statusCode).toBe(302);
+    const cookieHeader = res.headers['set-cookie'];
+    const cookies = Array.isArray(cookieHeader) ? cookieHeader : [cookieHeader];
+    const clearedSrc = cookies.find((cookie) => cookie.startsWith('google_src=;'));
+    expect(clearedSrc).toBeTruthy();
+    expect(clearedSrc).toContain('Max-Age=0');
+    expect(clearedSrc).toContain('Path=/v1/auth/google');
+  });
+
   it('POST /v1/auth/google/exchange with valid OTP returns accessToken', async () => {
     // Create a user to get a real userId
     const regRes = await app.inject({
@@ -277,5 +293,73 @@ describe('google oauth', () => {
       );
     expect(links).toHaveLength(1);
     expect(links[0]?.userId).toBe(originalUserId);
+  });
+
+  it('attributes a brand-new Google signup to the campaign when ?src= is threaded through init -> callback', async () => {
+    const now = new Date();
+    await app.db.insert(dbSchema.signupCampaigns).values({
+      code: 'gartex2026',
+      name: 'Gartex Expo Delhi 2026',
+      bonusPercent: 25,
+      startAt: new Date(now.getTime() - 86_400_000),
+      endAt: new Date(now.getTime() + 86_400_000),
+      isActive: true,
+    });
+
+    const initRes = await app.inject({
+      method: 'GET',
+      url: '/v1/auth/google/init?src=gartex2026',
+    });
+    expect(initRes.statusCode).toBe(302);
+    const initCookies = Array.isArray(initRes.headers['set-cookie'])
+      ? initRes.headers['set-cookie']
+      : [initRes.headers['set-cookie'] as string];
+    const stateCookie = initCookies.find((c) => c.startsWith('google_state='));
+    const srcCookie = initCookies.find((c) => c.startsWith('google_src='));
+    expect(srcCookie).toBeTruthy();
+    const state = stateCookie?.split(';')[0]?.split('=')[1];
+    const encodedSrc = srcCookie?.split(';')[0]?.split('=')[1];
+
+    const mockFetch = async (url: string | URL | Request): Promise<Response> => {
+      const urlStr = url.toString();
+      if (urlStr.includes('oauth2.googleapis.com/token')) {
+        return new Response(JSON.stringify({ access_token: 'mock-token' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (urlStr.includes('googleapis.com/oauth2/v3/userinfo')) {
+        return new Response(
+          JSON.stringify({
+            sub: 'google-sub-campaign-001',
+            email: 'gartex-google-user@example.com',
+            name: 'Gartex Google User',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected fetch to: ${urlStr}`);
+    };
+    vi.spyOn(global, 'fetch').mockImplementation(mockFetch as typeof fetch);
+
+    const callbackRes = await app.inject({
+      method: 'GET',
+      url: `/v1/auth/google/callback?code=auth_code_campaign&state=${state}`,
+      headers: { cookie: `google_state=${state}; google_src=${encodedSrc}` },
+    });
+    expect(callbackRes.statusCode).toBe(302);
+
+    const [user] = await app.db
+      .select({ id: dbSchema.users.id, signupCampaignId: dbSchema.users.signupCampaignId })
+      .from(dbSchema.users)
+      .where(eq(dbSchema.users.email, 'gartex-google-user@example.com'));
+    expect(user).toBeTruthy();
+    expect(user?.signupCampaignId).toBeTruthy();
+
+    const [campaign] = await app.db
+      .select()
+      .from(dbSchema.signupCampaigns)
+      .where(eq(dbSchema.signupCampaigns.code, 'gartex2026'));
+    expect(user?.signupCampaignId).toBe(campaign?.id);
   });
 });
