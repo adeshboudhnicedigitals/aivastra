@@ -2,6 +2,8 @@ import { schema } from '@aivastra/db';
 import { ShopifyStoreSettingsPatch } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { AppError } from '../../lib/errors.js';
+import { mergeStoreSettingsObject, storeSettingsJson } from './settings-json.js';
 
 export async function shopifySettingsRoutes(app: FastifyInstance) {
   app.patch(
@@ -11,26 +13,25 @@ export async function shopifySettingsRoutes(app: FastifyInstance) {
       const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
       const body = req.body as ShopifyStoreSettingsPatch;
 
-      // Shallow-merge each sub-object so a PATCH touching only `limits` cannot
-      // drop `retention`, `themeBlockConfirmed`, or `workflowTemplateId`.
-      const settings = {
-        ...store.settings,
-        ...(body.limits ? { limits: { ...store.settings.limits, ...body.limits } } : {}),
-        ...(body.retention
-          ? { retention: { ...store.settings.retention, ...body.retention } }
-          : {}),
-      };
+      // Merge in Postgres so a concurrent widget or onboarding update cannot
+      // turn this request-start snapshot into a full JSONB replacement.
+      let settings = storeSettingsJson();
+      if (body.limits) settings = mergeStoreSettingsObject(settings, ['limits'], body.limits);
+      if (body.retention)
+        settings = mergeStoreSettingsObject(settings, ['retention'], body.retention);
 
-      await app.db
+      const [updated] = await app.db
         .update(schema.shopifyStores)
         .set({ settings, updatedAt: new Date() })
-        .where(eq(schema.shopifyStores.id, store.id));
+        .where(eq(schema.shopifyStores.id, store.id))
+        .returning({ settings: schema.shopifyStores.settings });
+      if (!updated) throw new AppError('FORBIDDEN', 403, 'Store not installed');
 
       req.log.info(
         { storeId: store.id, changed: Object.keys(body) },
         'shopify store settings updated',
       );
-      return { settings };
+      return { settings: updated.settings };
     },
   );
 }

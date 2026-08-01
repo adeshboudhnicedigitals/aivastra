@@ -76,6 +76,15 @@ async function patch(body: unknown) {
   });
 }
 
+async function patchSettings(body: unknown) {
+  return app.inject({
+    method: 'PATCH',
+    url: '/v1/shopify/settings',
+    headers: { authorization: `Bearer ${token}` },
+    payload: body,
+  });
+}
+
 async function readSettings() {
   const [row] = await app.db
     .select({ settings: schema.shopifyStores.settings })
@@ -122,6 +131,25 @@ describe('PATCH /v1/shopify/widget-config', () => {
       heading: 'First',
       subheading: 'Second',
     });
+  });
+
+  it('preserves a concurrent store settings patch', async () => {
+    stubShopifyOk();
+    await app.db
+      .update(schema.shopifyStores)
+      .set({ settings: {} })
+      .where(eq(schema.shopifyStores.id, storeId));
+
+    const [settingsRes, widgetRes] = await Promise.all([
+      patchSettings({ limits: { storeDailyCap: 50 } }),
+      patch({ copy: { heading: 'Concurrent' } }),
+    ]);
+
+    expect(settingsRes.statusCode).toBe(200);
+    expect(widgetRes.statusCode).toBe(200);
+    const settings = await readSettings();
+    expect(settings.limits?.storeDailyCap).toBe(50);
+    expect(settings.widget?.copy?.heading).toBe('Concurrent');
   });
 
   it('does not clobber sibling settings keys', async () => {
