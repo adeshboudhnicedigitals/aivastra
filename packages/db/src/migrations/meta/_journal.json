@@ -960,6 +960,13 @@
       "when": 1785451200000,
       "tag": "0136_merchant_demo_data",
       "breakpoints": true
+    },
+    {
+      "idx": 137,
+      "version": "7",
+      "when": 1785558312302,
+      "tag": "0137_signup_campaigns",
+      "breakpoints": true
     }
   ]
 }
