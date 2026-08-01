@@ -306,11 +306,12 @@ fun SignInPage(
                         listOf(Color.Transparent, Color(0xFFD88A18), Color.Transparent)
                     )
                     Box(Modifier.weight(1f).height(sdp(R.dimen._1sdp)).background(lineGradient()))
-                    Text(
-                        text = "X",
-                        color = Color(0xFFD88A18),
-                        fontSize = ssp(R.dimen._12ssp),
-                        modifier = Modifier.padding(horizontal = sdp(R.dimen._8sdp))
+                    Image(
+                        painter = painterResource(R.drawable.star_icon),
+                        contentDescription = null,
+                        modifier = Modifier
+                            .padding(horizontal = sdp(R.dimen._8sdp))
+                            .size(sdp(R.dimen._18sdp))
                     )
                     Box(Modifier.weight(1f).height(sdp(R.dimen._1sdp)).background(lineGradient()))
                 }
