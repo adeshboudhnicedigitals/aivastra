@@ -30,7 +30,7 @@
       data-customer-id="{{ customer.id }}"
       data-customer-email="{{ customer.email }}"
     {%- endif -%}
-    data-api-base="{{ block.settings.api_base | default: 'https://app.aivastra.com' }}"
+    data-api-base="{{ block.settings.api_base | default: 'https://app.aivastra.com' | escape }}"
     style="--aivastra-button-color: {{ block.settings.button_color }}; --aivastra-text-color: {{ block.settings.text_color }}; --aivastra-border-radius: {{ block.settings.border_radius }}px;{% if cfg.theme.accentColor %} --aivastra-accent: {{ cfg.theme.accentColor | escape }};{% endif %}"
   >
     {%- if block.settings.promo_text != blank -%}

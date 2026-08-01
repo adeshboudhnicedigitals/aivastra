@@ -35,6 +35,10 @@ function stubShopifyFailure() {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('nope', { status: 500 })));
 }
 
+function stubShopifyUnauthorized() {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
+}
+
 beforeAll(async () => {
   c = await startContainers();
   app = await buildTestApp(c, {
@@ -317,6 +321,34 @@ describe('PATCH /v1/shopify/widget-config', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().synced).toBe(false);
     expect((await readSettings()).widget?.copy?.ctaLabel).toBe('Go');
+  });
+
+  it('still saves and returns synced:false when the publication lock is unavailable', async () => {
+    stubShopifyOk();
+    const setSpy = vi.spyOn(app.redis, 'set').mockRejectedValueOnce(new Error('redis unavailable'));
+
+    try {
+      const res = await patch({ copy: { heading: 'Saved before Redis failed' } });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({
+        widget: { copy: { heading: 'Saved before Redis failed' } },
+        synced: false,
+      });
+      expect((await readSettings()).widget?.copy?.heading).toBe('Saved before Redis failed');
+    } finally {
+      setSpy.mockRestore();
+    }
+  });
+
+  it('propagates Shopify reauthorization after saving the config', async () => {
+    stubShopifyUnauthorized();
+
+    const res = await patch({ copy: { heading: 'Saved before reauthorization' } });
+
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ error: { code: 'SHOPIFY_REAUTH_REQUIRED' } });
+    expect((await readSettings()).widget?.copy?.heading).toBe('Saved before reauthorization');
   });
 });
 
