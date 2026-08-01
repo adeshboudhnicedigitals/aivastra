@@ -73,6 +73,74 @@ async function maybeSendReceipt(
   }
 }
 
+type DbOrTx = Parameters<Parameters<FastifyInstance['db']['transaction']>[0]>[0];
+
+// Credits `payment.credits` (the base plan grant) plus, for a campaign-attributed
+// user's first successful purchase, a CAMPAIGN_BONUS ledger row on top. Shared by
+// /verify and the webhook handler so the two credit-grant paths can't drift.
+async function grantPurchaseCredits(
+  tx: DbOrTx,
+  userId: string,
+  payment: { id: string; credits: number },
+): Promise<void> {
+  await tx
+    .insert(schema.userCredits)
+    .values({ userId, balance: payment.credits })
+    .onConflictDoUpdate({
+      target: schema.userCredits.userId,
+      set: {
+        balance: sql`${schema.userCredits.balance} + ${payment.credits}`,
+        updatedAt: new Date(),
+      },
+    });
+
+  await tx.insert(schema.creditLedger).values({
+    userId,
+    delta: payment.credits,
+    reason: 'PAYMENT',
+    adminId: null,
+  });
+
+  const [priorPaid] = await tx
+    .select({ id: schema.payments.id })
+    .from(schema.payments)
+    .where(
+      and(
+        eq(schema.payments.userId, userId),
+        eq(schema.payments.status, 'paid'),
+        ne(schema.payments.id, payment.id),
+      ),
+    )
+    .limit(1);
+  if (priorPaid) return; // not their first purchase — no campaign bonus
+
+  const [user] = await tx
+    .select({ campaignId: schema.users.signupCampaignId })
+    .from(schema.users)
+    .where(eq(schema.users.id, userId));
+  if (!user?.campaignId) return;
+
+  const [campaign] = await tx
+    .select({ bonusPercent: schema.signupCampaigns.bonusPercent })
+    .from(schema.signupCampaigns)
+    .where(eq(schema.signupCampaigns.id, user.campaignId));
+  if (!campaign) return;
+
+  const bonus = Math.round(payment.credits * (campaign.bonusPercent / 100));
+  if (bonus <= 0) return;
+
+  await tx
+    .update(schema.userCredits)
+    .set({ balance: sql`${schema.userCredits.balance} + ${bonus}`, updatedAt: new Date() })
+    .where(eq(schema.userCredits.userId, userId));
+
+  await tx.insert(schema.creditLedger).values({
+    userId,
+    delta: bonus,
+    reason: 'CAMPAIGN_BONUS',
+  });
+}
+
 export async function paymentsRoutes(app: FastifyInstance) {
   // GET /v1/payments/plans — public, no auth required
   app.get('/v1/payments/plans', async () => {
@@ -235,23 +303,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
 
         credited = true;
 
-        await tx
-          .insert(schema.userCredits)
-          .values({ userId: req.userId, balance: payment.credits })
-          .onConflictDoUpdate({
-            target: schema.userCredits.userId,
-            set: {
-              balance: sql`${schema.userCredits.balance} + ${payment.credits}`,
-              updatedAt: new Date(),
-            },
-          });
-
-        await tx.insert(schema.creditLedger).values({
-          userId: req.userId,
-          delta: payment.credits,
-          reason: 'PAYMENT',
-          adminId: null,
-        });
+        await grantPurchaseCredits(tx, req.userId, payment);
 
         // Promote the user's tier to this plan's slug so job queue priority kicks in.
         await tx
@@ -374,23 +426,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
 
           webhookCredited = true;
 
-          await tx
-            .insert(schema.userCredits)
-            .values({ userId: payment.userId, balance: payment.credits })
-            .onConflictDoUpdate({
-              target: schema.userCredits.userId,
-              set: {
-                balance: sql`${schema.userCredits.balance} + ${payment.credits}`,
-                updatedAt: new Date(),
-              },
-            });
-
-          await tx.insert(schema.creditLedger).values({
-            userId: payment.userId,
-            delta: payment.credits,
-            reason: 'PAYMENT',
-            adminId: null,
-          });
+          await grantPurchaseCredits(tx, payment.userId, payment);
 
           await tx
             .update(schema.users)
