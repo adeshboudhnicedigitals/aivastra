@@ -26,6 +26,13 @@
       email: root.querySelector('.aivastra-tryon__step--email'),
     };
     const resultImage = root.querySelector('.aivastra-tryon__result-image');
+    const addToCartBtn = root.querySelector('.aivastra-tryon__add-to-cart');
+    const shareBtn = root.querySelector('.aivastra-tryon__share');
+    const viewCartLink = root.querySelector('.aivastra-tryon__view-cart');
+    const cartError = root.querySelector('.aivastra-tryon__cart-error');
+    const shareFlash = root.querySelector('.aivastra-tryon__share-flash');
+    const addToCartLabel = addToCartBtn ? addToCartBtn.textContent.trim() : '';
+    let currentResultUrl = null;
     const readyImage = root.querySelector('.aivastra-tryon__ready-image');
     const changePhotoBtn = root.querySelector('.aivastra-tryon__change-photo');
     const ctaBtn = root.querySelector('.aivastra-tryon__cta');
@@ -267,6 +274,103 @@
       }
     }
 
+    // navigator.share is absent on desktop Firefox and older Safari. The
+    // payload is a plain public URL either way, so the fallback is a clipboard
+    // copy rather than hiding the affordance — a share button that vanishes on
+    // some browsers leaves the result actions visibly lopsided.
+    function shareResult(url) {
+      if (!url) return;
+      if (typeof navigator.share === 'function') {
+        navigator.share({ url }).catch(() => {
+          /* user cancelled the share sheet — nothing to do */
+        });
+        return;
+      }
+      if (!navigator.clipboard) return;
+      navigator.clipboard.writeText(url).then(
+        () => flashShare('Link copied'),
+        () => flashShare('Copy failed'),
+      );
+    }
+
+    // The shopper's live variant selection lives in the theme's own product
+    // form, which every Shopify product page has. data-default-variant-id is
+    // the Liquid-rendered fallback for themes that render the form lazily.
+    function resolveVariantId() {
+      const input = document.querySelector('form[action*="/cart/add"] [name="id"]');
+      const fromForm = input ? Number(input.value) : 0;
+      if (fromForm) return fromForm;
+      const fallback = addToCartBtn ? Number(addToCartBtn.dataset.defaultVariantId) : 0;
+      return fallback || null;
+    }
+
+    function resetResultActions() {
+      if (addToCartBtn) {
+        addToCartBtn.disabled = false;
+        addToCartBtn.textContent = addToCartLabel;
+      }
+      if (viewCartLink) viewCartLink.hidden = true;
+      if (cartError) {
+        cartError.hidden = true;
+        cartError.textContent = '';
+      }
+    }
+
+    async function addCurrentVariantToCart() {
+      const variantId = resolveVariantId();
+      if (!variantId || !addToCartBtn) return;
+
+      addToCartBtn.disabled = true;
+      if (cartError) cartError.hidden = true;
+
+      try {
+        const res = await fetch('/cart/add.js', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items: [{ id: variantId, quantity: 1 }] }),
+        });
+
+        if (!res.ok) {
+          // Sold-out and every other refusal comes back as a 422 with a human
+          // message. Showing Shopify's own string beats tracking variant
+          // availability client-side across each theme's selector JS.
+          const body = await res.json().catch(() => ({}));
+          if (cartError) {
+            cartError.textContent = body.description || 'Could not add to cart.';
+            cartError.hidden = false;
+          }
+          addToCartBtn.disabled = false;
+          return;
+        }
+
+        addToCartBtn.textContent = 'Added ✓';
+        if (viewCartLink) viewCartLink.hidden = false;
+        // Themes that listen refresh their cart badge; the rest ignore an
+        // unknown event. Cheaper and safer than detecting each theme's drawer.
+        document.dispatchEvent(new CustomEvent('cart:refresh', { bubbles: true }));
+      } catch {
+        if (cartError) {
+          cartError.textContent = 'Could not add to cart.';
+          cartError.hidden = false;
+        }
+        addToCartBtn.disabled = false;
+      }
+    }
+
+    if (addToCartBtn) addToCartBtn.addEventListener('click', addCurrentVariantToCart);
+    if (shareBtn) shareBtn.addEventListener('click', () => shareResult(currentResultUrl));
+
+    let shareFlashTimer = null;
+    function flashShare(message) {
+      if (!shareFlash) return;
+      shareFlash.textContent = message;
+      shareFlash.hidden = false;
+      clearTimeout(shareFlashTimer);
+      shareFlashTimer = setTimeout(() => {
+        shareFlash.hidden = true;
+      }, 2000);
+    }
+
     function renderHistoryList() {
       const history = getHistory();
       updateHistoryBadge(history.length);
@@ -310,20 +414,14 @@
 
         const actions = document.createElement('div');
         actions.className = 'aivastra-tryon__history-actions';
-        if (typeof navigator.share === 'function') {
-          const shareBtn = document.createElement('button');
-          shareBtn.type = 'button';
-          shareBtn.className = 'aivastra-tryon__history-share';
-          shareBtn.setAttribute('aria-label', 'Share');
-          shareBtn.innerHTML =
-            '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="2.2"/><circle cx="6" cy="12" r="2.2"/><circle cx="18" cy="19" r="2.2"/><path d="m8 11 7.8-4.6M8 13l7.8 4.6"/></svg>';
-          shareBtn.addEventListener('click', () => {
-            navigator.share({ url: entry.resultUrl }).catch(() => {
-              /* user cancelled the share sheet — nothing to do */
-            });
-          });
-          actions.appendChild(shareBtn);
-        }
+        const historyShareBtn = document.createElement('button');
+        historyShareBtn.type = 'button';
+        historyShareBtn.className = 'aivastra-tryon__history-share';
+        historyShareBtn.setAttribute('aria-label', 'Share');
+        historyShareBtn.innerHTML =
+          '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="2.2"/><circle cx="6" cy="12" r="2.2"/><circle cx="18" cy="19" r="2.2"/><path d="m8 11 7.8-4.6M8 13l7.8 4.6"/></svg>';
+        historyShareBtn.addEventListener('click', () => shareResult(entry.resultUrl));
+        actions.appendChild(historyShareBtn);
         if (actions.childNodes.length > 0) card.appendChild(actions);
 
         historyList.appendChild(card);
@@ -534,6 +632,8 @@
           return;
         }
         const resultUrl = await waitForResult(jobResult.jobId);
+        currentResultUrl = resultUrl;
+        resetResultActions();
         resultImage.src = resultUrl;
         showPage('main');
         showStep('result');
