@@ -327,6 +327,18 @@ export interface CreditPlan {
   updatedAt: string;
 }
 
+export interface SignupCampaign {
+  id: string;
+  code: string;
+  name: string;
+  bonusPercent: number;
+  startAt: string;
+  endAt: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ModelPoseAsset {
   id: string;
   label: string;
