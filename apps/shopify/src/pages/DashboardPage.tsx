@@ -208,8 +208,8 @@ export default function DashboardPage() {
                 </StepRow>
                 <StepRow
                   done={themeBlockDone}
-                  title="Add the Try It On block to your theme"
-                  description="Add the block in the theme editor so shoppers can see it on your product pages."
+                  title="Add the Try It On block to your product page"
+                  description="Required — the try-on button only appears where you place this block. Open the theme editor, then save."
                 >
                   <Button onClick={openThemeEditor} loading={openingEditor}>
                     Open theme editor
