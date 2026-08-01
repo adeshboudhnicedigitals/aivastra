@@ -5,10 +5,10 @@ import { AppError } from '../../lib/errors.js';
 import { mergeStoreSettingsObject, storeSettingsJson } from './settings-json.js';
 
 /**
- * Handle of the app-embed block to activate, i.e. the filename of
+ * Handle of the app block staged for insertion, i.e. the filename of
  * `apps/shopify-extension/extensions/tryon-theme-extension/blocks/tryon-button.liquid`
  * minus its extension. Renaming that file silently breaks this deep link —
- * Shopify just opens the editor without activating anything.
+ * Shopify just opens the editor without staging the block.
  */
 const TRYON_BLOCK_HANDLE = 'tryon-button';
 
