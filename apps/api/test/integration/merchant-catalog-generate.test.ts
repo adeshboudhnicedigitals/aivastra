@@ -816,7 +816,9 @@ describe('merchant catalog generate (single, Path B)', () => {
       expect(status.statusCode).toBe(200);
       const body = status.json() as { items: Array<{ jobId: string; status: string }> };
       expect(body.items).toHaveLength(3);
-      expect(body.items.every((i) => i.status === 'QUEUED')).toBe(true);
+      // Bulk-flat batches are held for admin release, not enqueued immediately —
+      // see Task 2 (create-job.ts's `hold` flag).
+      expect(body.items.every((i) => i.status === 'HELD')).toBe(true);
     });
 
     it('reports failures for unowned keys while still enqueuing the valid ones', async () => {

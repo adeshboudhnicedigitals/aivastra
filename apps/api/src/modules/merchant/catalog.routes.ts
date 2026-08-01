@@ -917,6 +917,10 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
             flatImageKey,
             subcategoryId,
             merchantId,
+            // Every bulk-flat batch is held for admin release — see Task 3's
+            // POST /admin/held-jobs/release. The single-item /generate route
+            // stays interactive because the merchant is waiting on it.
+            hold: true,
           });
           jobIds.push(jobId);
         } catch (err) {
