@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { ShopifyWidgetConfig } from '@aivastra/db';
 import { schema } from '@aivastra/db';
 import { ShopifyWidgetConfigPatch } from '@aivastra/types';
-import { eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import { writeWidgetConfigMetafield } from './metafields.js';
@@ -67,6 +67,40 @@ async function getCurrentStore(app: FastifyInstance, storeId: string): Promise<S
   return store;
 }
 
+export async function markWidgetConfigUnsynced(
+  app: FastifyInstance,
+  storeId: string,
+): Promise<void> {
+  const settings = mergeStoreSettingsObject(storeSettingsJson(), [], {
+    widgetConfigSynced: false,
+  });
+  await app.db
+    .update(schema.shopifyStores)
+    .set({ settings, updatedAt: new Date() })
+    .where(eq(schema.shopifyStores.id, storeId));
+}
+
+async function markWidgetConfigSyncedIfCurrent(
+  app: FastifyInstance,
+  storeId: string,
+  widget: ShopifyWidgetConfig,
+): Promise<boolean> {
+  const settings = mergeStoreSettingsObject(storeSettingsJson(), [], {
+    widgetConfigSynced: true,
+  });
+  const updated = await app.db
+    .update(schema.shopifyStores)
+    .set({ settings, updatedAt: new Date() })
+    .where(
+      and(
+        eq(schema.shopifyStores.id, storeId),
+        sql`coalesce(${schema.shopifyStores.settings}->'widget', '{}'::jsonb) = ${JSON.stringify(widget)}::jsonb`,
+      ),
+    )
+    .returning({ id: schema.shopifyStores.id });
+  return updated.length > 0;
+}
+
 /**
  * Mirror the stored config into the shop metafield Liquid reads.
  *
@@ -108,7 +142,7 @@ async function publishConfig(
  * Once locked, the bounded Shopify request completes well inside the lease
  * lifetime; a fresh row read supplies the exact config sent to Shopify.
  */
-async function publishLatestConfig(
+export async function publishLatestConfig(
   app: FastifyInstance,
   storeId: string,
   log: FastifyBaseLogger,
@@ -119,7 +153,9 @@ async function publishLatestConfig(
   return withWidgetConfigPublishLock(app, storeId, async () => {
     const store = await getCurrentStore(app, storeId);
     const widget = store.settings.widget ?? {};
-    const synced = await publishConfig(store, accessToken, log);
+    await markWidgetConfigUnsynced(app, storeId);
+    const published = await publishConfig(store, accessToken, log);
+    const synced = published ? await markWidgetConfigSyncedIfCurrent(app, storeId, widget) : false;
     return { widget, synced };
   });
 }
@@ -138,6 +174,7 @@ export async function shopifyWidgetConfigRoutes(app: FastifyInstance) {
       if (body.behavior) {
         settings = mergeStoreSettingsObject(settings, ['widget', 'behavior'], body.behavior);
       }
+      settings = mergeStoreSettingsObject(settings, [], { widgetConfigSynced: false });
 
       const [updated] = await app.db
         .update(schema.shopifyStores)

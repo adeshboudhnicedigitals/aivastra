@@ -1,3 +1,29 @@
+## 2026-08-01 — Shopify widget OAuth config recovery
+
+**Done**
+- Republish the authoritative `shopify_stores.settings.widget` config with the
+  newly issued access token during the Shopify OAuth callback. A widget save
+  that committed before `SHOPIFY_REAUTH_REQUIRED` can no longer return from
+  reauthorization with Liquid still reading the stale metafield.
+- Persist `settings.widgetConfigSynced` across reloads. Publication marks the
+  config unsynced before the outbound call and clears the marker only when the
+  exact published widget snapshot is still current; failed or raced writes
+  therefore keep the Widget Design retry banner visible.
+- Preserved the Shopify-admin post-install redirect and the existing tolerant
+  handling for non-critical post-install metafield/webhook failures.
+- Added a route-level red-green regression covering the real OAuth callback,
+  stored config payload, fresh-token metafield publication, failed-publication
+  drift persistence, and final redirect.
+- Verification: focused Shopify API tests passed (30/30), Shopify Admin tests
+  passed (35/35), API/Admin typechecks and production builds passed,
+  touched-file Biome checks and `git diff --check` passed.
+
+**Failed / Not Done**
+- No migrations were needed, and no push was performed.
+
+**Open Questions / Decisions**
+- None.
+
 ## 2026-08-01 — Shopify widget final timeout and state fixes
 
 **Done**

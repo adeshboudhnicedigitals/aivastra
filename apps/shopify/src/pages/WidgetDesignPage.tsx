@@ -55,6 +55,7 @@ export default function WidgetDesignPage() {
         const w = me.store.settings.widget ?? {};
         setConfig(w);
         setSaved(w);
+        setSynced(me.store.settings.widgetConfigSynced !== false);
       })
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false));

@@ -106,7 +106,9 @@ describe('PATCH /v1/shopify/widget-config', () => {
       widget: { theme: { accentColor: '#123abc' } },
       synced: true,
     });
-    expect((await readSettings()).widget?.theme?.accentColor).toBe('#123abc');
+    const settings = await readSettings();
+    expect(settings.widget?.theme?.accentColor).toBe('#123abc');
+    expect(settings.widgetConfigSynced).toBe(true);
   });
 
   it('merges within a sub-object instead of replacing it', async () => {
@@ -203,9 +205,11 @@ describe('PATCH /v1/shopify/widget-config', () => {
     releaseFirst();
     const [firstRes, secondRes] = await Promise.all([first, second]);
     expect(firstRes.json().widget).toEqual({ copy: { heading: 'First' } });
+    expect(firstRes.json().synced).toBe(false);
     expect(secondRes.json().widget).toEqual({
       copy: { heading: 'First', subheading: 'Second' },
     });
+    expect(secondRes.json().synced).toBe(true);
     expect(published).toEqual([
       { copy: { heading: 'First' } },
       { copy: { heading: 'First', subheading: 'Second' } },
@@ -348,7 +352,9 @@ describe('PATCH /v1/shopify/widget-config', () => {
 
     expect(res.statusCode).toBe(403);
     expect(res.json()).toMatchObject({ error: { code: 'SHOPIFY_REAUTH_REQUIRED' } });
-    expect((await readSettings()).widget?.copy?.heading).toBe('Saved before reauthorization');
+    const settings = await readSettings();
+    expect(settings.widget?.copy?.heading).toBe('Saved before reauthorization');
+    expect(settings.widgetConfigSynced).toBe(false);
   });
 });
 
