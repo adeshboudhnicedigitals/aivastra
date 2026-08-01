@@ -399,6 +399,13 @@ function toDatetimeLocal(iso: string): string {
   )}:${pad(date.getMinutes())}`;
 }
 
+function serializeCampaignDatetime(datetimeLocal: string, originalIso?: string): string {
+  // datetime-local has minute precision, so preserve the API instant when its displayed value is unchanged.
+  return originalIso && datetimeLocal === toDatetimeLocal(originalIso)
+    ? originalIso
+    : new Date(datetimeLocal).toISOString();
+}
+
 function CampaignModal({
   campaign,
   onSaved,
@@ -432,8 +439,8 @@ function CampaignModal({
     try {
       const body = {
         ...form,
-        startAt: new Date(form.startAt).toISOString(),
-        endAt: new Date(form.endAt).toISOString(),
+        startAt: serializeCampaignDatetime(form.startAt, campaign?.startAt),
+        endAt: serializeCampaignDatetime(form.endAt, campaign?.endAt),
       };
       const saved = campaign
         ? await apiFetch<SignupCampaign>(`/admin/signup-campaigns/${campaign.id}`, {
