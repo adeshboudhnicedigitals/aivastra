@@ -4,6 +4,9 @@
   const SSE_RECONNECT_DELAY_MS = 1000;
 
   function initWidget(root) {
+    if (root.dataset.aivastraInitialized === 'true') return;
+    root.dataset.aivastraInitialized = 'true';
+
     const widgetKey = root.dataset.widgetKey;
     const productId = Number(root.dataset.productId);
     const productTitle = root.dataset.productTitle || '';
