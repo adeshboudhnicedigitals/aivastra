@@ -614,3 +614,8 @@
   text-decoration: underline;
   color: #111827;
 }
+
+.aivastra-tryon__share-flash[hidden],
+.aivastra-tryon__view-cart[hidden] {
+  display: none;
+}
