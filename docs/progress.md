@@ -29,7 +29,12 @@
 - "Show remaining try-ons" deferred: needs a shopper-limits read endpoint that
   returns remaining quota before generation.
 - Result-step cart and share logic has no automated test — the theme extension
-  has no test runner. Verified on a dev store per the plan's manual checklists.
+  has no test runner.
+- Manual dev-store/browser verification remains outstanding for all four checks:
+  the product-template deep link and dropped-block placement; the no-metafield
+  default appearance; literal rendering of merchant copy such as `<b>x</b>`;
+  and selected-variant Add to Cart, including sold-out error handling and button
+  recovery.
 
 **Open Questions / Decisions**
 - `useBlocker` was unusable (app mounts `<BrowserRouter>`, not a data router), so
