@@ -3,6 +3,7 @@ package aivastra.nice.interactive.data.session
 import android.content.Context
 import android.util.Base64
 import aivastra.nice.interactive.api.ApiClient
+import aivastra.nice.interactive.data.repository.CatalogRepository
 import org.json.JSONObject
 
 /**
@@ -67,11 +68,13 @@ object SessionManager {
         }
         editor.apply()
         ApiClient.setAccessToken(accessToken)
+        CatalogRepository.clearCache()
     }
 
     fun clear() {
         preferences.edit().clear().apply()
         ApiClient.setAccessToken(null)
+        CatalogRepository.clearCache()
     }
 
     fun hasValidSession(): Boolean {
