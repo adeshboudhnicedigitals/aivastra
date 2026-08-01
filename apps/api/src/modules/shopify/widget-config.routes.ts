@@ -31,17 +31,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function fetchShopifyWithTimeout(...args: Parameters<typeof fetch>): Promise<Response> {
-  const [input, init] = args;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), SHOPIFY_REQUEST_TIMEOUT_MS);
-  try {
-    return await fetch(input, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 async function withWidgetConfigPublishLock<T>(
   app: FastifyInstance,
   storeId: string,
@@ -91,14 +80,25 @@ async function publishConfig(
   accessToken: string,
   log: FastifyBaseLogger,
 ): Promise<boolean> {
-  return writeWidgetConfigMetafield(
-    store.shopDomain,
-    accessToken,
-    store.shopifyShopId,
-    store.settings.widget ?? {},
-    log,
-    fetchShopifyWithTimeout,
-  );
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), SHOPIFY_REQUEST_TIMEOUT_MS);
+  const fetchWithSignal: typeof fetch = (input, init) =>
+    fetch(input, { ...init, signal: controller.signal });
+
+  try {
+    return await writeWidgetConfigMetafield(
+      store.shopDomain,
+      accessToken,
+      store.shopifyShopId,
+      store.settings.widget ?? {},
+      log,
+      fetchWithSignal,
+    );
+  } finally {
+    // Keep the abort deadline active through response-body parsing as well as
+    // the initial fetch, so the publish cannot outlive its Redis lease.
+    clearTimeout(timeout);
+  }
 }
 
 /**

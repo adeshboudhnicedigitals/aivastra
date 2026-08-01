@@ -1,3 +1,17 @@
+## 2026-08-01 — Shopify widget config publish timeout lifecycle
+
+### Done
+- Kept the 10-second Shopify abort deadline active for the complete widget-config metafield write,
+  including response-body parsing, so a stalled body cannot outlive the 30-second Redis publish lease.
+- Added deterministic regression coverage for a response whose headers arrive before its body stalls.
+- Verified the widget-config integration suite (11/11) and API typecheck.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- (none)
+
 ## 2026-07-31 — Shopify shopper limits: final whole-branch review + fix wave
 
 ### Done
