@@ -584,9 +584,35 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         if (!subcategory) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
       }
 
+      const [existing] = await app.db
+        .select()
+        .from(schema.merchantCatalogItems)
+        .where(
+          and(
+            eq(schema.merchantCatalogItems.id, id),
+            eq(schema.merchantCatalogItems.merchantId, merchantId),
+          ),
+        )
+        .limit(1);
+      if (!existing) throw new AppError('NOT_FOUND', 404, 'catalog item not found');
+
+      // A held-batch product is materialized inactive with ₹0 prices and no SKU
+      // (see /reconcile-held). Filling those in is what publishes it to the
+      // kiosk. The ₹0 test is what distinguishes it from a product the merchant
+      // priced and then deliberately switched off — that one stays off.
+      const isPendingHeldProduct =
+        !existing.isActive &&
+        existing.sourceKind === 'generated' &&
+        existing.actualPricePaise === 0 &&
+        existing.offerPricePaise === 0;
+      const completesDetails =
+        !!body.sku?.trim() && body.actualPrice !== undefined && body.offerPrice !== undefined;
+      const autoActivate = isPendingHeldProduct && completesDetails && body.isActive === undefined;
+
       const [updated] = await app.db
         .update(schema.merchantCatalogItems)
         .set({
+          ...(autoActivate ? { isActive: true } : {}),
           ...(body.subcategoryId !== undefined ? { subcategoryId: body.subcategoryId } : {}),
           ...(body.label !== undefined ? { label: body.label } : {}),
           ...(body.sku !== undefined ? { sku: body.sku?.trim() || null } : {}),
