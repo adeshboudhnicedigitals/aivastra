@@ -189,12 +189,14 @@ export function usePricingData() {
 
   const { data: credits } = useQuery<{
     balance: number;
+    firstPurchaseBonusPercent: number | null;
     recent: { delta: number; reason: string; createdAt: string }[];
   }>({
     queryKey: ['credits'],
     queryFn: () => api.get('/v1/credits'),
     staleTime: 60_000,
   });
+  const firstPurchaseBonusPercent = credits?.firstPurchaseBonusPercent ?? null;
 
   const { data: me } = useQuery<{ tier: string }>({
     queryKey: ['me'],
@@ -293,6 +295,7 @@ export function usePricingData() {
         label: string;
       }>('/v1/payments/orders', { planId: plan.slug });
 
+      let creditsGranted = plan.credits;
       await new Promise<void>((resolve, reject) => {
         const RazorpayClass = window.Razorpay as NonNullable<typeof window.Razorpay>;
         const rzp = new RazorpayClass({
@@ -301,18 +304,21 @@ export function usePricingData() {
           currency: order.currency,
           order_id: order.orderId,
           name: 'Ai Vastra',
-          description: `${order.label} — ${plan.credits.toLocaleString('en-IN')} Credits`,
+          description: firstPurchaseBonusPercent
+            ? `${order.label} — ${plan.credits.toLocaleString('en-IN')} Credits + ${firstPurchaseBonusPercent}% bonus`
+            : `${order.label} — ${plan.credits.toLocaleString('en-IN')} Credits`,
           handler: async (response: {
             razorpay_order_id: string;
             razorpay_payment_id: string;
             razorpay_signature: string;
           }) => {
             try {
-              await api.post('/v1/payments/verify', {
+              const verified = await api.post<{ creditsGranted?: number }>('/v1/payments/verify', {
                 razorpayOrderId: response.razorpay_order_id,
                 razorpayPaymentId: response.razorpay_payment_id,
                 razorpaySignature: response.razorpay_signature,
               });
+              creditsGranted = verified.creditsGranted ?? plan.credits;
               resolve();
             } catch (err) {
               reject(err);
@@ -325,7 +331,7 @@ export function usePricingData() {
       });
 
       qc.invalidateQueries({ queryKey: ['credits'] });
-      setToast(`${plan.credits.toLocaleString('en-IN')} credits added to your account!`);
+      setToast(`${creditsGranted.toLocaleString('en-IN')} credits added to your account!`);
       setTimeout(() => router.push('/catalogues'), 1500);
     } catch (err) {
       if (err instanceof Error && err.message === 'dismissed') {
@@ -384,6 +390,7 @@ export function usePricingData() {
     isNonIn,
     visiblePlans,
     plansLoading,
+    firstPurchaseBonusPercent,
     resolutions,
     displayBase,
     displayTotal,

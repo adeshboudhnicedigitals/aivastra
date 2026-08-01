@@ -115,6 +115,7 @@ describe('payments -> tier promotion', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json().ok).toBe(true);
+    expect(res.json().creditsGranted).toBe(1000); // no campaign bonus — matches the base plan credits
 
     const [user] = await app.db.select().from(schema.users).where(eq(schema.users.id, userId));
     expect(user?.tier).toBe(plan?.slug);
@@ -247,6 +248,7 @@ describe('payments -> tier promotion', () => {
       },
     });
     expect(res.statusCode).toBe(200);
+    expect(res.json().creditsGranted).toBe(1250); // reported total must include the bonus
 
     const [credits] = await app.db
       .select()
