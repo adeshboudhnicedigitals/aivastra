@@ -104,6 +104,26 @@ describe('PATCH /v1/shopify/widget-config', () => {
     expect(settings.widget?.copy).toEqual({ heading: 'Hello', subheading: 'World' });
   });
 
+  it('serializes concurrent patches so neither config change is lost', async () => {
+    stubShopifyOk();
+    await app.db
+      .update(schema.shopifyStores)
+      .set({ settings: {} })
+      .where(eq(schema.shopifyStores.id, storeId));
+
+    const [first, second] = await Promise.all([
+      patch({ copy: { heading: 'First' } }),
+      patch({ copy: { subheading: 'Second' } }),
+    ]);
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    expect((await readSettings()).widget?.copy).toEqual({
+      heading: 'First',
+      subheading: 'Second',
+    });
+  });
+
   it('does not clobber sibling settings keys', async () => {
     stubShopifyOk();
     await app.db
