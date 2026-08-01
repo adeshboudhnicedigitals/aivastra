@@ -208,6 +208,75 @@ describe('PATCH /v1/shopify/widget-config', () => {
     ]);
   });
 
+  it('keeps the Shopify timeout active while parsing the response body', async () => {
+    const realSetTimeout = globalThis.setTimeout;
+    const realClearTimeout = globalThis.clearTimeout;
+    const timeoutHandle = { shopifyTimeout: true } as unknown as ReturnType<typeof setTimeout>;
+    let timeoutCancelled = false;
+    let fireTimeout!: () => void;
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+      callback,
+      delay,
+      ...args
+    ) => {
+      if (delay === 10_000) {
+        fireTimeout = () => {
+          if (!timeoutCancelled) (callback as (...callbackArgs: unknown[]) => void)(...args);
+        };
+        return timeoutHandle;
+      }
+      return realSetTimeout(callback, delay, ...args);
+    }) as typeof setTimeout);
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout').mockImplementation(((handle) => {
+      if (handle === timeoutHandle) {
+        timeoutCancelled = true;
+        return;
+      }
+      realClearTimeout(handle);
+    }) as typeof clearTimeout);
+
+    let bodyStarted!: () => void;
+    const bodyStartedPromise = new Promise<void>((resolve) => {
+      bodyStarted = resolve;
+    });
+    let finishBody!: (body: unknown) => void;
+    let signal: AbortSignal | null = null;
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+        signal = init?.signal ?? null;
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            new Promise((resolve, reject) => {
+              finishBody = resolve;
+              bodyStarted();
+              if (signal?.aborted) {
+                reject(signal.reason);
+                return;
+              }
+              signal?.addEventListener('abort', () => reject(signal?.reason), { once: true });
+            }),
+        } as Response);
+      }),
+    );
+
+    const responsePromise = patch({ copy: { heading: 'Slow body' } });
+    await bodyStartedPromise;
+
+    try {
+      fireTimeout();
+      expect(signal?.aborted).toBe(true);
+    } finally {
+      finishBody({ data: { metafieldsSet: { userErrors: [] } } });
+      await responsePromise;
+      setTimeoutSpy.mockRestore();
+      clearTimeoutSpy.mockRestore();
+    }
+  });
+
   it('does not clobber sibling settings keys', async () => {
     stubShopifyOk();
     await app.db
