@@ -107,6 +107,21 @@ To remove a worker: mark it inactive in the admin panel, then restart the dispat
 
 Input model: 1 user-uploaded garment + `faceId` + `backgroundId` + `poseId` (all admin-curated) + optional `lowerCatalogId` / `shoeCatalogId`. All IDs must resolve to active catalog/asset rows before credits deduct.
 
+### Shopify theme extension
+
+`apps/shopify-extension/extensions/tryon-theme-extension` ships one **app
+block** (`blocks/tryon-button.liquid`, `target: "section"`), which the merchant
+drags into their product template. It is not an app embed — an earlier version
+was, and it had to relocate itself via guessed CSS selectors, which broke on
+every theme switch. App blocks require an Online Store 2.0 (JSON) template;
+vintage themes are unsupported.
+
+Modal copy, accent color, and result-step actions come from the
+`aivastra.widget_config` shop metafield, written by
+`PATCH /v1/shopify/widget-config` and edited on the app's Widget Design page.
+Postgres (`shopify_stores.settings.widget`) is authoritative; the metafield is a
+cache, and a failed mirror surfaces as `synced: false`.
+
 ## Web App Architecture (apps/catalogues-web)
 
 ### Auth Flow
