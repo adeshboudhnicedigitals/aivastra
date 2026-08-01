@@ -138,20 +138,21 @@ fun PhotoEditView(
                         shape = RoundedCornerShape(0.dp)
                     )
                     .padding(top = statusBarH)
-                    .height(sdp(R.dimen._55sdp))
-                    .padding(horizontal = sdp(R.dimen._16sdp)),
+                    .height(sdp(R.dimen._60sdp))
+                    .padding(horizontal = sdp(R.dimen._12sdp)),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
                     onClick = onCancel,
-                    enabled = !isProcessing
+                    enabled = !isProcessing,
+                    modifier = Modifier.size(sdp(R.dimen._40sdp))
                 ) {
                     Icon(
                         Icons.Default.Close,
                         contentDescription = "Cancel Edit",
                         tint = Color.White,
-                        modifier = Modifier.size(sdp(R.dimen._22sdp))
+                        modifier = Modifier.size(sdp(R.dimen._32sdp))
                     )
                 }
 
@@ -186,20 +187,21 @@ fun PhotoEditView(
                             )
                         }
                     },
-                    enabled = !isProcessing
+                    enabled = !isProcessing,
+                    modifier = Modifier.size(sdp(R.dimen._40sdp))
                 ) {
                     if (isProcessing) {
                         CircularProgressIndicator(
                             color = Color(0xFFF2B53F),
-                            strokeWidth = sdp(R.dimen._2sdp),
-                            modifier = Modifier.size(sdp(R.dimen._20sdp))
+                            strokeWidth = sdp(R.dimen._3sdp),
+                            modifier = Modifier.size(sdp(R.dimen._28sdp))
                         )
                     } else {
                         Icon(
                             Icons.Default.Check,
                             contentDescription = "Confirm Edit",
                             tint = Color(0xFFF2B53F),
-                            modifier = Modifier.size(sdp(R.dimen._26sdp))
+                            modifier = Modifier.size(sdp(R.dimen._34sdp))
                         )
                     }
                 }
