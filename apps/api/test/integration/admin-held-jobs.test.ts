@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { adminAuthHeader } from '../helpers/admin';
 import { buildTestApp, type TestApp } from '../helpers/api';
 import { type Containers, startContainers } from '../helpers/containers';
@@ -25,6 +25,10 @@ describe('admin held jobs', () => {
   beforeEach(async () => {
     await app.redis.del('jobs:low');
     await app.db.delete(schema.jobs);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   async function seedHeldJob(email: string): Promise<{ jobId: string; userId: string }> {
@@ -98,6 +102,41 @@ describe('admin held jobs', () => {
 
     expect((second.json() as { released: number }).released).toBe(0);
     expect(await app.redis.xlen('jobs:low')).toBe(1);
+  });
+
+  it('reverts a job to HELD if its XADD fails, without aborting the rest of the release', async () => {
+    const a = await seedHeldJob(`xadd-fail-a-${randomUUID()}@test.com`);
+    const b = await seedHeldJob(`xadd-fail-b-${randomUUID()}@test.com`);
+
+    const xaddSpy = vi
+      .spyOn(app.redis, 'xadd')
+      .mockRejectedValueOnce(new Error('simulated redis failure'));
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/held-jobs/release',
+      headers,
+    });
+
+    expect(res.statusCode).toBe(200);
+    // Only one of the two jobs actually made it onto the stream; the other's
+    // XADD was the mocked rejection and must have been reverted to HELD.
+    expect((res.json() as { released: number }).released).toBe(1);
+
+    const [jobA] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, a.jobId));
+    const [jobB] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, b.jobId));
+    const held = [jobA, jobB].filter((j) => j.status === 'HELD');
+    const queued = [jobA, jobB].filter((j) => j.status === 'QUEUED');
+
+    expect(held).toHaveLength(1);
+    expect(held[0].queuedAt).toBeNull();
+    expect(queued).toHaveLength(1);
+    expect(queued[0].queuedAt).toBeInstanceOf(Date);
+
+    // Exactly the succeeding job's entry made it onto the stream.
+    expect(await app.redis.xlen('jobs:low')).toBe(1);
+
+    xaddSpy.mockRestore();
   });
 
   it('rejects unauthenticated callers', async () => {
