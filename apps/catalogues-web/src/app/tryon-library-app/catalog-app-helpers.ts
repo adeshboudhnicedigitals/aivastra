@@ -66,6 +66,14 @@ export function deleteProduct(id: string): Promise<void> {
  * Held batches run whenever an admin releases them, so there is no in-page poll
  * to finalize them — the products screen calls this on mount instead. Rows come
  * back inactive until the merchant fills in SKU and prices.
+ *
+ * `failed` distinguishes two very different situations for the caller:
+ *  - a non-negative number is the server's own count of rows it could not
+ *    finalize (a genuine partial failure, already logged server-side);
+ *  - `-1` means the request itself never reached/completed against the server
+ *    (network error, 5xx, session expiry) — reconciliation state is unknown,
+ *    not "zero rows failed." Flattening this to 0 would silently hide a
+ *    systemic failure behind an identical "nothing new yet" UI.
  */
 export function reconcileHeldProducts(): Promise<{
   created: MerchantCatalogItem[];
@@ -76,5 +84,5 @@ export function reconcileHeldProducts(): Promise<{
       '/v1/merchant/catalog/reconcile-held',
       {},
     )
-    .catch(() => ({ created: [], failed: 0 }));
+    .catch(() => ({ created: [], failed: -1 }));
 }

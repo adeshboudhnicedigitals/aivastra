@@ -58,6 +58,7 @@ export async function adminHeldJobsRoutes(app: FastifyInstance) {
         .select({ id: schema.jobs.id, userId: schema.jobs.userId })
         .from(schema.jobs)
         .where(eq(schema.jobs.status, 'HELD'))
+        .orderBy(schema.jobs.createdAt)
         .limit(RELEASE_BATCH_LIMIT + 1);
       const hasMore = held.length > RELEASE_BATCH_LIMIT;
       if (hasMore) held.pop();

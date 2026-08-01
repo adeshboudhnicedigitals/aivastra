@@ -1117,7 +1117,14 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
       let failed = 0;
       for (const row of rows) {
         const subcategoryId = (row.params as { subcategoryId?: string } | null)?.subcategoryId;
-        if (!row.resultKey || !subcategoryId) continue;
+        if (!row.resultKey || !subcategoryId) {
+          failed++;
+          app.log.warn(
+            { jobId: row.jobId, hasResultKey: !!row.resultKey, subcategoryId },
+            'reconcile-held: job has incomplete data, cannot finalize',
+          );
+          continue;
+        }
         try {
           const item = await copyJobOutputIntoProduct(app, {
             merchantId,
@@ -1144,12 +1151,26 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         // product (this call or a concurrent one), so a merchant deleting the
         // resulting product later never makes reconcile-held resurrect it —
         // idempotency lives on the job, not on whether the product row exists.
-        await app.db
-          .update(schema.jobInputs)
-          .set({
-            params: sql`${schema.jobInputs.params} || '{"heldReconciled": true}'::jsonb`,
-          })
-          .where(eq(schema.jobInputs.jobId, row.jobId));
+        try {
+          await app.db
+            .update(schema.jobInputs)
+            .set({
+              params: sql`${schema.jobInputs.params} || '{"heldReconciled": true}'::jsonb`,
+            })
+            .where(eq(schema.jobInputs.jobId, row.jobId));
+        } catch (err) {
+          // The product was already created (or a concurrent call already
+          // created it) — only the reconciled-marker write failed. Count it
+          // as failed so it's visible, but don't let it take down the whole
+          // response; the job stays selectable next time, which will retry
+          // this stamp (copyJobOutputIntoProduct's own 409 guard makes that
+          // safe even if the product now exists).
+          failed++;
+          app.log.warn(
+            { err, jobId: row.jobId },
+            'reconcile-held: failed to stamp reconciled marker',
+          );
+        }
       }
 
       if (failed > 0) {
