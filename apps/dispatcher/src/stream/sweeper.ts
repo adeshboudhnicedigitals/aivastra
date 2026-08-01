@@ -62,7 +62,10 @@ export async function runSweeper(db: DB, pub: Redis, log: Logger): Promise<void>
       .where(eq(schema.jobEvents.eventType, 'PREPROCESSING'))
       .groupBy(schema.jobEvents.jobId)
       .as('last_attempt');
-    const staleness = sql`coalesce(${lastAttempt.lastAttemptAt}, ${schema.jobs.createdAt})`;
+    // queued_at is set only when a HELD job is released into the stream long
+    // after creation; without it a batch released after days of holding would
+    // look orphaned on the very next tick and be refunded out from under itself.
+    const staleness = sql`coalesce(${lastAttempt.lastAttemptAt}, ${schema.jobs.queuedAt}, ${schema.jobs.createdAt})`;
 
     // Pass 1 — orphaned QUEUED jobs that were never dispatched (or never re-touched).
     const orphaned = await db
