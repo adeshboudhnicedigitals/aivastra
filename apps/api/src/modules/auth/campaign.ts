@@ -1,6 +1,7 @@
-import { schema } from '@aivastra/db';
+import { type DB, schema } from '@aivastra/db';
 import { and, eq, gte, lte } from 'drizzle-orm';
-import type { FastifyInstance } from 'fastify';
+
+export type DbOrTx = DB | Parameters<Parameters<DB['transaction']>[0]>[0];
 
 /**
  * Resolves a `?src=` signup-campaign code to its DB id — only if the campaign
@@ -9,12 +10,12 @@ import type { FastifyInstance } from 'fastify';
  * must be indistinguishable from no code to the caller.
  */
 export async function resolveCampaignId(
-  app: FastifyInstance,
+  db: DbOrTx,
   code: string | undefined | null,
 ): Promise<string | null> {
   if (!code) return null;
   const now = new Date();
-  const [campaign] = await app.db
+  const [campaign] = await db
     .select({ id: schema.signupCampaigns.id })
     .from(schema.signupCampaigns)
     .where(
@@ -24,6 +25,7 @@ export async function resolveCampaignId(
         lte(schema.signupCampaigns.startAt, now),
         gte(schema.signupCampaigns.endAt, now),
       ),
-    );
+    )
+    .for('share');
   return campaign?.id ?? null;
 }

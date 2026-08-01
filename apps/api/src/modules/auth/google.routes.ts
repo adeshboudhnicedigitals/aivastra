@@ -120,10 +120,10 @@ export async function googleAuthRoutes(app: FastifyInstance) {
       picture?: string;
     };
 
-    const campaignId = await resolveCampaignId(app, src);
-    const freeCredits = await resolveFreeCredits(app, campaignId);
-    const userId = await app.db.transaction((tx) =>
-      upsertGoogleUser(
+    const userId = await app.db.transaction(async (tx) => {
+      const campaignId = await resolveCampaignId(tx, src);
+      const freeCredits = await resolveFreeCredits(tx, campaignId);
+      return upsertGoogleUser(
         tx,
         {
           sub: googleUser.sub,
@@ -133,8 +133,8 @@ export async function googleAuthRoutes(app: FastifyInstance) {
         },
         freeCredits,
         campaignId,
-      ),
-    );
+      );
+    });
     // Issue one-time OTP for web handoff
     const otp = randomUUID();
     await app.redis.set(`oauth:otp:${otp}`, userId, 'EX', 60);
