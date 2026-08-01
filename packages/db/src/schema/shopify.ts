@@ -67,6 +67,8 @@ export interface ShopifyStoreSettings {
   limits?: ShopifyStoreLimits;
   retention?: ShopifyStoreRetention;
   widget?: ShopifyWidgetConfig;
+  /** False while the authoritative widget config has not reached Shopify. */
+  widgetConfigSynced?: boolean;
 }
 
 export interface FunnelRuleCondition {

@@ -21,6 +21,7 @@ export interface ShopifyStoreSettings {
   limits?: ShopifyStoreLimits;
   retention?: ShopifyStoreRetention;
   widget?: ShopifyWidgetConfig;
+  widgetConfigSynced?: boolean;
 }
 
 export interface ShopifyWidgetTheme {
