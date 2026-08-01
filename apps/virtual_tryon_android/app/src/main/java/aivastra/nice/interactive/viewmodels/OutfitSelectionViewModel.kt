@@ -41,7 +41,9 @@ class OutfitSelectionViewModel(
         val normalizedCategory = category.trim().lowercase()
         val currentState = _uiState.value
 
-        if (!forceReload && currentState.category == normalizedCategory && currentState.products.isNotEmpty()) {
+        val shouldForceReload = forceReload || currentState.products.isEmpty()
+
+        if (!shouldForceReload && currentState.category == normalizedCategory && currentState.products.isNotEmpty()) {
             _uiState.update { it.copy(isLoading = false, isRefreshing = false) }
             return
         }
@@ -71,7 +73,7 @@ class OutfitSelectionViewModel(
         catalogJob = viewModelScope.launch {
             try {
                 val result = withTimeoutOrNull(20000L) {
-                    repository.getCatalog(normalizedCategory, forceReload)
+                    repository.getCatalog(normalizedCategory, shouldForceReload)
                 }
 
                 if (result == null) {
@@ -125,6 +127,7 @@ class OutfitSelectionViewModel(
     fun retry() {
         val category = _uiState.value.category
         if (category.isNotBlank()) {
+            CatalogRepository.clearCache()
             loadCatalog(category, forceReload = true)
         }
     }

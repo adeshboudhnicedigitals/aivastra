@@ -44,6 +44,12 @@ private object CatalogCache {
 class CatalogRepository(
     private val service: ApiService = ApiClient.apiService
 ) {
+    companion object {
+        fun clearCache() {
+            CatalogCache.invalidate()
+        }
+    }
+
     suspend fun getCatalog(category: String, forceReload: Boolean = false): CatalogResult {
         if (forceReload) CatalogCache.invalidate()
 
@@ -93,8 +99,14 @@ class CatalogRepository(
                         null
                     } else {
                         val items = response.body()?.items.orEmpty()
-                        CatalogCache.products = items
-                        CatalogCache.productsFetchedAt = System.currentTimeMillis()
+                        if (items.isNotEmpty()) {
+                            CatalogCache.products = items
+                            CatalogCache.productsFetchedAt = System.currentTimeMillis()
+                        } else {
+                            // Do not cache empty product lists as fresh data so newly granted access fetches fresh catalog
+                            CatalogCache.products = null
+                            CatalogCache.productsFetchedAt = 0L
+                        }
                         items
                     }
                 }
@@ -123,8 +135,13 @@ class CatalogRepository(
                         val items = response.body()?.items.orEmpty()
                             .filter { it.productCount > 0 }
                             .sortedBy { it.sortOrder }
-                        CatalogCache.subcategoriesByCategory[category] = items
-                        CatalogCache.subcategoriesFetchedAtByCategory[category] = System.currentTimeMillis()
+                        if (items.isNotEmpty()) {
+                            CatalogCache.subcategoriesByCategory[category] = items
+                            CatalogCache.subcategoriesFetchedAtByCategory[category] = System.currentTimeMillis()
+                        } else {
+                            CatalogCache.subcategoriesByCategory.remove(category)
+                            CatalogCache.subcategoriesFetchedAtByCategory.remove(category)
+                        }
                         items
                     }
                 }

@@ -1,3 +1,18 @@
+## 2026-08-01 - Virtual Try-On Android instant merchant catalog loading fix
+
+### Done
+- Fixed Android catalog caching in `CatalogRepository.kt` so empty product/subcategory lists returned prior to merchant access setup are not cached as valid/fresh for 5 minutes.
+- Updated `SessionManager.kt` so `SessionManager.save(...)` and `SessionManager.clear()` automatically purge `CatalogRepository` cache upon login, logout, or session updates.
+- Updated `OutfitSelectionViewModel.kt` to force-reload catalog data whenever products list is empty, and clear cache on refresh/retry.
+- Added a "Refresh Catalog" button to the empty catalog state in `OutfitSelectionPage.kt`.
+- Verified compilation with `./gradlew compileDebugSources` (`BUILD SUCCESSFUL in 1m 2s`).
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
 ## 2026-07-31 - Virtual Try-On Android unused raster drawable cleanup
 
 ### Done

@@ -248,7 +248,9 @@ fun OutfitSelectionPage(
                             )
 
                             uiState.visibleProducts.isEmpty() -> CatalogMessage(
-                                message = "No outfits available in this category."
+                                message = "No outfits available in this category.",
+                                actionLabel = "Refresh Catalog",
+                                onAction = viewModel::retry
                             )
 
                             else -> LazyVerticalGrid(
