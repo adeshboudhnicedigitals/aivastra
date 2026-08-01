@@ -162,3 +162,16 @@ export function windowStart(
     boundaryDate.getUTCDate(),
   );
 }
+
+/**
+ * The UTC instant at which the given store-local calendar date begins.
+ *
+ * `isoDate` is a bare YYYY-MM-DD naming a day in the store's own timezone —
+ * which is what the Analytics page sends. Parsing it as a UTC timestamp instead
+ * would shift every bucket by the store's offset and silently misattribute
+ * activity near midnight.
+ */
+export function localDayStart(timezone: string | null, isoDate: string): Date {
+  const [year, month, day] = isoDate.split('-').map(Number);
+  return localMidnightUtc(validTimezone(timezone), year, month, day);
+}

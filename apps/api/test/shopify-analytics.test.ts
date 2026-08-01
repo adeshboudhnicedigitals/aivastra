@@ -1,0 +1,203 @@
+import { randomUUID } from 'node:crypto';
+import { schema } from '@aivastra/db';
+import { eq } from 'drizzle-orm';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { analyticsCards, analyticsDaily } from '../src/modules/shopify/analytics.js';
+import { upsertShopifyStore } from '../src/modules/shopify/auth.routes.js';
+import { localDayStart } from '../src/modules/shopify/store-day.js';
+import { buildTestApp, type TestApp } from './helpers/api.js';
+import { type Containers, startContainers } from './helpers/containers.js';
+
+const ENC_KEY = Buffer.alloc(32, 11).toString('base64');
+const TZ = 'Asia/Kolkata'; // UTC+5:30 — a half-hour offset catches naive UTC math
+let c: Containers;
+let app: TestApp;
+let storeId: string;
+let otherStoreId: string;
+let userId: string;
+
+const range = {
+  from: localDayStart(TZ, '2026-07-01'),
+  to: localDayStart(TZ, '2026-07-08'),
+  timezone: TZ,
+};
+
+async function seedShopper(store: string, clientId: string, email: string | null = null) {
+  const [row] = await app.db
+    .insert(schema.shopifyShoppers)
+    .values({
+      storeId: store,
+      clientId,
+      email,
+      emailCapturedAt: email ? new Date('2026-07-02T10:00:00Z') : null,
+    })
+    .returning();
+  return row.id;
+}
+
+async function seedJob(store: string, shopperId: string | null, at: string, productId?: number) {
+  const jobId = randomUUID();
+  await app.db.insert(schema.jobs).values({
+    id: jobId,
+    userId,
+    shopifyStoreId: store,
+    shopifyShopperId: shopperId,
+    status: 'COMPLETED',
+    source: 'shopify',
+    createdAt: new Date(at),
+  });
+  if (productId != null) {
+    await app.db.insert(schema.jobInputs).values({
+      jobId,
+      params: { kind: 'shopify', shopifyProductId: productId },
+    });
+  }
+  return jobId;
+}
+
+async function seedEvent(
+  store: string,
+  type: string,
+  clientId: string | null,
+  at: string,
+  productId?: number,
+) {
+  await app.db.insert(schema.shopifyWidgetEvents).values({
+    storeId: store,
+    type,
+    clientId,
+    shopifyProductId: productId ?? null,
+    createdAt: new Date(at),
+  });
+}
+
+beforeAll(async () => {
+  c = await startContainers();
+  app = await buildTestApp(c, { SHOPIFY_TOKEN_ENC_KEY: ENC_KEY });
+
+  const [user] = await app.db
+    .insert(schema.users)
+    .values({ email: `an-${randomUUID()}@test.com`, passwordHash: 'x', tier: 'free' })
+    .returning();
+  userId = user.id;
+
+  const store = await upsertShopifyStore(
+    app,
+    {
+      shopifyShopId: 93,
+      shopDomain: 'an.myshopify.com',
+      myshopifyDomain: 'an.myshopify.com',
+      name: 'AN',
+      email: 'a@a.com',
+    },
+    'tok',
+    'read_products',
+  );
+  storeId = store.id;
+  await app.db
+    .update(schema.shopifyStores)
+    .set({ ianaTimezone: TZ })
+    .where(eq(schema.shopifyStores.id, storeId));
+
+  const other = await upsertShopifyStore(
+    app,
+    {
+      shopifyShopId: 94,
+      shopDomain: 'ot.myshopify.com',
+      myshopifyDomain: 'ot.myshopify.com',
+      name: 'OT',
+      email: 'o@o.com',
+    },
+    'tok',
+    'read_products',
+  );
+  otherStoreId = other.id;
+});
+
+afterAll(async () => {
+  await app.close();
+  await c.stop();
+});
+
+describe('analyticsCards', () => {
+  it('counts try-ons, shoppers, add-to-carts and emails in range', async () => {
+    const c1 = randomUUID();
+    const c2 = randomUUID();
+    const s1 = await seedShopper(storeId, c1, 'a@b.com');
+    const s2 = await seedShopper(storeId, c2);
+
+    await seedJob(storeId, s1, '2026-07-02T06:00:00Z');
+    await seedJob(storeId, s1, '2026-07-03T06:00:00Z');
+    await seedJob(storeId, s2, '2026-07-04T06:00:00Z');
+    await seedJob(storeId, null, '2026-07-04T07:00:00Z'); // no shopper identity
+
+    // Three clicks from one shopper is one converted shopper, not three.
+    await seedEvent(storeId, 'add_to_cart', c1, '2026-07-02T07:00:00Z');
+    await seedEvent(storeId, 'add_to_cart', c1, '2026-07-02T07:01:00Z');
+    await seedEvent(storeId, 'add_to_cart', c1, '2026-07-02T07:02:00Z');
+
+    await seedEvent(storeId, 'refused_store_cap', c2, '2026-07-05T06:00:00Z');
+    await seedEvent(storeId, 'refused_email_gate', c2, '2026-07-05T06:01:00Z');
+
+    const cards = await analyticsCards(app.db, storeId, range);
+
+    expect(cards.tryOns).toBe(4);
+    expect(cards.uniqueShoppers).toBe(2);
+    expect(cards.addedToCart).toBe(1);
+    expect(cards.emailsCaptured).toBe(1);
+    expect(cards.turnedAway).toMatchObject({ total: 2, storeCap: 1, emailGate: 1, shopperCap: 0 });
+    // Denominator is shoppers with an identity (2), not the try-on count (4).
+    expect(cards.addToCartRate).toBeCloseTo(0.5, 5);
+  });
+
+  it('never counts another store', async () => {
+    const c3 = randomUUID();
+    const s3 = await seedShopper(otherStoreId, c3);
+    await seedJob(otherStoreId, s3, '2026-07-02T06:00:00Z');
+    await seedEvent(otherStoreId, 'add_to_cart', c3, '2026-07-02T07:00:00Z');
+
+    const cards = await analyticsCards(app.db, storeId, range);
+    expect(cards.tryOns).toBe(4);
+    expect(cards.addedToCart).toBe(1);
+  });
+
+  it('excludes activity outside the range', async () => {
+    const c4 = randomUUID();
+    const s4 = await seedShopper(storeId, c4);
+    await seedJob(storeId, s4, '2026-06-30T06:00:00Z');
+    await seedJob(storeId, s4, '2026-07-20T06:00:00Z');
+
+    const cards = await analyticsCards(app.db, storeId, range);
+    expect(cards.tryOns).toBe(4);
+  });
+});
+
+describe('analyticsDaily', () => {
+  it('buckets by store-local day and zero-fills quiet days', async () => {
+    const daily = await analyticsDaily(app.db, storeId, range);
+
+    // 2026-07-01 .. 2026-07-07 inclusive — the range is half-open on `to`.
+    expect(daily.map((d) => d.day)).toEqual([
+      '2026-07-01',
+      '2026-07-02',
+      '2026-07-03',
+      '2026-07-04',
+      '2026-07-05',
+      '2026-07-06',
+      '2026-07-07',
+    ]);
+    expect(daily.find((d) => d.day === '2026-07-01')?.tryOns).toBe(0);
+    expect(daily.find((d) => d.day === '2026-07-04')?.tryOns).toBe(2);
+  });
+
+  it('assigns a job to the store-local day, not the UTC day', async () => {
+    const c5 = randomUUID();
+    const s5 = await seedShopper(storeId, c5);
+    // 20:00 UTC on the 5th is 01:30 on the 6th in Asia/Kolkata.
+    await seedJob(storeId, s5, '2026-07-05T20:00:00Z');
+
+    const daily = await analyticsDaily(app.db, storeId, range);
+    expect(daily.find((d) => d.day === '2026-07-06')?.tryOns).toBe(1);
+    expect(daily.find((d) => d.day === '2026-07-05')?.tryOns).toBe(0);
+  });
+});
