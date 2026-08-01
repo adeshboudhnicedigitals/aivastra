@@ -8,6 +8,7 @@ import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
 import { sendPasswordResetEmail, sendVerificationEmail } from '../../lib/mailer.js';
 import { resolveMerchantStatus } from '../merchant/status.js';
+import { resolveCampaignId } from './campaign.js';
 import { parseAcceptedAudiences, verifyGoogleIdToken } from './google-id-token.js';
 import { resolveFreeCredits, upsertGoogleUser } from './google-upsert.js';
 import {
@@ -329,13 +330,23 @@ export async function authRoutes(app: FastifyInstance) {
     '/v1/auth/register',
     { schema: { body: RegisterBody }, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
     async (req, reply) => {
-      const { email, password, displayName } = req.body as z.infer<typeof RegisterBody>;
+      const { email, password, displayName, signupSource } = req.body as z.infer<
+        typeof RegisterBody
+      >;
       const exists = await app.db.select().from(schema.users).where(eq(schema.users.email, email));
       if (exists.length) throw new AppError('EMAIL_TAKEN', 409, 'email already registered');
       const passwordHash = await hashPassword(password);
+      const signupCampaignId = await resolveCampaignId(app, signupSource);
       const [user] = await app.db
         .insert(schema.users)
-        .values({ email, passwordHash, displayName, companyName: null, tier: 'free' })
+        .values({
+          email,
+          passwordHash,
+          displayName,
+          companyName: null,
+          tier: 'free',
+          signupCampaignId,
+        })
         .returning();
       await app.db.insert(schema.userCredits).values({ userId: user.id, balance: 0 });
 
