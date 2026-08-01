@@ -1,0 +1,144 @@
+import type { DB } from '@aivastra/db';
+import { schema } from '@aivastra/db';
+import { and, eq, gte, isNotNull, lt, sql } from 'drizzle-orm';
+
+export interface AnalyticsRange {
+  /** Inclusive UTC instant of the first store-local day. */
+  from: Date;
+  /** Exclusive UTC instant — the start of the day AFTER the last one shown. */
+  to: Date;
+  timezone: string;
+}
+
+export interface AnalyticsCards {
+  tryOns: number;
+  uniqueShoppers: number;
+  addedToCart: number;
+  /** 0..1. Named add-to-cart, never "conversion" — it is not a sale. */
+  addToCartRate: number;
+  emailsCaptured: number;
+  turnedAway: { total: number; storeCap: number; shopperCap: number; emailGate: number };
+}
+
+const int = (expr: ReturnType<typeof sql>) => sql<number>`${expr}::int`;
+
+export async function analyticsCards(
+  db: DB,
+  storeId: string,
+  range: AnalyticsRange,
+): Promise<AnalyticsCards> {
+  const inJobRange = and(
+    eq(schema.jobs.shopifyStoreId, storeId),
+    gte(schema.jobs.createdAt, range.from),
+    lt(schema.jobs.createdAt, range.to),
+  );
+
+  const [jobRow] = await db
+    .select({
+      tryOns: int(sql`count(*)`),
+      uniqueShoppers: int(sql`count(distinct ${schema.jobs.shopifyShopperId})`),
+    })
+    .from(schema.jobs)
+    .where(inJobRange);
+
+  // The add-to-cart denominator. NOT `tryOns`: that counts jobs and includes
+  // shoppers with no client_id, so dividing a client-id-keyed numerator by it
+  // would understate the rate for every store still serving old widget builds.
+  const [identifiedRow] = await db
+    .select({
+      n: int(sql`count(distinct ${schema.shopifyShoppers.clientId})`),
+    })
+    .from(schema.jobs)
+    .innerJoin(schema.shopifyShoppers, eq(schema.jobs.shopifyShopperId, schema.shopifyShoppers.id))
+    .where(inJobRange);
+
+  const ev = schema.shopifyWidgetEvents;
+  const inEventRange = and(
+    eq(ev.storeId, storeId),
+    gte(ev.createdAt, range.from),
+    lt(ev.createdAt, range.to),
+  );
+
+  const [eventRow] = await db
+    .select({
+      addedToCart: int(
+        sql`count(distinct ${ev.clientId}) filter (where ${ev.type} = 'add_to_cart')`,
+      ),
+      storeCap: int(sql`count(*) filter (where ${ev.type} = 'refused_store_cap')`),
+      shopperCap: int(sql`count(*) filter (where ${ev.type} = 'refused_shopper_cap')`),
+      emailGate: int(sql`count(*) filter (where ${ev.type} = 'refused_email_gate')`),
+    })
+    .from(ev)
+    .where(inEventRange);
+
+  const [emailRow] = await db
+    .select({ n: int(sql`count(*)`) })
+    .from(schema.shopifyShoppers)
+    .where(
+      and(
+        eq(schema.shopifyShoppers.storeId, storeId),
+        isNotNull(schema.shopifyShoppers.email),
+        gte(schema.shopifyShoppers.emailCapturedAt, range.from),
+        lt(schema.shopifyShoppers.emailCapturedAt, range.to),
+      ),
+    );
+
+  const identified = identifiedRow.n;
+  return {
+    tryOns: jobRow.tryOns,
+    uniqueShoppers: jobRow.uniqueShoppers,
+    addedToCart: eventRow.addedToCart,
+    addToCartRate: identified === 0 ? 0 : eventRow.addedToCart / identified,
+    emailsCaptured: emailRow.n,
+    turnedAway: {
+      total: eventRow.storeCap + eventRow.shopperCap + eventRow.emailGate,
+      storeCap: eventRow.storeCap,
+      shopperCap: eventRow.shopperCap,
+      emailGate: eventRow.emailGate,
+    },
+  };
+}
+
+/** YYYY-MM-DD strings between two instants, in the store's own calendar. */
+function localDaySpan(range: AnalyticsRange): string[] {
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: range.timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const days: string[] = [];
+  // Step in whole days from `from`; en-CA formats as YYYY-MM-DD natively.
+  for (let t = range.from.getTime(); t < range.to.getTime(); t += 86_400_000) {
+    const day = fmt.format(new Date(t));
+    if (days[days.length - 1] !== day) days.push(day);
+  }
+  return days;
+}
+
+export async function analyticsDaily(
+  db: DB,
+  storeId: string,
+  range: AnalyticsRange,
+): Promise<{ day: string; tryOns: number }[]> {
+  const rows = await db
+    .select({
+      day: sql<string>`to_char((${schema.jobs.createdAt} AT TIME ZONE ${range.timezone})::date, 'YYYY-MM-DD')`,
+      tryOns: int(sql`count(*)`),
+    })
+    .from(schema.jobs)
+    .where(
+      and(
+        eq(schema.jobs.shopifyStoreId, storeId),
+        gte(schema.jobs.createdAt, range.from),
+        lt(schema.jobs.createdAt, range.to),
+      ),
+    )
+    .groupBy(sql`1`)
+    .orderBy(sql`1`);
+
+  // Zero-fill: a quiet day must render as an empty slot, not be skipped. A
+  // skipped day compresses the x-axis and makes a gap look like a busy stretch.
+  const counts = new Map(rows.map((r) => [r.day, r.tryOns]));
+  return localDaySpan(range).map((day) => ({ day, tryOns: counts.get(day) ?? 0 }));
+}
