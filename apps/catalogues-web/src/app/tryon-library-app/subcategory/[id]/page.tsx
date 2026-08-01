@@ -23,6 +23,7 @@ export default function ProductsScreen() {
   const qc = useQueryClient();
   const onLoggedOut = useLoggedOut();
   const [deleteTarget, setDeleteTarget] = useState<MerchantCatalogItem | undefined>(undefined);
+  const [reconcileFailedCount, setReconcileFailedCount] = useState(0);
 
   const subcategoriesQuery = useQuery({
     queryKey: ['merchant-catalog-subcategories'],
@@ -57,9 +58,16 @@ export default function ProductsScreen() {
   // Pull in any held batches that finished while the merchant was away.
   useEffect(() => {
     let cancelled = false;
-    void reconcileHeldProducts().then(({ created }) => {
-      if (cancelled || created.length === 0) return;
-      qc.invalidateQueries({ queryKey: ['merchant-catalog-products', subcategoryId] });
+    void reconcileHeldProducts().then(({ created, failed }) => {
+      if (cancelled) return;
+      if (created.length > 0) {
+        qc.invalidateQueries({ queryKey: ['merchant-catalog-products', subcategoryId] });
+      }
+      // failed === -1 means the reconcile request itself never completed (network
+      // error, 5xx, session expiry) — distinct from failed > 0, a partial failure
+      // the server already logged. Either way, silently showing nothing here would
+      // look identical to "nothing new yet" — see reconcileHeldProducts' doc comment.
+      setReconcileFailedCount(failed);
     });
     return () => {
       cancelled = true;
@@ -100,6 +108,24 @@ export default function ProductsScreen() {
           onClick: () => router.push(`/tryon-library-app/subcategory/${subcategoryId}/add-product`),
         }}
       />
+
+      {reconcileFailedCount !== 0 && (
+        <div
+          style={{
+            margin: '12px 16px 0',
+            padding: '8px 12px',
+            borderRadius: 8,
+            background: 'rgba(245,92,122,0.06)',
+            border: `1px solid ${C.pink}`,
+            fontSize: 13,
+            color: C.pink,
+          }}
+        >
+          {reconcileFailedCount > 0
+            ? `${reconcileFailedCount} generated image${reconcileFailedCount === 1 ? '' : 's'} failed to load — try reopening this screen.`
+            : "Couldn't check for newly generated products — try reopening this screen."}
+        </div>
+      )}
 
       {productsQuery.isLoading ? (
         <div

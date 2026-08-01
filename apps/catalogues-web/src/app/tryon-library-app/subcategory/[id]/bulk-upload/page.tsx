@@ -178,7 +178,7 @@ export default function BulkUploadScreen() {
     // once generation finishes — see reconcileHeldProducts on that screen.
     setItems((prev) => prev.map((p) => (jobIdByLocalId.get(p.id) ? { ...p, status: 'sent' } : p)));
     setIsGeneratingAll(false);
-    setSentForProcessing(jobIds.length);
+    setSentForProcessing((prev) => prev + jobIds.length);
   };
 
   const handleApplyGlobalPrice = () => {
@@ -697,14 +697,25 @@ export default function BulkUploadScreen() {
           Cancel
         </button>
         <div style={{ flex: 1 }}>
-          <GradBtn
-            type="button"
-            disabled={generatedCount === 0 || isAnyGenerating || isSaving}
-            onClick={() => void handleAddCatalogue()}
-            style={{ width: '100%', height: 48 }}
-          >
-            {isSaving ? 'Saving…' : `Add ${generatedCount} to Catalogue`}
-          </GradBtn>
+          {imageMode === 'catalogue' ? (
+            <GradBtn
+              type="button"
+              disabled={generatedCount === 0 || isAnyGenerating || isSaving}
+              onClick={() => void handleAddCatalogue()}
+              style={{ width: '100%', height: 48 }}
+            >
+              {isSaving ? 'Saving…' : `Add ${generatedCount} to Catalogue`}
+            </GradBtn>
+          ) : (
+            <GradBtn
+              type="button"
+              disabled={busy}
+              onClick={goBackToProducts}
+              style={{ width: '100%', height: 48 }}
+            >
+              Done
+            </GradBtn>
+          )}
         </div>
       </StickyBottomBar>
     </div>
