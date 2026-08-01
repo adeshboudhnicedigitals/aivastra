@@ -37,7 +37,14 @@ export function AppNavMenu() {
     <ui-nav-menu>
       {/* Shopify requires the first child to be the app's home link and ignores
           its label, but it must still be present or the menu does not render. */}
-      <a href={`${BASENAME}/`} rel="home">
+      <a
+        href={`${BASENAME}/`}
+        rel="home"
+        onClick={(e) => {
+          e.preventDefault();
+          if (runNavGuard()) navigate('/');
+        }}
+      >
         Dashboard
       </a>
       {NAV_ITEMS.slice(1).map((item) => (

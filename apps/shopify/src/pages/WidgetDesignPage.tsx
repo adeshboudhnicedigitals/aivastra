@@ -25,6 +25,7 @@ import {
   WIDGET_COPY_DEFAULTS,
   WIDGET_COPY_FIELDS,
   type WidgetCopyField,
+  widgetConfigsEqual,
 } from '../lib/widgetDefaults';
 import type { ShopifyMe, ShopifyWidgetConfig, ShopifyWidgetConfigResponse } from '../types';
 
@@ -60,13 +61,13 @@ export default function WidgetDesignPage() {
 
   // Structural compare, not reference: editing a field and undoing the edit
   // must clear the save bar rather than leave it stuck open.
-  const dirty = useMemo(() => JSON.stringify(config) !== JSON.stringify(saved), [config, saved]);
+  const dirty = useMemo(() => !widgetConfigsEqual(config, saved), [config, saved]);
 
   const setCopy = useCallback((key: WidgetCopyField, value: string) => {
     setConfig((c) => ({ ...c, copy: { ...c.copy, [key]: value } }));
   }, []);
 
-  const save = useCallback(async () => {
+  const save = useCallback(async (): Promise<boolean> => {
     setSaving(true);
     setError(null);
     try {
@@ -78,8 +79,10 @@ export default function WidgetDesignPage() {
       setConfig(res.widget);
       setSaved(res.widget);
       setSynced(res.synced);
+      return true;
     } catch (err) {
       setError((err as Error).message);
+      return false;
     } finally {
       setSaving(false);
     }
@@ -89,11 +92,13 @@ export default function WidgetDesignPage() {
 
   const republish = useCallback(async () => {
     setRepublishing(true);
+    setError(null);
     try {
       const res = await apiFetch<{ synced: boolean }>('/v1/shopify/widget-config/republish', {
         method: 'POST',
       });
       setSynced(res.synced);
+      setError(null);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -145,8 +150,14 @@ export default function WidgetDesignPage() {
     <Page title="Widget Design">
       {window.shopify ? (
         <ui-save-bar id="widget-design-save">
-          <button {...{ variant: 'primary' }} disabled={loading} onClick={save} type="button">
-            Save
+          <button
+            {...{ variant: 'primary' }}
+            aria-busy={saving}
+            disabled={loading || saving}
+            onClick={save}
+            type="button"
+          >
+            {saving ? 'Saving…' : 'Save'}
           </button>
           <button onClick={discard} type="button">
             Discard
@@ -168,8 +179,7 @@ export default function WidgetDesignPage() {
           primaryAction={{
             content: 'Save',
             onAction: async () => {
-              await save();
-              setBlocked(false);
+              if (await save()) setBlocked(false);
             },
             loading: saving,
           }}
