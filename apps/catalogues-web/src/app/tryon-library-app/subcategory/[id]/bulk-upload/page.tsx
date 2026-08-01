@@ -20,7 +20,10 @@ interface QueueItem {
   id: string;
   file: File;
   fileUrl: string;
-  status: 'queued' | 'uploading' | 'generating' | 'generated' | 'failed';
+  // 'uploaded' is catalogue mode's counterpart to 'generated': the merchant
+  // supplied a finished product photo, so there is nothing to generate and the
+  // detail fields open immediately. No server row exists until Save.
+  status: 'queued' | 'uploading' | 'generating' | 'generated' | 'uploaded' | 'failed';
   jobId?: string;
   itemId?: string;
   sku: string;
@@ -40,6 +43,9 @@ export default function BulkUploadScreen() {
 
   const getErrorMessage = useSessionExpiryMessage();
   const [items, setItems] = useState<QueueItem[]>([]);
+  const [imageMode, setImageMode] = useState<'catalogue' | 'flat'>('catalogue');
+  // Which status means "details editable, ready to save" in the current mode.
+  const readyStatus = imageMode === 'catalogue' ? 'uploaded' : 'generated';
   const [isGeneratingAll, setIsGeneratingAll] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -73,7 +79,8 @@ export default function BulkUploadScreen() {
         id: generateId(),
         file,
         fileUrl: URL.createObjectURL(file),
-        status: 'queued',
+        // Catalogue images are already final — no generate step to wait through.
+        status: imageMode === 'catalogue' ? 'uploaded' : 'queued',
         sku: '',
         actualPrice: '',
         offerPrice: '',
@@ -237,7 +244,7 @@ export default function BulkUploadScreen() {
     if (!globalActual && !globalOffer) return;
     setItems((prev) =>
       prev.map((item) =>
-        item.status === 'generated'
+        item.status === readyStatus
           ? {
               ...item,
               actualPrice: globalActual || item.actualPrice,
@@ -267,7 +274,7 @@ export default function BulkUploadScreen() {
   const handleAddCatalogue = async () => {
     let hasValidationError = false;
     const validated = items.map((item) => {
-      if (item.status !== 'generated') return item;
+      if (item.status !== readyStatus) return item;
       const act = parseInt(item.actualPrice, 10) || 0;
       const off = parseInt(item.offerPrice, 10) || 0;
       const isValid =
@@ -278,24 +285,45 @@ export default function BulkUploadScreen() {
     setItems(validated);
     if (hasValidationError) return;
 
-    const ready = validated.filter(
-      (i): i is QueueItem & { itemId: string } => i.status === 'generated' && !!i.itemId,
-    );
+    const ready = validated.filter((i) => i.status === readyStatus);
     if (ready.length === 0) return;
 
     setIsSaving(true);
     setSaveError(undefined);
     try {
-      await Promise.all(
-        ready.map((item) =>
-          api.patch(`/v1/merchant/catalog/${item.itemId}`, {
-            label: `Product ${item.sku.toUpperCase()}`,
-            sku: item.sku.trim(),
-            actualPrice: parseInt(item.actualPrice, 10),
-            offerPrice: parseInt(item.offerPrice, 10),
+      if (imageMode === 'catalogue') {
+        // No job, no generation — upload each finished photo and create the row.
+        await Promise.all(
+          ready.map(async (item) => {
+            const [{ r2Key }, { r2Key: thumbnailKey }] = await Promise.all([
+              presignAndUpload(item.file, 'image'),
+              presignAndUpload(item.file, 'thumbnail'),
+            ]);
+            await api.post('/v1/merchant/catalog', {
+              subcategoryId,
+              r2Key,
+              thumbnailKey,
+              label: `Product ${item.sku.trim().toUpperCase()}`,
+              sku: item.sku.trim(),
+              actualPrice: parseInt(item.actualPrice, 10),
+              offerPrice: parseInt(item.offerPrice, 10),
+            });
           }),
-        ),
-      );
+        );
+      } else {
+        await Promise.all(
+          ready
+            .filter((i): i is QueueItem & { itemId: string } => !!i.itemId)
+            .map((item) =>
+              api.patch(`/v1/merchant/catalog/${item.itemId}`, {
+                label: `Product ${item.sku.toUpperCase()}`,
+                sku: item.sku.trim(),
+                actualPrice: parseInt(item.actualPrice, 10),
+                offerPrice: parseInt(item.offerPrice, 10),
+              }),
+            ),
+        );
+      }
       qc.invalidateQueries({ queryKey: ['merchant-catalog-products', subcategoryId] });
       qc.invalidateQueries({ queryKey: ['merchant-catalog-subcategories'] });
       goBackToProducts();
@@ -307,8 +335,8 @@ export default function BulkUploadScreen() {
   };
 
   const hasQueued = items.some((i) => i.status === 'queued');
-  const hasGenerated = items.some((i) => i.status === 'generated');
-  const generatedCount = items.filter((i) => i.status === 'generated').length;
+  const hasGenerated = items.some((i) => i.status === readyStatus);
+  const generatedCount = items.filter((i) => i.status === readyStatus).length;
   const isAnyGenerating = items.some((i) => i.status === 'uploading' || i.status === 'generating');
 
   return (
@@ -316,6 +344,54 @@ export default function BulkUploadScreen() {
       <ScreenHeader variant="back" title="Bulk Upload" onBack={goBackToProducts} />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16, padding: 16 }}>
+        <div
+          style={{
+            display: 'flex',
+            borderRadius: 8,
+            border: `1px solid ${C.border2}`,
+            overflow: 'hidden',
+            background: C.white,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setImageMode('catalogue')}
+            disabled={busy || items.length > 0}
+            style={{
+              flex: 1,
+              padding: '12px 16px',
+              border: 'none',
+              background: imageMode === 'catalogue' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
+              color: imageMode === 'catalogue' ? C.pink : C.text,
+              fontWeight: imageMode === 'catalogue' ? 600 : 500,
+              fontSize: 14,
+              fontFamily: 'inherit',
+              cursor: busy || items.length > 0 ? 'not-allowed' : 'pointer',
+              borderRight: `1px solid ${C.border2}`,
+            }}
+          >
+            Catalogue Images
+          </button>
+          <button
+            type="button"
+            onClick={() => setImageMode('flat')}
+            disabled={busy || items.length > 0}
+            style={{
+              flex: 1,
+              padding: '12px 16px',
+              border: 'none',
+              background: imageMode === 'flat' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
+              color: imageMode === 'flat' ? C.pink : C.text,
+              fontWeight: imageMode === 'flat' ? 600 : 500,
+              fontSize: 14,
+              fontFamily: 'inherit',
+              cursor: busy || items.length > 0 ? 'not-allowed' : 'pointer',
+            }}
+          >
+            Flat Images
+          </button>
+        </div>
+
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
@@ -335,7 +411,9 @@ export default function BulkUploadScreen() {
         >
           <UploadIcon size={22} />
           <span style={{ fontSize: 13, color: C.mid, fontWeight: 500 }}>
-            Tap to choose flat images
+            {imageMode === 'catalogue'
+              ? 'Tap to choose product photos'
+              : 'Tap to choose flat images'}
           </span>
           <input
             type="file"
@@ -361,10 +439,12 @@ export default function BulkUploadScreen() {
             }}
           >
             <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-              <GradBtn type="button" onClick={handleGenerateAll} disabled={!hasQueued || busy}>
-                {isGeneratingAll && <SpinnerIcon size={14} />}
-                {isGeneratingAll ? 'Generating…' : 'Generate All'}
-              </GradBtn>
+              {imageMode === 'flat' && (
+                <GradBtn type="button" onClick={handleGenerateAll} disabled={!hasQueued || busy}>
+                  {isGeneratingAll && <SpinnerIcon size={14} />}
+                  {isGeneratingAll ? 'Sending…' : 'Send for Processing'}
+                </GradBtn>
+              )}
               <span style={{ fontSize: 13, color: C.mid, fontWeight: 500 }}>
                 {items.length} item{items.length !== 1 && 's'} ({generatedCount} ready)
               </span>
@@ -505,7 +585,7 @@ export default function BulkUploadScreen() {
                       {item.status === 'uploading' ? 'Uploading' : 'Generating'}
                     </span>
                   )}
-                  {item.status === 'generated' && (
+                  {item.status === readyStatus && (
                     <span
                       style={{
                         background: '#10b981',
@@ -517,7 +597,7 @@ export default function BulkUploadScreen() {
                         textTransform: 'uppercase',
                       }}
                     >
-                      ✓ Generated
+                      {imageMode === 'catalogue' ? '✓ Ready' : '✓ Generated'}
                     </span>
                   )}
                   {item.status === 'failed' && (
@@ -538,7 +618,7 @@ export default function BulkUploadScreen() {
                 </div>
               </div>
 
-              {item.status === 'generated' && (
+              {item.status === readyStatus && (
                 <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <input
                     placeholder="SKU"
