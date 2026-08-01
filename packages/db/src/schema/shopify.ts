@@ -31,11 +31,42 @@ export interface ShopifyStoreRetention {
   shopperRecordDays?: number | null;
 }
 
+export interface ShopifyWidgetTheme {
+  /** Hex (#rrggbb). Drives modal CTA, step dots, choose-photo button, retry. */
+  accentColor?: string | null;
+}
+
+export interface ShopifyWidgetCopy {
+  heading?: string | null;
+  subheading?: string | null;
+  uploadTitle?: string | null;
+  uploadLead?: string | null;
+  chooseLabel?: string | null;
+  ctaLabel?: string | null;
+  legalText?: string | null;
+  generatingText?: string | null;
+  errorText?: string | null;
+}
+
+export interface ShopifyWidgetBehavior {
+  addToCart?: boolean;
+  addToCartLabel?: string | null;
+  share?: boolean;
+  shareLabel?: string | null;
+}
+
+export interface ShopifyWidgetConfig {
+  theme?: ShopifyWidgetTheme;
+  copy?: ShopifyWidgetCopy;
+  behavior?: ShopifyWidgetBehavior;
+}
+
 export interface ShopifyStoreSettings {
   workflowTemplateId?: string;
   themeBlockConfirmed?: boolean;
   limits?: ShopifyStoreLimits;
   retention?: ShopifyStoreRetention;
+  widget?: ShopifyWidgetConfig;
 }
 
 export interface FunnelRuleCondition {

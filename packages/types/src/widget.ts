@@ -459,3 +459,45 @@ export const ShopifyStoreSettingsPatch = z.object({
   retention: ShopifyStoreRetentionPatch.optional(),
 });
 export type ShopifyStoreSettingsPatch = z.infer<typeof ShopifyStoreSettingsPatch>;
+
+/**
+ * Merchant-editable try-on modal config. Every field is optional and nullable:
+ * absent means "leave whatever is stored", null means "clear back to the
+ * Liquid default". Maximums exist so a merchant cannot paste an essay into a
+ * 400px-wide modal — over-length is a 400, never a silent truncate.
+ */
+const widgetText = (max: number) => z.string().max(max).nullable().optional();
+
+export const ShopifyWidgetConfigPatch = z.object({
+  theme: z
+    .object({
+      accentColor: z
+        .string()
+        .regex(/^#[0-9a-fA-F]{6}$/, 'must be a #rrggbb hex color')
+        .nullable()
+        .optional(),
+    })
+    .optional(),
+  copy: z
+    .object({
+      heading: widgetText(60),
+      subheading: widgetText(80),
+      uploadTitle: widgetText(80),
+      uploadLead: widgetText(160),
+      chooseLabel: widgetText(40),
+      ctaLabel: widgetText(40),
+      legalText: widgetText(300),
+      generatingText: widgetText(80),
+      errorText: widgetText(160),
+    })
+    .optional(),
+  behavior: z
+    .object({
+      addToCart: z.boolean().optional(),
+      addToCartLabel: widgetText(30),
+      share: z.boolean().optional(),
+      shareLabel: widgetText(30),
+    })
+    .optional(),
+});
+export type ShopifyWidgetConfigPatch = z.infer<typeof ShopifyWidgetConfigPatch>;
