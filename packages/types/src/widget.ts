@@ -501,3 +501,31 @@ export const ShopifyWidgetConfigPatch = z.object({
     .optional(),
 });
 export type ShopifyWidgetConfigPatch = z.infer<typeof ShopifyWidgetConfigPatch>;
+
+/**
+ * Event types the storefront widget may report. Deliberately excludes the
+ * `refused_*` types: those are written server-side where the refusal is
+ * actually decided, and accepting them from a client would let a shopper
+ * fabricate the "shoppers you turned away" number a merchant acts on.
+ */
+export const SHOPIFY_CLIENT_EVENT_TYPES = [
+  'button_click',
+  'upload',
+  'result_view',
+  'add_to_cart',
+  'share',
+] as const;
+
+export const SHOPIFY_REFUSAL_EVENT_TYPES = [
+  'refused_store_cap',
+  'refused_shopper_cap',
+  'refused_email_gate',
+] as const;
+
+export const ShopifyWidgetEventRequest = z.object({
+  type: z.enum(SHOPIFY_CLIENT_EVENT_TYPES),
+  clientId: z.string().uuid().optional(),
+  shopifyProductId: z.number().int().positive().optional(),
+  device: z.enum(['mobile', 'desktop']).optional(),
+});
+export type ShopifyWidgetEventRequest = z.infer<typeof ShopifyWidgetEventRequest>;

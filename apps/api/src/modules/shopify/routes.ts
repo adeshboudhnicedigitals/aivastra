@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { shopifyAuthRoutes } from './auth.routes.js';
 import { shopifyCatalogRoutes } from './catalog.routes.js';
 import { shopifyCatalogOptionsRoutes } from './catalog-options.routes.js';
+import { shopifyEventsRoutes } from './events.routes.js';
 import { shopifyMeRoutes } from './me.routes.js';
 import { shopifyOnboardingRoutes } from './onboarding.routes.js';
 import { shopifyProductsRoutes } from './products.routes.js';
@@ -26,6 +27,7 @@ export async function shopifyRoutes(app: FastifyInstance) {
   await app.register(shopifyCatalogRoutes);
   await app.register(shopifyOnboardingRoutes);
   await app.register(shopifySettingsRoutes);
+  await app.register(shopifyEventsRoutes);
   await app.register(shopifyWidgetConfigRoutes);
   await app.register(shopifyShoppersRoutes);
   // Plain (non-fp) function: gets its own encapsulated child context, so the
