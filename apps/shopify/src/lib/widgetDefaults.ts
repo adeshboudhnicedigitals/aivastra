@@ -1,3 +1,5 @@
+import type { ShopifyWidgetConfig } from '../types';
+
 /**
  * Default modal copy. Must stay byte-identical to the `| default:` strings in
  * tryon-button.liquid — src/__tests__/widget-drift.test.ts fails the build if
@@ -39,3 +41,22 @@ export const WIDGET_COPY_FIELDS: { key: WidgetCopyField; label: string; max: num
   { key: 'generatingText', label: 'Generating message', max: 80 },
   { key: 'errorText', label: 'Error message', max: 160 },
 ];
+
+function normalizeTextFields<T extends object>(fields: T): T {
+  return Object.fromEntries(
+    Object.entries(fields).map(([key, value]) => [
+      key,
+      typeof value === 'string' ? value.trim() || null : value,
+    ]),
+  ) as T;
+}
+
+/** Match Liquid defaults by clearing blank text while preserving absent keys. */
+export function normalizeWidgetConfigForSave(config: ShopifyWidgetConfig): ShopifyWidgetConfig {
+  return {
+    ...config,
+    ...(config.theme ? { theme: normalizeTextFields(config.theme) } : {}),
+    ...(config.copy ? { copy: normalizeTextFields(config.copy) } : {}),
+    ...(config.behavior ? { behavior: normalizeTextFields(config.behavior) } : {}),
+  };
+}

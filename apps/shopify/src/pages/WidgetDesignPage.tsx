@@ -17,6 +17,7 @@ import '../components/widgetPreview.css';
 import { type PreviewStep, WidgetPreview } from '../components/WidgetPreview';
 import { apiFetch } from '../lib/api';
 import {
+  normalizeWidgetConfigForSave,
   WIDGET_BEHAVIOR_DEFAULTS,
   WIDGET_COPY_DEFAULTS,
   WIDGET_COPY_FIELDS,
@@ -54,9 +55,10 @@ export default function WidgetDesignPage() {
     setSaving(true);
     setError(null);
     try {
+      const normalizedConfig = normalizeWidgetConfigForSave(config);
       const res = await apiFetch<ShopifyWidgetConfigResponse>('/v1/shopify/widget-config', {
         method: 'PATCH',
-        body: JSON.stringify(config),
+        body: JSON.stringify(normalizedConfig),
       });
       setConfig(res.widget);
     } catch (err) {

@@ -3,6 +3,64 @@
   top: var(--p-space-400, 16px);
 }
 
+.widget-preview-modal-content button {
+  appearance: none;
+  box-sizing: border-box;
+  margin: 0;
+  font-family: inherit;
+  text-align: center;
+  pointer-events: none;
+}
+
+.widget-preview-modal-content fieldset.aivastra-tryon__step-indicator {
+  min-inline-size: 0;
+  margin-inline: 0;
+  padding: 0;
+  border: 0;
+}
+
+.widget-preview-modal-content .aivastra-tryon__close {
+  color: #111827;
+}
+
+.widget-preview-modal-content .aivastra-tryon__share {
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+
+.widget-preview-modal-content .aivastra-tryon__retry {
+  margin-top: 12px;
+  padding: 12px 20px;
+  border: 0;
+  border-radius: 12px;
+  color: var(--aivastra-text-color, #ffffff);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.widget-preview-sample-media {
+  position: relative;
+}
+
+.widget-preview-sample-media .aivastra-tryon__result-image {
+  display: block;
+}
+
+.widget-preview-sample-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.78);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+}
+
 @media (max-width: 768px) {
   .widget-preview-sticky {
     position: static;
