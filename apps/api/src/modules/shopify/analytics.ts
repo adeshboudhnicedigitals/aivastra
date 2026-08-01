@@ -142,3 +142,150 @@ export async function analyticsDaily(
   const counts = new Map(rows.map((r) => [r.day, r.tryOns]));
   return localDaySpan(range).map((day) => ({ day, tryOns: counts.get(day) ?? 0 }));
 }
+
+export interface AnalyticsFunnel {
+  buttonClick: number;
+  upload: number;
+  tryOn: number;
+  resultView: number;
+  addToCart: number;
+  /** Try-ons from widget builds that send no client_id — countable, not joinable. */
+  unattributed: number;
+}
+
+export async function analyticsFunnel(
+  db: DB,
+  storeId: string,
+  range: AnalyticsRange,
+): Promise<AnalyticsFunnel> {
+  const ev = schema.shopifyWidgetEvents;
+
+  // Distinct shoppers per step, never raw event counts — one shopper clicking
+  // five times is one shopper, and counting events would put later steps above
+  // earlier ones for reasons that have nothing to do with drop-off.
+  const [steps] = await db
+    .select({
+      buttonClick: int(
+        sql`count(distinct ${ev.clientId}) filter (where ${ev.type} = 'button_click')`,
+      ),
+      upload: int(sql`count(distinct ${ev.clientId}) filter (where ${ev.type} = 'upload')`),
+      resultView: int(
+        sql`count(distinct ${ev.clientId}) filter (where ${ev.type} = 'result_view')`,
+      ),
+      addToCart: int(sql`count(distinct ${ev.clientId}) filter (where ${ev.type} = 'add_to_cart')`),
+    })
+    .from(ev)
+    .where(and(eq(ev.storeId, storeId), gte(ev.createdAt, range.from), lt(ev.createdAt, range.to)));
+
+  const inJobRange = and(
+    eq(schema.jobs.shopifyStoreId, storeId),
+    gte(schema.jobs.createdAt, range.from),
+    lt(schema.jobs.createdAt, range.to),
+  );
+
+  const [tryOnRow] = await db
+    .select({ n: int(sql`count(distinct ${schema.shopifyShoppers.clientId})`) })
+    .from(schema.jobs)
+    .innerJoin(schema.shopifyShoppers, eq(schema.jobs.shopifyShopperId, schema.shopifyShoppers.id))
+    .where(inJobRange);
+
+  const [unattributedRow] = await db
+    .select({ n: int(sql`count(*)`) })
+    .from(schema.jobs)
+    .where(and(inJobRange, sql`${schema.jobs.shopifyShopperId} is null`));
+
+  // Returned exactly as measured. The caller must NOT clamp these to be
+  // monotonic: a shopper running an ad blocker that eats the event endpoint
+  // still generates a real try-on, and hiding that would hide that the
+  // client-side steps under-report.
+  return {
+    buttonClick: steps.buttonClick,
+    upload: steps.upload,
+    tryOn: tryOnRow.n,
+    resultView: steps.resultView,
+    addToCart: steps.addToCart,
+    unattributed: unattributedRow.n,
+  };
+}
+
+export interface AnalyticsProduct {
+  shopifyProductId: number;
+  title: string | null;
+  tryOns: number;
+  uniqueShoppers: number;
+  addedToCart: number;
+  addToCartRate: number;
+}
+
+export async function analyticsProducts(
+  db: DB,
+  storeId: string,
+  range: AnalyticsRange,
+): Promise<AnalyticsProduct[]> {
+  // No expression index on the JSONB is needed: `jobs` is filtered first by
+  // (shopify_store_id, created_at), then job_inputs is reached by its own
+  // primary key, so the params extraction only ever runs on the narrowed set.
+  const productId = sql<number>`(${schema.jobInputs.params}->>'shopifyProductId')::bigint`;
+
+  const jobRows = await db
+    .select({
+      productId,
+      tryOns: int(sql`count(*)`),
+      uniqueShoppers: int(sql`count(distinct ${schema.jobs.shopifyShopperId})`),
+    })
+    .from(schema.jobs)
+    .innerJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+    .where(
+      and(
+        eq(schema.jobs.shopifyStoreId, storeId),
+        gte(schema.jobs.createdAt, range.from),
+        lt(schema.jobs.createdAt, range.to),
+        sql`${schema.jobInputs.params}->>'shopifyProductId' is not null`,
+      ),
+    )
+    .groupBy(sql`1`);
+
+  const ev = schema.shopifyWidgetEvents;
+  const cartRows = await db
+    .select({
+      productId: ev.shopifyProductId,
+      addedToCart: int(sql`count(distinct ${ev.clientId})`),
+    })
+    .from(ev)
+    .where(
+      and(
+        eq(ev.storeId, storeId),
+        eq(ev.type, 'add_to_cart'),
+        gte(ev.createdAt, range.from),
+        lt(ev.createdAt, range.to),
+        isNotNull(ev.shopifyProductId),
+      ),
+    )
+    .groupBy(ev.shopifyProductId);
+
+  const titleRows = await db
+    .select({
+      productId: schema.shopifyProductGarments.shopifyProductId,
+      title: schema.shopifyProductGarments.title,
+    })
+    .from(schema.shopifyProductGarments)
+    .where(eq(schema.shopifyProductGarments.storeId, storeId));
+
+  const carts = new Map(cartRows.map((r) => [Number(r.productId), r.addedToCart]));
+  const titles = new Map(titleRows.map((r) => [Number(r.productId), r.title]));
+
+  return jobRows
+    .map((r) => {
+      const id = Number(r.productId);
+      const addedToCart = carts.get(id) ?? 0;
+      return {
+        shopifyProductId: id,
+        title: titles.get(id) ?? null,
+        tryOns: r.tryOns,
+        uniqueShoppers: r.uniqueShoppers,
+        addedToCart,
+        addToCartRate: r.uniqueShoppers === 0 ? 0 : addedToCart / r.uniqueShoppers,
+      };
+    })
+    .sort((a, b) => b.tryOns - a.tryOns);
+}
