@@ -11,7 +11,7 @@ import {
   MerchantCatalogSubcategoryUpdateBody,
   MerchantCatalogUpdateBody,
 } from '@aivastra/types';
-import { and, count, desc, eq, ilike, inArray, or, type SQL } from 'drizzle-orm';
+import { and, count, desc, eq, ilike, inArray, isNull, or, type SQL, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -67,6 +67,10 @@ async function copyJobOutputIntoProduct(
     sourceKind: 'imported' | 'generated';
     flatSourceKey?: string;
     label?: string;
+    // Held-batch products land inactive: nobody was on screen to give them a
+    // SKU or a price, and the kiosk query filters on isActive. Defaults true so
+    // the interactive /import path is unchanged.
+    isActive?: boolean;
   },
 ): Promise<MerchantCatalogRow> {
   const sourceThumbKey = params.thumbnailKey ?? params.resultKey;
@@ -102,6 +106,7 @@ async function copyJobOutputIntoProduct(
         sourceJobId: params.job.id,
         sourceKind: params.sourceKind,
         flatSourceKey: params.flatSourceKey ?? null,
+        isActive: params.isActive ?? true,
       })
       .returning();
     return item;
@@ -1033,6 +1038,80 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         : null;
 
       return { jobId: job.id, status: job.status, resultUrl, errorCode: job.errorCode };
+    },
+  );
+
+  /**
+   * Materializes completed held-batch jobs into products. The interactive
+   * generate flow finalizes each job from the browser via /import, but a held
+   * batch completes hours or days after the merchant closed the app — so the
+   * app calls this on load instead. Rows land isActive=false; PATCHing in a SKU
+   * and prices is what publishes them to the kiosk.
+   */
+  app.post(
+    '/v1/merchant/catalog/reconcile-held',
+    { preHandler: app.requireMerchant },
+    async (req) => {
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
+
+      const [client] = await app.db
+        .select({ userId: schema.merchants.userId })
+        .from(schema.merchants)
+        .where(eq(schema.merchants.id, merchantId))
+        .limit(1);
+      if (!client) throw new AppError('NOT_FOUND', 404, 'merchant not found');
+
+      const rows = await app.db
+        .select({
+          jobId: schema.jobs.id,
+          catalogueId: schema.jobs.catalogueId,
+          resultKey: schema.jobOutputs.resultKey,
+          thumbnailKey: schema.jobOutputs.thumbnailKey,
+          flatKey: schema.jobInputs.upperGarmentKey,
+          params: schema.jobInputs.params,
+        })
+        .from(schema.jobs)
+        .innerJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+        .innerJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
+        .leftJoin(
+          schema.merchantCatalogItems,
+          eq(schema.merchantCatalogItems.sourceJobId, schema.jobs.id),
+        )
+        .where(
+          and(
+            eq(schema.jobs.userId, client.userId),
+            eq(schema.jobs.status, 'COMPLETED'),
+            sql`${schema.jobInputs.params}->>'heldBatch' = 'true'`,
+            isNull(schema.merchantCatalogItems.id),
+          ),
+        )
+        .limit(200);
+
+      const created: Awaited<ReturnType<typeof serializeCatalogItem>>[] = [];
+      for (const row of rows) {
+        const subcategoryId = (row.params as { subcategoryId?: string } | null)?.subcategoryId;
+        if (!row.resultKey || !subcategoryId) continue;
+        try {
+          const item = await copyJobOutputIntoProduct(app, {
+            merchantId,
+            subcategoryId,
+            job: { id: row.jobId, catalogueId: row.catalogueId },
+            resultKey: row.resultKey,
+            thumbnailKey: row.thumbnailKey,
+            sourceKind: 'generated',
+            flatSourceKey: row.flatKey ?? undefined,
+            isActive: false,
+          });
+          created.push(await serializeCatalogItem(app, item));
+        } catch (err) {
+          // 409 = another concurrent reconcile already claimed this job.
+          if (err instanceof AppError && err.statusCode === 409) continue;
+          app.log.warn({ err, jobId: row.jobId }, 'reconcile-held: failed to finalize job');
+        }
+      }
+
+      return { created };
     },
   );
 }
