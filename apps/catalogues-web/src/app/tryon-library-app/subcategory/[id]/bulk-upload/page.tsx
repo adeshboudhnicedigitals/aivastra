@@ -6,12 +6,7 @@ import { SpinnerIcon, TrashIcon, UploadIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { catalogAppApi as api } from '../../../catalog-app-api';
-import {
-  deleteProduct,
-  finalizeGeneratedProduct,
-  pollGenerateBatch,
-  presignAndUpload,
-} from '../../../catalog-app-helpers';
+import { deleteProduct, presignAndUpload } from '../../../catalog-app-helpers';
 import { ScreenHeader } from '../../../components/ScreenHeader';
 import { StickyBottomBar } from '../../../components/StickyBottomBar';
 import { useSessionExpiryMessage } from '../../../use-session-expiry-message';
@@ -48,10 +43,10 @@ export default function BulkUploadScreen() {
   const readyStatus = imageMode === 'catalogue' ? 'uploaded' : 'generated';
   const [isGeneratingAll, setIsGeneratingAll] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [sentForProcessing, setSentForProcessing] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const itemsRef = useRef<QueueItem[]>([]);
   itemsRef.current = items;
-  const finalizingJobIds = useRef<Set<string>>(new Set());
 
   const [globalActual, setGlobalActual] = useState('');
   const [globalOffer, setGlobalOffer] = useState('');
@@ -92,39 +87,6 @@ export default function BulkUploadScreen() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) processFiles(e.target.files);
     e.target.value = '';
-  };
-
-  const finalizeCompletedJob = async (jobId: string) => {
-    if (finalizingJobIds.current.has(jobId)) return;
-    finalizingJobIds.current.add(jobId);
-    try {
-      const item = await finalizeGeneratedProduct(jobId, subcategoryId);
-      setItems((prev) =>
-        prev.map((p) => {
-          if (p.jobId !== jobId) return p;
-          if (item.imageUrl && item.imageUrl !== p.fileUrl) URL.revokeObjectURL(p.fileUrl);
-          return {
-            ...p,
-            status: 'generated',
-            itemId: item.id,
-            fileUrl: item.imageUrl ?? p.fileUrl,
-          };
-        }),
-      );
-    } catch (err) {
-      setItems((prev) =>
-        prev.map((p) =>
-          p.jobId === jobId
-            ? {
-                ...p,
-                status: 'failed',
-                hasError: true,
-                errorMessage: getErrorMessage(err, 'Import failed'),
-              }
-            : p,
-        ),
-      );
-    }
   };
 
   const handleGenerateAll = async () => {
@@ -210,34 +172,14 @@ export default function BulkUploadScreen() {
       }),
     );
 
-    if (jobIds.length > 0) {
-      try {
-        await pollGenerateBatch(jobIds, (statuses) => {
-          for (const s of statuses) {
-            if (s.status === 'COMPLETED') {
-              void finalizeCompletedJob(s.jobId);
-            } else if (s.status === 'FAILED' || s.status === 'CANCELLED') {
-              setItems((prev) =>
-                prev.map((p) =>
-                  p.jobId === s.jobId && p.status !== 'generated'
-                    ? {
-                        ...p,
-                        status: 'failed',
-                        hasError: true,
-                        errorMessage: s.errorCode ?? 'Generation failed',
-                      }
-                    : p,
-                ),
-              );
-            }
-          }
-        });
-      } catch {
-        // Timed out — items left mid-flight stay 'generating'; remove & retry.
-      }
-    }
-
+    // Held batches run only when an admin releases them, so there is nothing to
+    // poll here. The images land in the products list (marked "Needs details")
+    // once generation finishes — see reconcileHeldProducts on that screen.
+    setItems((prev) =>
+      prev.map((p) => (jobIdByLocalId.get(p.id) ? { ...p, status: 'generating' } : p)),
+    );
     setIsGeneratingAll(false);
+    setSentForProcessing(jobIds.length);
   };
 
   const handleApplyGlobalPrice = () => {
@@ -685,6 +627,24 @@ export default function BulkUploadScreen() {
             </div>
           ))}
         </div>
+
+        {sentForProcessing > 0 && (
+          <div
+            style={{
+              padding: '10px 12px',
+              borderRadius: 8,
+              background: C.lighter,
+              border: `1px solid ${C.border}`,
+              fontSize: 13,
+              color: C.text,
+              lineHeight: 1.4,
+            }}
+          >
+            {sentForProcessing} image{sentForProcessing === 1 ? '' : 's'} sent for processing.
+            They&apos;re queued for the next processing window — you&apos;ll find them in this
+            category once they&apos;re ready, waiting for SKU and pricing.
+          </div>
+        )}
 
         {saveError && (
           <div

@@ -89,3 +89,15 @@ export function finalizeGeneratedProduct(
 export function deleteProduct(id: string): Promise<void> {
   return api.del<void>(`/v1/merchant/catalog/${id}`).catch(() => undefined);
 }
+
+/**
+ * Materializes any bulk-flat batches that finished while the merchant was away.
+ * Held batches run whenever an admin releases them, so there is no in-page poll
+ * to finalize them — the products screen calls this on mount instead. Rows come
+ * back inactive until the merchant fills in SKU and prices.
+ */
+export function reconcileHeldProducts(): Promise<{ created: MerchantCatalogItem[] }> {
+  return api
+    .post<{ created: MerchantCatalogItem[] }>('/v1/merchant/catalog/reconcile-held', {})
+    .catch(() => ({ created: [] }));
+}

@@ -11,6 +11,7 @@ import { GarmentIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { catalogAppApi as api, CatalogAppSessionExpiredError } from '../../catalog-app-api';
+import { reconcileHeldProducts } from '../../catalog-app-helpers';
 import { ProductCard } from '../../components/ProductCard';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import { useLoggedOut } from '../../logged-out-context';
@@ -52,6 +53,18 @@ export default function ProductsScreen() {
       ),
   });
   const products = productsQuery.data?.items ?? [];
+
+  // Pull in any held batches that finished while the merchant was away.
+  useEffect(() => {
+    let cancelled = false;
+    void reconcileHeldProducts().then(({ created }) => {
+      if (cancelled || created.length === 0) return;
+      qc.invalidateQueries({ queryKey: ['merchant-catalog-products', subcategoryId] });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [qc, subcategoryId]);
 
   useEffect(() => {
     const err = subcategoriesQuery.error ?? productsQuery.error;
