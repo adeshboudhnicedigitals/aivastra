@@ -142,8 +142,9 @@ export function verifySessionToken(
 
 export interface SyncTask {
   storeId: string;
-  mode: 'full' | 'product';
+  mode: 'full' | 'product' | 'collection';
   shopifyProductId?: number;
+  shopifyCollectionId?: number;
 }
 
 export async function enqueueSync(redis: Redis, task: SyncTask): Promise<void> {
