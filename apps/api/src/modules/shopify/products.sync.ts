@@ -204,7 +204,7 @@ export async function syncProduct(
   }
 }
 
-function nextPageUrl(res: { headers: { get(name: string): string | null } }): string | null {
+export function nextPageUrl(res: { headers: { get(name: string): string | null } }): string | null {
   const link = res.headers.get('link') ?? '';
   const next = link.match(/<([^>]+)>;\s*rel="next"/);
   return next ? next[1] : null;
@@ -213,7 +213,10 @@ function nextPageUrl(res: { headers: { get(name: string): string | null } }): st
 /** Shopify's product resource has no `collections` field — the id→title map is
  *  fetched once per sync run from custom/smart collections, then joined against
  *  each product's `collects.json` membership. */
-async function fetchCollectionTitleMap(shop: string, token: string): Promise<Map<number, string>> {
+export async function fetchCollectionTitleMap(
+  shop: string,
+  token: string,
+): Promise<Map<number, string>> {
   const titleById = new Map<number, string>();
   for (const resource of ['custom_collections', 'smart_collections'] as const) {
     let url: string | null = `/${resource}.json?limit=250`;
