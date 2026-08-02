@@ -1,4 +1,5 @@
 import {
+  ChartVerticalIcon,
   HomeIcon,
   PaintBrushFlatIcon,
   ProductIcon,
@@ -16,6 +17,7 @@ const BASENAME = import.meta.env.PROD ? '/shopify-admin' : '';
 export const NAV_ITEMS = [
   { path: '/', label: 'Dashboard', icon: HomeIcon },
   { path: '/manage', label: 'Manage', icon: ProductIcon },
+  { path: '/analytics', label: 'Analytics', icon: ChartVerticalIcon },
   { path: '/widget-design', label: 'Widget Design', icon: PaintBrushFlatIcon },
   { path: '/settings', label: 'Settings', icon: SettingsIcon },
   { path: '/support', label: 'Support', icon: QuestionCircleIcon },
