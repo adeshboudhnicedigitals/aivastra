@@ -15,6 +15,10 @@ export interface ShopifyStoreRetention {
   shopperRecordDays?: number | null;
 }
 
+export interface ShopifyActivationSettings {
+  mode: 'global' | 'selective';
+}
+
 export interface ShopifyStoreSettings {
   workflowTemplateId?: string;
   themeBlockConfirmed?: boolean;
@@ -22,6 +26,7 @@ export interface ShopifyStoreSettings {
   retention?: ShopifyStoreRetention;
   widget?: ShopifyWidgetConfig;
   widgetConfigSynced?: boolean;
+  activation?: ShopifyActivationSettings;
 }
 
 export interface ShopifyWidgetTheme {

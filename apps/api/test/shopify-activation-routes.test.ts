@@ -224,6 +224,90 @@ describe('exclusions/collections CRUD', () => {
   });
 });
 
+describe('DELETE collection membership sharing', () => {
+  it('keeps cached membership when the collection is still selected in the sibling table', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = (async (url: string) => {
+      if (url.includes('/custom_collections/70.json')) {
+        return {
+          ok: true,
+          json: async () => ({ custom_collection: { id: 70, title: 'Shared' } }),
+        } as Response;
+      }
+      if (url.includes('/smart_collections/70.json')) {
+        return { ok: false, status: 404, json: async () => ({}) } as Response;
+      }
+      if (url.includes('/collects.json')) {
+        return {
+          ok: true,
+          headers: new Map(),
+          json: async () => ({ collects: [{ collection_id: 70, product_id: 100 }] }),
+        } as unknown as Response;
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    try {
+      // Add the collection to the enabled set (this syncs membership rows).
+      const addEnabledRes = await app.inject({
+        method: 'POST',
+        url: '/v1/shopify/activation/collections',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        payload: { shopifyCollectionIds: [70] },
+      });
+      expect(addEnabledRes.statusCode).toBe(200);
+
+      // Also select the same collection ID in the excluded set directly,
+      // bypassing the sync (nothing stops a collection from being in both).
+      await app.db
+        .insert(schema.shopifyExcludedCollections)
+        .values({ storeId, shopifyCollectionId: 70 })
+        .onConflictDoNothing();
+
+      // Sanity check membership rows exist before removal.
+      const membershipBefore = await app.db
+        .select()
+        .from(schema.shopifyCollectionProducts)
+        .where(eq(schema.shopifyCollectionProducts.shopifyCollectionId, 70));
+      expect(membershipBefore.length).toBeGreaterThan(0);
+
+      // Remove the collection from the enabled set only.
+      const delRes = await app.inject({
+        method: 'DELETE',
+        url: '/v1/shopify/activation/collections/70',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(delRes.statusCode).toBe(200);
+
+      // Membership rows must still exist — the collection is still selected
+      // (as an exclusion), so wiping them would silently stop the exclusion
+      // from applying until the next hourly resync.
+      const membershipAfter = await app.db
+        .select()
+        .from(schema.shopifyCollectionProducts)
+        .where(eq(schema.shopifyCollectionProducts.shopifyCollectionId, 70));
+      expect(membershipAfter.length).toBe(membershipBefore.length);
+
+      // Clean up: remove from excluded too, which should now be safe to wipe
+      // membership since neither table selects it anymore.
+      const delExcludedRes = await app.inject({
+        method: 'DELETE',
+        url: '/v1/shopify/activation/exclusions/collections/70',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(delExcludedRes.statusCode).toBe(200);
+
+      const membershipFinal = await app.db
+        .select()
+        .from(schema.shopifyCollectionProducts)
+        .where(eq(schema.shopifyCollectionProducts.shopifyCollectionId, 70));
+      expect(membershipFinal.length).toBe(0);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});
+
 describe('GET /v1/shopify/activation/collections/search', () => {
   it('proxies a live title search', async () => {
     const originalFetch = global.fetch;

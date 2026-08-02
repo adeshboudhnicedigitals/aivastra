@@ -24,9 +24,14 @@ import { isTabEditable } from '../lib/activationTabState';
 import { apiFetch } from '../lib/api';
 import type { ShopifyProductListItem } from '../types';
 
-type DisplayStatus = 'active' | 'processing' | 'failed' | 'disabled';
+type DisplayStatus = 'active' | 'processing' | 'failed' | 'disabled' | 'excluded';
 
 function displayStatus(item: ShopifyProductListItem): DisplayStatus {
+  // Excluded takes priority: a product can be individually enabled (or
+  // enabled via a collection) AND excluded at the same time — exclusion
+  // always wins at the actual try-on gate (see activation.ts), so the badge
+  // must reflect that rather than showing a misleading "Active" state.
+  if (item.excluded) return 'excluded';
   if (!item.enabled || item.status === 'deleted') return 'disabled';
   return item.status as DisplayStatus;
 }
@@ -36,13 +41,18 @@ const STATUS_LABEL: Record<DisplayStatus, string> = {
   processing: 'Processing',
   failed: 'Failed',
   disabled: 'Disabled',
+  excluded: 'Excluded',
 };
 
-const STATUS_TONE: Record<DisplayStatus, 'success' | 'attention' | 'critical' | 'info'> = {
+const STATUS_TONE: Record<
+  DisplayStatus,
+  'success' | 'attention' | 'critical' | 'info' | 'warning'
+> = {
   active: 'success',
   processing: 'attention',
   failed: 'critical',
   disabled: 'info',
+  excluded: 'warning',
 };
 
 interface ActivationSummary {
@@ -85,9 +95,11 @@ const TABS = [
 function CollectionPickerModal({
   onClose,
   onPicked,
+  setError,
 }: {
   onClose: () => void;
   onPicked: (shopifyCollectionId: number) => void;
+  setError: (m: string) => void;
 }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<CollectionSearchResult[]>([]);
@@ -104,10 +116,11 @@ function CollectionPickerModal({
         `/v1/shopify/activation/collections/search?q=${encodeURIComponent(query)}`,
       )
         .then((res) => setResults(res.items))
+        .catch((err) => setError((err as Error).message))
         .finally(() => setSearching(false));
     }, 300);
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [query, setError]);
 
   return (
     <Modal open title="Add a collection" onClose={onClose}>
@@ -146,12 +159,14 @@ function CollectionsPanel({
   addLabel,
   emptyHeading,
   onChanged,
+  setError,
 }: {
   basePath: string;
   editable: boolean;
   addLabel: string;
   emptyHeading: string;
   onChanged: () => void;
+  setError: (m: string) => void;
 }) {
   const [items, setItems] = useState<CollectionListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -161,17 +176,22 @@ function CollectionsPanel({
     setLoading(true);
     apiFetch<{ items: CollectionListItem[] }>(basePath)
       .then((res) => setItems(res.items))
+      .catch((err) => setError((err as Error).message))
       .finally(() => setLoading(false));
-  }, [basePath]);
+  }, [basePath, setError]);
 
   useEffect(() => {
     load();
   }, [load]);
 
   async function remove(shopifyCollectionId: number) {
-    await apiFetch(`${basePath}/${shopifyCollectionId}`, { method: 'DELETE' });
-    load();
-    onChanged();
+    try {
+      await apiFetch(`${basePath}/${shopifyCollectionId}`, { method: 'DELETE' });
+      load();
+      onChanged();
+    } catch (err) {
+      setError((err as Error).message);
+    }
   }
 
   return (
@@ -220,14 +240,19 @@ function CollectionsPanel({
       {pickerOpen && (
         <CollectionPickerModal
           onClose={() => setPickerOpen(false)}
+          setError={setError}
           onPicked={async (shopifyCollectionId) => {
-            await apiFetch(basePath, {
-              method: 'POST',
-              body: JSON.stringify({ shopifyCollectionIds: [shopifyCollectionId] }),
-            });
-            setPickerOpen(false);
-            load();
-            onChanged();
+            try {
+              await apiFetch(basePath, {
+                method: 'POST',
+                body: JSON.stringify({ shopifyCollectionIds: [shopifyCollectionId] }),
+              });
+              setPickerOpen(false);
+              load();
+              onChanged();
+            } catch (err) {
+              setError((err as Error).message);
+            }
           }}
         />
       )}
@@ -241,12 +266,14 @@ function ProductPickerModal({
   actionLabel,
   onClose,
   onPicked,
+  setError,
 }: {
   title: string;
   searchParams: Record<string, string>;
   actionLabel: string;
   onClose: () => void;
   onPicked: (shopifyProductId: number) => void;
+  setError: (m: string) => void;
 }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<ShopifyProductListItem[]>([]);
@@ -262,10 +289,11 @@ function ProductPickerModal({
       });
       apiFetch<ProductListResponse>(`/v1/shopify/products?${params}`)
         .then((res) => setResults(res.items))
+        .catch((err) => setError((err as Error).message))
         .finally(() => setSearching(false));
     }, 300);
     return () => clearTimeout(timer);
-  }, [query, searchParams]);
+  }, [query, searchParams, setError]);
 
   return (
     <Modal open title={title} onClose={onClose}>
@@ -332,21 +360,26 @@ function IndividualProductsPanel({
         setItems(res.items);
         setTotal(res.total);
       })
+      .catch((err) => setError((err as Error).message))
       .finally(() => setLoading(false));
-  }, [page, query]);
+  }, [page, query, setError]);
 
   useEffect(() => {
     load();
   }, [load]);
 
   async function removeProduct(shopifyProductId: number) {
-    await apiFetch(`/v1/shopify/products/${shopifyProductId}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ enabled: false }),
-    });
-    setToastMessage('Removed from Try-On.');
-    load();
-    onChanged();
+    try {
+      await apiFetch(`/v1/shopify/products/${shopifyProductId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled: false }),
+      });
+      setToastMessage('Removed from Try-On.');
+      load();
+      onChanged();
+    } catch (err) {
+      setError((err as Error).message);
+    }
   }
 
   return (
@@ -423,9 +456,10 @@ function IndividualProductsPanel({
       {pickerOpen && (
         <ProductPickerModal
           title="Add products"
-          searchParams={{ enabled: 'false' }}
+          searchParams={{ enabled: 'false', status: 'active' }}
           actionLabel="Add"
           onClose={() => setPickerOpen(false)}
+          setError={setError}
           onPicked={async (shopifyProductId) => {
             try {
               await apiFetch(`/v1/shopify/products/${shopifyProductId}`, {
@@ -446,10 +480,12 @@ function IndividualProductsPanel({
 }
 
 function ExclusionPanel({
+  mode,
   onChanged,
   setToastMessage,
   setError,
 }: {
+  mode: 'global' | 'selective';
   onChanged: () => void;
   setToastMessage: (m: string) => void;
   setError: (m: string) => void;
@@ -462,22 +498,29 @@ function ExclusionPanel({
     setLoadingProducts(true);
     apiFetch<ProductListResponse>('/v1/shopify/products?excluded=true&pageSize=100')
       .then((res) => setExcludedProducts(res.items))
+      .catch((err) => setError((err as Error).message))
       .finally(() => setLoadingProducts(false));
-  }, []);
+  }, [setError]);
 
   useEffect(() => {
     loadProducts();
   }, [loadProducts]);
 
   async function unexclude(shopifyProductId: number) {
-    await apiFetch(`/v1/shopify/products/${shopifyProductId}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ excluded: false }),
-    });
-    setToastMessage('Removed from exclusions.');
-    loadProducts();
-    onChanged();
+    try {
+      await apiFetch(`/v1/shopify/products/${shopifyProductId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ excluded: false }),
+      });
+      setToastMessage('Removed from exclusions.');
+      loadProducts();
+      onChanged();
+    } catch (err) {
+      setError((err as Error).message);
+    }
   }
+
+  const editable = isTabEditable(mode, 'exclusion');
 
   return (
     <BlockStack gap="600">
@@ -486,7 +529,9 @@ function ExclusionPanel({
           <Text as="h2" variant="headingMd">
             Excluded Products
           </Text>
-          <Button onClick={() => setProductPickerOpen(true)}>Exclude products</Button>
+          <Button disabled={!editable} onClick={() => setProductPickerOpen(true)}>
+            Exclude products
+          </Button>
         </InlineStack>
         <IndexTable
           selectable={false}
@@ -515,7 +560,11 @@ function ExclusionPanel({
                 </InlineStack>
               </IndexTable.Cell>
               <IndexTable.Cell>
-                <Button size="slim" onClick={() => unexclude(item.shopifyProductId)}>
+                <Button
+                  size="slim"
+                  disabled={!editable}
+                  onClick={() => unexclude(item.shopifyProductId)}
+                >
                   Remove
                 </Button>
               </IndexTable.Cell>
@@ -526,10 +575,11 @@ function ExclusionPanel({
 
       <CollectionsPanel
         basePath="/v1/shopify/activation/exclusions/collections"
-        editable
+        editable={editable}
         addLabel="Exclude collections"
         emptyHeading="No excluded collections"
         onChanged={onChanged}
+        setError={setError}
       />
 
       {productPickerOpen && (
@@ -538,6 +588,7 @@ function ExclusionPanel({
           searchParams={{ excluded: 'false' }}
           actionLabel="Exclude"
           onClose={() => setProductPickerOpen(false)}
+          setError={setError}
           onPicked={async (shopifyProductId) => {
             try {
               await apiFetch(`/v1/shopify/products/${shopifyProductId}`, {
@@ -557,15 +608,22 @@ function ExclusionPanel({
   );
 }
 
-function FailedProductsModal({ onClose }: { onClose: () => void }) {
+function FailedProductsModal({
+  onClose,
+  setError,
+}: {
+  onClose: () => void;
+  setError: (m: string) => void;
+}) {
   const [items, setItems] = useState<ShopifyProductListItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     apiFetch<ProductListResponse>('/v1/shopify/products?status=failed&pageSize=100')
       .then((res) => setItems(res.items))
+      .catch((err) => setError((err as Error).message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [setError]);
 
   return (
     <Modal open title="Failed to sync" onClose={onClose}>
@@ -763,6 +821,7 @@ export default function ManagePage() {
                   addLabel="Add collections"
                   emptyHeading="No enabled collections"
                   onChanged={loadSummary}
+                  setError={setError}
                 />
               )}
               {activeTabId === 'individual' && (
@@ -775,6 +834,7 @@ export default function ManagePage() {
               )}
               {activeTabId === 'exclusion' && (
                 <ExclusionPanel
+                  mode={mode}
                   onChanged={loadSummary}
                   setToastMessage={setToastMessage}
                   setError={setError}
@@ -785,7 +845,9 @@ export default function ManagePage() {
         </Card>
       </BlockStack>
 
-      {failedModalOpen && <FailedProductsModal onClose={() => setFailedModalOpen(false)} />}
+      {failedModalOpen && (
+        <FailedProductsModal onClose={() => setFailedModalOpen(false)} setError={setError} />
+      )}
 
       {toastMessage && <Toast content={toastMessage} onDismiss={() => setToastMessage(null)} />}
     </Page>

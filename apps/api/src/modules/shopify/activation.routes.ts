@@ -8,6 +8,7 @@ import { mergeStoreSettingsObject, storeSettingsJson } from './settings-json.js'
 const ModeBody = z.object({ mode: z.enum(['global', 'selective']) });
 const CollectionIdsBody = z.object({ shopifyCollectionIds: z.array(z.number().int()).min(1) });
 const SearchQuery = z.object({ q: z.string().min(1) });
+const CollectionIdParams = z.object({ shopifyCollectionId: z.coerce.number().int() });
 
 async function summaryCounts(app: FastifyInstance, storeId: string) {
   const [{ enabledCollections }] = await app.db
@@ -66,6 +67,7 @@ function registerCollectionSetRoutes(
   app: FastifyInstance,
   basePath: string,
   table: typeof schema.shopifyEnabledCollections | typeof schema.shopifyExcludedCollections,
+  siblingTable: typeof schema.shopifyEnabledCollections | typeof schema.shopifyExcludedCollections,
 ) {
   app.get(basePath, { preHandler: app.requireShopifySession }, async (req) => {
     const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
@@ -122,26 +124,44 @@ function registerCollectionSetRoutes(
 
   app.delete(
     `${basePath}/:shopifyCollectionId`,
-    { preHandler: app.requireShopifySession },
+    { preHandler: app.requireShopifySession, schema: { params: CollectionIdParams } },
     async (req) => {
       const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
-      const shopifyCollectionId = Number(
-        (req.params as { shopifyCollectionId: string }).shopifyCollectionId,
-      );
+      const { shopifyCollectionId } = req.params as z.infer<typeof CollectionIdParams>;
 
       await app.db
         .delete(table)
         .where(
           and(eq(table.storeId, store.id), eq(table.shopifyCollectionId, shopifyCollectionId)),
         );
-      await app.db
-        .delete(schema.shopifyCollectionProducts)
+
+      // The membership cache in `shopify_collection_products` is shared by
+      // both selection tables (nothing enforces a collection can't be in
+      // both enabled and excluded at once). Only clear it once the
+      // collection is selected in NEITHER table — otherwise the sibling
+      // selection (e.g. an exclusion) would silently stop applying until
+      // the next hourly resync repopulates it.
+      const [stillSelectedInSibling] = await app.db
+        .select({ shopifyCollectionId: siblingTable.shopifyCollectionId })
+        .from(siblingTable)
         .where(
           and(
-            eq(schema.shopifyCollectionProducts.storeId, store.id),
-            eq(schema.shopifyCollectionProducts.shopifyCollectionId, shopifyCollectionId),
+            eq(siblingTable.storeId, store.id),
+            eq(siblingTable.shopifyCollectionId, shopifyCollectionId),
           ),
-        );
+        )
+        .limit(1);
+
+      if (!stillSelectedInSibling) {
+        await app.db
+          .delete(schema.shopifyCollectionProducts)
+          .where(
+            and(
+              eq(schema.shopifyCollectionProducts.storeId, store.id),
+              eq(schema.shopifyCollectionProducts.shopifyCollectionId, shopifyCollectionId),
+            ),
+          );
+      }
       return { ok: true };
     },
   );
@@ -188,10 +208,12 @@ export async function shopifyActivationRoutes(app: FastifyInstance) {
     app,
     '/v1/shopify/activation/collections',
     schema.shopifyEnabledCollections,
+    schema.shopifyExcludedCollections,
   );
   registerCollectionSetRoutes(
     app,
     '/v1/shopify/activation/exclusions/collections',
     schema.shopifyExcludedCollections,
+    schema.shopifyEnabledCollections,
   );
 }

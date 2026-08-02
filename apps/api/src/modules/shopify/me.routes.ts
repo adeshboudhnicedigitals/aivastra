@@ -3,6 +3,57 @@ import { and, count, eq, gte, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { windowStart } from './store-day.js';
 
+/**
+ * Activation-aware count of products effectively enabled for try-on, for the
+ * Dashboard's "Try-On Enabled" stat and the onboarding gate. Must agree with
+ * the precedence rule in `activation.ts` (`computeEffectiveEnabled`):
+ * exclusion — individual or via an excluded collection — always wins, even
+ * under global mode.
+ *
+ * Global mode: every synced, non-deleted product counts except ones excluded
+ * (individually or via an excluded collection).
+ *
+ * Selective mode: the union of individually-enabled products and products
+ * reachable through an enabled collection, minus the same exclusions. Counted
+ * as one query over `shopify_product_garments` with EXISTS subqueries so each
+ * product is counted at most once (no double counting between the two
+ * enablement paths).
+ */
+async function computeEnabledProductCount(
+  app: FastifyInstance,
+  store: typeof schema.shopifyStores.$inferSelect,
+): Promise<number> {
+  const mode = store.settings.activation?.mode ?? 'selective';
+
+  const notExcludedByCollection = sql`NOT EXISTS (
+    SELECT 1 FROM shopify_collection_products cp
+    JOIN shopify_excluded_collections xc
+      ON xc.store_id = cp.store_id AND xc.shopify_collection_id = cp.shopify_collection_id
+    WHERE cp.store_id = pg.store_id AND cp.shopify_product_id = pg.shopify_product_id
+  )`;
+
+  const enabledViaCollection = sql`EXISTS (
+    SELECT 1 FROM shopify_collection_products cp
+    JOIN shopify_enabled_collections ec
+      ON ec.store_id = cp.store_id AND ec.shopify_collection_id = cp.shopify_collection_id
+    WHERE cp.store_id = pg.store_id AND cp.shopify_product_id = pg.shopify_product_id
+  )`;
+
+  const enablementCondition =
+    mode === 'global' ? sql`true` : sql`(pg.enabled = true OR ${enabledViaCollection})`;
+
+  const result = await app.db.execute<{ cnt: number }>(sql`
+    SELECT COUNT(*)::int AS cnt
+    FROM shopify_product_garments pg
+    WHERE pg.store_id = ${store.id}
+      AND pg.status <> 'deleted'
+      AND pg.excluded = false
+      AND ${notExcludedByCollection}
+      AND ${enablementCondition}
+  `);
+  return (result as unknown as Array<{ cnt: number }>)[0]?.cnt ?? 0;
+}
+
 export async function shopifyMeRoutes(app: FastifyInstance) {
   app.get('/v1/shopify/me', { preHandler: app.requireShopifySession }, async (req) => {
     const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
@@ -27,16 +78,7 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
       .from(schema.shopifyProductGarments)
       .where(eq(schema.shopifyProductGarments.storeId, store.id));
 
-    const [{ enabledProductCount }] = await app.db
-      .select({ enabledProductCount: count() })
-      .from(schema.shopifyProductGarments)
-      .where(
-        and(
-          eq(schema.shopifyProductGarments.storeId, store.id),
-          eq(schema.shopifyProductGarments.enabled, true),
-          sql`${schema.shopifyProductGarments.status} <> 'deleted'`,
-        ),
-      );
+    const enabledProductCount = await computeEnabledProductCount(app, store);
 
     const [{ activeCount, processingCount, failedCount, disabledCount }] = await app.db
       .select({
