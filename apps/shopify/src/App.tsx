@@ -11,6 +11,7 @@ import {
   shouldAttemptRecoveryReload,
 } from './lib/appBridge';
 import { runNavGuard } from './lib/navGuard';
+import AnalyticsPage from './pages/AnalyticsPage';
 import DashboardPage from './pages/DashboardPage';
 import ManagePage from './pages/ManagePage';
 import SettingsPage from './pages/SettingsPage';
@@ -119,6 +120,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/manage" element={<ManagePage />} />
+          <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/widget-design" element={<WidgetDesignPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/support" element={<SupportPage />} />

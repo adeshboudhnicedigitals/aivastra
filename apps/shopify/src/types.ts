@@ -103,3 +103,38 @@ export interface ShopifyShopperListItem {
   firstSeenAt: string;
   tryOnCount: number;
 }
+
+export interface ShopifyAnalyticsCards {
+  tryOns: number;
+  uniqueShoppers: number;
+  addedToCart: number;
+  addToCartRate: number;
+  emailsCaptured: number;
+  turnedAway: { total: number; storeCap: number; shopperCap: number; emailGate: number };
+}
+
+export interface ShopifyAnalyticsFunnel {
+  buttonClick: number;
+  upload: number;
+  tryOn: number;
+  resultView: number;
+  addToCart: number;
+  unattributed: number;
+}
+
+export interface ShopifyAnalyticsProduct {
+  shopifyProductId: number;
+  title: string | null;
+  tryOns: number;
+  uniqueShoppers: number;
+  addedToCart: number;
+  addToCartRate: number;
+}
+
+export interface ShopifyAnalytics {
+  range: { from: string; to: string; timezone: string };
+  cards: ShopifyAnalyticsCards;
+  daily: { day: string; tryOns: number }[];
+  funnel: ShopifyAnalyticsFunnel;
+  products: ShopifyAnalyticsProduct[];
+}
