@@ -106,6 +106,30 @@ describe('GET /v1/shopify/products', () => {
     expect(body.items.every((p: { enabled: boolean }) => p.enabled)).toBe(true);
   });
 
+  it('filters by enabled=false, not treating the literal string "false" as truthy', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/products?enabled=false',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.items.length).toBeGreaterThan(0);
+    expect(body.items.every((p: { enabled: boolean }) => p.enabled === false)).toBe(true);
+  });
+
+  it('filters by excluded=false, not treating the literal string "false" as truthy', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/products?excluded=false',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.items.length).toBeGreaterThan(0);
+    expect(body.items.every((p: { excluded: boolean }) => p.excluded === false)).toBe(true);
+  });
+
   it('filters by status', async () => {
     const res = await app.inject({
       method: 'GET',
