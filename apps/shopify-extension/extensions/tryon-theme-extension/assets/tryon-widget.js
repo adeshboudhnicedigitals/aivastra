@@ -86,6 +86,37 @@
     }
 
     const clientId = getClientId();
+
+    // Coarse and honest: a width test, not device detection. Labeled as an
+    // estimate in the merchant UI rather than presented as fact.
+    const device = window.innerWidth < 768 ? 'mobile' : 'desktop';
+
+    // Fire-and-forget. Analytics must never break a try-on, so every failure
+    // path here is silent: a rejected promise, a thrown TypeError from a
+    // missing API, an ad blocker eating the request — all identical to success
+    // from the shopper's point of view.
+    //
+    // keepalive matters for add_to_cart specifically: the shopper may navigate
+    // to /cart before the request settles, and without it the browser cancels
+    // the very event that measures conversion.
+    function trackEvent(type) {
+      try {
+        fetch(`${apiBase}/v1/shopify/customer/event`, {
+          method: 'POST',
+          headers: { 'x-widget-key': widgetKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type,
+            clientId: clientId || undefined,
+            shopifyProductId: productId || undefined,
+            device,
+          }),
+          keepalive: true,
+        }).catch(() => {});
+      } catch {
+        /* analytics must never break a try-on */
+      }
+    }
+
     const shopifyCustomerId = root.dataset.customerId ? Number(root.dataset.customerId) : undefined;
     // Prefill only. The server never trusts this for authorization.
     let shopperEmail = root.dataset.customerEmail || null;
@@ -282,6 +313,7 @@
     // copy rather than hiding the affordance — a share button that vanishes on
     // some browsers leaves the result actions visibly lopsided.
     function shareResult(url) {
+      trackEvent('share');
       if (!url) return;
       if (typeof navigator.share === 'function') {
         navigator.share({ url }).catch(() => {
@@ -347,6 +379,7 @@
         }
 
         addToCartBtn.textContent = 'Added ✓';
+        trackEvent('add_to_cart');
         if (viewCartLink) viewCartLink.hidden = false;
         // Themes that listen refresh their cart badge; the rest ignore an
         // unknown event. Cheaper and safer than detecting each theme's drawer.
@@ -461,6 +494,7 @@
     }
 
     function openModal() {
+      trackEvent('button_click');
       modal.hidden = false;
       showPage('main');
       startOver();
@@ -640,6 +674,7 @@
         resultImage.src = resultUrl;
         showPage('main');
         showStep('result');
+        trackEvent('result_view');
         addToHistory(resultUrl);
       } catch (err) {
         if (isReuse && err && err.expiredReuse) {
@@ -691,6 +726,7 @@
         showStep('error');
         return;
       }
+      trackEvent('upload');
       showReady({ file });
     }
     fileInput.addEventListener('change', () => handlePickedFile(fileInput));
