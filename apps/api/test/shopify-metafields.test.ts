@@ -1,6 +1,9 @@
 import { createLogger } from '@aivastra/logger';
 import { describe, expect, it, vi } from 'vitest';
-import { writeWidgetKeyMetafield } from '../src/modules/shopify/metafields.js';
+import {
+  writeWidgetConfigMetafield,
+  writeWidgetKeyMetafield,
+} from '../src/modules/shopify/metafields.js';
 
 const log = createLogger('test');
 
@@ -59,5 +62,22 @@ describe('writeWidgetKeyMetafield', () => {
         fakeFetch as unknown as typeof fetch,
       ),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe('writeWidgetConfigMetafield', () => {
+  it('propagates Shopify reauthorization failures', async () => {
+    const fakeFetch = vi.fn(async () => new Response(null, { status: 401 }));
+
+    await expect(
+      writeWidgetConfigMetafield(
+        'shop.myshopify.com',
+        'shpat_expired',
+        123,
+        { copy: { heading: 'Fit check' } },
+        log,
+        fakeFetch as unknown as typeof fetch,
+      ),
+    ).rejects.toMatchObject({ code: 'SHOPIFY_REAUTH_REQUIRED', statusCode: 403 });
   });
 });

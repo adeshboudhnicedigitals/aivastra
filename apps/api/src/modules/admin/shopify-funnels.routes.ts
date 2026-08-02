@@ -1,9 +1,22 @@
-import { schema } from '@aivastra/db';
+import { type DB, schema } from '@aivastra/db';
 import { asc, count, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { requireAdmin } from './guard.js';
+
+type FunnelTemplatesTx = Parameters<Parameters<DB['transaction']>[0]>[0];
+
+// Demote first: the partial unique index rejects a second default, so
+// insert-then-demote (or update-then-demote) would fail on the constraint
+// rather than swap. Callers must run this before the insert/update that sets
+// the new default, within the same transaction.
+async function demoteCurrentDefault(tx: FunnelTemplatesTx) {
+  await tx
+    .update(schema.shopifyFunnelTemplates)
+    .set({ isDefault: false, updatedAt: new Date() })
+    .where(eq(schema.shopifyFunnelTemplates.isDefault, true));
+}
 
 const CreateFunnelTemplateBody = z.object({
   slug: z
@@ -14,6 +27,7 @@ const CreateFunnelTemplateBody = z.object({
   label: z.string().min(1).max(120),
   workflowTemplateId: z.string().uuid(),
   sortOrder: z.number().int().default(0),
+  isDefault: z.boolean().default(false),
 });
 
 const PatchFunnelTemplateBody = z.object({
@@ -21,6 +35,7 @@ const PatchFunnelTemplateBody = z.object({
   workflowTemplateId: z.string().uuid().optional(),
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
+  isDefault: z.boolean().optional(),
 });
 
 const ReassignFunnelTemplateBody = z.object({
@@ -36,7 +51,13 @@ export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
       .select()
       .from(schema.shopifyFunnelTemplates)
       .orderBy(asc(schema.shopifyFunnelTemplates.sortOrder));
-    return { items };
+    // Surfaced so the admin list can warn on it. With no default, every Shopify
+    // try-on is refused at creation and nothing else reveals why until a shopper
+    // hits it. Checked against both flags, not just isDefault, so a default row
+    // that's been deactivated (which resolveWorkflowTemplateId treats as "no
+    // usable default") still trips the banner — see the PATCH guard below,
+    // which should prevent that state from occurring in the first place.
+    return { items, hasDefault: items.some((i) => i.isDefault && i.isActive) };
   });
 
   app.post(
@@ -45,8 +66,13 @@ export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
     async (req) => {
       const body = req.body as z.infer<typeof CreateFunnelTemplateBody>;
       try {
-        const [row] = await app.db.insert(schema.shopifyFunnelTemplates).values(body).returning();
-        return row;
+        return await app.db.transaction(async (tx) => {
+          if (body.isDefault) {
+            await demoteCurrentDefault(tx);
+          }
+          const [row] = await tx.insert(schema.shopifyFunnelTemplates).values(body).returning();
+          return row;
+        });
       } catch (err) {
         if ((err as { code?: string }).code === '23505') {
           throw new AppError('CONFLICT', 409, `slug "${body.slug}" already exists`);
@@ -62,11 +88,48 @@ export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
     async (req) => {
       const { id } = req.params as { id: string };
       const body = req.body as z.infer<typeof PatchFunnelTemplateBody>;
-      const [updated] = await app.db
-        .update(schema.shopifyFunnelTemplates)
-        .set({ ...body, updatedAt: new Date() })
-        .where(eq(schema.shopifyFunnelTemplates.id, id))
-        .returning({ id: schema.shopifyFunnelTemplates.id });
+
+      // Deactivating the default is just as dangerous as un-defaulting it:
+      // resolveWorkflowTemplateId (apps/api/src/modules/shopify/customer.routes.ts)
+      // only resolves a template when isDefault AND isActive are both true, so
+      // `PATCH { isActive: false }` on the default row silently breaks every
+      // Shopify try-on even though `isDefault` never changed. Guard both.
+      if (body.isDefault === false || body.isActive === false) {
+        const [row] = await app.db
+          .select({ isDefault: schema.shopifyFunnelTemplates.isDefault })
+          .from(schema.shopifyFunnelTemplates)
+          .where(eq(schema.shopifyFunnelTemplates.id, id))
+          .limit(1);
+        if (!row) throw new AppError('NOT_FOUND', 404, 'funnel template not found');
+        if (row.isDefault) {
+          if (body.isDefault === false) {
+            throw new AppError(
+              'VALIDATION',
+              400,
+              'Cannot clear the default funnel template. Promote another template instead — with no default, every Shopify try-on is refused.',
+            );
+          }
+          if (body.isActive === false) {
+            throw new AppError(
+              'VALIDATION',
+              400,
+              'Cannot deactivate the default funnel template. Promote another template as default first — with no active default, every Shopify try-on is refused.',
+            );
+          }
+        }
+      }
+
+      const updated = await app.db.transaction(async (tx) => {
+        if (body.isDefault === true) {
+          await demoteCurrentDefault(tx);
+        }
+        const [row] = await tx
+          .update(schema.shopifyFunnelTemplates)
+          .set({ ...body, updatedAt: new Date() })
+          .where(eq(schema.shopifyFunnelTemplates.id, id))
+          .returning({ id: schema.shopifyFunnelTemplates.id });
+        return row;
+      });
       if (!updated) throw new AppError('NOT_FOUND', 404, 'funnel template not found');
       return { ok: true };
     },

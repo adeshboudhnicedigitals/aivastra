@@ -431,12 +431,20 @@ export const ShopifyCustomerPresignRequest = z.object({
     .int()
     .positive()
     .max(20 * 1024 * 1024),
+  clientId: z.string().uuid().optional(),
 });
 export type ShopifyCustomerPresignRequest = z.infer<typeof ShopifyCustomerPresignRequest>;
 
 export const ShopifyCustomerJobRequest = z.object({
   customerPhotoKey: z.string(),
   shopifyProductId: z.number().int().positive(),
+  // All three are client-supplied and forgeable. That is acceptable because
+  // supplying identity can only narrow the bucket a shopper counts against,
+  // never widen it — no authorization decision depends on them.
+  clientId: z.string().uuid().optional(),
+  shopifyCustomerId: z.number().int().positive().optional(),
+  email: z.string().email().max(320).optional(),
+  emailConsent: z.boolean().optional(),
 });
 export type ShopifyCustomerJobRequest = z.infer<typeof ShopifyCustomerJobRequest>;
 
@@ -444,3 +452,129 @@ export const ShopifyCustomerPhotoPreviewRequest = z.object({
   r2Key: z.string().min(1),
 });
 export type ShopifyCustomerPhotoPreviewRequest = z.infer<typeof ShopifyCustomerPhotoPreviewRequest>;
+
+// Fixed option sets, not free ranges. A dropdown of allowed values eliminates
+// the "2000 instead of 200" typo class, and an out-of-set value is a 400
+// rather than something that lands silently in JSONB.
+export const STORE_DAILY_CAP_OPTIONS = [50, 100, 250, 500, 1000, 2500, 5000] as const;
+export const PER_SHOPPER_CAP_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
+export const EMAIL_AFTER_N_OPTIONS = [0, 1, 2, 3, 5] as const;
+export const SHOPPER_PHOTO_RETENTION_DAYS = [7, 30, 90] as const;
+export const RESULT_RETENTION_DAYS = [30, 90, 180, 365] as const;
+export const SHOPPER_RECORD_RETENTION_DAYS = [90, 180, 365] as const;
+
+const optionOrOff = <T extends number>(options: readonly T[]) =>
+  z.union([z.literal(null), z.number().refine((n) => (options as readonly number[]).includes(n))]);
+
+export const ShopifyStoreLimitsPatch = z.object({
+  storeDailyCap: optionOrOff(STORE_DAILY_CAP_OPTIONS).optional(),
+  perShopperCap: optionOrOff(PER_SHOPPER_CAP_OPTIONS).optional(),
+  perShopperWindow: z.enum(['day', 'week', 'month']).optional(),
+  emailAfterNTryOns: optionOrOff(EMAIL_AFTER_N_OPTIONS).optional(),
+});
+
+export const ShopifyStoreRetentionPatch = z.object({
+  shopperPhotoDays: optionOrOff(SHOPPER_PHOTO_RETENTION_DAYS).optional(),
+  resultDays: optionOrOff(RESULT_RETENTION_DAYS).optional(),
+  shopperRecordDays: optionOrOff(SHOPPER_RECORD_RETENTION_DAYS).optional(),
+});
+
+export const ShopifyStoreSettingsPatch = z.object({
+  limits: ShopifyStoreLimitsPatch.optional(),
+  retention: ShopifyStoreRetentionPatch.optional(),
+});
+export type ShopifyStoreSettingsPatch = z.infer<typeof ShopifyStoreSettingsPatch>;
+
+/**
+ * Merchant-editable try-on modal config. Every field is optional and nullable:
+ * absent means "leave whatever is stored", null means "clear back to the
+ * Liquid default". Maximums exist so a merchant cannot paste an essay into a
+ * 400px-wide modal — over-length is a 400, never a silent truncate.
+ */
+const widgetText = (max: number) => z.string().max(max).nullable().optional();
+
+export const ShopifyWidgetConfigPatch = z.object({
+  theme: z
+    .object({
+      accentColor: z
+        .string()
+        .regex(/^#[0-9a-fA-F]{6}$/, 'must be a #rrggbb hex color')
+        .nullable()
+        .optional(),
+    })
+    .optional(),
+  copy: z
+    .object({
+      heading: widgetText(60),
+      subheading: widgetText(80),
+      uploadTitle: widgetText(80),
+      uploadLead: widgetText(160),
+      chooseLabel: widgetText(40),
+      ctaLabel: widgetText(40),
+      legalText: widgetText(300),
+      generatingText: widgetText(80),
+      errorText: widgetText(160),
+    })
+    .optional(),
+  behavior: z
+    .object({
+      addToCart: z.boolean().optional(),
+      addToCartLabel: widgetText(30),
+      share: z.boolean().optional(),
+      shareLabel: widgetText(30),
+    })
+    .optional(),
+});
+export type ShopifyWidgetConfigPatch = z.infer<typeof ShopifyWidgetConfigPatch>;
+
+/**
+ * Event types the storefront widget may report. Deliberately excludes the
+ * `refused_*` types: those are written server-side where the refusal is
+ * actually decided, and accepting them from a client would let a shopper
+ * fabricate the "shoppers you turned away" number a merchant acts on.
+ */
+export const SHOPIFY_CLIENT_EVENT_TYPES = [
+  'button_click',
+  'upload',
+  'result_view',
+  'add_to_cart',
+  'share',
+] as const;
+
+export const SHOPIFY_REFUSAL_EVENT_TYPES = [
+  'refused_store_cap',
+  'refused_shopper_cap',
+  'refused_email_gate',
+] as const;
+
+export const ShopifyWidgetEventRequest = z.object({
+  type: z.enum(SHOPIFY_CLIENT_EVENT_TYPES),
+  clientId: z.string().uuid().optional(),
+  shopifyProductId: z.number().int().positive().optional(),
+  device: z.enum(['mobile', 'desktop']).optional(),
+});
+export type ShopifyWidgetEventRequest = z.infer<typeof ShopifyWidgetEventRequest>;
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * `from` and `to` are bare calendar dates naming days in the STORE's timezone,
+ * both inclusive from the merchant's point of view. The server resolves them to
+ * instants; see localDayStart.
+ */
+export const ShopifyAnalyticsQuery = z
+  .object({
+    from: z.string().regex(ISO_DATE, 'must be YYYY-MM-DD'),
+    to: z.string().regex(ISO_DATE, 'must be YYYY-MM-DD'),
+  })
+  .refine((q) => q.to >= q.from, { message: 'to must not be before from' })
+  .refine(
+    (q) => {
+      // Compared as UTC purely to bound the span — a few hours of timezone
+      // skew cannot matter against a 400-day ceiling.
+      const days = (Date.parse(q.to) - Date.parse(q.from)) / 86_400_000;
+      return days <= 400;
+    },
+    { message: 'range must not exceed 400 days' },
+  );
+export type ShopifyAnalyticsQuery = z.infer<typeof ShopifyAnalyticsQuery>;

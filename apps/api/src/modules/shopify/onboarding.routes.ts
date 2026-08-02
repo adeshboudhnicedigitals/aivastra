@@ -2,17 +2,19 @@ import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
+import { mergeStoreSettingsObject, storeSettingsJson } from './settings-json.js';
 
 /**
- * Handle of the app-embed block to activate, i.e. the filename of
- * `apps/shopify-extension/extensions/tryon-theme-extension/blocks/tryon-block.liquid`
+ * Handle of the app block staged for insertion, i.e. the filename of
+ * `apps/shopify-extension/extensions/tryon-theme-extension/blocks/tryon-button.liquid`
  * minus its extension. Renaming that file silently breaks this deep link —
- * Shopify just opens the editor without activating anything.
+ * Shopify just opens the editor without staging the block.
  */
-const TRYON_BLOCK_HANDLE = 'tryon-block';
+const TRYON_BLOCK_HANDLE = 'tryon-button';
 
 /**
- * Deep link into the merchant's live theme editor with our app embed activated.
+ * Deep link into the merchant's live theme editor with our app block staged for
+ * insertion into the product template.
  *
  * Deliberately builds a URL instead of asking the Admin API for the theme ID.
  * The obvious implementation — GET /themes.json?role=main — needs the
@@ -24,16 +26,16 @@ const TRYON_BLOCK_HANDLE = 'tryon-block';
  * button new merchants are told to press first.
  *
  * `themes/current` resolves the published theme server-side, so no theme ID is
- * needed. `activateAppId` is `{client_id}/{block handle}` and toggles the embed
- * on, which also covers the merchant switching themes: app-embed state lives in
- * each theme's own settings and does not carry across, so re-running this link
- * is the recovery path. No `template` param — that only applies to app blocks
- * pinned to one template, and ours is a `target: "body"` embed.
+ * needed. `addAppBlockId` is `{client_id}/{block handle}` and stages the block
+ * for insertion; `template=product` and `target=mainSection` tell the editor
+ * which template to open and which section to drop it into. This replaced an
+ * `activateAppId` app-embed link — app embeds are injected globally by Shopify,
+ * app blocks are placed by the merchant, and the two use different parameters.
  */
 export function buildThemeEditorDeepLink(shopDomain: string, apiKey: string): string {
   return (
     `https://${shopDomain}/admin/themes/current/editor` +
-    `?context=apps&activateAppId=${apiKey}/${TRYON_BLOCK_HANDLE}`
+    `?template=product&addAppBlockId=${apiKey}/${TRYON_BLOCK_HANDLE}&target=mainSection`
   );
 }
 
@@ -43,14 +45,18 @@ export async function shopifyOnboardingRoutes(app: FastifyInstance) {
     { preHandler: app.requireShopifySession },
     async (req) => {
       const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
-      const settings = { ...store.settings, themeBlockConfirmed: true };
+      const settings = mergeStoreSettingsObject(storeSettingsJson(), [], {
+        themeBlockConfirmed: true,
+      });
 
-      await app.db
+      const [updated] = await app.db
         .update(schema.shopifyStores)
         .set({ settings, updatedAt: new Date() })
-        .where(eq(schema.shopifyStores.id, store.id));
+        .where(eq(schema.shopifyStores.id, store.id))
+        .returning({ settings: schema.shopifyStores.settings });
+      if (!updated) throw new AppError('FORBIDDEN', 403, 'Store not installed');
 
-      return { settings };
+      return { settings: updated.settings };
     },
   );
 

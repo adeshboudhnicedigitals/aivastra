@@ -43,9 +43,9 @@ afterAll(async () => {
 });
 
 describe('buildThemeEditorDeepLink', () => {
-  it('targets themes/current and activates the app embed', () => {
+  it('targets themes/current and stages the app block', () => {
     expect(buildThemeEditorDeepLink('o.myshopify.com', 'abc123')).toBe(
-      'https://o.myshopify.com/admin/themes/current/editor?context=apps&activateAppId=abc123/tryon-block',
+      'https://o.myshopify.com/admin/themes/current/editor?template=product&addAppBlockId=abc123/tryon-button&target=mainSection',
     );
   });
 
@@ -67,7 +67,7 @@ describe('GET /v1/shopify/onboarding/theme-editor-url', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().url).toBe(
-      `https://o.myshopify.com/admin/themes/current/editor?context=apps&activateAppId=${API_KEY}/tryon-block`,
+      `https://o.myshopify.com/admin/themes/current/editor?template=product&addAppBlockId=${API_KEY}/tryon-button&target=mainSection`,
     );
   });
 });
