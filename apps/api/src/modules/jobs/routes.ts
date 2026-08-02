@@ -672,7 +672,16 @@ export async function jobsRoutes(app: FastifyInstance) {
         .where(and(eq(schema.jobs.id, id), eq(schema.jobs.userId, req.userId)));
       if (!job) throw new AppError('NOT_FOUND', 404, 'job not found');
       if (job.status !== 'COMPLETED') throw new AppError('NOT_READY', 409, 'job not complete');
-      const { url, expiresIn } = await app.storage.presignGet(keys.output(id), 3600);
+
+      // Tryon-direct results (source='tryon'/'api_tryon') are stored WebP-encoded,
+      // not PNG (see apps/dispatcher/src/workflow/finalize.ts) — the actual
+      // uploaded key must come from job_outputs, not a reconstructed keys.output(id).
+      const [output] = await app.db
+        .select({ resultKey: schema.jobOutputs.resultKey })
+        .from(schema.jobOutputs)
+        .where(eq(schema.jobOutputs.jobId, id));
+      const r2Key = output?.resultKey ?? keys.output(id);
+      const { url, expiresIn } = await app.storage.presignGet(r2Key, 3600);
       return { url, expiresIn };
     },
   );
@@ -693,12 +702,18 @@ export async function jobsRoutes(app: FastifyInstance) {
       if (job.status !== 'COMPLETED') throw new AppError('NOT_READY', 409, 'job not complete');
 
       const [output] = await app.db
-        .select({ thumbnailKey: schema.jobOutputs.thumbnailKey })
+        .select({
+          thumbnailKey: schema.jobOutputs.thumbnailKey,
+          resultKey: schema.jobOutputs.resultKey,
+        })
         .from(schema.jobOutputs)
         .where(eq(schema.jobOutputs.jobId, id));
 
-      // Fall back to full result if no thumbnail generated yet (e.g. backfill pending)
-      const r2Key = output?.thumbnailKey ?? keys.output(id);
+      // Fall back to the full result if no thumbnail generated yet (e.g. backfill
+      // pending) — use the job's actual stored resultKey (tryon-direct results are
+      // WebP, not PNG; see apps/dispatcher/src/workflow/finalize.ts), only falling
+      // back further to the reconstructed PNG key for legacy rows with no output row.
+      const r2Key = output?.thumbnailKey ?? output?.resultKey ?? keys.output(id);
       const { url, expiresIn } = await app.storage.presignGet(r2Key, 3600);
       return { url, expiresIn };
     },
@@ -805,10 +820,18 @@ export async function jobsRoutes(app: FastifyInstance) {
       if (!TERMINAL.includes(job.status)) {
         throw new AppError('CONFLICT', 409, 'cannot delete an active job');
       }
-      // Delete R2 output object if it exists
+      // Delete R2 output object if it exists. Tryon-direct results
+      // (source='tryon'/'api_tryon') are stored WebP-encoded, not PNG (see
+      // apps/dispatcher/src/workflow/finalize.ts) — the actual uploaded key
+      // must come from job_outputs, not a reconstructed keys.output(id), or
+      // this silently no-ops (catch below) and leaks the real object forever.
       if (job.status === 'COMPLETED') {
         try {
-          await app.storage.deleteObject(keys.output(id));
+          const [output] = await app.db
+            .select({ resultKey: schema.jobOutputs.resultKey })
+            .from(schema.jobOutputs)
+            .where(eq(schema.jobOutputs.jobId, id));
+          await app.storage.deleteObject(output?.resultKey ?? keys.output(id));
         } catch {
           /* ignore if missing */
         }

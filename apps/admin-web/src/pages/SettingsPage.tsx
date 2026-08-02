@@ -5,7 +5,21 @@ import { Icon } from '../components/Icons';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { Switch } from '../components/Switch';
 import { useAuth } from '../context/AuthContext';
-import { apiErrorMessage, apiFetch } from '../lib/data';
+import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
+
+function uploadFile(url: string, file: Blob, contentType: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', url);
+    xhr.setRequestHeader('Content-Type', contentType);
+    xhr.onload = () =>
+      xhr.status >= 200 && xhr.status < 300
+        ? resolve()
+        : reject(new Error(uploadErrorMessage(xhr.status)));
+    xhr.onerror = () => reject(new Error(UPLOAD_NETWORK_ERROR));
+    xhr.send(file);
+  });
+}
 
 type Theme = 'light' | 'dark' | 'system';
 
@@ -409,6 +423,9 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   const [uploadLimitsExpanded, setUploadLimitsExpanded] = useState(false);
   const [sysLoading, setSysLoading] = useState(true);
   const [sysSaving, setSysSaving] = useState(false);
+  const [appVideoUrl, setAppVideoUrl] = useState<string | null>(null);
+  const [appVideoLoading, setAppVideoLoading] = useState(true);
+  const [appVideoUploading, setAppVideoUploading] = useState(false);
 
   const [plans, setPlans] = useState<CreditPlan[]>([]);
   const [plansLoading, setPlansLoading] = useState(true);
@@ -484,6 +501,38 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
       )
       .finally(() => setSysLoading(false));
   }, [toast]);
+
+  useEffect(() => {
+    apiFetch<{ videoUrl: string | null }>('/admin/config/app-video')
+      .then((res) => setAppVideoUrl(res.videoUrl))
+      .catch(() => {})
+      .finally(() => setAppVideoLoading(false));
+  }, []);
+
+  const handleAppVideoUpload = async (file: File) => {
+    setAppVideoUploading(true);
+    try {
+      const presign = await apiFetch<{ uploadUrl: string; key: string }>(
+        '/admin/config/app-video/presign',
+        { method: 'POST', body: JSON.stringify({ contentType: 'video/mp4' }) },
+      );
+      await uploadFile(presign.uploadUrl, file, 'video/mp4');
+      const confirmed = await apiFetch<{ videoUrl: string; updatedAt: string }>(
+        '/admin/config/app-video/confirm',
+        { method: 'POST' },
+      );
+      setAppVideoUrl(confirmed.videoUrl);
+      toast({ title: 'App video updated' });
+    } catch (err) {
+      toast({
+        kind: 'error',
+        title: 'Failed to upload video',
+        body: apiErrorMessage(err, 'Please try again.'),
+      });
+    } finally {
+      setAppVideoUploading(false);
+    }
+  };
 
   useEffect(() => {
     apiFetch<{ items: Array<{ id: string; label: string; gender: string }> }>('/admin/assets/faces')
@@ -1295,6 +1344,82 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                       </span>
                     </div>
                   </div>
+                </div>
+
+                <div style={{ marginTop: 24, marginBottom: 8 }}>
+                  <div className="setting-lbl" style={{ marginBottom: 4 }}>
+                    App Video
+                  </div>
+                  <div className="setting-desc" style={{ marginBottom: 12 }}>
+                    Intro/promo clip served to the Android app via{' '}
+                    <code>GET /v1/config/app-video</code>. Uploading a new file replaces the current
+                    one immediately — no separate save step.
+                  </div>
+                  {appVideoLoading ? (
+                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+                  ) : (
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 16,
+                        padding: 14,
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--r)',
+                        background: 'var(--surface-2)',
+                      }}
+                    >
+                      {appVideoUrl ? (
+                        // biome-ignore lint/a11y/useMediaCaption: admin preview of an uploaded clip, not end-user content
+                        <video
+                          key={appVideoUrl}
+                          src={appVideoUrl}
+                          controls
+                          style={{
+                            width: 220,
+                            aspectRatio: '9 / 16',
+                            borderRadius: 6,
+                            background: '#000',
+                            flexShrink: 0,
+                          }}
+                        />
+                      ) : (
+                        <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+                          No video uploaded yet.
+                        </div>
+                      )}
+                      <div>
+                        <input
+                          id="app-video-file-input"
+                          type="file"
+                          accept="video/mp4"
+                          style={{ display: 'none' }}
+                          disabled={appVideoUploading}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            e.target.value = '';
+                            if (file) handleAppVideoUpload(file);
+                          }}
+                        />
+                        <label
+                          htmlFor="app-video-file-input"
+                          className={`btn sm ${appVideoUploading ? '' : 'primary'}`}
+                          style={{
+                            cursor: appVideoUploading ? 'default' : 'pointer',
+                            opacity: appVideoUploading ? 0.6 : 1,
+                            pointerEvents: appVideoUploading ? 'none' : 'auto',
+                          }}
+                        >
+                          <Icon.Upload />
+                          {appVideoUploading
+                            ? 'Uploading…'
+                            : appVideoUrl
+                              ? 'Upload new video'
+                              : 'Upload video'}
+                        </label>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ marginTop: 24, marginBottom: 8 }}>

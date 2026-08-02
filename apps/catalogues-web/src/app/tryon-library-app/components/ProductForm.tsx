@@ -1,11 +1,16 @@
 'use client';
 import type { MerchantCatalogItem } from '@aivastra/types';
 import { useEffect, useRef, useState } from 'react';
-import { CameraIcon, UploadIcon } from '@/components/icons';
+import { CameraIcon, SpinnerIcon, UploadIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { catalogAppApi as api } from '../catalog-app-api';
-import { presignAndUpload } from '../catalog-app-helpers';
+import {
+  deleteProduct,
+  finalizeGeneratedProduct,
+  pollGenerateJob,
+  presignAndUpload,
+} from '../catalog-app-helpers';
 import { useSessionExpiryMessage } from '../use-session-expiry-message';
 import { StickyBottomBar } from './StickyBottomBar';
 
@@ -29,19 +34,28 @@ export function ProductForm({
   const [offerPrice, setOfferPrice] = useState(initialData?.offerPrice.toString() ?? '');
   const [errorMsg, setErrorMsg] = useState<string | undefined>(undefined);
 
+  const [imageMode, setImageMode] = useState<'catalogue' | 'flat'>('catalogue');
   const [selectedFile, setSelectedFile] = useState<File | undefined>(undefined);
   const [previewUrl, setPreviewUrl] = useState<string | undefined>(undefined);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  // The product row created by the generate+import flow, still awaiting the
+  // user's SKU/price entry before the final Save PATCH. If the form unmounts
+  // before that PATCH happens, it's a $0 orphan and gets best-effort deleted.
+  const [generatedItem, setGeneratedItem] = useState<MerchantCatalogItem | undefined>(undefined);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const previewUrlRef = useRef<string | undefined>(undefined);
   previewUrlRef.current = previewUrl;
+  const generatedItemRef = useRef<MerchantCatalogItem | undefined>(undefined);
+  generatedItemRef.current = generatedItem;
 
-  // Clean up on unmount: revoke the object URL.
+  // Clean up on unmount: revoke the object URL and delete an unsaved generated product.
   useEffect(() => {
     return () => {
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+      if (generatedItemRef.current) void deleteProduct(generatedItemRef.current.id);
     };
   }, []);
 
@@ -53,13 +67,50 @@ export function ProductForm({
     setSelectedFile(file);
     setPreviewUrl(URL.createObjectURL(file));
     setErrorMsg(undefined);
+    if (imageMode === 'flat' && generatedItem) {
+      void deleteProduct(generatedItem.id);
+      setGeneratedItem(undefined);
+    }
+  };
+
+  const handleGenerate = async () => {
+    if (!selectedFile) return;
+    setIsGenerating(true);
+    setErrorMsg(undefined);
+    try {
+      if (generatedItem) {
+        await deleteProduct(generatedItem.id);
+        setGeneratedItem(undefined);
+      }
+      const { r2Key: flatImageKey } = await presignAndUpload(selectedFile, 'flat');
+      const { jobId } = await api.post<{ jobId: string }>('/v1/merchant/catalog/generate', {
+        subcategoryId,
+        flatImageKey,
+      });
+      const status = await pollGenerateJob(jobId);
+      if (status.status !== 'COMPLETED') {
+        throw new Error(
+          status.errorCode
+            ? `Generation failed (${status.errorCode})`
+            : 'Generation failed. Please try again.',
+        );
+      }
+      const item = await finalizeGeneratedProduct(jobId, subcategoryId);
+      setGeneratedItem(item);
+    } catch (err) {
+      setErrorMsg(getErrorMessage(err, 'Generation failed.'));
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const actualPriceNum = actualPrice ? parseInt(actualPrice, 10) : 0;
   const offerPriceNum = offerPrice ? parseInt(offerPrice, 10) : 0;
   const hasPriceError = offerPriceNum > actualPriceNum;
-  const missingImage = !isEditing && !selectedFile;
-  const isSaveDisabled = hasPriceError || isSaving || missingImage;
+  const missingImage =
+    !isEditing &&
+    ((imageMode === 'catalogue' && !selectedFile) || (imageMode === 'flat' && !generatedItem));
+  const isSaveDisabled = hasPriceError || isGenerating || isSaving || missingImage;
 
   const handleSubmit = async () => {
     if (!label.trim() || !sku.trim() || !actualPrice || !offerPrice) return;
@@ -77,6 +128,9 @@ export function ProductForm({
 
       if (isEditing && initialData) {
         await api.patch(`/v1/merchant/catalog/${initialData.id}`, priceFields);
+      } else if (imageMode === 'flat') {
+        if (!generatedItem) throw new Error('Generate the catalogue image first.');
+        await api.patch(`/v1/merchant/catalog/${generatedItem.id}`, priceFields);
       } else {
         if (!selectedFile) throw new Error('Upload a product image first.');
         const [{ r2Key }, { r2Key: thumbnailKey }] = await Promise.all([
@@ -91,6 +145,7 @@ export function ProductForm({
         });
       }
 
+      setGeneratedItem(undefined); // saved — don't clean it up on unmount
       onSaved();
     } catch (err) {
       setErrorMsg(getErrorMessage(err, 'Failed to save product.'));
@@ -99,7 +154,7 @@ export function ProductForm({
     }
   };
 
-  const busy = isSaving;
+  const busy = isGenerating || isSaving;
   const displayImageUrl = previewUrl ?? initialData?.imageUrl ?? undefined;
 
   return (
@@ -130,109 +185,383 @@ export function ProductForm({
               <UploadIcon size={28} />
             )}
           </div>
-        ) : previewUrl ? (
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={busy}
-            style={{
-              height: 180,
-              borderRadius: 8,
-              border: `1px dashed ${C.border2}`,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: busy ? 'not-allowed' : 'pointer',
-              overflow: 'hidden',
-              position: 'relative',
-              gap: 8,
-              background: 'none',
-              padding: 0,
-              fontFamily: 'inherit',
-              width: '100%',
-            }}
-            className="hover-surface"
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            {/* biome-ignore lint/performance/noImgElement: local preview */}
-            <img
-              src={previewUrl}
-              alt="Preview"
-              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-            />
-          </button>
         ) : (
-          <div
-            style={{
-              height: 180,
-              borderRadius: 8,
-              border: `1px dashed ${C.border2}`,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 12,
-              width: '100%',
-            }}
-          >
-            <div style={{ color: C.mid }}>
-              <UploadIcon size={28} />
-            </div>
-            <div style={{ fontSize: 13, color: C.mid, fontWeight: 500 }}>
-              Tap to choose a product photo
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
+          <>
+            <div
+              style={{
+                display: 'flex',
+                borderRadius: 8,
+                border: `1px solid ${C.border2}`,
+                overflow: 'hidden',
+                background: C.white,
+              }}
+            >
               <button
                 type="button"
-                onClick={() => cameraInputRef.current?.click()}
+                onClick={() => setImageMode('catalogue')}
                 disabled={busy}
-                className="hover-surface"
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  height: 36,
-                  padding: '0 14px',
-                  borderRadius: 8,
-                  border: `1px solid ${C.border2}`,
-                  background: 'none',
-                  color: C.text,
+                  flex: 1,
+                  padding: '12px 16px',
+                  border: 'none',
+                  background:
+                    imageMode === 'catalogue' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
+                  color: imageMode === 'catalogue' ? C.pink : C.text,
+                  fontWeight: imageMode === 'catalogue' ? 600 : 500,
+                  fontSize: 14,
                   fontFamily: 'inherit',
-                  fontSize: 13,
-                  fontWeight: 600,
                   cursor: busy ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.15s ease',
+                  borderRight: `1px solid ${C.border2}`,
                 }}
               >
-                <CameraIcon size={16} />
-                Take Photo
+                Catalogue Image
               </button>
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => setImageMode('flat')}
                 disabled={busy}
-                className="hover-surface"
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  height: 36,
-                  padding: '0 14px',
-                  borderRadius: 8,
-                  border: `1px solid ${C.border2}`,
-                  background: 'none',
-                  color: C.text,
+                  flex: 1,
+                  padding: '12px 16px',
+                  border: 'none',
+                  background: imageMode === 'flat' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
+                  color: imageMode === 'flat' ? C.pink : C.text,
+                  fontWeight: imageMode === 'flat' ? 600 : 500,
+                  fontSize: 14,
                   fontFamily: 'inherit',
-                  fontSize: 13,
-                  fontWeight: 600,
                   cursor: busy ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.15s ease',
                 }}
               >
-                <UploadIcon size={16} />
-                Choose from Gallery
+                Flat Image
               </button>
             </div>
-          </div>
+
+            {imageMode === 'catalogue' ? (
+              previewUrl ? (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={busy}
+                  style={{
+                    height: 180,
+                    borderRadius: 8,
+                    border: `1px dashed ${C.border2}`,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: busy ? 'not-allowed' : 'pointer',
+                    overflow: 'hidden',
+                    position: 'relative',
+                    gap: 8,
+                    background: 'none',
+                    padding: 0,
+                    fontFamily: 'inherit',
+                    width: '100%',
+                  }}
+                  className="hover-surface"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  {/* biome-ignore lint/performance/noImgElement: local preview */}
+                  <img
+                    src={previewUrl}
+                    alt="Preview"
+                    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                  />
+                </button>
+              ) : (
+                <div
+                  style={{
+                    height: 180,
+                    borderRadius: 8,
+                    border: `1px dashed ${C.border2}`,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 12,
+                    width: '100%',
+                  }}
+                >
+                  <div style={{ color: C.mid }}>
+                    <UploadIcon size={28} />
+                  </div>
+                  <div style={{ fontSize: 13, color: C.mid, fontWeight: 500 }}>
+                    Tap to choose a product photo
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => cameraInputRef.current?.click()}
+                      disabled={busy}
+                      className="hover-surface"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        height: 36,
+                        padding: '0 14px',
+                        borderRadius: 8,
+                        border: `1px solid ${C.border2}`,
+                        background: 'none',
+                        color: C.text,
+                        fontFamily: 'inherit',
+                        fontSize: 13,
+                        fontWeight: 600,
+                        cursor: busy ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      <CameraIcon size={16} />
+                      Take Photo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={busy}
+                      className="hover-surface"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        height: 36,
+                        padding: '0 14px',
+                        borderRadius: 8,
+                        border: `1px solid ${C.border2}`,
+                        background: 'none',
+                        color: C.text,
+                        fontFamily: 'inherit',
+                        fontSize: 13,
+                        fontWeight: 600,
+                        cursor: busy ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      <UploadIcon size={16} />
+                      Choose from Gallery
+                    </button>
+                  </div>
+                </div>
+              )
+            ) : !previewUrl ? (
+              <div
+                style={{
+                  height: 180,
+                  borderRadius: 8,
+                  border: `1px dashed ${C.border2}`,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 12,
+                  width: '100%',
+                }}
+              >
+                <div style={{ color: C.mid }}>
+                  <UploadIcon size={28} />
+                </div>
+                <div style={{ fontSize: 13, color: C.mid, fontWeight: 500 }}>
+                  Upload flat garment photo
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => cameraInputRef.current?.click()}
+                    disabled={busy}
+                    className="hover-surface"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      height: 36,
+                      padding: '0 14px',
+                      borderRadius: 8,
+                      border: `1px solid ${C.border2}`,
+                      background: 'none',
+                      color: C.text,
+                      fontFamily: 'inherit',
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: busy ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    <CameraIcon size={16} />
+                    Take Photo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={busy}
+                    className="hover-surface"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      height: 36,
+                      padding: '0 14px',
+                      borderRadius: 8,
+                      border: `1px solid ${C.border2}`,
+                      background: 'none',
+                      color: C.text,
+                      fontFamily: 'inherit',
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: busy ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    <UploadIcon size={16} />
+                    Choose from Gallery
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 16,
+                  alignItems: 'center',
+                  padding: 16,
+                  borderRadius: 8,
+                  border: `1px solid ${C.border2}`,
+                  background: 'transparent',
+                }}
+              >
+                <div
+                  style={{
+                    width: 96,
+                    height: 120,
+                    borderRadius: 8,
+                    border: `1px solid ${C.border2}`,
+                    background: C.field,
+                    position: 'relative',
+                    overflow: 'hidden',
+                    flexShrink: 0,
+                  }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  {/* biome-ignore lint/performance/noImgElement: local/generated preview */}
+                  <img
+                    src={generatedItem?.imageUrl ?? previewUrl}
+                    alt="Flat Garment"
+                    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                  />
+                  {generatedItem && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: 6,
+                        right: 6,
+                        background: C.pink,
+                        color: C.white,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        padding: '2px 6px',
+                        borderRadius: 4,
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      Generated
+                    </div>
+                  )}
+                </div>
+                <div
+                  style={{
+                    flex: 1,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-start',
+                    gap: 12,
+                  }}
+                >
+                  {!generatedItem ? (
+                    <>
+                      <GradBtn
+                        type="button"
+                        onClick={() => void handleGenerate()}
+                        disabled={isGenerating}
+                      >
+                        {isGenerating && <SpinnerIcon size={14} />}
+                        {isGenerating ? 'Generating...' : 'Generate Catalogue Image'}
+                      </GradBtn>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (previewUrl) URL.revokeObjectURL(previewUrl);
+                          setSelectedFile(undefined);
+                          setPreviewUrl(undefined);
+                        }}
+                        disabled={isGenerating}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          padding: 0,
+                          color: C.mid,
+                          fontSize: 13,
+                          fontFamily: 'inherit',
+                          fontWeight: 500,
+                          cursor: isGenerating ? 'not-allowed' : 'pointer',
+                          textDecoration: 'underline',
+                        }}
+                      >
+                        Choose a different image
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: 13, color: C.text, fontWeight: 500 }}>
+                        Ready to use!
+                      </div>
+                      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                        <button
+                          type="button"
+                          onClick={() => void handleGenerate()}
+                          disabled={busy}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            color: C.text,
+                            fontSize: 13,
+                            fontFamily: 'inherit',
+                            fontWeight: 600,
+                            cursor: busy ? 'not-allowed' : 'pointer',
+                            textDecoration: 'underline',
+                          }}
+                        >
+                          Regenerate
+                        </button>
+                        <span style={{ color: C.border2 }}>|</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (previewUrl) URL.revokeObjectURL(previewUrl);
+                            if (generatedItem) void deleteProduct(generatedItem.id);
+                            setSelectedFile(undefined);
+                            setPreviewUrl(undefined);
+                            setGeneratedItem(undefined);
+                          }}
+                          disabled={busy}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            color: C.mid,
+                            fontSize: 13,
+                            fontFamily: 'inherit',
+                            fontWeight: 500,
+                            cursor: busy ? 'not-allowed' : 'pointer',
+                            textDecoration: 'underline',
+                          }}
+                        >
+                          Change image
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         <input

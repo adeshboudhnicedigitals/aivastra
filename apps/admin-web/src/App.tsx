@@ -11,6 +11,7 @@ import ChatInboxPage from './pages/ChatInboxPage';
 import ContactRequestsPage from './pages/ContactRequestsPage';
 import CreditAnalysisPage from './pages/CreditAnalysisPage';
 import DashboardPage from './pages/DashboardPage';
+import DemoCatalogPage from './pages/DemoCatalogPage';
 import DevApiPage from './pages/DevApiPage';
 import JobsPage from './pages/JobsPage';
 import LoginPage from './pages/LoginPage';
@@ -29,6 +30,7 @@ type Theme = 'light' | 'dark' | 'system';
 const PATH_LABELS: Record<string, string> = {
   dashboard: 'Dashboard',
   assets: 'Assets',
+  'demo-catalog': 'Kiosk Demo Data',
   users: 'Users',
   jobs: 'Jobs',
   workflows: 'Workflows',
@@ -216,6 +218,7 @@ export default function App() {
             <Route path="/shopify-funnels" element={<ShopifyFunnelsPage {...pageProps} />} />
             <Route path="/credit-analysis" element={<CreditAnalysisPage {...pageProps} />} />
             <Route path="/tryon" element={<TryonPage {...pageProps} />} />
+            <Route path="/demo-catalog" element={<DemoCatalogPage {...pageProps} />} />
             <Route path="/dev-api" element={<DevApiPage {...pageProps} />} />
             <Route path="/saree" element={<SareePage {...pageProps} />} />
             <Route path="/chat-inbox" element={<ChatInboxPage {...pageProps} />} />

@@ -36,6 +36,10 @@ const Env = z.object({
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_CALLBACK_URL: z.string().url().optional(),
+  // Extra accepted `aud` values for POST /v1/auth/device-login/google, comma-separated.
+  // Normally unset: the Android ID token's aud is GOOGLE_CLIENT_ID (the Web client ID
+  // passed to Credential Manager as serverClientId).
+  GOOGLE_DEVICE_AUDIENCES: z.string().optional(),
   WEB_URL: z.string().url().default('http://localhost:3000'),
   RESEND_API_KEY: z.string().min(1),
   EMAIL_FROM: z.string().min(1).default('noreply@aivastra.com'),

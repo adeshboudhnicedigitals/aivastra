@@ -8,6 +8,7 @@ import {
   jobsProcessedTotal,
 } from '@aivastra/observability';
 import { keys, type StorageProvider } from '@aivastra/storage';
+import { WORKER_POOL } from '@aivastra/types';
 import type { S3Client } from '@aws-sdk/client-s3';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { and, eq, sql } from 'drizzle-orm';
@@ -33,12 +34,73 @@ import { transitionJob } from './state.js';
 const MAX_ATTEMPTS = 2;
 const MAX_QUEUE_WAIT_MS = 3 * 60 * 60 * 1000; // 3 h — dead-letter if no worker found this long
 
+// Redis Streams have no reinsert-at-position primitive — a re-XADD after finding no
+// free worker always lands at the tail of its lane, so a job can in principle be
+// leapfrogged forever by every job that arrives after it. After this many failed
+// claim attempts (~3 min at the 10s backoff below) we age it into the priority lane
+// so sustained starvation is bounded, without disturbing lane semantics for the
+// common case of a brief worker-busy moment.
+const PROMOTE_TO_PRIORITY_AFTER_RETRIES = 18;
+const PRIORITY_STREAM = 'jobs:priority';
+const REQUEUE_BACKOFF_MS = 10_000;
+
 type JobOutcome = 'success' | 'failed' | 'retried';
 
 /** Record the terminal (or retry) outcome of a processing attempt with its duration. */
 function recordJobOutcome(outcome: JobOutcome, startedAt: number): void {
   jobsProcessedTotal.inc({ outcome });
   jobProcessingDuration.observe({ outcome }, (Date.now() - startedAt) / 1000);
+}
+
+interface RequeueForNoWorkerArgs {
+  db: DB;
+  redis: Redis;
+  jobId: string;
+  stream: string;
+  messageId: string;
+  retryCount: number;
+  /** Extra XADD field/value pairs beyond 'jobId' — e.g. ['userId', userId], or [] when
+   *  the job type re-derives its identity from the DB row instead (merchant/shopify). */
+  extraFields: string[];
+  jobLog: Logger;
+  startedAt: number;
+}
+
+/**
+ * Requeues a job that found no free worker this attempt. Retries on the same
+ * priority lane it arrived on (so normal/low jobs never jump ahead of priority
+ * jobs), but promotes it to jobs:priority after PROMOTE_TO_PRIORITY_AFTER_RETRIES
+ * consecutive misses — see the constant's comment for why that's needed at all.
+ */
+async function requeueForNoWorker(args: RequeueForNoWorkerArgs): Promise<void> {
+  const { db, redis, jobId, stream, messageId, retryCount, extraFields, jobLog, startedAt } = args;
+  const nextRetryCount = retryCount + 1;
+  const targetStream =
+    stream !== PRIORITY_STREAM && nextRetryCount >= PROMOTE_TO_PRIORITY_AFTER_RETRIES
+      ? PRIORITY_STREAM
+      : stream;
+  if (targetStream !== stream) {
+    jobLog.warn(
+      { fromStream: stream, retryCount: nextRetryCount },
+      'job starved of a worker for too long — promoting to priority lane',
+    );
+  }
+  await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
+  await new Promise((resolve) => setTimeout(resolve, REQUEUE_BACKOFF_MS));
+  await redis.xadd(
+    targetStream,
+    'MAXLEN',
+    '~',
+    10000,
+    '*',
+    'jobId',
+    jobId,
+    'retryCount',
+    String(nextRetryCount),
+    ...extraFields,
+  );
+  await redis.xack(stream, 'dispatcher-cg', messageId);
+  recordJobOutcome('retried', startedAt);
 }
 
 export interface ProcessorConfig {
@@ -57,6 +119,7 @@ export async function processJob(
   userId: string,
   stream: string,
   messageId: string,
+  retryCount = 0,
 ): Promise<void> {
   const { db, redis, pub, s3, r2Bucket, log } = cfg;
   const jobLog = log.child({ jobId, userId });
@@ -123,7 +186,7 @@ export async function processJob(
 
   // Widget jobs: merchantId/shopifyStoreId set, faceId/bgId/poseId are null — route to dedicated processor.
   if (job.merchantId || job.shopifyStoreId) {
-    await processWidgetJob(cfg, job, inputs, stream, messageId, jobLog, startedAt);
+    await processWidgetJob(cfg, job, inputs, stream, messageId, jobLog, startedAt, retryCount);
     return;
   }
 
@@ -150,6 +213,7 @@ export async function processJob(
       messageId,
       jobLog,
       startedAt,
+      retryCount,
     );
     return;
   }
@@ -172,6 +236,7 @@ export async function processJob(
       messageId,
       jobLog,
       startedAt,
+      retryCount,
     );
     return;
   }
@@ -194,6 +259,7 @@ export async function processJob(
       messageId,
       jobLog,
       startedAt,
+      retryCount,
     );
     return;
   }
@@ -420,7 +486,7 @@ export async function processJob(
 
   // 3. Claim a worker
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
-  const worker = await selectWorker(redis, 'catalogue');
+  const worker = await selectWorker(redis, WORKER_POOL.CATALOGUE);
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn('no idle worker — job exceeded max queue wait, terminating with refund');
@@ -437,11 +503,17 @@ export async function processJob(
       );
     } else {
       jobLog.warn('no idle worker — re-enqueuing with backoff');
-      await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
-      await new Promise((resolve) => setTimeout(resolve, 10_000));
-      await redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId, 'userId', userId);
-      await redis.xack(stream, 'dispatcher-cg', messageId);
-      recordJobOutcome('retried', startedAt);
+      await requeueForNoWorker({
+        db,
+        redis,
+        jobId,
+        stream,
+        messageId,
+        retryCount,
+        extraFields: ['userId', userId],
+        jobLog,
+        startedAt,
+      });
     }
     return;
   }
@@ -748,6 +820,7 @@ async function processTryonDirectJob(
   messageId: string,
   jobLog: Logger,
   startedAt: number,
+  retryCount: number,
 ): Promise<void> {
   const { db, redis, pub, s3, r2Bucket } = cfg;
   const jobId = job.id;
@@ -817,7 +890,7 @@ async function processTryonDirectJob(
     return;
   }
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
-  const worker = await selectWorker(redis, 'tryon');
+  const worker = await selectWorker(redis, WORKER_POOL.TRYON);
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn('no idle tryon worker — job exceeded max queue wait, terminating with refund');
@@ -834,11 +907,17 @@ async function processTryonDirectJob(
       );
     } else {
       jobLog.warn('no idle worker — re-enqueuing tryon direct job with backoff');
-      await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
-      await new Promise((resolve) => setTimeout(resolve, 10_000));
-      await redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId, 'userId', userId);
-      await redis.xack(stream, 'dispatcher-cg', messageId);
-      recordJobOutcome('retried', startedAt);
+      await requeueForNoWorker({
+        db,
+        redis,
+        jobId,
+        stream,
+        messageId,
+        retryCount,
+        extraFields: ['userId', userId],
+        jobLog,
+        startedAt,
+      });
     }
     return;
   }
@@ -918,11 +997,14 @@ async function processTryonDirectJob(
     const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
 
     // Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
+    // outputFormat: 'webp' — tryon-direct is the only job kind (source='tryon' /
+    // 'api_tryon') whose result is WebP-encoded; see finalize.ts's doc comment.
     await finalizeOutput({
       imageBytes,
       jobId,
       userId,
       jobWatermark: job.watermark,
+      outputFormat: 'webp',
       db,
       pub,
       s3,
@@ -959,6 +1041,7 @@ async function processSareeMannequinJob(
   messageId: string,
   jobLog: Logger,
   startedAt: number,
+  retryCount: number,
 ): Promise<void> {
   const { db, redis, pub, s3, r2Bucket } = cfg;
   const jobId = job.id;
@@ -1143,18 +1226,24 @@ async function processSareeMannequinJob(
 
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
 
-  const worker = await selectWorker(redis, 'saree');
+  const worker = await selectWorker(redis, WORKER_POOL.SAREE);
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn('no idle saree worker — mannequin job exceeded max queue wait, terminating');
       await terminateJob(cfg, jobId, userId, stream, messageId, 'NO_WORKER', 0, jobLog, startedAt);
     } else {
       jobLog.warn('no idle saree worker — re-enqueuing with backoff');
-      await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
-      await new Promise((resolve) => setTimeout(resolve, 10_000));
-      await redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId, 'userId', userId);
-      await redis.xack(stream, 'dispatcher-cg', messageId);
-      recordJobOutcome('retried', startedAt);
+      await requeueForNoWorker({
+        db,
+        redis,
+        jobId,
+        stream,
+        messageId,
+        retryCount,
+        extraFields: ['userId', userId],
+        jobLog,
+        startedAt,
+      });
     }
     return;
   }
@@ -1291,6 +1380,7 @@ async function processSareeJob(
   messageId: string,
   jobLog: Logger,
   startedAt: number,
+  retryCount: number,
 ): Promise<void> {
   const { db, redis, pub, s3, r2Bucket } = cfg;
   const jobId = job.id;
@@ -1361,7 +1451,7 @@ async function processSareeJob(
 
   // Saree jobs route to workers with 'saree' in their allowedJobTypes. Workers
   // self-declare this in the workers table (admin can edit from the Workers page).
-  const worker = await selectWorker(redis, 'saree');
+  const worker = await selectWorker(redis, WORKER_POOL.SAREE);
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn('no idle saree worker — job exceeded max queue wait, terminating with refund');
@@ -1378,11 +1468,17 @@ async function processSareeJob(
       );
     } else {
       jobLog.warn('no idle saree worker — re-enqueuing with backoff');
-      await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
-      await new Promise((resolve) => setTimeout(resolve, 10_000));
-      await redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId, 'userId', userId);
-      await redis.xack(stream, 'dispatcher-cg', messageId);
-      recordJobOutcome('retried', startedAt);
+      await requeueForNoWorker({
+        db,
+        redis,
+        jobId,
+        stream,
+        messageId,
+        retryCount,
+        extraFields: ['userId', userId],
+        jobLog,
+        startedAt,
+      });
     }
     return;
   }
@@ -1506,6 +1602,7 @@ async function processWidgetJob(
   messageId: string,
   jobLog: Logger,
   startedAt: number,
+  retryCount: number,
 ): Promise<void> {
   const { db, redis, pub, s3, r2Bucket } = cfg;
   const jobId = job.id;
@@ -1523,7 +1620,17 @@ async function processWidgetJob(
       ? (JSON.parse(inputs.params) as Record<string, unknown>)
       : ((inputs.params ?? {}) as Record<string, unknown>);
   if (rawParams.kind === 'shopify') {
-    await processShopifyJob(cfg, job, inputs, rawParams, stream, messageId, jobLog, startedAt);
+    await processShopifyJob(
+      cfg,
+      job,
+      inputs,
+      rawParams,
+      stream,
+      messageId,
+      jobLog,
+      startedAt,
+      retryCount,
+    );
     return;
   }
 
@@ -1641,7 +1748,7 @@ async function processWidgetJob(
   // (or an empty allowedJobTypes, i.e. "accepts any") — the same admin-managed pool the
   // main studio flow and Shopify jobs use, via selectWorker. See processShopifyJob for
   // the precedent this mirrors.
-  const worker = await selectWorker(redis, 'merchant');
+  const worker = await selectWorker(redis, WORKER_POOL.MERCHANT);
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn(
@@ -1660,11 +1767,17 @@ async function processWidgetJob(
       );
     } else {
       jobLog.warn('no idle merchant worker — re-enqueuing with backoff');
-      await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
-      await new Promise((resolve) => setTimeout(resolve, 10_000));
-      await redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId);
-      await redis.xack(stream, 'dispatcher-cg', messageId);
-      recordJobOutcome('retried', startedAt);
+      await requeueForNoWorker({
+        db,
+        redis,
+        jobId,
+        stream,
+        messageId,
+        retryCount,
+        extraFields: [],
+        jobLog,
+        startedAt,
+      });
     }
     return;
   }
@@ -1817,6 +1930,7 @@ async function processShopifyJob(
   messageId: string,
   jobLog: Logger,
   startedAt: number,
+  retryCount: number,
 ): Promise<void> {
   const { db, redis, pub, s3, r2Bucket } = cfg;
   const jobId = job.id;
@@ -1904,7 +2018,7 @@ async function processShopifyJob(
   // Shopify jobs route to workers with 'shopify' in their allowedJobTypes. An admin
   // must configure at least one such worker (or one with an empty allowedJobTypes,
   // i.e. "accepts any") for these jobs to ever be picked up — see selectWorker.
-  const worker = await selectWorker(redis, 'shopify');
+  const worker = await selectWorker(redis, WORKER_POOL.SHOPIFY);
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn(
@@ -1924,11 +2038,17 @@ async function processShopifyJob(
       );
     } else {
       jobLog.warn('no idle shopify worker — re-enqueuing with backoff');
-      await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
-      await new Promise((resolve) => setTimeout(resolve, 10_000));
-      await redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId);
-      await redis.xack(stream, 'dispatcher-cg', messageId);
-      recordJobOutcome('retried', startedAt);
+      await requeueForNoWorker({
+        db,
+        redis,
+        jobId,
+        stream,
+        messageId,
+        retryCount,
+        extraFields: [],
+        jobLog,
+        startedAt,
+      });
     }
     return;
   }

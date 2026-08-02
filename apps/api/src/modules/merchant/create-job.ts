@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import { ASPECT_DIMENSIONS, type Resolution, resolutionFromDims } from '@aivastra/types';
+import {
+  ASPECT_DIMENSIONS,
+  JOB_SOURCE,
+  type Resolution,
+  resolutionFromDims,
+} from '@aivastra/types';
 import { aliasedTable, and, eq, ilike } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
@@ -224,7 +229,7 @@ export async function createMerchantCatalogJob(
       watermark: false,
       queueStream: 'normal',
       creditsCharged: cost,
-      source: 'merchant_catalog',
+      source: JOB_SOURCE.MERCHANT_CATALOG,
     });
     await atomicDeduct(tx as unknown as typeof app.db, params.userId, cost, jobId);
     await tx.insert(schema.jobInputs).values({
@@ -371,7 +376,7 @@ export async function createMerchantSareeMannequinJob(
       watermark: false,
       queueStream: 'normal',
       creditsCharged: cost,
-      source: 'merchant_catalog_saree_mannequin',
+      source: JOB_SOURCE.MERCHANT_CATALOG_SAREE_MANNEQUIN,
     });
     await atomicDeduct(tx as unknown as typeof app.db, params.userId, cost, jobId);
     await tx.insert(schema.jobInputs).values({

@@ -16,6 +16,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { createMerchantCatalogJob, createMerchantSareeMannequinJob } from './create-job.js';
+import { IncludeDemoQuery, loadDemoItems, loadDemoSubcategories } from './demo-catalog-read.js';
 import { assertMerchantUploadKey } from './upload-guard.js';
 
 type MerchantCatalogRow = typeof schema.merchantCatalogItems.$inferSelect;
@@ -136,12 +137,17 @@ async function serializeSubcategory(
 export async function merchantCatalogRoutes(app: FastifyInstance) {
   app.get(
     '/v1/merchant/catalog/subcategories',
-    { preHandler: app.requireMerchant },
+    {
+      preHandler: app.requireMerchant,
+      schema: {
+        querystring: z.object({ category: z.string().optional(), includeDemo: IncludeDemoQuery }),
+      },
+    },
     async (req) => {
       const merchantId = req.merchantClientId;
       if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
-      const { category } = req.query as { category?: string };
+      const { category, includeDemo } = req.query as { category?: string; includeDemo: boolean };
       const where = category
         ? and(
             eq(schema.merchantCatalogSubcategories.merchantId, merchantId),
@@ -164,18 +170,27 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
           desc(schema.merchantCatalogSubcategories.createdAt),
         );
 
-      return { items: await Promise.all(rows.map((row) => serializeSubcategory(app, row))) };
+      const own = await Promise.all(rows.map((row) => serializeSubcategory(app, row)));
+      if (!includeDemo) return { items: own };
+      // Demo rows go last so the merchant's real products lead on the kiosk.
+      const demo = await loadDemoSubcategories(app, merchantId, { category });
+      return { items: [...own, ...demo] };
     },
   );
 
   app.get(
     '/v1/merchant/catalog/saree-subcategories',
-    { preHandler: app.requireMerchant },
+    {
+      preHandler: app.requireMerchant,
+      schema: {
+        querystring: z.object({ category: z.string().optional(), includeDemo: IncludeDemoQuery }),
+      },
+    },
     async (req) => {
       const merchantId = req.merchantClientId;
       if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
-      const { category } = req.query as { category?: string };
+      const { category, includeDemo } = req.query as { category?: string; includeDemo: boolean };
       const where = category
         ? and(
             eq(schema.merchantCatalogSubcategories.merchantId, merchantId),
@@ -259,7 +274,10 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         }
       }
 
-      return { items: await Promise.all(rows.map((row) => serializeSubcategory(app, row))) };
+      const own = await Promise.all(rows.map((row) => serializeSubcategory(app, row)));
+      if (!includeDemo) return { items: own };
+      const demo = await loadDemoSubcategories(app, merchantId, { category, mannequinOnly: true });
+      return { items: [...own, ...demo] };
     },
   );
 
@@ -433,35 +451,58 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
     },
   );
 
-  app.get('/v1/merchant/catalog', { preHandler: app.requireMerchant }, async (req) => {
-    const merchantId = req.merchantClientId;
-    if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
+  app.get(
+    '/v1/merchant/catalog',
+    {
+      preHandler: app.requireMerchant,
+      schema: {
+        querystring: z.object({
+          search: z.string().optional(),
+          subcategoryId: z.string().optional(),
+          includeDemo: IncludeDemoQuery,
+        }),
+      },
+    },
+    async (req) => {
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
-    const { search = '', subcategoryId } = req.query as { search?: string; subcategoryId?: string };
-    const conditions: (SQL | undefined)[] = [
-      eq(schema.merchantCatalogItems.merchantId, merchantId),
-    ];
-    if (search.trim()) {
-      const pattern = `%${search.trim()}%`;
-      // Merchants search by SKU as often as by label — match either.
-      conditions.push(
-        or(
-          ilike(schema.merchantCatalogItems.label, pattern),
-          ilike(schema.merchantCatalogItems.sku, pattern),
-        ),
-      );
-    }
-    if (subcategoryId)
-      conditions.push(eq(schema.merchantCatalogItems.subcategoryId, subcategoryId));
+      const {
+        search = '',
+        subcategoryId,
+        includeDemo,
+      } = req.query as { search?: string; subcategoryId?: string; includeDemo: boolean };
+      const conditions: (SQL | undefined)[] = [
+        eq(schema.merchantCatalogItems.merchantId, merchantId),
+      ];
+      if (search.trim()) {
+        const pattern = `%${search.trim()}%`;
+        // Merchants search by SKU as often as by label — match either.
+        conditions.push(
+          or(
+            ilike(schema.merchantCatalogItems.label, pattern),
+            ilike(schema.merchantCatalogItems.sku, pattern),
+          ),
+        );
+      }
+      if (subcategoryId)
+        conditions.push(eq(schema.merchantCatalogItems.subcategoryId, subcategoryId));
 
-    const items = await app.db
-      .select()
-      .from(schema.merchantCatalogItems)
-      .where(and(...conditions))
-      .orderBy(schema.merchantCatalogItems.sortOrder, desc(schema.merchantCatalogItems.createdAt));
+      const items = await app.db
+        .select()
+        .from(schema.merchantCatalogItems)
+        .where(and(...conditions))
+        .orderBy(
+          schema.merchantCatalogItems.sortOrder,
+          desc(schema.merchantCatalogItems.createdAt),
+        );
 
-    return { items: await Promise.all(items.map((item) => serializeCatalogItem(app, item))) };
-  });
+      const own = await Promise.all(items.map((item) => serializeCatalogItem(app, item)));
+      if (!includeDemo) return { items: own };
+      const demo = await loadDemoItems(app, merchantId, { subcategoryId, search });
+      return { items: [...own, ...demo] };
+    },
+  );
 
   app.post(
     '/v1/merchant/catalog',
