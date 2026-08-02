@@ -1,3 +1,42 @@
+## 2026-07-31 — Shopify Analytics
+
+**Done**
+- `shopify_widget_events` (migration 0135) plus the missing
+  `jobs (shopify_store_id, created_at)` index. `bigserial` PK, deliberately not
+  uuid — highest-write-rate table in the system, and random uuids fragment the
+  index.
+- `POST /v1/shopify/customer/event`, public and store-key authed, 600/min per
+  store. Over-budget events are dropped with a 204, never a 429 — analytics must
+  not break a shopper's try-on.
+- Refusal events written at the three 202 sites in `customer.routes.ts`. NOT in
+  `limits.ts` as the design doc said: `checkShopperLimits` runs twice per
+  request and the transactional call rolls back on refusal.
+- `analytics.ts` — cards, store-local daily series with zero-fill, funnel by
+  distinct shopper, per-product aggregation. `GET /v1/shopify/analytics` with a
+  400-day range ceiling.
+- Retention sweeps events past a fixed 400 days, outside the per-store loop so a
+  store with no retention settings is still swept.
+- Widget instrumentation: five fire points, fire-and-forget, `keepalive` on so
+  navigating to /cart cannot cancel the add-to-cart event.
+- Analytics page: presets + custom date picker, six stat tiles, hand-rolled SVG
+  bar charts on Polaris tokens, table views, product table.
+
+**Failed / Not Done**
+- Revenue, order counts and purchase conversion remain out of scope — they need
+  `read_orders`, which requires Shopify app review, brings protected-customer-
+  data obligations, and forces every merchant to re-consent. Its own spec.
+- Widget instrumentation has no automated test; the theme extension has no test
+  runner. Verified against a dev store per the plan's checklist.
+
+**Open Questions / Decisions**
+- The rate metric is named "Add-to-cart rate" everywhere, never "Conversion
+  rate" — it measures a click in a modal, not a sale. When `read_orders` lands,
+  that metric earns the word.
+- The funnel is never clamped monotonic. Client-side steps are lossy and hiding
+  that would hide that they under-report.
+- Live queries, no rollup table. Revisit only when a real store is measurably
+  slow; the endpoint's response shape would not change.
+
 ## 2026-08-01 — Shopify widget OAuth config recovery
 
 **Done**
