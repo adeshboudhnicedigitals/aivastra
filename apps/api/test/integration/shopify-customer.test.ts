@@ -273,6 +273,74 @@ describe('shopify customer routes', () => {
     expect(credits.balance).toBeLessThan(100);
   });
 
+  it('allows a try-on for a product enabled only via an enabled collection', async () => {
+    await seedDefaultFunnelTemplate();
+    const owner = await seedOwner(100);
+    const store = await seedStore(owner.id);
+    const r2Key = await uploadCustomerPhoto(store.storeKey, Buffer.from('photo-bytes'));
+
+    await app.db.insert(schema.shopifyProductGarments).values({
+      storeId: store.id,
+      shopifyProductId: 900,
+      r2Key: `shopify-garments/${store.id}/900/garment.jpg`,
+      title: 'Collection Shirt',
+      status: 'active',
+      enabled: false,
+    });
+    await app.db.insert(schema.shopifyEnabledCollections).values({
+      storeId: store.id,
+      shopifyCollectionId: 500,
+    });
+    await app.db.insert(schema.shopifyCollectionProducts).values({
+      storeId: store.id,
+      shopifyCollectionId: 500,
+      shopifyProductId: 900,
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/customer/jobs',
+      headers: { 'x-widget-key': store.storeKey },
+      payload: { customerPhotoKey: r2Key, shopifyProductId: 900 },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toHaveProperty('jobId');
+  });
+
+  it('refuses a try-on for a product excluded despite global mode', async () => {
+    await seedDefaultFunnelTemplate();
+    const owner = await seedOwner(100);
+    const store = await seedStore(owner.id);
+    const r2Key = await uploadCustomerPhoto(store.storeKey, Buffer.from('photo-bytes'));
+
+    await app.db
+      .update(schema.shopifyStores)
+      .set({ settings: { activation: { mode: 'global' } } })
+      .where(eq(schema.shopifyStores.id, store.id));
+    // enabled: true is deliberate — the old code's plain `!garment.enabled`
+    // check would have let this one through (a real regression). Only the
+    // resolver's exclusion-first rule catches it.
+    await app.db.insert(schema.shopifyProductGarments).values({
+      storeId: store.id,
+      shopifyProductId: 901,
+      r2Key: `shopify-garments/${store.id}/901/garment.jpg`,
+      title: 'Excluded Shirt',
+      status: 'active',
+      enabled: true,
+      excluded: true,
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/customer/jobs',
+      headers: { 'x-widget-key': store.storeKey },
+      payload: { customerPhotoKey: r2Key, shopifyProductId: 901 },
+    });
+    expect(res.statusCode).toBe(202);
+    expect(res.json()).not.toHaveProperty('jobId');
+    expect(res.json().message).toBe('This product is not available for try-on right now.');
+  });
+
   it('rejects a customer photo above the admin-configured limit', async () => {
     const owner = await seedOwner(100);
     const store = await seedStore(owner.id);
