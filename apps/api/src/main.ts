@@ -2,6 +2,7 @@ import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { loadEnv } from './env.js';
 import { hashPassword } from './modules/auth/service.js';
+import { startCollectionResyncScheduler } from './modules/shopify/collections-resync-scheduler.js';
 import { startSyncConsumer } from './modules/shopify/sync-consumer.js';
 import { buildServer } from './server.js';
 
@@ -10,6 +11,7 @@ const app = await buildServer(env);
 await app.listen({ port: env.API_PORT, host: '0.0.0.0' });
 
 startSyncConsumer(app);
+startCollectionResyncScheduler(app);
 
 if (env.ADMIN_BOOTSTRAP_EMAIL && env.ADMIN_BOOTSTRAP_PASSWORD) {
   const [existing] = await app.db

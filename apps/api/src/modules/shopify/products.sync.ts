@@ -1,8 +1,8 @@
 import { schema } from '@aivastra/db';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
-import { shopifyAdminFetch } from './service.js';
+import { type SyncTask, shopifyAdminFetch } from './service.js';
 import { getValidAccessToken } from './token.js';
 
 interface ShopifyProduct {
@@ -252,10 +252,7 @@ async function fetchProductCollectionTitles(
   return titles;
 }
 
-export async function syncOneTask(
-  app: FastifyInstance,
-  task: { storeId: string; mode: 'full' | 'product'; shopifyProductId?: number },
-): Promise<void> {
+export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise<void> {
   const [store] = await app.db
     .select()
     .from(schema.shopifyStores)
@@ -276,6 +273,69 @@ export async function syncOneTask(
     token = await getValidAccessToken(app, store);
     return token;
   };
+
+  if (task.mode === 'collection') {
+    if (task.shopifyCollectionId === undefined) return;
+    const { syncCollectionMembership, CollectionNotFoundError } = await import(
+      './collections.sync.js'
+    );
+    const shopifyCollectionId = task.shopifyCollectionId;
+    try {
+      await syncCollectionMembership(app, store, shopifyCollectionId);
+    } catch (err) {
+      if (err instanceof CollectionNotFoundError) {
+        // Confirmed deleted on Shopify's side — the selection itself is
+        // meaningless now, so remove it along with the cached membership,
+        // not just the membership.
+        await app.db
+          .delete(schema.shopifyCollections)
+          .where(
+            and(
+              eq(schema.shopifyCollections.storeId, store.id),
+              eq(schema.shopifyCollections.shopifyCollectionId, shopifyCollectionId),
+            ),
+          );
+        await app.db
+          .delete(schema.shopifyCollectionProducts)
+          .where(
+            and(
+              eq(schema.shopifyCollectionProducts.storeId, store.id),
+              eq(schema.shopifyCollectionProducts.shopifyCollectionId, shopifyCollectionId),
+            ),
+          );
+        await app.db
+          .delete(schema.shopifyEnabledCollections)
+          .where(
+            and(
+              eq(schema.shopifyEnabledCollections.storeId, store.id),
+              eq(schema.shopifyEnabledCollections.shopifyCollectionId, shopifyCollectionId),
+            ),
+          );
+        await app.db
+          .delete(schema.shopifyExcludedCollections)
+          .where(
+            and(
+              eq(schema.shopifyExcludedCollections.storeId, store.id),
+              eq(schema.shopifyExcludedCollections.shopifyCollectionId, shopifyCollectionId),
+            ),
+          );
+        app.log.info(
+          { storeId: task.storeId, shopifyCollectionId },
+          'collection deleted on Shopify — removed selection and cached membership',
+        );
+        return;
+      }
+      // Anything else (rate limit, 5xx, network) is not a deletion — log and
+      // let next cycle's tick re-enqueue this same collection. The outer
+      // sync-consumer loop already isolates one task's throw from the rest of
+      // the stream, so re-throwing here would be redundant, not additive.
+      app.log.warn(
+        { err, storeId: task.storeId, shopifyCollectionId },
+        'scheduled collection resync failed — will retry next cycle',
+      );
+    }
+    return;
+  }
 
   if (task.mode === 'product' && task.shopifyProductId) {
     const res = await shopifyAdminFetch(shop, token, `/products/${task.shopifyProductId}.json`);
