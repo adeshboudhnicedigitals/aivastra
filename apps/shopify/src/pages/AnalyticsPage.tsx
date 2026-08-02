@@ -17,6 +17,8 @@ import {
 } from '@shopify/polaris';
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { BarChart } from '../components/BarChart';
+import { ChartTable } from '../components/ChartTable';
 import { ANALYTICS_PRESETS, type AnalyticsPreset, resolvePreset } from '../lib/analyticsRange';
 import { apiFetch } from '../lib/api';
 import type { ShopifyAnalytics, ShopifyMe } from '../types';
@@ -180,6 +182,62 @@ export default function AnalyticsPage() {
                 </BlockStack>
               </Card>
             )}
+
+            <Card>
+              <BlockStack gap="300">
+                <Text as="h2" variant="headingMd">
+                  Try-ons per day
+                </Text>
+                <BarChart
+                  orientation="vertical"
+                  data={data.daily.map((d) => ({ label: d.day, value: d.tryOns }))}
+                />
+                <ChartTable
+                  id="daily-table"
+                  columns={['Day', 'Try-ons']}
+                  rows={data.daily.map((d) => ({ label: d.day, value: String(d.tryOns) }))}
+                />
+              </BlockStack>
+            </Card>
+
+            <Card>
+              <BlockStack gap="300">
+                <Text as="h2" variant="headingMd">
+                  Shopper journey
+                </Text>
+                <BarChart
+                  orientation="horizontal"
+                  data={[
+                    { label: 'Clicked try-on', value: data.funnel.buttonClick },
+                    { label: 'Uploaded a photo', value: data.funnel.upload },
+                    { label: 'Generated a try-on', value: data.funnel.tryOn },
+                    { label: 'Viewed the result', value: data.funnel.resultView },
+                    { label: 'Added to cart', value: data.funnel.addToCart },
+                  ]}
+                />
+                <Text as="p" tone="subdued" variant="bodySm">
+                  Steps 1, 2, 4 and 5 are measured in the shopper&apos;s browser and can be blocked.
+                  Try-ons are measured on our servers and are exact — so a later step can show more
+                  shoppers than an earlier one.
+                </Text>
+                {data.funnel.unattributed > 0 && (
+                  <Text as="p" tone="subdued" variant="bodySm">
+                    {`${data.funnel.unattributed} try-ons came from an older widget version and could not be matched to a shopper, so they are not in this chart.`}
+                  </Text>
+                )}
+                <ChartTable
+                  id="funnel-table"
+                  columns={['Step', 'Shoppers']}
+                  rows={[
+                    { label: 'Clicked try-on', value: String(data.funnel.buttonClick) },
+                    { label: 'Uploaded a photo', value: String(data.funnel.upload) },
+                    { label: 'Generated a try-on', value: String(data.funnel.tryOn) },
+                    { label: 'Viewed the result', value: String(data.funnel.resultView) },
+                    { label: 'Added to cart', value: String(data.funnel.addToCart) },
+                  ]}
+                />
+              </BlockStack>
+            </Card>
 
             <Card padding="0">
               <Box padding="400">
