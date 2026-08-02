@@ -215,6 +215,7 @@ Supports subdirectory deployment (e.g. `/app`). All internal asset references an
 | `widget_clients` | Merchant signup records, widget key, allowed origins |
 | `widget_client_credits` | Per-merchant credit balance |
 | `widget_credit_ledger` | Merchant credit delta history |
+| `shopify_widget_events` | Append-only storefront interaction log (clicks, uploads, result views, add-to-carts, shares, and server-written refusals). Advisory only — never read by a credit, limit, or authorization decision. Swept at a fixed 400 days |
 
 ## API Route Modules (`apps/api/src/modules/`)
 
@@ -231,6 +232,7 @@ Supports subdirectory deployment (e.g. `/app`). All internal asset references an
 | `merchant/` | Merchant self-serve (API key regen, webhook config, credits) |
 | `widget/` | Widget job creation, cancellation, ledger |
 | `dev/` | `/v1/dev/tryon`, `/v1/dev/jobs/:id`, `/v1/dev/categories`, `/v1/dev/me` — public developer API, API-key authed |
+| `shopify/` | OAuth install/callback, merchant `/me` + `/settings` + `/shoppers`, catalog generate/publish, widget-config + republish, onboarding, product sync, customer-facing job creation (`/customer/presign`, `/customer/jobs`), GDPR webhooks; `POST /v1/shopify/customer/event` (public ingest), `GET /v1/shopify/analytics` |
 | `admin/` | Full CRUD under `/admin/*` — users, credits, catalog, assets, jobs, workers, config, workflows, widget clients, saree settings |
 
 ## Dispatcher Modules (`apps/dispatcher/src/`)
