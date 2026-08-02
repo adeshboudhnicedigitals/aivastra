@@ -7,6 +7,8 @@ import {
   type CreateCatalogVideoJobRequest,
   type CreateSimpleTryonRequest,
   type CreateTryOnJobRequest,
+  JOB_SOURCE,
+  type JobSource,
   type Resolution,
   resolutionFromDims,
   type SareeStep2Inputs,
@@ -631,10 +633,11 @@ export async function createJob(
     trustedGarmentKeys?: Set<string>;
     /** Set by the public developer API so the resulting jobs are readable through
      *  /v1/dev/jobs/:id and /v1/dev/catalogues/:id, which scope by merchant via a
-     *  join on api_keys and filter jobs.source = 'api'. Omitting either field there
-     *  makes every generated job 404 on its own status endpoint. */
+     *  join on api_keys and filter jobs.source against the api_* JobSource values.
+     *  Omitting either field there makes every generated job 404 on its own status
+     *  endpoint. */
     apiKeyId?: string;
-    source?: string;
+    source?: JobSource;
   },
 ) {
   const {
@@ -723,7 +726,7 @@ export async function createJob(
           queueStream,
           watermark,
           creditsCharged: plan.cost,
-          source: opts?.source ?? 'catalog',
+          source: opts?.source ?? JOB_SOURCE.CATALOG,
         })
         .returning();
       await atomicDeduct(tx as unknown as DB, userId, plan.cost, job.id);
@@ -751,7 +754,7 @@ export async function createJob(
   for (const jobId of jobIds) {
     try {
       await app.redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId, 'userId', userId);
-      jobsCreatedTotal.inc({ priority: queueStream, kind: 'catalogue' });
+      jobsCreatedTotal.inc({ priority: queueStream, kind: JOB_SOURCE.CATALOG });
     } catch (err) {
       app.log.error({ err, jobId }, 'redis xadd failed — job will be refunded');
       failedEnqueues.push(jobId);
@@ -798,9 +801,14 @@ export async function createSimpleTryonJob(
       workflowTemplateId: schema.tryonCategories.workflowTemplateId,
       tryonCategoryIsActive: schema.tryonCategories.isActive,
       workflowTemplateIsActive: schema.workflowTemplates.isActive,
+      // Tryon-direct results (source='tryon'/'api_tryon') are WebP-encoded, not
+      // PNG (see apps/dispatcher/src/workflow/finalize.ts) — the actual uploaded
+      // key must come from here, not be reconstructed via keys.output(sourceJobId).
+      resultKey: schema.jobOutputs.resultKey,
     })
     .from(schema.jobs)
     .innerJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+    .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
     .leftJoin(
       schema.garmentSubcategories,
       eq(schema.garmentSubcategories.id, schema.jobInputs.garmentTypeId),
@@ -856,7 +864,9 @@ export async function createSimpleTryonJob(
     workflowTemplateId = source.workflowTemplateId;
   }
 
-  const garmentKey = keys.output(sourceJobId);
+  // Legacy rows (predating job_outputs.resultKey being populated for every
+  // job) fall back to the PNG convention — safe because webp is new.
+  const garmentKey = source.resultKey ?? keys.output(sourceJobId);
 
   const [[user], [planRow]] = await Promise.all([
     app.db.select().from(schema.users).where(eq(schema.users.id, userId)),
@@ -887,7 +897,7 @@ export async function createSimpleTryonJob(
         queueStream,
         watermark,
         creditsCharged: COST,
-        source: 'tryon',
+        source: JOB_SOURCE.TRYON,
       })
       .returning();
     await atomicDeduct(tx as unknown as DB, userId, COST, newJob.id);
@@ -907,7 +917,7 @@ export async function createSimpleTryonJob(
   const stream = `jobs:${queueStream}`;
   try {
     await app.redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', job.id, 'userId', userId);
-    jobsCreatedTotal.inc({ priority: queueStream, kind: 'tryon' });
+    jobsCreatedTotal.inc({ priority: queueStream, kind: JOB_SOURCE.TRYON });
   } catch (err) {
     app.log.error({ err, jobId: job.id }, 'redis xadd failed — simple tryon job will be refunded');
     await refund(app.db, userId, COST, job.id, 'REFUND_ENQUEUE_FAIL');
@@ -937,8 +947,16 @@ export async function createCatalogVideoJob(
 ) {
   const cost = await getPixverseCreditCost(app);
   const [source] = await app.db
-    .select({ userId: schema.jobs.userId, status: schema.jobs.status })
+    .select({
+      userId: schema.jobs.userId,
+      status: schema.jobs.status,
+      // Tryon-direct results (source='tryon'/'api_tryon') are WebP-encoded, not
+      // PNG (see apps/dispatcher/src/workflow/finalize.ts) — the actual uploaded
+      // key must come from here, not be reconstructed via keys.output(sourceJobId).
+      resultKey: schema.jobOutputs.resultKey,
+    })
     .from(schema.jobs)
+    .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
     .where(eq(schema.jobs.id, body.sourceJobId));
   if (!source) throw new AppError('NOT_FOUND', 404, 'source image not found');
   if (source.userId !== userId)
@@ -968,7 +986,7 @@ export async function createCatalogVideoJob(
         queueStream: 'video',
         watermark: false,
         creditsCharged: cost,
-        source: 'catalog_video',
+        source: JOB_SOURCE.CATALOG_VIDEO,
       })
       .returning();
     await atomicDeduct(tx as unknown as DB, userId, cost, newJob.id);
@@ -977,7 +995,9 @@ export async function createCatalogVideoJob(
       params: {
         kind: 'video',
         sourceJobId: body.sourceJobId,
-        sourceImageKey: keys.output(body.sourceJobId),
+        // Legacy rows (predating job_outputs.resultKey being populated for
+        // every job) fall back to the PNG convention — safe since webp is new.
+        sourceImageKey: source.resultKey ?? keys.output(body.sourceJobId),
         sampleVideoId: body.sampleVideoId,
         prompt: sample.prompt,
       },
@@ -996,7 +1016,7 @@ export async function createCatalogVideoJob(
       'userId',
       userId,
     );
-    jobsCreatedTotal.inc({ priority: 'video', kind: 'catalog_video' });
+    jobsCreatedTotal.inc({ priority: 'video', kind: JOB_SOURCE.CATALOG_VIDEO });
   } catch (err) {
     app.log.error({ err, jobId: job.id }, 'redis xadd failed');
     await refund(app.db, userId, cost, job.id, 'REFUND_ENQUEUE_FAIL');

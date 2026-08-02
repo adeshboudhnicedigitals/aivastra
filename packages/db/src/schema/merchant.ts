@@ -20,6 +20,7 @@ export const merchants = pgTable('merchants', {
   phone: text('phone').notNull(),
   businessAddress: text('business_address').notNull(),
   isActive: boolean('is_active').notNull().default(false),
+  demoData: boolean('demo_data').notNull().default(true),
   kioskEnabled: boolean('kiosk_enabled').notNull().default(false),
   maxKioskDevices: integer('max_kiosk_devices').notNull().default(5),
   webhookUrl: text('webhook_url'),
@@ -29,6 +30,13 @@ export const merchants = pgTable('merchants', {
   // Aivastra default. Null means "no merchant logo, app uses its own default" --
   // see /v1/auth/device-login's logoUrl field in apps/api/src/modules/auth/routes.ts.
   logoKey: text('logo_key'),
+  // 'admin'          -- created through POST /admin/merchants (an admin IS the approval)
+  // 'android_google' -- self-serve Google signup from the Android app via
+  //                    POST /v1/merchant/onboarding. Try-ons are free, so these
+  //                    accounts are the ones to watch for GPU abuse.
+  signupSource: text('signup_source', { enum: ['admin', 'android_google'] })
+    .notNull()
+    .default('admin'),
   // Login credentials live on `users` — a merchant IS a user with a merchants
   // profile attached (same pattern as admin_users). One merchant account per user.
   userId: uuid('user_id')

@@ -6,6 +6,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { createKioskDevice, generatePairingCode, hashPairingCode } from '../kiosk/provisioning.js';
+import { assignMerchantToActiveDemoSets } from '../merchant/demo-catalog-read.js';
 import { merchantAdminGrant } from '../merchant/ledger.js';
 import { findOrCreateUserForMerchant } from '../merchant/user-link.js';
 import { requireAdmin } from './guard.js';
@@ -118,12 +119,14 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
       const clients = await app.db
         .select({
           id: schema.merchants.id,
+          signupSource: schema.merchants.signupSource,
           companyName: schema.merchants.companyName,
           contactName: schema.merchants.contactName,
           email: schema.users.email,
           phone: schema.merchants.phone,
           businessAddress: schema.merchants.businessAddress,
           isActive: schema.merchants.isActive,
+          demoData: schema.merchants.demoData,
           kioskEnabled: schema.merchants.kioskEnabled,
           maxKioskDevices: schema.merchants.maxKioskDevices,
           createdAt: schema.merchants.createdAt,
@@ -201,6 +204,7 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
             // an admin creating this record here IS the approval — no separate
             // activation step needed.
             isActive: true,
+            demoData: true,
           })
           .returning();
 
@@ -211,6 +215,8 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
 
         return created;
       });
+
+      await assignMerchantToActiveDemoSets(app.db, client.id, req.userId);
 
       if (body.initialCredits && body.initialCredits > 0) {
         await merchantAdminGrant(
@@ -242,6 +248,7 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
           phone: schema.merchants.phone,
           businessAddress: schema.merchants.businessAddress,
           isActive: schema.merchants.isActive,
+          demoData: schema.merchants.demoData,
           kioskEnabled: schema.merchants.kioskEnabled,
           maxKioskDevices: schema.merchants.maxKioskDevices,
           userId: schema.merchants.userId,
@@ -320,6 +327,7 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
 
       const updates: Record<string, unknown> = { updatedAt: new Date() };
       if (body.isActive !== undefined) updates.isActive = body.isActive;
+      if (body.demoData !== undefined) updates.demoData = body.demoData;
       if (body.companyName !== undefined) updates.companyName = body.companyName;
       if (body.contactName !== undefined) updates.contactName = body.contactName;
       if (body.phone !== undefined) updates.phone = body.phone;
@@ -344,6 +352,11 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
         .returning();
 
       if (!updated) throw new AppError('NOT_FOUND', 404, 'Merchant not found');
+
+      if (body.demoData === true) {
+        await assignMerchantToActiveDemoSets(app.db, id, req.userId);
+      }
+
       return updated;
     },
   );

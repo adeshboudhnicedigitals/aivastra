@@ -33,9 +33,11 @@ export const jobs = pgTable(
     creditsCharged: integer('credits_charged').notNull().default(1),
     attempts: integer('attempts').notNull().default(0),
     errorCode: text('error_code'),
-    // Which flow created this job — 'catalog' | 'tryon' | 'saree' | 'shopify' | 'api'.
-    // Null for kiosk jobs (attributed via merchants.userId instead, see the
-    // admin credit-analysis routes) and for historical rows not yet backfilled.
+    // Which flow created this job. Canonical value set + a matching WORKER_POOL split
+    // live in @aivastra/types (packages/types/src/job-taxonomy.ts) — see
+    // docs/superpowers/specs/2026-07-30-job-taxonomy-registry-design.md. Null for
+    // kiosk jobs (attributed via merchants.userId instead, see the admin
+    // credit-analysis routes) and for historical rows not yet backfilled.
     source: text('source'),
     // Nullable self-FK: set only by the regenerate endpoint for traceability.
     parentJobId: uuid('parent_job_id'),

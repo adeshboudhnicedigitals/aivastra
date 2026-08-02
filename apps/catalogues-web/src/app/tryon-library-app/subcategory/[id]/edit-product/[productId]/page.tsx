@@ -17,7 +17,9 @@ export default function EditProductScreen() {
   const productsQuery = useQuery({
     queryKey: ['merchant-catalog-products', subcategoryId],
     queryFn: () =>
-      api.get<MerchantCatalogListResponse>(`/v1/merchant/catalog?subcategoryId=${subcategoryId}`),
+      api.get<MerchantCatalogListResponse>(
+        `/v1/merchant/catalog?includeDemo=false&subcategoryId=${subcategoryId}`,
+      ),
   });
   const product = productsQuery.data?.items.find((p) => p.id === productId);
 

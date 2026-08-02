@@ -3,6 +3,7 @@ import type { KioskCatalogListResponse } from '@aivastra/types';
 import { and, desc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
+import { loadDemoItems, loadDemoSubcategories } from '../merchant/demo-catalog-read.js';
 
 type MerchantCatalogRow = typeof schema.merchantCatalogItems.$inferSelect;
 type SubcategoryRow = Pick<
@@ -64,10 +65,31 @@ export async function kioskCatalogRoutes(app: FastifyInstance) {
       )
       .orderBy(schema.merchantCatalogItems.sortOrder, desc(schema.merchantCatalogItems.createdAt));
 
+    const own = await Promise.all(
+      rows.map((row) => serializeCatalogItem(app, row.item, row.subcategory)),
+    );
+    // Same demo set the merchant-token surface sees, reshaped to the kiosk contract.
+    const demo = await loadDemoItems(app, merchantId);
+    const demoSubcategories = await loadDemoSubcategories(app, merchantId);
+    const nameBySubcategory = new Map(demoSubcategories.map((s) => [s.id, s]));
+
     return {
-      items: await Promise.all(
-        rows.map((row) => serializeCatalogItem(app, row.item, row.subcategory)),
-      ),
+      items: [
+        ...own,
+        ...demo.map((item) => {
+          const sub = nameBySubcategory.get(item.subcategoryId);
+          return {
+            id: item.id,
+            label: item.label,
+            sku: item.sku,
+            gender: (sub?.category ??
+              'women') as KioskCatalogListResponse['items'][number]['gender'],
+            category: sub?.name ?? 'Demo',
+            imageUrl: item.imageUrl,
+            thumbnailUrl: item.thumbnailUrl,
+          } satisfies KioskCatalogListResponse['items'][number];
+        }),
+      ],
     };
   });
 }

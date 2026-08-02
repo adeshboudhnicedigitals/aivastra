@@ -1,3 +1,4 @@
+import type { WorkerPool } from '@aivastra/types';
 import type { Redis } from 'ioredis';
 import { healthKey, REGISTRY_KEY } from './registry.js';
 
@@ -46,7 +47,10 @@ export interface ClaimedWorker {
   apiKey: string;
 }
 
-export async function selectWorker(redis: Redis, jobType: string): Promise<ClaimedWorker | null> {
+export async function selectWorker(
+  redis: Redis,
+  jobType: WorkerPool,
+): Promise<ClaimedWorker | null> {
   const healthPrefix = healthKey(''); // "worker:health:"
   const result = (await redis.eval(
     CLAIM_LUA,

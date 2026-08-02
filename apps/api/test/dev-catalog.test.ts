@@ -1,4 +1,5 @@
 import { schema } from '@aivastra/db';
+import { JOB_SOURCE } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { bumpCatalogOptionsVersion } from '../src/lib/catalog-options-cache.js';
@@ -314,7 +315,7 @@ describe('POST /v1/dev/catalog/generate', () => {
     expect(res.status).toBe(400);
   });
 
-  it('creates one job per look under a single catalogueId, tagged source=api with the calling apiKeyId', async () => {
+  it('creates one job per look under a single catalogueId, tagged source=api_catalog with the calling apiKeyId', async () => {
     await setCredits(1000);
     // Distinct pose+background pairs: createJob rejects duplicate combinations,
     // since regenerating the same look twice is pure duplicate spend.
@@ -339,7 +340,7 @@ describe('POST /v1/dev/catalog/generate', () => {
     for (const r of rows) {
       // Both are required for /v1/dev/jobs/:id and /v1/dev/catalogues/:id to find the
       // job at all — createJob defaults to source 'catalog' with no apiKeyId.
-      expect(r.source).toBe('api');
+      expect(r.source).toBe(JOB_SOURCE.API_CATALOG);
       expect(r.apiKeyId).toBeTruthy();
       expect(r.userId).toBe(userId);
     }

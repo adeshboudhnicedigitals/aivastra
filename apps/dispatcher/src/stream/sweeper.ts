@@ -1,5 +1,6 @@
 import { type DB, schema } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
+import { JOB_SOURCE } from '@aivastra/types';
 import { and, eq, inArray, lte, or, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 import { transitionJob } from '../job/state.js';
@@ -12,7 +13,7 @@ const QUEUED_SLA_MS = 10 * 60 * 1000;
 // legitimately for far longer than a GPU job ever should, and failing those at 10 min
 // would refund healthy work that was about to run.
 const VIDEO_QUEUED_SLA_MS = 30 * 60 * 1000;
-const VIDEO_SOURCE = 'catalog_video';
+const VIDEO_SOURCE = JOB_SOURCE.CATALOG_VIDEO;
 // In-flight jobs whose work started (or, for PREPROCESSING, were created) longer ago than
 // this are stuck — a normal try-on completes in ~30-60s, so 15m means the dispatcher died
 // mid-flight. Longer than the QUEUED SLA because these are legitimately mid-processing.
@@ -42,10 +43,32 @@ export async function runSweeper(db: DB, pub: Redis, log: Logger): Promise<void>
   const inFlightThreshold = new Date(now - IN_FLIGHT_SLA_MS);
 
   try {
-    // Pass 1 — orphaned QUEUED jobs that were never dispatched.
+    // A job stuck with status=QUEUED looks identical whether the dispatcher never
+    // touched it (truly orphaned — e.g. crashed before its first attempt) or it's
+    // actively cycling through the no-free-worker backoff in processor.ts (which
+    // budgets up to MAX_QUEUE_WAIT_MS = 3h before giving up on its own). Every
+    // backoff cycle re-enters PREPROCESSING first (see requeueForNoWorker's callers),
+    // which transitionJob logs as a job_events row — so the most recent such row is
+    // a reliable "last touched by dispatcher" heartbeat. Falling back to createdAt
+    // only when no such row exists correctly identifies jobs that were NEVER picked
+    // up, without the sweeper contradicting the processor's own 3h retry budget for
+    // jobs it IS actively retrying.
+    const lastAttempt = db
+      .select({
+        jobId: schema.jobEvents.jobId,
+        lastAttemptAt: sql<string>`max(${schema.jobEvents.createdAt})`.as('last_attempt_at'),
+      })
+      .from(schema.jobEvents)
+      .where(eq(schema.jobEvents.eventType, 'PREPROCESSING'))
+      .groupBy(schema.jobEvents.jobId)
+      .as('last_attempt');
+    const staleness = sql`coalesce(${lastAttempt.lastAttemptAt}, ${schema.jobs.createdAt})`;
+
+    // Pass 1 — orphaned QUEUED jobs that were never dispatched (or never re-touched).
     const orphaned = await db
       .select(SELECT_COLS)
       .from(schema.jobs)
+      .leftJoin(lastAttempt, eq(lastAttempt.jobId, schema.jobs.id))
       .where(
         and(
           eq(schema.jobs.status, 'QUEUED'),
@@ -55,11 +78,11 @@ export async function runSweeper(db: DB, pub: Redis, log: Logger): Promise<void>
             // silently stop sweeping them.
             and(
               sql`coalesce(${schema.jobs.source}, '') <> ${VIDEO_SOURCE}`,
-              lte(schema.jobs.createdAt, sql`${queuedThreshold.toISOString()}`),
+              lte(staleness, sql`${queuedThreshold.toISOString()}`),
             ),
             and(
               eq(schema.jobs.source, VIDEO_SOURCE),
-              lte(schema.jobs.createdAt, sql`${videoQueuedThreshold.toISOString()}`),
+              lte(staleness, sql`${videoQueuedThreshold.toISOString()}`),
             ),
           ),
         ),

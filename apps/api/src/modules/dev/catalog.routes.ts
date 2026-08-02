@@ -9,8 +9,10 @@ import {
   DevCatalogueParams,
   DevCatalogueResponse,
   DevErrorResponse,
+  JOB_SOURCE,
+  LEGACY_JOB_SOURCE,
 } from '@aivastra/types';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getCatalogOptions } from '../../lib/catalog-options-cache.js';
@@ -289,7 +291,7 @@ export async function devCatalogRoutes(app: FastifyInstance) {
             // /v1/dev/jobs/:id and /v1/dev/catalogues/:id, which scope by merchant
             // through api_keys and filter source = 'api'.
             apiKeyId,
-            source: 'api',
+            source: JOB_SOURCE.API_CATALOG,
           },
         );
       } catch (err) {
@@ -346,7 +348,17 @@ export async function devCatalogRoutes(app: FastifyInstance) {
         .from(schema.jobs)
         .innerJoin(schema.apiKeys, eq(schema.apiKeys.id, schema.jobs.apiKeyId))
         .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
-        .where(and(eq(schema.jobs.catalogueId, id), eq(schema.jobs.source, 'api')))
+        .where(
+          and(
+            eq(schema.jobs.catalogueId, id),
+            inArray(schema.jobs.source, [
+              JOB_SOURCE.API_TRYON,
+              JOB_SOURCE.API_SAREE_MANNEQUIN,
+              JOB_SOURCE.API_CATALOG,
+              LEGACY_JOB_SOURCE.API,
+            ]),
+          ),
+        )
         .orderBy(schema.jobs.createdAt);
 
       // 404 (not 403) on someone else's catalogue so ids are not enumerable.
