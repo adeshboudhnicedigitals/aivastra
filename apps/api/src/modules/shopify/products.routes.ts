@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import { and, count, eq, ne } from 'drizzle-orm';
+import { and, count, eq, ilike, ne } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -12,16 +12,22 @@ import { getValidAccessToken } from './token.js';
 const ProductsQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  enabled: z.coerce.boolean().optional(),
+  excluded: z.coerce.boolean().optional(),
+  status: z.enum(['active', 'processing', 'failed', 'deleted']).optional(),
+  q: z.string().optional(),
 });
 
 const PatchProductBody = z
   .object({
     enabled: z.boolean().optional(),
+    excluded: z.boolean().optional(),
     garmentImageUrl: z.string().url().optional(),
   })
-  .refine((b) => b.enabled !== undefined || b.garmentImageUrl !== undefined, {
-    message: 'at least one of enabled or garmentImageUrl is required',
-  });
+  .refine(
+    (b) => b.enabled !== undefined || b.excluded !== undefined || b.garmentImageUrl !== undefined,
+    { message: 'at least one of enabled, excluded, or garmentImageUrl is required' },
+  );
 
 export async function fetchLiveProductImages(
   app: FastifyInstance,
@@ -48,17 +54,27 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
     { preHandler: app.requireShopifySession, schema: { querystring: ProductsQuery } },
     async (req) => {
       const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
-      const { page, pageSize } = req.query as z.infer<typeof ProductsQuery>;
+      const { page, pageSize, enabled, excluded, status, q } = req.query as z.infer<
+        typeof ProductsQuery
+      >;
 
-      const notDeleted = and(
-        eq(schema.shopifyProductGarments.storeId, store.id),
-        ne(schema.shopifyProductGarments.status, 'deleted'),
+      const conditions = [eq(schema.shopifyProductGarments.storeId, store.id)];
+      conditions.push(
+        status
+          ? eq(schema.shopifyProductGarments.status, status)
+          : ne(schema.shopifyProductGarments.status, 'deleted'),
       );
+      if (enabled !== undefined)
+        conditions.push(eq(schema.shopifyProductGarments.enabled, enabled));
+      if (excluded !== undefined)
+        conditions.push(eq(schema.shopifyProductGarments.excluded, excluded));
+      if (q) conditions.push(ilike(schema.shopifyProductGarments.title, `%${q}%`));
+      const where = and(...conditions);
 
       const [{ total }] = await app.db
         .select({ total: count() })
         .from(schema.shopifyProductGarments)
-        .where(notDeleted);
+        .where(where);
 
       const rows = await app.db
         .select({
@@ -67,9 +83,10 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
           r2Key: schema.shopifyProductGarments.r2Key,
           status: schema.shopifyProductGarments.status,
           enabled: schema.shopifyProductGarments.enabled,
+          excluded: schema.shopifyProductGarments.excluded,
         })
         .from(schema.shopifyProductGarments)
-        .where(notDeleted)
+        .where(where)
         .orderBy(schema.shopifyProductGarments.shopifyProductId)
         .limit(pageSize)
         .offset((page - 1) * pageSize);
@@ -80,6 +97,7 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
         thumbnailUrl: app.storage.publicUrl(r.r2Key),
         status: r.status,
         enabled: r.enabled,
+        excluded: r.excluded,
       }));
 
       return { page, pageSize, total, items };
@@ -104,7 +122,7 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
       const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
       const { id } = req.params as { id: string };
       const shopifyProductId = Number(id);
-      const { enabled, garmentImageUrl } = req.body as z.infer<typeof PatchProductBody>;
+      const { enabled, excluded, garmentImageUrl } = req.body as z.infer<typeof PatchProductBody>;
 
       const [existing] = await app.db
         .select()
@@ -174,6 +192,7 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
         .update(schema.shopifyProductGarments)
         .set({
           ...(enabled !== undefined ? { enabled } : {}),
+          ...(excluded !== undefined ? { excluded } : {}),
           ...(newR2Key ? { r2Key: newR2Key } : {}),
         })
         .where(eq(schema.shopifyProductGarments.id, existing.id))
@@ -185,6 +204,7 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
         thumbnailUrl: app.storage.publicUrl(updated.r2Key),
         status: updated.status,
         enabled: updated.enabled,
+        excluded: updated.excluded,
       };
     },
   );
