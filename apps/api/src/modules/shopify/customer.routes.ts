@@ -12,6 +12,7 @@ import { AppError } from '../../lib/errors.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 import { atomicDeduct, refundAndMarkFailed } from '../credits/ledger.js';
+import { resolveEffectiveEnabled } from './activation.js';
 import { mintAccountLinkCode } from './customer-auth.js';
 import {
   checkShopperLimits,
@@ -322,7 +323,8 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
           .code(202)
           .send({ message: "We're preparing this product for try-on. Check back in a moment." });
       }
-      if (!garment.enabled) {
+      const effectivelyEnabled = await resolveEffectiveEnabled(app, store, garment);
+      if (!effectivelyEnabled) {
         return reply
           .code(202)
           .send({ message: 'This product is not available for try-on right now.' });
