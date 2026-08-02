@@ -7,6 +7,12 @@ import { and, eq, inArray, isNotNull, lt, notExists, or, sql } from 'drizzle-orm
 // sweeper runs hourly; anything left over is picked up next time.
 const BATCH = 500;
 
+// Upper bound on select+delete iterations for the events sweep per
+// `runShopifyRetention` call — up to 100k rows/hour. A cap this generous
+// should only ever be hit by a genuinely catastrophic backlog; hitting it
+// logs a warning rather than looping unbounded.
+const MAX_SWEEP_ITERATIONS = 200;
+
 const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000);
 
 /** Delete an R2 object, tolerating failure. One unreachable object must not
@@ -173,20 +179,49 @@ export async function runShopifyRetention(
   // and it is the same ceiling the analytics endpoint enforces on a requested
   // range — a merchant who could shorten it would silently destroy their own
   // history and see it as a traffic collapse.
+  //
+  // Looped rather than a single BATCH-sized bite: a single store can write up
+  // to 600 events/minute through the ingest endpoint's rate limit (up to
+  // 36,000/hour), which one 500-row pass cannot keep up with against an
+  // hourly sweeper. MAX_SWEEP_ITERATIONS bounds a single call so a
+  // catastrophic backlog cannot turn one retention run into an unbounded
+  // loop; hitting it means the backlog needs a manual catch-up pass.
   const eventCutoff = daysAgo(400);
-  const stale = await db
-    .select({ id: schema.shopifyWidgetEvents.id })
-    .from(schema.shopifyWidgetEvents)
-    .where(lt(schema.shopifyWidgetEvents.createdAt, eventCutoff))
-    .limit(BATCH);
+  let totalSwept = 0;
+  let iterations = 0;
+  let hitCap = false;
+  while (true) {
+    iterations++;
+    const stale = await db
+      .select({ id: schema.shopifyWidgetEvents.id })
+      .from(schema.shopifyWidgetEvents)
+      .where(lt(schema.shopifyWidgetEvents.createdAt, eventCutoff))
+      .limit(BATCH);
 
-  if (stale.length > 0) {
+    if (stale.length === 0) break;
+
     await db.delete(schema.shopifyWidgetEvents).where(
       inArray(
         schema.shopifyWidgetEvents.id,
         stale.map((r) => r.id),
       ),
     );
-    log.info({ deleted: stale.length }, 'shopify retention: swept widget events');
+    totalSwept += stale.length;
+
+    if (stale.length < BATCH) break;
+    if (iterations >= MAX_SWEEP_ITERATIONS) {
+      hitCap = true;
+      break;
+    }
+  }
+
+  if (totalSwept > 0) {
+    log.info({ deleted: totalSwept, iterations }, 'shopify retention: swept widget events');
+  }
+  if (hitCap) {
+    log.warn(
+      { deleted: totalSwept, iterations },
+      'shopify retention: hit MAX_SWEEP_ITERATIONS while sweeping widget events — backlog likely remains, needs a manual catch-up pass',
+    );
   }
 }

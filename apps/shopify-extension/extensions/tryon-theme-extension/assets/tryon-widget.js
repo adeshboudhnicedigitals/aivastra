@@ -475,7 +475,12 @@
 
     // Shows the picked photo (new upload or reused) full-size with an
     // explicit "Try It On Now" CTA, instead of generating immediately —
-    // exactly one of file/reuseKey is passed by the two callers.
+    // exactly one of file/reuseKey is passed by the two callers. This is the
+    // single convergence point for both a freshly-picked file
+    // (handlePickedFile) and a remembered reuse photo (enterMainFlow), so the
+    // 'upload' funnel event fires here rather than in either caller — firing
+    // it in handlePickedFile alone under-counts returning shoppers who never
+    // touch the file input.
     function showReady({ file, reuseKey, previewUrl }) {
       resetReadyPreview();
       pendingFile = file || null;
@@ -483,6 +488,7 @@
       if (readyImage) {
         readyImage.src = file ? URL.createObjectURL(file) : previewUrl || '';
       }
+      trackEvent('upload');
       showStep('ready');
     }
 
@@ -726,7 +732,6 @@
         showStep('error');
         return;
       }
-      trackEvent('upload');
       showReady({ file });
     }
     fileInput.addEventListener('change', () => handlePickedFile(fileInput));

@@ -1,6 +1,6 @@
 import type { DB } from '@aivastra/db';
 import { schema } from '@aivastra/db';
-import { and, eq, gte, isNotNull, lt, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 
 export interface AnalyticsRange {
   /** Inclusive UTC instant of the first store-local day. */
@@ -91,7 +91,11 @@ export async function analyticsCards(
     addToCartRate: identified === 0 ? 0 : eventRow.addedToCart / identified,
     emailsCaptured: emailRow.n,
     turnedAway: {
-      total: eventRow.storeCap + eventRow.shopperCap + eventRow.emailGate,
+      // Deliberately excludes emailGate: a shopper who hits the email gate
+      // typically submits their email and gets their try-on anyway (a soft
+      // gate), unlike a store-cap or shopper-cap refusal, which is a genuine
+      // lost try-on. emailGate is still reported as its own field below.
+      total: eventRow.storeCap + eventRow.shopperCap,
       storeCap: eventRow.storeCap,
       shopperCap: eventRow.shopperCap,
       emailGate: eventRow.emailGate,
@@ -263,13 +267,27 @@ export async function analyticsProducts(
     )
     .groupBy(ev.shopifyProductId);
 
-  const titleRows = await db
-    .select({
-      productId: schema.shopifyProductGarments.shopifyProductId,
-      title: schema.shopifyProductGarments.title,
-    })
-    .from(schema.shopifyProductGarments)
-    .where(eq(schema.shopifyProductGarments.storeId, storeId));
+  // Scoped to only the products that actually appear in `jobRows` — this
+  // table is paginated elsewhere (see products.routes.ts) because it can get
+  // large, and a full-store read here would make every page load (and every
+  // date-range change) pay for it regardless of how few products were tried
+  // on in range.
+  const jobProductIds = jobRows.map((r) => Number(r.productId));
+  const titleRows =
+    jobProductIds.length === 0
+      ? []
+      : await db
+          .select({
+            productId: schema.shopifyProductGarments.shopifyProductId,
+            title: schema.shopifyProductGarments.title,
+          })
+          .from(schema.shopifyProductGarments)
+          .where(
+            and(
+              eq(schema.shopifyProductGarments.storeId, storeId),
+              inArray(schema.shopifyProductGarments.shopifyProductId, jobProductIds),
+            ),
+          );
 
   const carts = new Map(cartRows.map((r) => [Number(r.productId), r.addedToCart]));
   const titles = new Map(titleRows.map((r) => [Number(r.productId), r.title]));
