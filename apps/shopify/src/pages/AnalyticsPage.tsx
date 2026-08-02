@@ -72,7 +72,10 @@ export default function AnalyticsPage() {
     if (!range) return;
     setLoading(true);
     apiFetch<ShopifyAnalytics>(`/v1/shopify/analytics?from=${range.from}&to=${range.to}`)
-      .then(setData)
+      .then((res) => {
+        setData(res);
+        setError(null);
+      })
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false));
   }, [range]);
