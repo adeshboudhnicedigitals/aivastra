@@ -1,3 +1,70 @@
+## 2026-08-02 — Shopify activation model
+
+Replaces the old per-product Manage page (enable/disable one product at a
+time) with a full activation model: a global "enable on all products (except
+exclusions)" toggle, per-collection enable/exclude, and the invariant that
+exclusion always wins — over individual enablement, collection membership,
+and even global mode. Design doc:
+`docs/superpowers/specs/2026-08-02-shopify-activation-model-design.md`. Plan:
+`docs/superpowers/plans/2026-08-02-shopify-activation-model.md`. Built via
+Subagent-Driven Development, in place on `feat/shopify-app-refactor`.
+
+**Done**
+- Schema: `shopifyProductGarments.excluded`, plus `shopifyCollections`,
+  `shopifyCollectionProducts`, `shopifyEnabledCollections`,
+  `shopifyExcludedCollections`, and an `activation` block on
+  `ShopifyStoreSettings` (migration 0136).
+- `computeEffectiveEnabled` — a single pure function encoding the one
+  precedence rule (exclusion checked first in every branch, including under
+  global mode), plus `resolveEffectiveEnabled` as the DB-backed wrapper.
+  Wired into the one place that gates a customer try-on
+  (`customer.routes.ts`), replacing the old raw `garment.enabled` check.
+- `GET /v1/shopify/products` extended with `enabled`/`excluded`/`status`/`q`
+  filters; `PATCH /v1/shopify/products/:id` gained an `excluded` field —
+  reused rather than building new `/activation/products` endpoints.
+- Bounded collection membership sync: `syncCollectionMembership` only pulls
+  membership for collections a merchant has actually selected (enabled or
+  excluded), via paginated `collects.json`, replace-syncing the cached
+  membership inside one transaction. An hourly scheduler
+  (`collections-resync-scheduler.ts`) re-enqueues a `collection`-mode
+  `SyncTask` for every currently-selected collection across all stores —
+  cost stays bounded regardless of total catalog size, since Shopify doesn't
+  reliably fire webhooks for smart-collection auto-add. A confirmed
+  double-404 (`CollectionNotFoundError`) cleans up the selection and cached
+  membership; any other failure (429/5xx/network) just logs and lets the
+  next hourly tick retry.
+- Activation routes (`activation.routes.ts`): mode get/set, summary counts
+  (including a catalog-wide "failed to sync" count independent of
+  `enabled`, so a product turned on only via a collection or global mode
+  still has failure visibility), and CRUD + live search for both the
+  enabled- and excluded-collections sets.
+- Manage page full rebuild: global toggle, 5 summary cards, 3 tabs
+  (Collections / Individual Products / Exclusion). Collections and
+  Individual Products go read-only under global mode (data and status
+  badges stay visible, only Add/Remove disable) via a small
+  `isTabEditable` helper; Exclusion stays editable in every mode. Product
+  and collection pickers are a custom Polaris `Modal` build, not Shopify's
+  native App Bridge resource picker — `apps/shopify` has no
+  `@shopify/app-bridge-react` dependency. This rebuild also closes a
+  pre-existing pagination bug: the old page never requested page 2 of the
+  product list; the new `IndividualProductsPanel` uses the API's real
+  `total` field.
+- Dropped "Product Advanced AI Image Settings" from scope entirely — no
+  backend logic exists for it, and none was added by this plan.
+
+**Failed / Not Done**
+- Task 9's manual dev-store browser walkthrough (toggling global mode,
+  adding/excluding a collection, confirming exclusion wins on the
+  storefront, pagination across a real page 2) was not runnable in this
+  session — no live API server or Shopify tunnel was up. Typecheck, lint,
+  and the full automated suite all passed; the manual click-through is
+  still outstanding before this should be considered merchant-verified.
+
+**Open Questions / Decisions**
+- None outstanding — every design-time question (complete replace vs.
+  additive, automatic collection sync, exclusion-always-wins precedence)
+  was settled during brainstorming before the plan was written.
+
 ## 2026-08-02 — Shopify Analytics final review fix wave
 
 Fixes for 5 findings from the whole-branch final review of the Shopify
