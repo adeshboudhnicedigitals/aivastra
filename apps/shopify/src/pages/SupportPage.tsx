@@ -13,23 +13,17 @@ const CHANNELS = [
     action: 'Start a chat',
     url: 'https://app.aivastra.com/support',
   },
-  {
-    title: 'Book a demo',
-    body: 'Schedule a walkthrough or a discovery call with the team.',
-    action: 'Pick a time',
-    url: 'https://app.aivastra.com/demo',
-  },
 ];
 
 export default function SupportPage() {
   return (
-    <Page title="Support" subtitle="Three ways to reach the team.">
+    <Page title="Support" subtitle="Two ways to reach the team.">
       <BlockStack gap="400">
         <Banner tone="info">
           Live chat is the fastest option during business hours. Email is answered within 24 hours
           the rest of the time.
         </Banner>
-        <InlineGrid columns={{ xs: 1, sm: 3 }} gap="400">
+        <InlineGrid columns={{ xs: 1, sm: 2 }} gap="400">
           {CHANNELS.map((channel) => (
             <Card key={channel.title}>
               <BlockStack gap="200">
