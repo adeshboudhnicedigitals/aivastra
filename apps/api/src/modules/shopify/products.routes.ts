@@ -9,11 +9,16 @@ import { assertShopifyCdn } from './products.sync.js';
 import { shopifyAdminFetch } from './service.js';
 import { getValidAccessToken } from './token.js';
 
+const queryBoolean = z
+  .enum(['true', 'false'])
+  .optional()
+  .transform((v) => (v === undefined ? undefined : v === 'true'));
+
 const ProductsQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
-  enabled: z.coerce.boolean().optional(),
-  excluded: z.coerce.boolean().optional(),
+  enabled: queryBoolean,
+  excluded: queryBoolean,
   status: z.enum(['active', 'processing', 'failed', 'deleted']).optional(),
   q: z.string().optional(),
 });
