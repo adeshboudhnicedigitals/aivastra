@@ -1,7 +1,7 @@
 import { type DB, schema } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
 import type { StorageProvider } from '@aivastra/storage';
-import { and, eq, isNotNull, lt, notExists, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, lt, notExists, or, sql } from 'drizzle-orm';
 
 // Bounded so one store with a long backlog cannot monopolise a pass. The
 // sweeper runs hourly; anything left over is picked up next time.
@@ -164,5 +164,29 @@ export async function runShopifyRetention(
         );
       }
     }
+  }
+
+  // Fixed 400-day horizon, deliberately not merchant-configurable and
+  // deliberately not inside the per-store loop above: that loop bails early on
+  // `if (!retention) continue`, and this sweep must run for every store. 400
+  // days covers an "all time" analytics range plus year-over-year comparison,
+  // and it is the same ceiling the analytics endpoint enforces on a requested
+  // range — a merchant who could shorten it would silently destroy their own
+  // history and see it as a traffic collapse.
+  const eventCutoff = daysAgo(400);
+  const stale = await db
+    .select({ id: schema.shopifyWidgetEvents.id })
+    .from(schema.shopifyWidgetEvents)
+    .where(lt(schema.shopifyWidgetEvents.createdAt, eventCutoff))
+    .limit(BATCH);
+
+  if (stale.length > 0) {
+    await db.delete(schema.shopifyWidgetEvents).where(
+      inArray(
+        schema.shopifyWidgetEvents.id,
+        stale.map((r) => r.id),
+      ),
+    );
+    log.info({ deleted: stale.length }, 'shopify retention: swept widget events');
   }
 }
