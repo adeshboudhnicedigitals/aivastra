@@ -157,7 +157,10 @@ describe('analyticsCards', () => {
     expect(cards.uniqueShoppers).toBe(2);
     expect(cards.addedToCart).toBe(1);
     expect(cards.emailsCaptured).toBe(1);
-    expect(cards.turnedAway).toMatchObject({ total: 2, storeCap: 1, emailGate: 1, shopperCap: 0 });
+    // total = storeCap + shopperCap only; emailGate is a soft gate (shopper
+    // typically submits their email and gets the try-on anyway) so it is
+    // reported separately and excluded from the "turned away" total.
+    expect(cards.turnedAway).toMatchObject({ total: 1, storeCap: 1, emailGate: 1, shopperCap: 0 });
     // Denominator is shoppers with an identity (2), not the try-on count (4).
     expect(cards.addToCartRate).toBeCloseTo(0.5, 5);
   });

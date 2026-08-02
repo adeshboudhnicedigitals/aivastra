@@ -61,4 +61,28 @@ describe('shopify retention — widget events', () => {
       .where(eq(schema.shopifyWidgetEvents.storeId, storeId));
     expect(rows).toHaveLength(2);
   });
+
+  it('drains a backlog larger than one BATCH in a single call', async () => {
+    // BATCH is 500 (see retention.ts) — a single select+delete pass cannot
+    // clear this many rows. This proves the sweep loops until fully drained
+    // rather than leaving a remainder for the next hourly run.
+    const OVER_ONE_BATCH = 650;
+    const values = Array.from({ length: OVER_ONE_BATCH }, () => ({
+      storeId,
+      type: 'button_click',
+      createdAt: new Date(Date.now() - 401 * DAY),
+    }));
+    await env.db.insert(schema.shopifyWidgetEvents).values(values);
+
+    await runShopifyRetention(env.db, env.storage, log);
+
+    const rows = await env.db
+      .select()
+      .from(schema.shopifyWidgetEvents)
+      .where(eq(schema.shopifyWidgetEvents.storeId, storeId));
+
+    // Only the two rows already newer than 400 days (seeded in the first
+    // test) should remain — the entire backlog is gone in one call.
+    expect(rows).toHaveLength(2);
+  });
 });

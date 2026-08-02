@@ -1,3 +1,56 @@
+## 2026-08-02 — Shopify Analytics final review fix wave
+
+Fixes for 5 findings from the whole-branch final review of the Shopify
+Analytics plan (`docs/superpowers/plans/2026-07-31-shopify-analytics.md`),
+merged through `e4cde221`.
+
+**⚠️ Ops note for prod deploy:** Migration `0135_shopify_widget_events.sql`
+builds `jobs_shopify_store_created_idx` with a plain (non-concurrent)
+`CREATE INDEX`, which takes a lock blocking all `jobs` inserts for the build
+duration. Apply this migration to production during a low-traffic window, or
+build the index manually with `CREATE INDEX CONCURRENTLY` ahead of the deploy
+and let the migration's `IF NOT EXISTS` no-op over it. (Finding 6 — resolved
+as a runbook note, not a migration rewrite; rewriting an already-applied
+local migration was out of scope for this fix wave.)
+
+**Done**
+- Finding 1 — `AnalyticsPage.tsx`: picking a custom date range now sets
+  `preset` to a new `'custom'` state value, and the button label/preset
+  highlight reflect it instead of silently staying on the last-selected
+  preset.
+- Finding 2 — `retention.ts`: the events-sweep pass now loops select+delete
+  until a pass returns fewer than `BATCH` (500) rows, draining the full
+  backlog past the 400-day horizon in one `runShopifyRetention` call instead
+  of one 500-row bite per hourly run. Capped at `MAX_SWEEP_ITERATIONS` (200,
+  up to 100k rows/hour) with a warning log if the cap is hit.
+- Finding 3 — `analytics.ts`'s `analyticsProducts`: `titleRows` is now scoped
+  to the product IDs present in `jobRows` (via `inArray`) instead of reading
+  every garment row for the store, and short-circuits entirely when
+  `jobRows` is empty.
+- Finding 4 — `tryon-widget.js`: the `upload` funnel event now fires from
+  `showReady`, the single convergence point for both a freshly-picked file
+  and a remembered reuse photo, instead of only from `handlePickedFile` —
+  returning shoppers on the reuse path were previously invisible at this
+  funnel step.
+- Finding 5 — `refused_email_gate` no longer counts toward
+  `turnedAway.total` (it's a soft gate; most shoppers submit their email and
+  get the try-on anyway). It's still reported as its own field
+  (`turnedAway.emailGate`) and the Analytics page now shows it as a separate
+  "Asked for an email" stat tile next to "Emails captured", with the
+  turned-away breakdown card no longer listing it as a badge.
+
+**Failed / Not Done**
+- Nothing skipped from the 5 findings; Finding 6 was deliberately resolved as
+  a docs-only ops note per the human-approved resolution, see above.
+
+**Open Questions / Decisions**
+- Finding 4's fix point (`showReady`) fires `upload` when the photo becomes
+  ready for confirmation, not only when the shopper actually confirms
+  generation — this matches the pre-existing semantics for the fresh-upload
+  path (which fired on file pick, before confirm) rather than tightening it
+  to fire only on `proceedWithPhoto`. Reviewer should confirm this reading of
+  "convergence point" is the intended one.
+
 ## 2026-07-31 — Shopify Analytics
 
 **Done**

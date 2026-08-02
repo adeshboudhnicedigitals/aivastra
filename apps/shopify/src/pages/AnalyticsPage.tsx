@@ -46,7 +46,7 @@ const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
 export default function AnalyticsPage() {
   const navigate = useNavigate();
   const [installedAt, setInstalledAt] = useState<Date | null>(null);
-  const [preset, setPreset] = useState<AnalyticsPreset>('30d');
+  const [preset, setPreset] = useState<AnalyticsPreset | 'custom'>('30d');
   const [range, setRange] = useState<{ from: string; to: string } | null>(null);
   const [data, setData] = useState<ShopifyAnalytics | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -93,8 +93,11 @@ export default function AnalyticsPage() {
   );
 
   const label =
-    ANALYTICS_PRESETS.find((p) => p.id === preset)?.label ??
-    (range ? `${range.from} – ${range.to}` : 'Select dates');
+    preset === 'custom'
+      ? range
+        ? `${range.from} – ${range.to}`
+        : 'Select dates'
+      : (ANALYTICS_PRESETS.find((p) => p.id === preset)?.label ?? 'Select dates');
 
   return (
     <Page title="Analytics">
@@ -127,6 +130,7 @@ export default function AnalyticsPage() {
                     range ? { start: new Date(range.from), end: new Date(range.to) } : undefined
                   }
                   onChange={({ start, end }) => {
+                    setPreset('custom');
                     setRange({
                       from: start.toISOString().slice(0, 10),
                       to: end.toISOString().slice(0, 10),
@@ -161,6 +165,13 @@ export default function AnalyticsPage() {
                   </Button>
                 }
               />
+              {/* A soft gate — most shoppers asked for an email submit it and
+                  get their try-on anyway, so this is deliberately not part of
+                  "Turned away" (which only counts genuinely lost traffic). */}
+              <StatTile
+                label="Asked for an email"
+                value={String(data.cards.turnedAway.emailGate)}
+              />
               <StatTile label="Turned away" value={String(data.cards.turnedAway.total)} />
             </InlineGrid>
 
@@ -173,11 +184,11 @@ export default function AnalyticsPage() {
                   <InlineStack gap="200">
                     <Badge>{`Store daily cap: ${data.cards.turnedAway.storeCap}`}</Badge>
                     <Badge>{`Per-shopper cap: ${data.cards.turnedAway.shopperCap}`}</Badge>
-                    <Badge>{`Email required: ${data.cards.turnedAway.emailGate}`}</Badge>
                   </InlineStack>
                   <Text as="p" tone="subdued">
                     These shoppers wanted a try-on and did not get one. Adjust your limits in
-                    Settings.
+                    Settings. (Shoppers asked for an email are shown separately above — most of them
+                    submit it and get their try-on anyway.)
                   </Text>
                 </BlockStack>
               </Card>
