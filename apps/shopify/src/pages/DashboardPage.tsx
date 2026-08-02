@@ -159,7 +159,13 @@ export default function DashboardPage() {
   }
 
   const synced = (me?.stats.syncedProductCount ?? 0) > 0;
-  const enabled = (me?.stats.enabledProductCount ?? 0) > 0;
+  // Global mode alone satisfies "enable try-on on a product" — under global
+  // mode literally every synced product is enabled except exclusions, so the
+  // gate must not depend on `enabledProductCount`'s precision (e.g. zero
+  // synced products yet, or an edge case where every product is individually
+  // excluded) to reflect that. See apps/api/src/modules/shopify/me.routes.ts.
+  const globalModeOn = me?.store.settings.activation?.mode === 'global';
+  const enabled = globalModeOn || (me?.stats.enabledProductCount ?? 0) > 0;
   const themeBlockDone = me?.store.settings.themeBlockConfirmed ?? false;
   const doneCount = [synced, enabled, themeBlockDone].filter(Boolean).length;
   const allDone = doneCount === 3;
@@ -209,7 +215,7 @@ export default function DashboardPage() {
                 <StepRow
                   done={themeBlockDone}
                   title="Add the Try It On block to your product page"
-                  description="Required — the try-on button only appears where you place this block. Open the theme editor, then save."
+                  description="Required — the try-on button only appears where you place this block. Open the theme editor, drag it directly above the Buy Buttons block, then save."
                 >
                   <Button onClick={openThemeEditor} loading={openingEditor}>
                     Open theme editor
