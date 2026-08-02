@@ -89,6 +89,7 @@ export interface ShopifyProductListItem {
   thumbnailUrl: string;
   status: string;
   enabled: boolean;
+  excluded: boolean;
 }
 
 export interface ShopifyProductImage {
