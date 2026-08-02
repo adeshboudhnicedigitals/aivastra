@@ -2,7 +2,28 @@ declare global {
   interface Window {
     shopify?: {
       idToken(): Promise<string>;
+      saveBar?: {
+        show(id: string): Promise<void>;
+        hide(id: string): Promise<void>;
+      };
     };
+  }
+
+  // @types/react 19 (installed here despite the app running React 18 at
+  // runtime) moved the JSX namespace that "jsx": "react-jsx" actually consults
+  // from the bare global `JSX` to `React.JSX` — augmenting plain `JSX` is a
+  // silent no-op under this setup. See @types/react's react/jsx-runtime.d.ts,
+  // which re-exports `React.JSX.IntrinsicElements` under its own `JSX` export.
+  namespace React {
+    namespace JSX {
+      interface IntrinsicElements {
+        'ui-nav-menu': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement>;
+        'ui-save-bar': React.DetailedHTMLProps<
+          React.HTMLAttributes<HTMLElement> & { id: string },
+          HTMLElement
+        >;
+      }
+    }
   }
 }
 

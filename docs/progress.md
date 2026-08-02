@@ -1,3 +1,560 @@
+## 2026-08-02 — Shopify activation model
+
+Replaces the old per-product Manage page (enable/disable one product at a
+time) with a full activation model: a global "enable on all products (except
+exclusions)" toggle, per-collection enable/exclude, and the invariant that
+exclusion always wins — over individual enablement, collection membership,
+and even global mode. Design doc:
+`docs/superpowers/specs/2026-08-02-shopify-activation-model-design.md`. Plan:
+`docs/superpowers/plans/2026-08-02-shopify-activation-model.md`. Built via
+Subagent-Driven Development, in place on `feat/shopify-app-refactor`.
+
+**Done**
+- Schema: `shopifyProductGarments.excluded`, plus `shopifyCollections`,
+  `shopifyCollectionProducts`, `shopifyEnabledCollections`,
+  `shopifyExcludedCollections`, and an `activation` block on
+  `ShopifyStoreSettings` (migration 0136).
+- `computeEffectiveEnabled` — a single pure function encoding the one
+  precedence rule (exclusion checked first in every branch, including under
+  global mode), plus `resolveEffectiveEnabled` as the DB-backed wrapper.
+  Wired into the one place that gates a customer try-on
+  (`customer.routes.ts`), replacing the old raw `garment.enabled` check.
+- `GET /v1/shopify/products` extended with `enabled`/`excluded`/`status`/`q`
+  filters; `PATCH /v1/shopify/products/:id` gained an `excluded` field —
+  reused rather than building new `/activation/products` endpoints.
+- Bounded collection membership sync: `syncCollectionMembership` only pulls
+  membership for collections a merchant has actually selected (enabled or
+  excluded), via paginated `collects.json`, replace-syncing the cached
+  membership inside one transaction. An hourly scheduler
+  (`collections-resync-scheduler.ts`) re-enqueues a `collection`-mode
+  `SyncTask` for every currently-selected collection across all stores —
+  cost stays bounded regardless of total catalog size, since Shopify doesn't
+  reliably fire webhooks for smart-collection auto-add. A confirmed
+  double-404 (`CollectionNotFoundError`) cleans up the selection and cached
+  membership; any other failure (429/5xx/network) just logs and lets the
+  next hourly tick retry.
+- Activation routes (`activation.routes.ts`): mode get/set, summary counts
+  (including a catalog-wide "failed to sync" count independent of
+  `enabled`, so a product turned on only via a collection or global mode
+  still has failure visibility), and CRUD + live search for both the
+  enabled- and excluded-collections sets.
+- Manage page full rebuild: global toggle, 5 summary cards, 3 tabs
+  (Collections / Individual Products / Exclusion). Collections and
+  Individual Products go read-only under global mode (data and status
+  badges stay visible, only Add/Remove disable) via a small
+  `isTabEditable` helper; Exclusion stays editable in every mode. Product
+  and collection pickers are a custom Polaris `Modal` build, not Shopify's
+  native App Bridge resource picker — `apps/shopify` has no
+  `@shopify/app-bridge-react` dependency. This rebuild also closes a
+  pre-existing pagination bug: the old page never requested page 2 of the
+  product list; the new `IndividualProductsPanel` uses the API's real
+  `total` field.
+- Dropped "Product Advanced AI Image Settings" from scope entirely — no
+  backend logic exists for it, and none was added by this plan.
+
+**Failed / Not Done**
+- Task 9's manual dev-store browser walkthrough (toggling global mode,
+  adding/excluding a collection, confirming exclusion wins on the
+  storefront, pagination across a real page 2) was not runnable in this
+  session — no live API server or Shopify tunnel was up. Typecheck, lint,
+  and the full automated suite all passed; the manual click-through is
+  still outstanding before this should be considered merchant-verified.
+
+**Open Questions / Decisions**
+- None outstanding — every design-time question (complete replace vs.
+  additive, automatic collection sync, exclusion-always-wins precedence)
+  was settled during brainstorming before the plan was written.
+
+## 2026-08-02 — Shopify Analytics final review fix wave
+
+Fixes for 5 findings from the whole-branch final review of the Shopify
+Analytics plan (`docs/superpowers/plans/2026-07-31-shopify-analytics.md`),
+merged through `e4cde221`.
+
+**⚠️ Ops note for prod deploy:** Migration `0135_shopify_widget_events.sql`
+builds `jobs_shopify_store_created_idx` with a plain (non-concurrent)
+`CREATE INDEX`, which takes a lock blocking all `jobs` inserts for the build
+duration. Apply this migration to production during a low-traffic window, or
+build the index manually with `CREATE INDEX CONCURRENTLY` ahead of the deploy
+and let the migration's `IF NOT EXISTS` no-op over it. (Finding 6 — resolved
+as a runbook note, not a migration rewrite; rewriting an already-applied
+local migration was out of scope for this fix wave.)
+
+**Done**
+- Finding 1 — `AnalyticsPage.tsx`: picking a custom date range now sets
+  `preset` to a new `'custom'` state value, and the button label/preset
+  highlight reflect it instead of silently staying on the last-selected
+  preset.
+- Finding 2 — `retention.ts`: the events-sweep pass now loops select+delete
+  until a pass returns fewer than `BATCH` (500) rows, draining the full
+  backlog past the 400-day horizon in one `runShopifyRetention` call instead
+  of one 500-row bite per hourly run. Capped at `MAX_SWEEP_ITERATIONS` (200,
+  up to 100k rows/hour) with a warning log if the cap is hit.
+- Finding 3 — `analytics.ts`'s `analyticsProducts`: `titleRows` is now scoped
+  to the product IDs present in `jobRows` (via `inArray`) instead of reading
+  every garment row for the store, and short-circuits entirely when
+  `jobRows` is empty.
+- Finding 4 — `tryon-widget.js`: the `upload` funnel event now fires from
+  `showReady`, the single convergence point for both a freshly-picked file
+  and a remembered reuse photo, instead of only from `handlePickedFile` —
+  returning shoppers on the reuse path were previously invisible at this
+  funnel step.
+- Finding 5 — `refused_email_gate` no longer counts toward
+  `turnedAway.total` (it's a soft gate; most shoppers submit their email and
+  get the try-on anyway). It's still reported as its own field
+  (`turnedAway.emailGate`) and the Analytics page now shows it as a separate
+  "Asked for an email" stat tile next to "Emails captured", with the
+  turned-away breakdown card no longer listing it as a badge.
+
+**Failed / Not Done**
+- Nothing skipped from the 5 findings; Finding 6 was deliberately resolved as
+  a docs-only ops note per the human-approved resolution, see above.
+
+**Open Questions / Decisions**
+- Finding 4's fix point (`showReady`) fires `upload` when the photo becomes
+  ready for confirmation, not only when the shopper actually confirms
+  generation — this matches the pre-existing semantics for the fresh-upload
+  path (which fired on file pick, before confirm) rather than tightening it
+  to fire only on `proceedWithPhoto`. Reviewer should confirm this reading of
+  "convergence point" is the intended one.
+
+## 2026-07-31 — Shopify Analytics
+
+**Done**
+- `shopify_widget_events` (migration 0135) plus the missing
+  `jobs (shopify_store_id, created_at)` index. `bigserial` PK, deliberately not
+  uuid — highest-write-rate table in the system, and random uuids fragment the
+  index.
+- `POST /v1/shopify/customer/event`, public and store-key authed, 600/min per
+  store. Over-budget events are dropped with a 204, never a 429 — analytics must
+  not break a shopper's try-on.
+- Refusal events written at the three 202 sites in `customer.routes.ts`. NOT in
+  `limits.ts` as the design doc said: `checkShopperLimits` runs twice per
+  request and the transactional call rolls back on refusal.
+- `analytics.ts` — cards, store-local daily series with zero-fill, funnel by
+  distinct shopper, per-product aggregation. `GET /v1/shopify/analytics` with a
+  400-day range ceiling.
+- Retention sweeps events past a fixed 400 days, outside the per-store loop so a
+  store with no retention settings is still swept.
+- Widget instrumentation: five fire points, fire-and-forget, `keepalive` on so
+  navigating to /cart cannot cancel the add-to-cart event.
+- Analytics page: presets + custom date picker, six stat tiles, hand-rolled SVG
+  bar charts on Polaris tokens, table views, product table.
+
+**Failed / Not Done**
+- Revenue, order counts and purchase conversion remain out of scope — they need
+  `read_orders`, which requires Shopify app review, brings protected-customer-
+  data obligations, and forces every merchant to re-consent. Its own spec.
+- Widget instrumentation has no automated test; the theme extension has no test
+  runner. Verified against a dev store per the plan's checklist.
+
+**Open Questions / Decisions**
+- The rate metric is named "Add-to-cart rate" everywhere, never "Conversion
+  rate" — it measures a click in a modal, not a sale. When `read_orders` lands,
+  that metric earns the word.
+- The funnel is never clamped monotonic. Client-side steps are lossy and hiding
+  that would hide that they under-report.
+- Live queries, no rollup table. Revisit only when a real store is measurably
+  slow; the endpoint's response shape would not change.
+
+## 2026-08-01 — Shopify widget OAuth config recovery
+
+**Done**
+- Republish the authoritative `shopify_stores.settings.widget` config with the
+  newly issued access token during the Shopify OAuth callback. A widget save
+  that committed before `SHOPIFY_REAUTH_REQUIRED` can no longer return from
+  reauthorization with Liquid still reading the stale metafield.
+- Persist `settings.widgetConfigSynced` across reloads. Publication marks the
+  config unsynced before the outbound call and clears the marker only when the
+  exact published widget snapshot is still current; failed or raced writes
+  therefore keep the Widget Design retry banner visible.
+- Preserved the Shopify-admin post-install redirect and the existing tolerant
+  handling for non-critical post-install metafield/webhook failures.
+- Added a route-level red-green regression covering the real OAuth callback,
+  stored config payload, fresh-token metafield publication, failed-publication
+  drift persistence, and final redirect.
+- Verification: focused Shopify API tests passed (30/30), Shopify Admin tests
+  passed (35/35), API/Admin typechecks and production builds passed,
+  touched-file Biome checks and `git diff --check` passed.
+
+**Failed / Not Done**
+- No migrations were needed, and no push was performed.
+
+**Open Questions / Decisions**
+- None.
+
+## 2026-08-01 — Shopify widget final timeout and state fixes
+
+**Done**
+- Gave only `PATCH /v1/shopify/widget-config` a 45-second SPA deadline, covering
+  the server's bounded publication-lock wait plus Shopify request while keeping
+  the generic API timeout at 12 seconds. A committed save can now reach the UI
+  as `200 { synced: false }` instead of being reported as a failed request.
+- Canonicalized absent `behavior.addToCart` and `behavior.share` as their
+  storefront-default `true` values during dirty comparison, so disabling and
+  re-enabling either control clears the save bar.
+- Disabled the editable Widget Design form while `/v1/shopify/me` initializes
+  its config snapshot, preventing a slow response from overwriting early input.
+- Added focused red-green regressions for the long save response, unchanged
+  ordinary-request deadline, default-true equality, and initial loading gate.
+
+**Failed / Not Done**
+- No migrations were needed, and no push was performed.
+
+**Open Questions / Decisions**
+- None.
+
+## 2026-08-01 — Shopify widget final reviewer fixes
+
+**Done**
+- Preserved `SHOPIFY_REAUTH_REQUIRED` from Admin API metafield writes so the
+  Widget Design save route reaches the embedded SPA's OAuth redirect handling.
+  Other post-commit publication failures, including Redis lock failures, now
+  return the committed widget config with `synced: false` instead of a false
+  500 indicating the settings were not saved.
+- Widget Design saves now send a leaf-level PATCH relative to the last server
+  snapshot. Unrelated stale fields are no longer sent across concurrent browser
+  tabs, and edits or discard reversals made during the in-flight Shopify
+  publication are rebased onto the response instead of overwritten by it.
+- Escaped the merchant-configured `api_base` Liquid attribute. Moved retry
+  button typography, spacing, text color, and control resets from preview-only
+  CSS into the shared storefront stylesheet, retaining a readable black/white
+  default in both contexts.
+- Added red-green regressions for metafield reauthorization, route-level OAuth
+  propagation, Redis post-commit degradation, partial PATCH generation, and
+  in-flight edit/discard rebasing.
+- Verification: Shopify admin 31/31 tests and production build passed; focused
+  API 17/17 tests, typecheck, and build passed; touched TypeScript Biome checks,
+  widget JavaScript syntax check, and `git diff --check` passed.
+
+**Failed / Not Done**
+- Shopify CLI/theme-check is not installed in this workspace, so there was no
+  separate theme-extension validator beyond the shared CSS being consumed by
+  the passing SPA build/drift tests and the Liquid change being a single
+  standard `escape` filter.
+
+**Open Questions / Decisions**
+- This fix round adds no new decisions. The existing real-Shopify manual
+  acceptance items documented in the entry below remain outstanding. No
+  migrations were needed, and no push was performed.
+
+## 2026-07-31 — Shopify Widget Design + app block migration
+
+**Done**
+- Try-on button moved from app embed (`target: "body"`) to app block
+  (`target: "section"`, `enabled_on.templates: ["product"]`). Deleted
+  `tryon-block.liquid`, `FALLBACK_PLACEMENT_SELECTORS`, `placeWidget()` (~48
+  lines), and the `placement_selector` / `block_alignment` settings. Theme-editor
+  deep link switched from `activateAppId` to
+  `template=product&addAppBlockId=…&target=mainSection`.
+- Widget config stored in `shopify_stores.settings.widget` (no migration) and
+  mirrored to the `aivastra.widget_config` shop metafield via the GraphQL
+  `metafieldsSet` mutation — REST `POST /metafields.json` cannot upsert.
+- `PATCH /v1/shopify/widget-config` and
+  `POST /v1/shopify/widget-config/republish`. Postgres authoritative; failed
+  mirror returns `synced: false` on a 200.
+- Nine configurable copy fields, accent color, and Add to Cart / Share on the
+  result step. Add to Cart reads the theme product form's selected variant and
+  shows Shopify's own 422 message on refusal.
+- Widget Design page: Polaris two-half layout, live preview built on the real
+  `tryon-widget.css`, five step tabs, App Bridge `ui-save-bar` (Polaris
+  `ContextualSaveBar` in dev), unsaved-changes guard, sync-failure retry banner.
+- vitest added to `apps/shopify` with two drift guards binding the preview and
+  its default copy to `tryon-button.liquid`.
+
+**Failed / Not Done**
+- Vintage (non-OS-2.0) theme support dropped by decision — app blocks require
+  JSON templates. Acceptable at zero installs; revisiting means reintroducing a
+  second render path.
+- "Show remaining try-ons" deferred: needs a shopper-limits read endpoint that
+  returns remaining quota before generation.
+- Result-step cart and share logic has no automated test — the theme extension
+  has no test runner.
+- Manual dev-store/browser verification remains outstanding for all four checks:
+  the product-template deep link and dropped-block placement; the no-metafield
+  default appearance; literal rendering of merchant copy such as `<b>x</b>`;
+  and selected-variant Add to Cart, including sold-out error handling and button
+  recovery.
+
+**Open Questions / Decisions**
+- `useBlocker` was unusable (app mounts `<BrowserRouter>`, not a data router), so
+  a module-level `navGuard` consulted by both nav call sites replaced it. If the
+  app ever moves to `createBrowserRouter`, that module should go away.
+- `WIDGET_COPY_DEFAULTS` lives in `apps/shopify/src/lib/widgetDefaults.ts` rather
+  than `packages/types`, because `apps/shopify` deliberately has no
+  `@aivastra/types` dependency (keeps zod out of the SPA bundle) and the server
+  never needs the defaults.
+
+## 2026-07-31 — Shopify shopper limits: final whole-branch review + fix wave
+
+### Done
+- Closes the 12-task shopper-limits plan (`docs/superpowers/plans/2026-07-31-shopify-shopper-limits.md`)
+  with a whole-branch review of the full plan diff (commits `43815b90..98e0808f`) and one fix wave
+  (`98e0808f..490fc0e2`), per `superpowers:subagent-driven-development`'s final-review step. Full ledger
+  in `.superpowers/sdd/2026-07-31-shopify-shopper-limits/progress.md`.
+- The review found no Critical issues. Seven Important findings plus one previously-deferred minor were
+  fixed in one wave and independently re-verified clean by a second reviewer pass:
+  - **`SettingsPage.tsx`:** `Number(raw) || preselected` treated a legitimate `0` ("Before the first
+    try-on") as falsy, silently saving the preselected value (2) instead. Extracted as a pure
+    `resolveNumericLimit` using `Number.isFinite` so `0` round-trips.
+  - **`SettingsPage.tsx`:** the CSV export button used Polaris `Button url=`, which renders a plain
+    `<a href>` — wrong origin in production and no App Bridge auth token, so it 404s or 401s. Replaced
+    with an authenticated fetch (`apiFetch`/new `apiFetchResponse` in `lib/api.ts`) that blobs the
+    response and triggers a download.
+  - **`SettingsPage.tsx`:** the shopper-list fetch's `.catch` only set the error, leaving the `IndexTable`
+    spinning forever on failure. Now also clears `shoppers` to `[]` so the empty state renders.
+  - **`apps/dispatcher/src/shopify/retention.ts`:** the `shopperRecordDays` branch deleted shopper rows
+    on age alone, with no check for still-populated object references on their jobs — the same
+    "never destroy the last reference to an undeleted object" invariant already fixed once at the R2-key
+    level (Task 9), recurring here at the shopper-row/linkage level (deleting the row severs the only
+    path GDPR redaction uses to find those objects). Added a `NOT EXISTS` guard excluding any shopper
+    with a job still holding a non-null `customerPhotoKey`/`resultKey`/`thumbnailKey`.
+  - **`apps/api/src/modules/shopify/gdpr.ts`:** `shop_redact` only purged shopper-linked jobs, so any job
+    with `shopifyShopperId = NULL` (legacy widget traffic with no `clientId`) kept its R2 objects forever
+    even after a full-store erasure request. Added `purgeUnlinkedStoreJobs`, gated strictly to the
+    `matchAll` (`shop_redact`) path — `customers_redact` is unaffected, confirmed by a negative test.
+  - **`apps/api/src/modules/shopify/gdpr.ts` / `webhook.routes.ts`:** a partially-failed redaction (any
+    object delete failure) was swallowed to `log.warn` with no operator-visible signal and no retry path
+    (unlike retention's hourly sweeper). `redactShopperData` now returns `{ removed, incomplete }`; the
+    webhook handler logs at `error` when `incomplete > 0`. No retry/reconciliation system was built —
+    an alertable log line is the accepted scope for this fix.
+  - **`apps/api/src/modules/credits/ledger.ts`:** `refundAndMarkFailed` had no status guard on its jobs
+    UPDATE, so the reverse-direction ambiguous-XADD race (dispatcher completes the job while the API is
+    still inside its own post-commit failure handling) could force-overwrite a `COMPLETED` job to
+    `FAILED` and refund credits for a generation the shopper already received. Added `AND status =
+    'QUEUED'` to the guarded UPDATE; a non-match now skips the refund and status change entirely instead
+    of applying it partially.
+  - **Widget (`tryon-widget.js`):** a logged-in shopper's email (from the `data-customer-email` Liquid
+    prefill, Task 6) was sent to `createJob` and persisted on the very first try-on, before the shopper
+    ever saw the email-gate/consent step — contradicting the plan's own "prefill only" design intent and
+    the Settings page's consent copy. Added an `emailConfirmedByShopper` flag, set only inside the
+    email-gate's submit handler; `createJob` now includes `email`/`emailConsent` only once that flag is
+    true. The Liquid prefill still speeds up filling the gate's input field when a shopper reaches it.
+- All fixes verified: 4-suite Shopify integration 48/48, full API unit suite 323/323 across 42 files,
+  dispatcher build clean, both typechecks clean, widget `node --check` clean, `pnpm lint` clean. Three
+  of the seven findings were verified by reverting the fix and confirming the new test fails first.
+
+### Failed / Not Done
+- (none) — every finding from the final review was fixed and re-verified clean in one fix wave.
+
+### Open Questions / Decisions
+- **User-facing consent gate is now stricter for logged-in shoppers**, per the widget fix above: stores
+  with `emailAfterNTryOns` configured will collect fewer emails from logged-in shoppers than before,
+  since the prefilled address can no longer ride along silently — this is the intended effect of closing
+  the consent gap, not a regression.
+- **Rows captured via the old silent-prefill path are left as-is.** Shopper emails captured before this
+  fix landed (recorded with `emailConsent: false`) remain in `shopify_shoppers` and the CSV export
+  unchanged. User decision (2026-07-31): leave them in place rather than flagging or purging — treated as
+  the merchant's own customer data, consistent with the recommended default presented at review time.
+- Three Minor findings from the re-review were parked, not fixed (none block merge): the CSV download's
+  `URL.revokeObjectURL` runs synchronously right after `anchor.click()` (cross-browser download-cancel
+  risk, strictly better than the prior dead button it replaced); `resolveNumericLimit('', preselected)`
+  returns `0` rather than `preselected` (unreachable given `raw`'s actual call sites); and both
+  `purgeUnlinkedStoreJobs` and the `shopperRecordDays` DELETE remain unbounded with no batch limit
+  (pre-existing pattern, widened rather than introduced — redelivery/re-sweep safe either way).
+
+## 2026-07-31 — Shopify shopper limits: widget dead-history handling + full verification (Task 12)
+
+### Done
+- Closes out the 12-task shopper-limits plan (`docs/superpowers/plans/2026-07-31-shopify-shopper-limits.md`,
+  `.superpowers/sdd/2026-07-31-shopify-shopper-limits/`). Across the plan: the shopper identity model
+  (per-browser `shopify_shoppers` rows keyed on `(storeId, clientId)`, upgraded in place by Shopify
+  customer id or email — `apps/api/src/modules/shopify/shopper.ts`); the three limits (store daily cap,
+  per-shopper cap over a configurable window, and an email-after-N-try-ons gate) enforced with a
+  Redis-backed atomic store-day reservation plus a Postgres advisory lock serializing concurrent
+  requests from the same shopper, with transactional refund-and-compensate on any downstream failure
+  (`apps/api/src/modules/shopify/limits.ts`, `customer.routes.ts`); email capture with consent recorded
+  on the shopper row at job-creation time; the Settings page Limits tab for merchants to configure caps
+  and retention; the captured-email list with CSV export; an hourly retention sweeper that independently
+  nulls `customerPhotoKey`/`resultKey`/`thumbnailKey` only after each object's own R2 delete succeeds,
+  so a partial failure retries just that object next pass instead of orphaning it or wedging the store
+  (`apps/dispatcher/src/shopify/retention.ts`); real `customers/redact`, `customers/data_request`, and
+  `shop/redact` GDPR webhook handlers following the same per-object retry-safe nulling pattern and only
+  deleting a shopper row once every one of its object deletes succeeded (`apps/api/src/modules/shopify/gdpr.ts`);
+  and the dashboard usage card surfacing `todayTryOns` / `storeDailyCap` / `capturedEmailCount`. Several
+  tasks required a correction before being approved: Task 5 (a per-shopper concurrency race and
+  non-atomic compensation, fixed in one review round), Task 6 (a TDZ crash and a dead email-prefill
+  guard in the widget, fixed in one review round), Task 9 (a retention retry-safety gap that could
+  permanently orphan a thumbnail object, fixed in one review round), Task 10 (the GDPR redact handler's
+  unconditional key-nulling and shopper-row deletion, corrected to the Task-9 retry-safe pattern before
+  approval), and Task 11 (a test-fixture cleanup, fixed in one review round). All were resolved and
+  re-reviewed clean; see `.superpowers/sdd/2026-07-31-shopify-shopper-limits/progress.md` for the full
+  per-task ledger.
+- **Task 12, Step 1:** In `renderHistoryList()`
+  (`apps/shopify-extension/extensions/tryon-theme-extension/assets/tryon-widget.js`), added an `error`
+  listener on the history-card thumbnail `<img>` immediately after `img.alt = ''`. Retention can delete
+  the R2 result object a shopper's browser still has cached in `localStorage` history; on a load failure
+  the listener now drops that entry from `getHistory()`, rewrites `HISTORY_STORAGE_KEY`, and re-renders,
+  so a broken image never lingers in the history list.
+- **Task 12, Step 2 (`node --check` on the widget file):** exit 0, no output.
+- **Task 12, Step 3 (`pnpm --filter @aivastra/api test`):** 42/42 files, 323/323 tests passed, exit 0.
+  `test/admin-dev-api.test.ts` — the documented pre-existing full-suite flake — passed on this run.
+- **Task 12, Step 4 (`vitest run --config vitest.integration.config.ts` on the four Shopify integration
+  files together):** `shopify-customer.test.ts`, `shopify-limits.test.ts`, `shopify-settings.test.ts`,
+  `shopify-retention.test.ts` — 4/4 files, 42/42 tests passed, exit 0. Run in isolation from the rest of
+  the integration suite as instructed, so the shared real-Redis rate limiter's 429 cascade (documented
+  below and in the Task 13 entry) did not trigger.
+- **Task 12, Step 5 (`pnpm typecheck && pnpm lint`):** both exit 0. Typecheck: all packages/apps with a
+  `typecheck` script report `Done`, no errors (`apps/admin-web` and `apps/dispatcher` still have no
+  `typecheck` script — pre-existing, unrelated). Lint: 160 warnings / 3 infos, zero errors, all
+  pre-existing and outside this task's touched file; the new widget listener produced no new findings.
+
+### Failed / Not Done
+- (none) — all four verification commands (Steps 2-5) passed cleanly; the pre-existing shared-rate-limiter
+  429 cascade was not encountered because Step 4 ran only the four named Shopify integration files
+  together rather than the full integration suite, as the brief specifies.
+
+### Open Questions / Decisions
+- **Manual smoke test still required** in a real Shopify admin iframe and a real storefront — the email
+  gate (Task 6) and `<ui-nav-menu>` navigation cannot be exercised any other way from this environment.
+- Existing stores have `iana_timezone = NULL` until their next reinstall and fall back to UTC day
+  boundaries for the store-daily-cap and per-shopper-window calculations until then.
+- Deferred (out of scope for this plan): pushing captured emails into Shopify customer records (needs
+  `write_customers` scope plus Shopify's protected-customer-data approval); migrating the widget off
+  direct API calls onto the Shopify App Proxy; notifying the merchant when a store's daily cap is hit.
+
+## 2026-07-31 — Shopify shopper limits: route enforcement (Task 5)
+
+### Done
+- Added test-first enforcement for the Shopify store daily cap, per-shopper cap across linked identity
+  rows, and email gate. Missing or `null` limit settings remain unenforced, while limit refusals return
+  HTTP `202` with exact reason values and non-disclosing store-cap copy.
+- Resolves and links the persisted shopper on accepted jobs, records supplied email consent, and
+  keeps the store cap active when legacy callers omit `clientId`.
+- Added an atomic Redis store-day reservation with a 48-hour expiry. Rejections and downstream
+  failures release the slot; expiry setup failures roll back the increment; release is idempotent and
+  remains retryable if Redis rejects the first decrement.
+- Kept job insertion, inputs, and credit deduction in one Postgres transaction. Redis upload-marker
+  or XADD failures after commit now use the repository's established compensation contract: refund
+  credits, mark the job `FAILED` / `ENQUEUE_FAIL`, release quota, and return HTTP `503`.
+- Excluded compensated `FAILED` jobs from shopper usage counts, so a same-shopper retry does not lose
+  per-shopper quota after an enqueue failure. The focused regression was RED at HTTP `202` before the
+  status filter and GREEN at the deployed success HTTP `201` afterward.
+- Strict TDD evidence: the first focused run was RED (1 passed / 5 failed); separate RED tests exposed
+  missing XADD compensation, upload-marker compensation, expiry rollback, and retryable release before
+  each implementation change. Final focused limits suite passes 9/9.
+- Final verification: existing Shopify customer integration 15/15, API typecheck exit 0, scoped Biome
+  clean (3 TypeScript files), and `git diff --check` clean.
+- Preserved both concurrent widget-design documentation commits: `819180e3` (design) and `139d858b`
+  (implementation plan). The latter is the current Task 5 review base; neither commit's files were
+  changed by Task 5.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- Resolved: successful job creation remains HTTP `201` (the deployed route contract), despite the task
+  brief's `200` sample; limit refusals use HTTP `202` as specified.
+- Resolved: after the RED enqueue test demonstrated that slot-only handling leaves a charged `QUEUED`
+  job, explicit approval was given to use refund + `FAILED` / `ENQUEUE_FAIL` + HTTP `503` compensation.
+- Operational caveat: as with the design's Redis reservation approach, a process crash between slot
+  reservation and cleanup can temporarily fail closed until the 48-hour key expiry.
+
+## 2026-07-31 — Shopify shopper limits: settings PATCH endpoint (Task 4)
+
+### Done
+- Added fixed-option Zod patch schemas for Shopify store limits and retention. `null` explicitly
+  represents Off; the schema accepts no free numeric range or platform default.
+- Added signed-session-protected `PATCH /v1/shopify/settings`, which shallow-merges a nested
+  `limits` or `retention` patch while preserving all unrelated JSONB settings.
+- Extended optional widget request identity fields for the next shopper-limits task without making
+  them required for existing widget calls.
+- Added authenticated integration coverage for out-of-set rejection, unrelated-setting preservation,
+  and turning a configured limit off with `null`.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- (none)
+
+## 2026-07-31 — Shopify shopper limits: database foundation
+
+### Done
+- Added the `shopify_shoppers` schema and migration, with per-store browser identity, Shopify customer and email lookup indexes, consent metadata, and lifecycle timestamps.
+- Added nullable `shopify_stores.iana_timezone` and the `jobs.shopify_shopper_id` SET NULL foreign key, preserving billing history when retention or GDPR erasure removes a shopper.
+- Replaced the dead Shopify widget appearance settings with nested limits and retention settings in both DB and Shopify app type definitions.
+
+### Failed / Not Done
+- The prescribed broad removed-settings grep only finds ignored stale declarations in
+  `packages/db/dist/schema/widget.d.ts` for an unrelated, removed widget schema. The source-tree
+  check (excluding ignored `dist/`) has no matches; the artifact was left untouched.
+
+### Open Questions / Decisions
+- (none)
+
+## 2026-07-31 - Shopify embedded admin restructure: verification (Task 13)
+
+### Done
+- Final verification pass for the 13-task Shopify app restructure (`feat/shopify-app-refactor`, 18 commits
+  ahead of `main`): removed the old per-product `shopify_funnel_rules` routing model and its UI/API
+  entirely, replaced it with a single admin-set `is_default` flag on `shopify_funnel_templates` (the
+  dispatcher now trusts `params.workflowTemplateId` the API pinned at enqueue time — `dc57bda1`,
+  `aa8a293b` — instead of doing its own funnel-rule lookup), and rebuilt the embedded admin app
+  (`apps/shopify`) on stock Polaris behind App Bridge `<ui-nav-menu>` navigation (Dashboard / Manage /
+  Support pages — `7f552eb8`, `6c9a9b21`, `48e8c8da`, `42ab64f8`, `d6ac8e12`).
+- **Step 1 — `pnpm typecheck`:** exit 0. All 10 packages/apps that declare a `typecheck` script report
+  `Done` with no errors (`packages/db`, `apps/shopify`, `packages/logger`, `packages/observability`,
+  `packages/storage`, `packages/types`, `apps/api`, `apps/chatbot`, `apps/admin-mobile`,
+  `apps/catalogues-web`). `apps/admin-web` and `apps/dispatcher` have no `typecheck` script (pre-existing,
+  unrelated to this plan).
+- **Step 2 — `pnpm lint`:** exit 0 (`biome check .`), 158 warnings / 3 infos, zero errors. All warnings
+  are pre-existing and outside the touched surface (`apps/admin-web/src/components/SearchableSelect.tsx`,
+  `apps/api/src/modules/dev/create-saree-mannequin-job.ts`, `apps/api/src/modules/merchant/create-job.ts`,
+  `apps/api/test/admin-dev-api.test.ts`, `apps/api/test/integration/jobs-create.test.ts`,
+  `scripts/ci/lib/classify.mts`). Scoped re-checks confirm both `apps/shopify` (18 files) and
+  `apps/api/src/modules/shopify` (17 files) are fully clean — zero warnings.
+- **Step 3 — unit suite (`pnpm --filter @aivastra/api test`):** **39/39 files, 305/305 tests passed**,
+  exit 0. The known pre-existing intermittent flake, `test/admin-dev-api.test.ts`, happened to pass
+  (13/13) on this run — it is flaky under the full run, not deterministically broken, per this session's
+  earlier isolation testing. No `funnel-rules` or `funnel-routes` test file exists anymore;
+  `test/shopify-funnel-templates-admin.test.ts` (5 tests, passed) covers the new default-template
+  admin flag, a different concept from the removed per-product funnel-rules routing.
+- **Step 4 — integration suite (`vitest run --config vitest.integration.config.ts`):** **41/70 files
+  passed, 239/327 tests passed, 34 skipped**; 29 files / 54 tests failed. This reproduces the
+  established, pre-existing, repo-wide test-infra issue: the shared real-Redis global rate limiter
+  (`apps/api/src/server.ts:168`, `max: 200/min`) is never reset between test files, so registration/login
+  calls get 429'd partway through the run, cascading into `adminAuthHeader: registered user not found`
+  and downstream assertion failures across unrelated auth-dependent files (`auth`, `admin-approval`,
+  `backgrounds-mine`, `jobs-create`, `saree-jobs`, `credits`, `e2e`, `payments-tier`, etc.). 29 failed
+  files is within the 13-30 range observed twice independently earlier this session (parallel run: 30/70;
+  serial run: 13/70). **`test/integration/shopify-customer.test.ts` passed 15/15**, and none of the 29
+  failing files are shopify- or funnel-related. One secondary failure
+  (`catalog.test.ts` — `null value in column "type" of relation "catalog_items" violates not-null
+  constraint`) is a pre-existing, deterministic bug in the test helper itself, not the CLAUDE.md
+  slug-collision gotcha: `seedCatalog()` (`apps/api/test/integration/catalog.test.ts:51-57`) inserts into
+  `schema.catalogItems` without ever setting the `type` column, which `packages/db/src/schema/catalog.ts:26`
+  defines as `text('type').notNull()` with no default (migration `0021_catalog_item_direct_type.sql`
+  backfilled existing rows once and then set `NOT NULL`, but added no default). It fails on every run
+  regardless of parallelism, and is unrelated to this plan's changes.
+- **Step 5 — catalog surface untouched:** `git diff --stat main..HEAD -- apps/api/src/modules/shopify/catalog.routes.ts apps/api/src/modules/shopify/catalog-options.routes.ts apps/api/src/modules/shopify/catalog-publish.ts packages/db/src/schema/jobs.ts`
+  → empty output. Confirmed the funnel-rules removal did not touch the catalog surface.
+
+### Failed / Not Done
+- **The integration suite does not fully pass, and this is a known, pre-existing, out-of-scope
+  condition — not a regression introduced by this plan.** 29/70 integration test files fail due to the
+  untracked shared rate-limiter described above. This has been true of the full integration run all
+  session (verified independently twice before this task), is unrelated to shopify/funnel code, and is
+  not fixed here. Anyone re-running the full suite in one process should expect the same cascade;
+  running `shopify-customer.test.ts` (or any single file) in isolation is unaffected.
+- Step 6 (manual smoke in a real embedded admin) could not be performed — see Open Questions below.
+
+### Open Questions / Decisions
+- **Manual smoke test not yet performed** — `<ui-nav-menu>` only renders inside the real Shopify admin
+  iframe on a dev store, so this is not automatable from this environment. A human needs to confirm,
+  on a dev store, before shipping:
+  1. The sidebar shows Dashboard, Manage and Support, and each navigates without a full iframe reload.
+  2. Dashboard shows a 3-step checklist and collapses to `All set` once all three are done.
+  3. `Sync now` toasts and refreshes the list.
+  4. Enabling and disabling a product persists across a reload.
+  5. The disconnect modal cancels cleanly and, when confirmed, returns you to the link-account gate.
+  6. Visiting `/products` redirects to `/manage`.
+- **Three Support-page URLs are unverified** (`apps/shopify/src/pages/SupportPage.tsx`): `mailto:support@aivastra.com`,
+  `https://app.aivastra.com/support`, `https://app.aivastra.com/demo`. These were added in Task 10 and
+  need team confirmation that the mailbox and pages actually exist/resolve before shipping.
+- The pre-existing shared-rate-limiter test-infra issue (see Failed / Not Done) has no owner or fix
+  scheduled; it should probably get its own follow-up ticket (e.g., a per-test-run Redis flush or a
+  test-only rate-limit bypass) independent of this plan.
 ## 2026-07-31 - Virtual Try-On Android unused raster drawable cleanup
 
 ### Done

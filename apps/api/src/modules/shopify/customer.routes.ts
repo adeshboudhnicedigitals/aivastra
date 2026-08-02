@@ -7,13 +7,63 @@ import {
   ShopifyCustomerPresignRequest,
 } from '@aivastra/types';
 import { and, eq } from 'drizzle-orm';
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from 'fastify';
 import type { Redis } from 'ioredis';
 import { AppError } from '../../lib/errors.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
-import { atomicDeduct } from '../credits/ledger.js';
+import { atomicDeduct, refundAndMarkFailed } from '../credits/ledger.js';
+import { resolveEffectiveEnabled } from './activation.js';
 import { mintAccountLinkCode } from './customer-auth.js';
+import {
+  checkShopperLimits,
+  type LimitRefusal,
+  lockAndRecheckShopperLimits,
+  reserveStoreDailySlot,
+  ShopperLimitRaceRefusal,
+} from './limits.js';
+import { resolveShopper } from './shopper.js';
+
+const SLOT_RELEASE_MAX_ATTEMPTS = 3;
+const SLOT_RELEASE_RETRY_DELAY_MS = 100;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Release a reserved store-daily-cap slot with bounded retries.
+ *
+ * A transient DECR failure must not permanently leak a reserved slot — the
+ * 48h key expiry is the only other backstop, and that's a full day-plus of
+ * lost capacity for one blip. `slot.release()` is already idempotent (see
+ * `reserveStoreDailySlot`), so retrying it after a failure is always safe:
+ * we're never at risk of double-releasing, only of giving up too early.
+ * Exhausting retries is logged and swallowed rather than thrown — a release
+ * failure must never mask the response the caller was already producing
+ * (a refusal or a compensated failure).
+ */
+async function releaseSlotWithRetry(
+  slot: { release: () => Promise<void> },
+  log: FastifyBaseLogger,
+  jobId?: string,
+): Promise<void> {
+  for (let attempt = 1; attempt <= SLOT_RELEASE_MAX_ATTEMPTS; attempt++) {
+    try {
+      await slot.release();
+      return;
+    } catch (err) {
+      if (attempt === SLOT_RELEASE_MAX_ATTEMPTS) {
+        log.error(
+          { err, jobId, attempts: attempt },
+          'shopify store daily slot release failed after retries — slot will remain reserved until the 48h key expiry',
+        );
+        return;
+      }
+      await sleep(SLOT_RELEASE_RETRY_DELAY_MS * attempt);
+    }
+  }
+}
 
 // biome-ignore lint/suspicious/noExplicitAny: lazy import avoids circular dependency with service.js
 let _enqueueSync: ((...args: any[]) => Promise<void>) | null = null;
@@ -36,6 +86,45 @@ async function checkRateLimit(redis: Redis, storeId: string, reply: FastifyReply
   if (count > 60) {
     reply.header('Retry-After', Math.max(0, ttl === -1 ? 60 : ttl).toString());
     throw new AppError('RATE_LIMITED', 429, 'rate limit exceeded');
+  }
+}
+
+/**
+ * Record a refusal the shopper actually saw.
+ *
+ * Deliberately NOT inside limits.ts, despite the design doc suggesting it:
+ * `checkShopperLimits` runs twice per request — once as a fast path and again
+ * inside the job transaction via `lockAndRecheckShopperLimits` — so an insert
+ * there would double-count, and the transactional call rolls back on refusal
+ * anyway. `reserveStoreDailySlot` has no db handle at all. The three points
+ * where a 202 reaches the shopper are unambiguous, and this is called from
+ * exactly those.
+ *
+ * Best-effort: a failed analytics write must never turn a soft refusal into a
+ * 500.
+ */
+const REFUSAL_EVENT_TYPE: Record<LimitRefusal['reason'], string> = {
+  email_required: 'refused_email_gate',
+  shopper_limit: 'refused_shopper_cap',
+  store_limit: 'refused_store_cap',
+};
+
+async function recordRefusal(
+  app: FastifyInstance,
+  storeId: string,
+  reason: LimitRefusal['reason'],
+  clientId: string | null,
+  shopifyProductId: number | null,
+): Promise<void> {
+  try {
+    await app.db.insert(schema.shopifyWidgetEvents).values({
+      storeId,
+      clientId,
+      shopifyProductId,
+      type: REFUSAL_EVENT_TYPE[reason],
+    });
+  } catch (err) {
+    app.log.warn({ err, storeId, reason }, 'shopify refusal event not recorded');
   }
 }
 
@@ -70,6 +159,31 @@ async function requireStoreOwnerWithCredits(
     throw new AppError('INSUFFICIENT_CREDITS', 402, 'insufficient credits');
   }
   return store.ownerUserId;
+}
+
+/**
+ * The workflow every Shopify try-on runs. Resolved here, at creation, and pinned
+ * onto job_inputs.params so the dispatcher never has to look it up again — and so
+ * an admin promoting a different default mid-flight cannot change the workflow
+ * under a job whose credits are already deducted.
+ *
+ * Returning null means no active default is configured at all, which is a system
+ * misconfiguration rather than anything the merchant did. The caller refuses the
+ * job before deducting credits: enqueueing would burn a credit and produce a
+ * FAILED row with NO_WORKFLOW_CONFIGURED for something no merchant can fix.
+ */
+async function resolveWorkflowTemplateId(app: FastifyInstance): Promise<string | null> {
+  const [row] = await app.db
+    .select({ workflowTemplateId: schema.shopifyFunnelTemplates.workflowTemplateId })
+    .from(schema.shopifyFunnelTemplates)
+    .where(
+      and(
+        eq(schema.shopifyFunnelTemplates.isDefault, true),
+        eq(schema.shopifyFunnelTemplates.isActive, true),
+      ),
+    )
+    .limit(1);
+  return row?.workflowTemplateId ?? null;
 }
 
 /**
@@ -156,9 +270,20 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
       const jobCost = await getTryonCreditCost(app);
       const userId = await requireStoreOwnerWithCredits(app, store, jobCost);
 
-      const { customerPhotoKey, shopifyProductId } = req.body as {
+      const {
+        customerPhotoKey,
+        shopifyProductId,
+        clientId,
+        shopifyCustomerId,
+        email,
+        emailConsent,
+      } = req.body as {
         customerPhotoKey: string;
         shopifyProductId: number;
+        clientId?: string;
+        shopifyCustomerId?: number;
+        email?: string;
+        emailConsent?: boolean;
       };
 
       if (!(await isCustomerPhotoOwnedByStore(app, storeId, customerPhotoKey))) {
@@ -199,58 +324,176 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
           .code(202)
           .send({ message: "We're preparing this product for try-on. Check back in a moment." });
       }
-      if (!garment.enabled) {
+      const effectivelyEnabled = await resolveEffectiveEnabled(app, store, garment);
+      if (!effectivelyEnabled) {
         return reply
           .code(202)
           .send({ message: 'This product is not available for try-on right now.' });
       }
 
+      const workflowTemplateId = await resolveWorkflowTemplateId(app);
+      if (!workflowTemplateId) {
+        // error, not warn: after the funnel removal this can only mean no active
+        // default template exists, which is ours to fix, not the merchant's. The
+        // shopper still sees the same soft message as a disabled product — no
+        // internal state leaks to the storefront.
+        app.log.error(
+          { storeId, shopifyProductId, garmentId: garment.id },
+          'shopify try-on blocked before enqueue: no active default funnel template is configured',
+        );
+        return reply
+          .code(202)
+          .send({ message: 'This product is not available for try-on right now.' });
+      }
+
+      // Deployed widget versions did not send clientId. They still receive the
+      // store cap, while shopper-specific limits wait until an identity exists.
+      let shopper: Awaited<ReturnType<typeof resolveShopper>> | null = null;
+      if (clientId) {
+        shopper = await resolveShopper(app, storeId, {
+          clientId,
+          shopifyCustomerId: shopifyCustomerId ?? null,
+          email: email ?? null,
+        });
+        if (email && emailConsent && !shopper.emailConsent) {
+          await app.db
+            .update(schema.shopifyShoppers)
+            .set({ emailConsent: true })
+            .where(eq(schema.shopifyShoppers.id, shopper.id));
+          shopper = { ...shopper, emailConsent: true };
+        }
+
+        // Fast path only — see lockAndRecheckShopperLimits for why this alone
+        // does not close the per-shopper race. This just avoids reserving a
+        // store slot and opening a transaction for a request that's already
+        // over quota with no possibility of a concurrent winner.
+        const refusal = await checkShopperLimits(app.db, store, shopper);
+        if (refusal) {
+          await recordRefusal(app, storeId, refusal.reason, clientId ?? null, shopifyProductId);
+          return reply.code(202).send(refusal);
+        }
+      }
+
+      const slot = await reserveStoreDailySlot(app, store);
+      if (!slot.ok) {
+        await recordRefusal(app, storeId, 'store_limit', clientId ?? null, shopifyProductId);
+        return reply
+          .code(202)
+          .send({ reason: 'store_limit', message: "Try-on isn't available right now." });
+      }
+
       const jobId = randomUUID();
+      let jobCommitted = false;
 
-      await app.db.transaction(async (tx) => {
-        // biome-ignore lint/suspicious/noExplicitAny: Drizzle infers non-null for nullable FKs. The plan explicitly notes this is the intended pattern.
-        await (tx.insert(schema.jobs).values as any)({
-          id: jobId,
-          userId,
-          shopifyStoreId: storeId,
-          customerPhotoKey,
-          status: 'QUEUED',
-          creditsCharged: jobCost,
-          source: JOB_SOURCE.SHOPIFY,
+      try {
+        await app.db.transaction(async (tx) => {
+          if (shopper) {
+            // Serializes this shopper's requests: acquires a transaction-scoped
+            // advisory lock on (store, counting identity) and rechecks the
+            // limit under it, immediately before the job insert below. Throws
+            // ShopperLimitRaceRefusal (caught below, rolling this transaction
+            // back) if a concurrent request already consumed the slot between
+            // the fast-path check above and this recheck.
+            await lockAndRecheckShopperLimits(tx as never, store, shopper);
+          }
+          // biome-ignore lint/suspicious/noExplicitAny: Drizzle infers non-null for nullable FKs. The plan explicitly notes this is the intended pattern.
+          await (tx.insert(schema.jobs).values as any)({
+            id: jobId,
+            userId,
+            shopifyStoreId: storeId,
+            shopifyShopperId: shopper?.id ?? null,
+            customerPhotoKey,
+            status: 'QUEUED',
+            creditsCharged: jobCost,
+            source: JOB_SOURCE.SHOPIFY,
+          });
+          // biome-ignore lint/suspicious/noExplicitAny: Drizzle infers non-null for nullable FKs. The plan explicitly notes this is the intended pattern.
+          await (tx.insert(schema.jobInputs).values as any)({
+            jobId,
+            upperGarmentKey: garment.r2Key,
+            faceId: null,
+            backgroundId: null,
+            poseId: null,
+            params: {
+              kind: 'shopify',
+              shopifyProductId,
+              // Resolved above and pinned here so the dispatcher trusts it rather
+              // than re-resolving — a default promoted mid-flight can't change the
+              // workflow under a job whose credits are already deducted.
+              workflowTemplateId,
+            },
+          });
+          await atomicDeduct(tx as never, userId, jobCost, jobId);
         });
-        // biome-ignore lint/suspicious/noExplicitAny: Drizzle infers non-null for nullable FKs. The plan explicitly notes this is the intended pattern.
-        await (tx.insert(schema.jobInputs).values as any)({
+        jobCommitted = true;
+
+        // Extends the presign-time ownership marker (originally EX 600, matching the
+        // presigned URL's own expiry) to 24h now that the photo has proven itself real
+        // and usable — this is what lets a returning shopper reuse it for a different
+        // product without re-uploading. Idempotent: re-extends on every reuse too.
+        await app.redis.set(`shopify:upload:${customerPhotoKey}`, storeId, 'EX', 86400);
+
+        await app.redis.xadd(
+          'jobs:normal',
+          'MAXLEN',
+          '~',
+          10000,
+          '*',
+          'jobId',
           jobId,
-          upperGarmentKey: garment.r2Key,
-          faceId: null,
-          backgroundId: null,
-          poseId: null,
-          params: {
-            kind: 'shopify',
-            shopifyProductId,
-            workflowTemplateId: store.settings?.workflowTemplateId,
-          },
-        });
-        await atomicDeduct(tx as never, userId, jobCost, jobId);
-      });
+          'type',
+          'WIDGET_TRYON',
+        );
+      } catch (err) {
+        if (err instanceof ShopperLimitRaceRefusal) {
+          // Transaction already rolled back — no job, no deducted credit.
+          // Only the store slot (reserved before the transaction) needs
+          // releasing. The event insert happens after the rollback too, so a
+          // failed write can never be undone by it.
+          await releaseSlotWithRetry(slot, app.log);
+          await recordRefusal(app, storeId, err.refusal.reason, clientId ?? null, shopifyProductId);
+          return reply.code(202).send(err.refusal);
+        }
 
-      // Extends the presign-time ownership marker (originally EX 600, matching the
-      // presigned URL's own expiry) to 24h now that the photo has proven itself real
-      // and usable — this is what lets a returning shopper reuse it for a different
-      // product without re-uploading. Idempotent: re-extends on every reuse too.
-      await app.redis.set(`shopify:upload:${customerPhotoKey}`, storeId, 'EX', 86400);
+        try {
+          if (jobCommitted) {
+            app.log.error(
+              { err, jobId },
+              'redis enqueue preparation failed — job will be refunded',
+            );
+            // One atomic, idempotent transaction: the refund, its ledger
+            // entry, and the FAILED transition either all land or none do —
+            // see refundAndMarkFailed for why the old two-step version could
+            // leave a partially-compensated job after a crash.
+            const { compensated } = await refundAndMarkFailed(
+              app.db,
+              userId,
+              jobCost,
+              jobId,
+              'REFUND_ENQUEUE_FAIL',
+              'ENQUEUE_FAIL',
+            );
+            if (!compensated) {
+              // The XADD looked like it failed but actually landed: the
+              // dispatcher already picked the job up and moved it past QUEUED
+              // while we were in here. Not refunding is the right outcome —
+              // the generation is running or done — but the shopper's client
+              // still got a 503 from us for a job that will complete. Rare and
+              // expected; logged so it can be correlated if a shopper reports
+              // a "failed" try-on that produced an image anyway.
+              app.log.warn(
+                { jobId },
+                'enqueue looked failed but job already left QUEUED — refund skipped to avoid double-paying a delivered generation',
+              );
+            }
+          }
+        } finally {
+          await releaseSlotWithRetry(slot, app.log, jobId);
+        }
 
-      await app.redis.xadd(
-        'jobs:normal',
-        'MAXLEN',
-        '~',
-        10000,
-        '*',
-        'jobId',
-        jobId,
-        'type',
-        'WIDGET_TRYON',
-      );
+        if (!jobCommitted) throw err;
+        throw new AppError('ENQUEUE_FAIL', 503, 'queue unavailable');
+      }
 
       return reply.code(201).send({ jobId });
     },
