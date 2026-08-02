@@ -62,14 +62,18 @@ export interface ShopifyWidgetConfig {
   behavior?: ShopifyWidgetBehavior;
 }
 
+export interface ShopifyActivationSettings {
+  mode: 'global' | 'selective';
+}
+
 export interface ShopifyStoreSettings {
   workflowTemplateId?: string;
   themeBlockConfirmed?: boolean;
   limits?: ShopifyStoreLimits;
   retention?: ShopifyStoreRetention;
   widget?: ShopifyWidgetConfig;
-  /** False while the authoritative widget config has not reached Shopify. */
   widgetConfigSynced?: boolean;
+  activation?: ShopifyActivationSettings;
 }
 
 export interface FunnelRuleCondition {
@@ -167,7 +171,6 @@ export const shopifyProductGarments = pgTable(
     r2Key: text('r2_key').notNull(),
     title: text('title'),
     status: text('status').notNull().default('processing'), // active|processing|failed|deleted
-    enabled: boolean('enabled').notNull().default(false),
     failedReason: text('failed_reason'),
     funnelTemplateId: uuid('funnel_template_id').references(() => shopifyFunnelTemplates.id),
     funnelAssignmentSource: text('funnel_assignment_source'),
@@ -175,6 +178,11 @@ export const shopifyProductGarments = pgTable(
     tags: text('tags').array(),
     vendor: text('vendor'),
     collections: text('collections').array(),
+    enabled: boolean('enabled').notNull().default(false),
+    // Exclusion tab, products sub-section. Always wins over `enabled`, over
+    // collection-based enablement, and over global mode — see
+    // apps/api/src/modules/shopify/activation.ts.
+    excluded: boolean('excluded').notNull().default(false),
     syncedAt: timestamp('synced_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
@@ -255,5 +263,87 @@ export const shopifyWidgetEvents = pgTable(
       t.shopifyProductId,
       t.createdAt,
     ),
+  }),
+);
+
+/**
+ * Cached collection metadata — only for collections a merchant has actually
+ * selected (enabled or excluded). Never populated for the whole store's
+ * collection list; there is no reason to know about a collection nobody
+ * picked.
+ */
+export const shopifyCollections = pgTable(
+  'shopify_collections',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    storeId: uuid('store_id')
+      .notNull()
+      .references(() => shopifyStores.id, { onDelete: 'cascade' }),
+    shopifyCollectionId: bigint('shopify_collection_id', { mode: 'number' }).notNull(),
+    title: text('title').notNull(),
+    syncedAt: timestamp('synced_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    uq: unique().on(t.storeId, t.shopifyCollectionId),
+  }),
+);
+
+/**
+ * Collection membership, rebuilt in full for one collection at a time
+ * (delete + reinsert that collection's rows) whenever that collection is
+ * synced — never diffed, membership sets are small enough not to need it.
+ */
+export const shopifyCollectionProducts = pgTable(
+  'shopify_collection_products',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    storeId: uuid('store_id')
+      .notNull()
+      .references(() => shopifyStores.id, { onDelete: 'cascade' }),
+    shopifyCollectionId: bigint('shopify_collection_id', { mode: 'number' }).notNull(),
+    shopifyProductId: bigint('shopify_product_id', { mode: 'number' }).notNull(),
+  },
+  (t) => ({
+    uq: unique().on(t.storeId, t.shopifyCollectionId, t.shopifyProductId),
+    byStoreProduct: index('shopify_collection_products_store_product_idx').on(
+      t.storeId,
+      t.shopifyProductId,
+    ),
+    byStoreCollection: index('shopify_collection_products_store_collection_idx').on(
+      t.storeId,
+      t.shopifyCollectionId,
+    ),
+  }),
+);
+
+/** Collections tab: merchant's picks for collection-level enablement. */
+export const shopifyEnabledCollections = pgTable(
+  'shopify_enabled_collections',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    storeId: uuid('store_id')
+      .notNull()
+      .references(() => shopifyStores.id, { onDelete: 'cascade' }),
+    shopifyCollectionId: bigint('shopify_collection_id', { mode: 'number' }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    uq: unique().on(t.storeId, t.shopifyCollectionId),
+  }),
+);
+
+/** Exclusion tab, collections sub-section. */
+export const shopifyExcludedCollections = pgTable(
+  'shopify_excluded_collections',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    storeId: uuid('store_id')
+      .notNull()
+      .references(() => shopifyStores.id, { onDelete: 'cascade' }),
+    shopifyCollectionId: bigint('shopify_collection_id', { mode: 'number' }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    uq: unique().on(t.storeId, t.shopifyCollectionId),
   }),
 );
