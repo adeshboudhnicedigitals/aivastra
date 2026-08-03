@@ -20,6 +20,7 @@ import { promoteSareeStep2Jobs } from './job/saree-step2-promoter.js';
 import { makeDb } from './lib/db.js';
 import { makeRedis } from './lib/redis.js';
 import { makeStorage } from './lib/storage.js';
+import { runShopifyRetention } from './shopify/retention.js';
 import { runConsumer } from './stream/consumer.js';
 import { recoverPendingJobs } from './stream/recovery.js';
 import { runSweeper } from './stream/sweeper.js';
@@ -167,6 +168,15 @@ async function main(): Promise<void> {
     void promoteSareeStep2Jobs(processorCfg);
   }, 5_000);
 
+  // Hourly: retention is a slow-moving daily-granularity policy, so a tighter
+  // cadence would just re-scan stores with nothing to do.
+  const shopifyRetentionInterval = setInterval(
+    () => {
+      void runShopifyRetention(db, storage, log);
+    },
+    60 * 60 * 1000,
+  );
+
   log.info('dispatcher ready');
 
   async function shutdown(signal: string): Promise<void> {
@@ -174,6 +184,7 @@ async function main(): Promise<void> {
     clearInterval(sweeperInterval);
     clearInterval(recoveryInterval);
     clearInterval(sareeStep2Interval);
+    clearInterval(shopifyRetentionInterval);
     stopConsumer();
     stopVideoConsumer();
     stopWebhooks();
