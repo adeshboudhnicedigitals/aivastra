@@ -107,7 +107,7 @@ describe('resolveFreeCredits', () => {
       .update(schema.creditPlans)
       .set({ isActive: false })
       .where(eq(schema.creditPlans.slug, 'free'));
-    await expect(resolveFreeCredits(app)).resolves.toBe(0);
+    await expect(resolveFreeCredits(app.db)).resolves.toBe(0);
   });
 
   it('returns the active free plan credits', async () => {
@@ -124,6 +124,6 @@ describe('resolveFreeCredits', () => {
         target: schema.creditPlans.slug,
         set: { credits: 40, isActive: true },
       });
-    await expect(resolveFreeCredits(app)).resolves.toBe(40);
+    await expect(resolveFreeCredits(app.db)).resolves.toBe(40);
   });
 });

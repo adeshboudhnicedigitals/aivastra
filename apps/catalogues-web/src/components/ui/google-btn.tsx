@@ -3,10 +3,12 @@ import { C } from '../tokens';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
-export function GoogleBtn({ label, next }: { label: string; next?: string }) {
-  const href = next
-    ? `${API_URL}/v1/auth/google/init?next=${encodeURIComponent(next)}`
-    : `${API_URL}/v1/auth/google/init`;
+export function GoogleBtn({ label, next, src }: { label: string; next?: string; src?: string }) {
+  const params = new URLSearchParams();
+  if (next) params.set('next', next);
+  if (src) params.set('src', src);
+  const qs = params.toString();
+  const href = qs ? `${API_URL}/v1/auth/google/init?${qs}` : `${API_URL}/v1/auth/google/init`;
   return (
     <a
       href={href}

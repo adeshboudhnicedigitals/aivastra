@@ -2,8 +2,8 @@
 import { RegisterBody } from '@aivastra/types';
 import { zodResolver } from '@hookform/resolvers/zod';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import type { z } from 'zod';
 import { GiftIcon, LockIcon, MailIcon, UserIcon } from '@/components/icons';
@@ -90,8 +90,10 @@ function ImagePanel() {
   );
 }
 
-export default function RegisterPage(): React.ReactElement {
+function RegisterFormInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const src = searchParams.get('src') ?? undefined;
   const [error, setError] = useState('');
 
   const {
@@ -107,7 +109,7 @@ export default function RegisterPage(): React.ReactElement {
     const res = await fetch(`${BASE}/api/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+      body: JSON.stringify({ ...data, signupSource: src }),
     });
     const body = (await res.json()) as {
       requiresEmailVerification?: boolean;
@@ -178,7 +180,7 @@ export default function RegisterPage(): React.ReactElement {
             </div>
           </div>
 
-          <GoogleBtn label="Sign Up with Google" />
+          <GoogleBtn label="Sign Up with Google" src={src} />
           <Divider label="Or Create Account With Email" />
 
           <form
@@ -304,5 +306,22 @@ export default function RegisterPage(): React.ReactElement {
         <ImagePanel />
       </div>
     </div>
+  );
+}
+
+export default function RegisterPage(): React.ReactElement {
+  return (
+    <Suspense
+      fallback={
+        <div
+          style={{
+            minHeight: '100vh',
+            background: `#000 url('${BASE}/assets/auth-screen-bg.png') center center / cover no-repeat`,
+          }}
+        />
+      }
+    >
+      <RegisterFormInner />
+    </Suspense>
   );
 }

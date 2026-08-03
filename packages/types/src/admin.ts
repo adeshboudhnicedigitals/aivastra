@@ -18,6 +18,9 @@ export const UpdateUserBody = z.object({
   banReason: z.string().max(500).nullable().optional(),
   forceLogout: z.boolean().optional(),
 });
+export const BulkDeleteUsersBody = z.object({
+  ids: z.array(z.string().uuid()).min(1),
+});
 export const CreateUserBody = z.object({
   username: z
     .string()
