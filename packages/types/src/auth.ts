@@ -8,6 +8,10 @@ export const RegisterBody = z.object({
     .regex(/[a-zA-Z]/, 'Password must contain at least one letter')
     .regex(/[0-9]/, 'Password must contain at least one number'),
   displayName: z.string().min(1).max(80),
+  // ?src= query param from the signup link, e.g. a QR-code campaign code.
+  // Resolved against signup_campaigns server-side; an unknown/expired code is
+  // silently ignored, never a validation error.
+  signupSource: z.string().max(64).optional(),
 });
 // Field is still named `email` on the wire for backward compatibility with
 // existing clients (web, the saree catalogue Android app) that already POST
