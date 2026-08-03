@@ -103,10 +103,25 @@ export default function ProductsScreen() {
               : '/tryon-library-app',
           )
         }
-        action={{
-          label: 'Add Product',
-          onClick: () => router.push(`/tryon-library-app/subcategory/${subcategoryId}/add-product`),
-        }}
+        actions={[
+          {
+            label: 'Add Product',
+            onClick: () =>
+              router.push(`/tryon-library-app/subcategory/${subcategoryId}/add-product`),
+          },
+          {
+            label: 'Bulk Upload — Catalogue Image',
+            onClick: () =>
+              router.push(
+                `/tryon-library-app/subcategory/${subcategoryId}/bulk-upload?mode=catalogue`,
+              ),
+          },
+          {
+            label: 'Bulk Upload — Flat Image',
+            onClick: () =>
+              router.push(`/tryon-library-app/subcategory/${subcategoryId}/bulk-upload?mode=flat`),
+          },
+        ]}
       />
 
       {reconcileFailedCount !== 0 && (

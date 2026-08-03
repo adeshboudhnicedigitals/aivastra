@@ -1,7 +1,7 @@
 'use client';
 import { useQueryClient } from '@tanstack/react-query';
-import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { SpinnerIcon, TrashIcon, UploadIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { GradBtn } from '@/components/ui/grad-btn';
@@ -31,15 +31,20 @@ interface QueueItem {
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
-export default function BulkUploadScreen() {
+function BulkUploadScreenInner() {
   const params = useParams<{ id: string }>();
   const subcategoryId = params.id;
   const router = useRouter();
   const qc = useQueryClient();
+  const searchParams = useSearchParams();
 
   const getErrorMessage = useSessionExpiryMessage();
   const [items, setItems] = useState<QueueItem[]>([]);
-  const [imageMode, setImageMode] = useState<'catalogue' | 'flat'>('catalogue');
+  // The "+" menu links here with ?mode=catalogue|flat to skip the in-page toggle.
+  // Falls back to catalogue for a bare /bulk-upload visit or an unrecognized value.
+  const [imageMode, setImageMode] = useState<'catalogue' | 'flat'>(
+    searchParams.get('mode') === 'flat' ? 'flat' : 'catalogue',
+  );
   // Which status means "details editable, ready to save" in the current mode.
   const readyStatus = imageMode === 'catalogue' ? 'uploaded' : 'generated';
   const [isGeneratingAll, setIsGeneratingAll] = useState(false);
@@ -719,5 +724,13 @@ export default function BulkUploadScreen() {
         </div>
       </StickyBottomBar>
     </div>
+  );
+}
+
+export default function BulkUploadScreen() {
+  return (
+    <Suspense fallback={<div style={{ minHeight: '100vh', background: C.white }} />}>
+      <BulkUploadScreenInner />
+    </Suspense>
   );
 }
