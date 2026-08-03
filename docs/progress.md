@@ -1,3 +1,68 @@
+## 2026-08-03 — Merchant tryon credits
+
+Unifies android/kiosk merchant tryon billing onto `merchantCredits` at the
+admin-configured Virtual Try-On Pricing rate, and adds an admin-configurable
+free-credit grant on merchant self-serve signup. Design doc:
+`docs/superpowers/specs/2026-08-03-merchant-tryon-credits-design.md`. Plan:
+`docs/superpowers/plans/2026-08-03-merchant-tryon-credits.md`. Built via
+Subagent-Driven Development, in place on `feat/merchant-tryon-credits`.
+
+**Done**
+- New admin-configurable `config:system.merchantFreeCredits` field
+  (`getMerchantFreeCredits()` reader, same pattern as `getTryonCreditCost()`),
+  exposed in Settings → System tab next to Virtual Try-On Pricing.
+- Self-serve android onboarding (`POST /v1/merchant/onboarding`) now grants
+  the configured free-credit amount into `merchantCredits.balance` plus a
+  `FREE_TRIAL` `merchantCreditLedger` row, instead of always inserting a
+  zero balance. Admin-created merchants (`POST /admin/merchants`) are
+  unchanged — still `balance: 0`, admin already has manual grant.
+- Android merchant tryon (`POST /v1/merchant/tryon/jobs` →
+  `createMerchantTryonJob`) now charges `getTryonCreditCost(app)` via
+  `atomicMerchantDeduct` inside its existing transaction — was previously
+  hardcoded to charge 0 credits.
+- Kiosk job creation (`createKioskJob`) now uses `getTryonCreditCost(app)`
+  instead of a stale hardcoded `KIOSK_JOB_COST = 10`; the constant is
+  deleted.
+- Merchant dashboard (`GET /v1/merchant/me`) balance now reads
+  `merchantCredits` (joined on `merchantId`) instead of `userCredits`,
+  matching what tryon jobs actually bill against.
+- Merchant catalogue-manager flows (`createMerchantCatalogJob`,
+  `createMerchantSareeMannequinJob`) and Shopify store-owner billing were
+  left untouched on `userCredits`, per design scope.
+- Full unit suite (`pnpm --filter @aivastra/api test`): 499/499 passing.
+  Every integration test file this plan touches
+  (`admin-config`, `merchant-me`, `merchant-tryon`, `kiosk-jobs`,
+  `merchant-onboarding`) passes cleanly, individually and run together.
+- Caught and fixed a regression outside the plan's own file list during
+  final verification: `apps/api/test/demo-catalog-tryon.test.ts` seeded
+  merchants with a $0 `merchantCredits` balance (the shared
+  `createTestMerchant` helper's new default), so its tryon-job tests started
+  402ing once billing went live. Fixed by seeding a balance in the two
+  affected tests and updating a stale `creditsCharged: 0` assertion/comment
+  that assumed try-ons were free.
+
+**Failed / Not Done**
+- None for this plan's own scope.
+
+**Open Questions / Decisions**
+- `apps/api/test/integration/merchant-kiosk-admin.test.ts` has a
+  pre-existing failure (404 vs expected 201 on admin kiosk-device creation)
+  confirmed present both before and after every change in this plan (via
+  `git stash` comparison during Task 5's review) — unrelated to merchant
+  credits, left as an open item for separate investigation.
+- Running the full `test/integration/**` suite as one single vitest process
+  (77 files) is not a supported operation in this repo — CI itself only
+  runs `test:unit`. Doing so trips the global `@fastify/rate-limit` (200
+  req/min) across unrelated describe blocks and produces a different,
+  non-deterministic set of spurious 429 failures on every attempt (31, then
+  49, then 74 failures across three tries, all in files this plan never
+  touched). Verification for this plan instead ran the full unit suite plus
+  every integration file this plan's tasks actually modified, individually
+  and together — both clean.
+- Post-plan follow-ups intentionally out of scope: auto free-credit grant on
+  admin-created merchants, making `MERCHANT_PLAN_BILLING` admin-configurable,
+  Shopify store-owner billing changes.
+
 ## 2026-08-03 - Admin users list: hide suspended/deleted by default
 
 ### Done

@@ -12,11 +12,11 @@ export async function merchantMeRoutes(app: FastifyInstance) {
       .select({
         displayName: schema.users.displayName,
         email: schema.users.email,
-        balance: sql<number>`COALESCE(${schema.userCredits.balance}, 0)`,
+        balance: sql<number>`COALESCE(${schema.merchantCredits.balance}, 0)`,
       })
       .from(schema.merchants)
       .innerJoin(schema.users, eq(schema.users.id, schema.merchants.userId))
-      .leftJoin(schema.userCredits, eq(schema.userCredits.userId, schema.merchants.userId))
+      .leftJoin(schema.merchantCredits, eq(schema.merchantCredits.merchantId, schema.merchants.id))
       .where(eq(schema.merchants.id, merchantId));
     if (!row) throw new AppError('NOT_FOUND', 404, 'merchant not found');
 

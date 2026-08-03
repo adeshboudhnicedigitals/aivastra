@@ -70,6 +70,23 @@ describe('admin config', () => {
     expect(getRes2.json().pixverse.creditCost).toBe(35);
   });
 
+  it('GET /admin/config default-fills merchantFreeCredits, and PATCH persists an override', async () => {
+    const getRes = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
+    expect(getRes.statusCode).toBe(200);
+    expect(getRes.json().merchantFreeCredits).toBe(0);
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: '/admin/config',
+      headers: { ...adminAuth, 'content-type': 'application/json' },
+      payload: JSON.stringify({ merchantFreeCredits: 20 }),
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const getRes2 = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
+    expect(getRes2.json().merchantFreeCredits).toBe(20);
+  });
+
   it('PATCH accepts merchantCatalogDefaults with lowerCatalogId and shoeCatalogId', async () => {
     const patchRes = await app.inject({
       method: 'PATCH',

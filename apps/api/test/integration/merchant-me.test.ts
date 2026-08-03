@@ -19,7 +19,7 @@ describe('GET /v1/merchant/me', () => {
   });
 
   it("returns the merchant's display name, email, and credit balance", async () => {
-    const { userId } = await createTestMerchant(app, { balance: 250 });
+    const { userId } = await createTestMerchant(app, { merchantBalance: 250 });
     await app.db
       .update(schema.users)
       .set({ displayName: 'Store Owner' })

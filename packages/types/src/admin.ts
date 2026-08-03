@@ -136,6 +136,9 @@ export const SystemConfigBody = z.object({
     })
     .optional(),
   pixverse: z.object({ creditCost: z.number().int().positive().max(1_000) }).optional(),
+  // Credits auto-granted to a new merchant on self-serve android onboarding
+  // (POST /v1/merchant/onboarding). See getMerchantFreeCredits().
+  merchantFreeCredits: z.number().int().min(0).max(100_000).optional(),
   // Admin-configurable per-surface upload size ceilings. Each replaces a previously
   // hardcoded byte constant (see apps/api/src/lib/upload-limits-config.ts for
   // defaults/readers). Omitted = fall back to the hardcoded default. No minimum

@@ -153,6 +153,40 @@ describe('POST /v1/merchant/onboarding', () => {
     expect(user?.phone).toBe('9876543210');
   });
 
+  it('grants the admin-configured free-credit amount and ledgers it', async () => {
+    await app.redis.set('config:system', JSON.stringify({ merchantFreeCredits: 25 }));
+    try {
+      const { userId, token } = await createGoogleUser('Free Credits Person');
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/onboarding',
+        headers: auth(token),
+        payload: { phone: '9876500001' },
+      });
+      expect(res.statusCode).toBe(201);
+
+      const [merchant] = await app.db
+        .select()
+        .from(schema.merchants)
+        .where(eq(schema.merchants.userId, userId));
+
+      const [credits] = await app.db
+        .select()
+        .from(schema.merchantCredits)
+        .where(eq(schema.merchantCredits.merchantId, merchant?.id ?? ''));
+      expect(credits?.balance).toBe(25);
+
+      const [ledgerRow] = await app.db
+        .select()
+        .from(schema.merchantCreditLedger)
+        .where(eq(schema.merchantCreditLedger.merchantId, merchant?.id ?? ''));
+      expect(ledgerRow?.delta).toBe(25);
+      expect(ledgerRow?.reason).toBe('FREE_TRIAL');
+    } finally {
+      await app.redis.del('config:system');
+    }
+  });
+
   it('uses all four supplied fields when given', async () => {
     const { userId, token } = await createGoogleUser();
     await app.inject({
