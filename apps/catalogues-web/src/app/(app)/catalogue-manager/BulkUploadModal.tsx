@@ -345,7 +345,14 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
         }}
       >
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexShrink: 0,
+          }}
+        >
           <div>
             <h3 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>
               {imageMode === 'catalogue'
@@ -481,6 +488,7 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
               padding: '12px 16px',
               borderRadius: 8,
               border: `1px solid ${C.border}`,
+              flexShrink: 0,
             }}
           >
             <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
@@ -565,280 +573,300 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
           </div>
         )}
 
-        {/* Grid Area */}
+        {/* Scroll wrapper — a plain block element, not a grid container. Keeping
+            scrolling and grid layout on separate elements (rather than one div
+            that is simultaneously `flex: 1`, `display: grid`, and the overflow
+            container) avoids browser edge cases where a grid container's own
+            intrinsic-height calculation fights with its ancestor's flex sizing.
+            minHeight: 0 is required so this flex child actually shrinks instead
+            of growing and pushing the whole modal past its fixed height. */}
         <div
           style={{
             flex: 1,
+            minHeight: 0,
             overflowY: 'auto',
-            padding: '4px',
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-            gap: 16,
-            alignContent: 'start',
+            overflowX: 'hidden',
           }}
         >
-          {items.map((item) => (
-            <div
-              key={item.id}
-              style={{
-                border: `1px solid ${item.hasError || item.status === 'failed' ? C.pink : C.border}`,
-                borderRadius: 12,
-                background:
-                  item.hasError || item.status === 'failed' ? 'rgba(245,92,122,0.03)' : C.card,
-                overflow: 'hidden',
-                position: 'relative',
-                display: 'flex',
-                flexDirection: 'column',
-              }}
-            >
-              <button
-                type="button"
-                onClick={() => handleRemoveItem(item.id)}
-                disabled={item.status === 'uploading' || item.status === 'generating'}
+          <div
+            style={{
+              padding: '4px',
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+              gap: 16,
+              alignContent: 'start',
+            }}
+          >
+            {items.map((item) => (
+              <div
+                key={item.id}
                 style={{
-                  position: 'absolute',
-                  top: 6,
-                  right: 6,
-                  background: 'rgba(0,0,0,0.5)',
-                  color: C.white,
-                  border: 'none',
-                  borderRadius: 6,
-                  width: 24,
-                  height: 24,
+                  border: `1px solid ${item.hasError || item.status === 'failed' ? C.pink : C.border}`,
+                  borderRadius: 12,
+                  background:
+                    item.hasError || item.status === 'failed' ? 'rgba(245,92,122,0.03)' : C.card,
+                  overflow: 'hidden',
+                  position: 'relative',
                   display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  zIndex: 10,
+                  flexDirection: 'column',
                 }}
-                title="Remove item"
               >
-                <TrashIcon />
-              </button>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveItem(item.id)}
+                  disabled={item.status === 'uploading' || item.status === 'generating'}
+                  style={{
+                    position: 'absolute',
+                    top: 6,
+                    right: 6,
+                    background: 'rgba(0,0,0,0.5)',
+                    color: C.white,
+                    border: 'none',
+                    borderRadius: 6,
+                    width: 24,
+                    height: 24,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    zIndex: 10,
+                  }}
+                  title="Remove item"
+                >
+                  <TrashIcon />
+                </button>
 
-              <div style={{ aspectRatio: '3/4', background: C.lighter, position: 'relative' }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                {/* biome-ignore lint/performance/noImgElement: local/generated preview */}
-                <img
-                  src={item.fileUrl}
-                  alt="Upload preview"
-                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                />
+                <div
+                  style={{
+                    height: 220,
+                    flexShrink: 0,
+                    background: C.lighter,
+                    position: 'relative',
+                  }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  {/* biome-ignore lint/performance/noImgElement: local/generated preview */}
+                  <img
+                    src={item.fileUrl}
+                    alt="Upload preview"
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
 
-                {/* Status Badge overlay */}
-                <div style={{ position: 'absolute', bottom: 6, left: 6 }}>
-                  {item.status === 'queued' && (
-                    <div
-                      style={{
-                        background: C.mid,
-                        color: C.white,
-                        fontSize: 10,
-                        fontWeight: 700,
-                        padding: '2px 6px',
-                        borderRadius: 4,
-                        textTransform: 'uppercase',
-                      }}
-                    >
-                      Queued
-                    </div>
-                  )}
-                  {(item.status === 'uploading' || item.status === 'generating') && (
-                    <div
-                      style={{
-                        background: C.card,
-                        color: C.pink,
-                        fontSize: 10,
-                        fontWeight: 700,
-                        padding: '2px 8px',
-                        borderRadius: 4,
-                        textTransform: 'uppercase',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        border: `1px solid ${C.border2}`,
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-                      }}
-                    >
-                      <SpinnerIcon size={10} />{' '}
-                      {item.status === 'uploading' ? 'Uploading' : 'Generating'}
-                    </div>
-                  )}
+                  {/* Status Badge overlay */}
+                  <div style={{ position: 'absolute', bottom: 6, left: 6 }}>
+                    {item.status === 'queued' && (
+                      <div
+                        style={{
+                          background: C.mid,
+                          color: C.white,
+                          fontSize: 10,
+                          fontWeight: 700,
+                          padding: '2px 6px',
+                          borderRadius: 4,
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        Queued
+                      </div>
+                    )}
+                    {(item.status === 'uploading' || item.status === 'generating') && (
+                      <div
+                        style={{
+                          background: C.card,
+                          color: C.pink,
+                          fontSize: 10,
+                          fontWeight: 700,
+                          padding: '2px 8px',
+                          borderRadius: 4,
+                          textTransform: 'uppercase',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          border: `1px solid ${C.border2}`,
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                        }}
+                      >
+                        <SpinnerIcon size={10} />{' '}
+                        {item.status === 'uploading' ? 'Uploading' : 'Generating'}
+                      </div>
+                    )}
+                    {item.status === 'uploaded' && (
+                      <div
+                        style={{
+                          background: '#10b981',
+                          color: C.white,
+                          fontSize: 10,
+                          fontWeight: 700,
+                          padding: '2px 6px',
+                          borderRadius: 4,
+                          textTransform: 'uppercase',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                        }}
+                      >
+                        ✓ Ready
+                      </div>
+                    )}
+                    {item.status === 'sent' && (
+                      <div
+                        style={{
+                          background: C.mid,
+                          color: C.white,
+                          fontSize: 10,
+                          fontWeight: 700,
+                          padding: '2px 6px',
+                          borderRadius: 4,
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        Sent
+                      </div>
+                    )}
+                    {item.status === 'failed' && (
+                      <div
+                        style={{
+                          background: C.pink,
+                          color: C.white,
+                          fontSize: 10,
+                          fontWeight: 700,
+                          padding: '2px 6px',
+                          borderRadius: 4,
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        Failed
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Fixed height regardless of status/content so every tile in the grid
+                  matches — a validation error or a long failure message used to
+                  make individual tiles taller than their neighbors. */}
+                <div
+                  style={{
+                    height: 96,
+                    boxSizing: 'border-box',
+                    padding: 12,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                    overflow: 'hidden',
+                  }}
+                >
                   {item.status === 'uploaded' && (
-                    <div
-                      style={{
-                        background: '#10b981',
-                        color: C.white,
-                        fontSize: 10,
-                        fontWeight: 700,
-                        padding: '2px 6px',
-                        borderRadius: 4,
-                        textTransform: 'uppercase',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                      }}
-                    >
-                      ✓ Ready
-                    </div>
+                    <>
+                      <input
+                        placeholder="SKU"
+                        value={item.sku}
+                        onChange={(e) => handleUpdateItem(item.id, { sku: e.target.value })}
+                        style={{
+                          width: '100%',
+                          height: 30,
+                          fontSize: 12,
+                          borderRadius: 6,
+                          border: `1px solid ${item.hasError && !item.sku ? C.pink : C.border2}`,
+                          padding: '0 8px',
+                          background: C.field,
+                          color: C.text,
+                        }}
+                      />
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <div style={{ position: 'relative', flex: 1 }}>
+                          <span
+                            style={{
+                              position: 'absolute',
+                              left: 6,
+                              top: '50%',
+                              transform: 'translateY(-50%)',
+                              fontSize: 11,
+                              color: C.mid,
+                              fontWeight: 600,
+                            }}
+                          >
+                            ₹
+                          </span>
+                          <input
+                            type="number"
+                            placeholder="Actual"
+                            value={item.actualPrice}
+                            onChange={(e) =>
+                              handleUpdateItem(item.id, { actualPrice: e.target.value })
+                            }
+                            style={{
+                              width: '100%',
+                              height: 30,
+                              fontSize: 12,
+                              borderRadius: 6,
+                              border: `1px solid ${item.hasError && (!item.actualPrice || parseInt(item.offerPrice, 10) > parseInt(item.actualPrice, 10)) ? C.pink : C.border2}`,
+                              padding: '0 4px 0 17px',
+                              background: C.field,
+                              color: C.text,
+                            }}
+                          />
+                        </div>
+                        <div style={{ position: 'relative', flex: 1 }}>
+                          <span
+                            style={{
+                              position: 'absolute',
+                              left: 6,
+                              top: '50%',
+                              transform: 'translateY(-50%)',
+                              fontSize: 11,
+                              color: C.mid,
+                              fontWeight: 600,
+                            }}
+                          >
+                            ₹
+                          </span>
+                          <input
+                            type="number"
+                            placeholder="Offer"
+                            value={item.offerPrice}
+                            onChange={(e) =>
+                              handleUpdateItem(item.id, { offerPrice: e.target.value })
+                            }
+                            style={{
+                              width: '100%',
+                              height: 30,
+                              fontSize: 12,
+                              borderRadius: 6,
+                              border: `1px solid ${item.hasError && (!item.offerPrice || parseInt(item.offerPrice, 10) > parseInt(item.actualPrice, 10)) ? C.pink : C.border2}`,
+                              padding: '0 4px 0 17px',
+                              background: C.field,
+                              color: C.text,
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 10, color: C.pink, lineHeight: 1.2 }}>
+                        {item.hasError
+                          ? 'Please fill valid SKU and ensure Offer ≤ Actual Price.'
+                          : ''}
+                      </div>
+                    </>
                   )}
-                  {item.status === 'sent' && (
+
+                  {item.status === 'failed' && item.errorMessage && (
                     <div
                       style={{
-                        background: C.mid,
-                        color: C.white,
-                        fontSize: 10,
-                        fontWeight: 700,
-                        padding: '2px 6px',
-                        borderRadius: 4,
-                        textTransform: 'uppercase',
+                        fontSize: 11,
+                        color: C.pink,
+                        lineHeight: 1.3,
+                        display: '-webkit-box',
+                        WebkitLineClamp: 4,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden',
                       }}
                     >
-                      Sent
-                    </div>
-                  )}
-                  {item.status === 'failed' && (
-                    <div
-                      style={{
-                        background: C.pink,
-                        color: C.white,
-                        fontSize: 10,
-                        fontWeight: 700,
-                        padding: '2px 6px',
-                        borderRadius: 4,
-                        textTransform: 'uppercase',
-                      }}
-                    >
-                      Failed
+                      {item.errorMessage}
                     </div>
                   )}
                 </div>
               </div>
-
-              {/* Fixed height regardless of status/content so every tile in the grid
-                  matches — a validation error or a long failure message used to
-                  make individual tiles taller than their neighbors. */}
-              <div
-                style={{
-                  height: 132,
-                  boxSizing: 'border-box',
-                  padding: 12,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 8,
-                  overflow: 'hidden',
-                }}
-              >
-                {item.status === 'uploaded' && (
-                  <>
-                    <input
-                      placeholder="SKU"
-                      value={item.sku}
-                      onChange={(e) => handleUpdateItem(item.id, { sku: e.target.value })}
-                      style={{
-                        width: '100%',
-                        height: 30,
-                        fontSize: 12,
-                        borderRadius: 6,
-                        border: `1px solid ${item.hasError && !item.sku ? C.pink : C.border2}`,
-                        padding: '0 8px',
-                        background: C.field,
-                        color: C.text,
-                      }}
-                    />
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <div style={{ position: 'relative', flex: 1 }}>
-                        <span
-                          style={{
-                            position: 'absolute',
-                            left: 8,
-                            top: '50%',
-                            transform: 'translateY(-50%)',
-                            fontSize: 11,
-                            color: C.mid,
-                            fontWeight: 600,
-                          }}
-                        >
-                          ₹
-                        </span>
-                        <input
-                          type="number"
-                          placeholder="Actual"
-                          value={item.actualPrice}
-                          onChange={(e) =>
-                            handleUpdateItem(item.id, { actualPrice: e.target.value })
-                          }
-                          style={{
-                            width: '100%',
-                            height: 30,
-                            fontSize: 12,
-                            borderRadius: 6,
-                            border: `1px solid ${item.hasError && (!item.actualPrice || parseInt(item.offerPrice, 10) > parseInt(item.actualPrice, 10)) ? C.pink : C.border2}`,
-                            padding: '0 6px 0 20px',
-                            background: C.field,
-                            color: C.text,
-                          }}
-                        />
-                      </div>
-                      <div style={{ position: 'relative', flex: 1 }}>
-                        <span
-                          style={{
-                            position: 'absolute',
-                            left: 8,
-                            top: '50%',
-                            transform: 'translateY(-50%)',
-                            fontSize: 11,
-                            color: C.mid,
-                            fontWeight: 600,
-                          }}
-                        >
-                          ₹
-                        </span>
-                        <input
-                          type="number"
-                          placeholder="Offer"
-                          value={item.offerPrice}
-                          onChange={(e) =>
-                            handleUpdateItem(item.id, { offerPrice: e.target.value })
-                          }
-                          style={{
-                            width: '100%',
-                            height: 30,
-                            fontSize: 12,
-                            borderRadius: 6,
-                            border: `1px solid ${item.hasError && (!item.offerPrice || parseInt(item.offerPrice, 10) > parseInt(item.actualPrice, 10)) ? C.pink : C.border2}`,
-                            padding: '0 6px 0 20px',
-                            background: C.field,
-                            color: C.text,
-                          }}
-                        />
-                      </div>
-                    </div>
-                    <div style={{ fontSize: 10, color: C.pink, lineHeight: 1.2 }}>
-                      {item.hasError
-                        ? 'Please fill valid SKU and ensure Offer ≤ Actual Price.'
-                        : ''}
-                    </div>
-                  </>
-                )}
-
-                {item.status === 'failed' && item.errorMessage && (
-                  <div
-                    style={{
-                      fontSize: 11,
-                      color: C.pink,
-                      lineHeight: 1.3,
-                      display: '-webkit-box',
-                      WebkitLineClamp: 6,
-                      WebkitBoxOrient: 'vertical',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    {item.errorMessage}
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
 
         {sentForProcessing > 0 && (
