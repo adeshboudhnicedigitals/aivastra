@@ -8,6 +8,7 @@ import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
 import { sendPasswordResetEmail, sendVerificationEmail } from '../../lib/mailer.js';
 import { resolveMerchantStatus } from '../merchant/status.js';
+import { resolveCampaignId } from './campaign.js';
 import { parseAcceptedAudiences, verifyGoogleIdToken } from './google-id-token.js';
 import { resolveFreeCredits, upsertGoogleUser } from './google-upsert.js';
 import {
@@ -329,15 +330,28 @@ export async function authRoutes(app: FastifyInstance) {
     '/v1/auth/register',
     { schema: { body: RegisterBody }, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
     async (req, reply) => {
-      const { email, password, displayName } = req.body as z.infer<typeof RegisterBody>;
+      const { email, password, displayName, signupSource } = req.body as z.infer<
+        typeof RegisterBody
+      >;
       const exists = await app.db.select().from(schema.users).where(eq(schema.users.email, email));
       if (exists.length) throw new AppError('EMAIL_TAKEN', 409, 'email already registered');
       const passwordHash = await hashPassword(password);
-      const [user] = await app.db
-        .insert(schema.users)
-        .values({ email, passwordHash, displayName, companyName: null, tier: 'free' })
-        .returning();
-      await app.db.insert(schema.userCredits).values({ userId: user.id, balance: 0 });
+      const user = await app.db.transaction(async (tx) => {
+        const signupCampaignId = await resolveCampaignId(tx, signupSource);
+        const [createdUser] = await tx
+          .insert(schema.users)
+          .values({
+            email,
+            passwordHash,
+            displayName,
+            companyName: null,
+            tier: 'free',
+            signupCampaignId,
+          })
+          .returning();
+        await tx.insert(schema.userCredits).values({ userId: createdUser.id, balance: 0 });
+        return createdUser;
+      });
 
       // Send verification email
       const token = makeToken();
@@ -659,6 +673,7 @@ export async function authRoutes(app: FastifyInstance) {
             defaultResolution: schema.users.defaultResolution,
             defaultAspectRatio: schema.users.defaultAspectRatio,
             defaultPlatform: schema.users.defaultPlatform,
+            signupCampaignId: schema.users.signupCampaignId,
           });
         if (!updated) throw new AppError('NOT_FOUND', 404, 'user not found');
 
@@ -669,7 +684,16 @@ export async function authRoutes(app: FastifyInstance) {
           .select({ credits: schema.creditPlans.credits })
           .from(schema.creditPlans)
           .where(and(eq(schema.creditPlans.slug, 'free'), eq(schema.creditPlans.isActive, true)));
-        const freeCredits = freePlan?.credits ?? 0;
+        let freeCredits = freePlan?.credits ?? 0;
+        if (freeCredits > 0 && updated.signupCampaignId) {
+          const [campaign] = await tx
+            .select({ bonusPercent: schema.signupCampaigns.bonusPercent })
+            .from(schema.signupCampaigns)
+            .where(eq(schema.signupCampaigns.id, updated.signupCampaignId));
+          if (campaign) {
+            freeCredits = Math.round(freeCredits * (1 + campaign.bonusPercent / 100));
+          }
+        }
         if (freeCredits <= 0) return updated;
 
         const [inserted] = await tx
@@ -895,7 +919,7 @@ export async function authRoutes(app: FastifyInstance) {
       >;
       const identity = await verifyGoogleIdToken(idToken, audiences);
 
-      const freeCredits = await resolveFreeCredits(app);
+      const freeCredits = await resolveFreeCredits(app.db);
       const userId = await app.db.transaction((tx) => upsertGoogleUser(tx, identity, freeCredits));
 
       const [user] = await app.db

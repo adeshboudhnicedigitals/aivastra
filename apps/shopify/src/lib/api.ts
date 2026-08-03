@@ -50,11 +50,26 @@ function handleReauthIfNeeded(code: string | undefined): void {
 // Plain fetch() has no built-in timeout — a stalled connection (dead tunnel,
 // backend hang) would otherwise leave callers awaiting forever with no way to
 // recover short of a full page reload.
-const FETCH_TIMEOUT_MS = 12000;
+const FETCH_TIMEOUT_MS = 12_000;
+// A save can legitimately spend almost 30 seconds waiting for the per-store
+// publication lock and then another 10 seconds on Shopify. Keep the ordinary
+// request deadline short, but leave enough headroom for the route to return
+// the committed widget plus `synced:false` instead of aborting in the SPA.
+const WIDGET_CONFIG_PATCH_TIMEOUT_MS = 45_000;
 
-async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+function requestTimeoutMs(path: string, init: RequestInit): number {
+  return path === '/v1/shopify/widget-config' && init.method?.toUpperCase() === 'PATCH'
+    ? WIDGET_CONFIG_PATCH_TIMEOUT_MS
+    : FETCH_TIMEOUT_MS;
+}
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(url, { ...init, signal: controller.signal });
   } catch (err) {
@@ -67,35 +82,53 @@ async function fetchWithTimeout(url: string, init: RequestInit): Promise<Respons
   }
 }
 
-export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+/**
+ * Authenticated request returning the raw Response.
+ *
+ * Every callsite must go through this (or `apiFetch`, which wraps it) rather
+ * than a bare `fetch` or an `<a href>`: it is the only place that applies the
+ * absolute API base, the App Bridge bearer token, the 401 re-acquire retry and
+ * the reauth redirect. Exported for responses that are not JSON — a CSV
+ * download, for instance, needs the Blob, not a parsed body.
+ */
+export async function apiFetchResponse(path: string, init: RequestInit = {}): Promise<Response> {
   const url = `${API_BASE}${path}`;
+  const timeoutMs = requestTimeoutMs(path, init);
   const token = await getIdToken();
-  const res = await fetchWithTimeout(url, {
-    ...init,
-    headers: {
-      ...init.headers,
-      Authorization: `Bearer ${token}`,
-      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+  const res = await fetchWithTimeout(
+    url,
+    {
+      ...init,
+      headers: {
+        ...init.headers,
+        Authorization: `Bearer ${token}`,
+        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+      },
     },
-  });
+    timeoutMs,
+  );
 
   if (res.status === 401) {
     // Session token may have expired between acquisition and use (~60s lifetime) — retry once with a fresh one.
     const freshToken = await getIdToken();
-    const retryRes = await fetchWithTimeout(url, {
-      ...init,
-      headers: {
-        ...init.headers,
-        Authorization: `Bearer ${freshToken}`,
-        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+    const retryRes = await fetchWithTimeout(
+      url,
+      {
+        ...init,
+        headers: {
+          ...init.headers,
+          Authorization: `Bearer ${freshToken}`,
+          ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+        },
       },
-    });
+      timeoutMs,
+    );
     if (!retryRes.ok) {
       const { message, code } = await parseErrorBody(retryRes);
       handleReauthIfNeeded(code);
       throw new ApiError(retryRes.status, message, code);
     }
-    return retryRes.json() as Promise<T>;
+    return retryRes;
   }
 
   if (!res.ok) {
@@ -103,5 +136,10 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     handleReauthIfNeeded(code);
     throw new ApiError(res.status, message, code);
   }
+  return res;
+}
+
+export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await apiFetchResponse(path, init);
   return res.json() as Promise<T>;
 }

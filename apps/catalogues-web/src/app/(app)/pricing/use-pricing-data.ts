@@ -1,6 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BarChart2, Building2, Rocket } from 'lucide-react';
-import { useRouter } from 'next/navigation';
 import React, { useEffect, useRef, useState } from 'react';
 import { FlagAE, FlagGB, FlagIN, FlagUS } from '@/components/icons';
 import { C } from '@/components/tokens';
@@ -27,6 +26,24 @@ export const FLAGS: Record<string, React.ReactElement> = {
 };
 
 const GST_RATE = 0.18;
+
+export type PaymentResult =
+  | {
+      kind: 'success';
+      planName: string;
+      base: string; // formatted, e.g. "₹1,000"
+      tax: string;
+      total: string;
+      baseCredits: number;
+      bonusPercent: number | null; // null => no bonus line, single "Credits added" line
+      bonusCredits: number;
+      totalCredits: number;
+    }
+  | {
+      kind: 'error';
+      message: string;
+      onRetry: () => void;
+    };
 
 interface ResolutionConfig {
   enabled: boolean;
@@ -175,9 +192,8 @@ function loadRazorpay(): Promise<boolean> {
 }
 
 export function usePricingData() {
-  const router = useRouter();
   const qc = useQueryClient();
-  const [toast, setToast] = useState('');
+  const [paymentResult, setPaymentResult] = useState<PaymentResult | null>(null);
   const [buying, setBuying] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'catalogue' | 'tryon'>('catalogue');
   const [salesModal, setSalesModal] = useState<string | null>(null);
@@ -189,12 +205,14 @@ export function usePricingData() {
 
   const { data: credits } = useQuery<{
     balance: number;
+    firstPurchaseBonusPercent: number | null;
     recent: { delta: number; reason: string; createdAt: string }[];
   }>({
     queryKey: ['credits'],
     queryFn: () => api.get('/v1/credits'),
     staleTime: 60_000,
   });
+  const firstPurchaseBonusPercent = credits?.firstPurchaseBonusPercent ?? null;
 
   const { data: me } = useQuery<{ tier: string }>({
     queryKey: ['me'],
@@ -280,7 +298,11 @@ export function usePricingData() {
     try {
       const ok = await loadRazorpay();
       if (!ok || !window.Razorpay) {
-        setToast('Could not load payment gateway. Please try again.');
+        setPaymentResult({
+          kind: 'error',
+          message: 'Could not load payment gateway. Please try again.',
+          onRetry: () => void buy(plan),
+        });
         return;
       }
 
@@ -293,6 +315,7 @@ export function usePricingData() {
         label: string;
       }>('/v1/payments/orders', { planId: plan.slug });
 
+      let creditsGranted = plan.credits;
       await new Promise<void>((resolve, reject) => {
         const RazorpayClass = window.Razorpay as NonNullable<typeof window.Razorpay>;
         const rzp = new RazorpayClass({
@@ -301,18 +324,21 @@ export function usePricingData() {
           currency: order.currency,
           order_id: order.orderId,
           name: 'Ai Vastra',
-          description: `${order.label} — ${plan.credits.toLocaleString('en-IN')} Credits`,
+          description: firstPurchaseBonusPercent
+            ? `${order.label} — ${plan.credits.toLocaleString('en-IN')} Credits + ${firstPurchaseBonusPercent}% bonus`
+            : `${order.label} — ${plan.credits.toLocaleString('en-IN')} Credits`,
           handler: async (response: {
             razorpay_order_id: string;
             razorpay_payment_id: string;
             razorpay_signature: string;
           }) => {
             try {
-              await api.post('/v1/payments/verify', {
+              const verified = await api.post<{ creditsGranted?: number }>('/v1/payments/verify', {
                 razorpayOrderId: response.razorpay_order_id,
                 razorpayPaymentId: response.razorpay_payment_id,
                 razorpaySignature: response.razorpay_signature,
               });
+              creditsGranted = verified.creditsGranted ?? plan.credits;
               resolve();
             } catch (err) {
               reject(err);
@@ -325,13 +351,28 @@ export function usePricingData() {
       });
 
       qc.invalidateQueries({ queryKey: ['credits'] });
-      setToast(`${plan.credits.toLocaleString('en-IN')} credits added to your account!`);
-      setTimeout(() => router.push('/catalogues'), 1500);
+      const bonusPercent = firstPurchaseBonusPercent;
+      const bonusCredits = bonusPercent ? creditsGranted - plan.credits : 0;
+      setPaymentResult({
+        kind: 'success',
+        planName: plan.name,
+        base: displayBase(plan.basePaise),
+        tax: displayTax(plan.basePaise),
+        total: displayTotal(plan.basePaise),
+        baseCredits: plan.credits,
+        bonusPercent,
+        bonusCredits,
+        totalCredits: creditsGranted,
+      });
     } catch (err) {
       if (err instanceof Error && err.message === 'dismissed') {
         // user closed modal — no toast
       } else {
-        setToast((err as Error).message ?? 'Payment failed. Please try again.');
+        setPaymentResult({
+          kind: 'error',
+          message: (err as Error).message ?? 'Payment failed. Please try again.',
+          onRetry: () => void buy(plan),
+        });
       }
     } finally {
       setBuying(null);
@@ -369,7 +410,8 @@ export function usePricingData() {
     : null;
 
   return {
-    toast,
+    paymentResult,
+    setPaymentResult,
     buying,
     activeTab,
     setActiveTab,
@@ -384,6 +426,7 @@ export function usePricingData() {
     isNonIn,
     visiblePlans,
     plansLoading,
+    firstPurchaseBonusPercent,
     resolutions,
     displayBase,
     displayTotal,

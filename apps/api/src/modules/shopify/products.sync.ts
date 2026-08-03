@@ -1,9 +1,8 @@
 import { schema } from '@aivastra/db';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
-import { assignFunnelFromRules } from './funnel-rules.js';
-import { shopifyAdminFetch } from './service.js';
+import { type SyncTask, shopifyAdminFetch } from './service.js';
 import { getValidAccessToken } from './token.js';
 
 interface ShopifyProduct {
@@ -104,7 +103,7 @@ async function upsertGarmentFailure(
   failedReason: string,
 ): Promise<void> {
   const r2Key = `shopify-garments/${storeId}/${productId}/garment.jpg`;
-  const row = await upsertGarment(
+  await upsertGarment(
     app,
     storeId,
     productId,
@@ -117,14 +116,6 @@ async function upsertGarmentFailure(
     null,
     failedReason,
   );
-  if (row.funnelAssignmentSource !== 'manual') {
-    await assignFunnelFromRules(app, row.id, storeId, {
-      productType: null,
-      tags: null,
-      vendor: null,
-      collections: null,
-    });
-  }
 }
 
 export async function syncProduct(
@@ -145,7 +136,7 @@ export async function syncProduct(
   const collections = product.collections ?? null;
   const src = product.image?.src;
   if (!src) {
-    const row = await upsertGarment(
+    await upsertGarment(
       app,
       storeId,
       product.id,
@@ -158,9 +149,6 @@ export async function syncProduct(
       collections,
       'no product image',
     );
-    if (row.funnelAssignmentSource !== 'manual') {
-      await assignFunnelFromRules(app, row.id, storeId, { productType, tags, vendor, collections });
-    }
     return;
   }
   try {
@@ -186,7 +174,7 @@ export async function syncProduct(
     const buf = Buffer.from(arrayBuffer);
     const ct = res.headers.get('content-type') ?? 'image/jpeg';
     await app.storage.putObject(r2Key, buf, ct);
-    const row = await upsertGarment(
+    await upsertGarment(
       app,
       storeId,
       product.id,
@@ -198,12 +186,9 @@ export async function syncProduct(
       vendor,
       collections,
     );
-    if (row.funnelAssignmentSource !== 'manual') {
-      await assignFunnelFromRules(app, row.id, storeId, { productType, tags, vendor, collections });
-    }
   } catch (err) {
     app.log.warn({ err, storeId, productId: product.id }, 'product sync failed');
-    const row = await upsertGarment(
+    await upsertGarment(
       app,
       storeId,
       product.id,
@@ -216,13 +201,10 @@ export async function syncProduct(
       collections,
       (err as Error).message,
     );
-    if (row.funnelAssignmentSource !== 'manual') {
-      await assignFunnelFromRules(app, row.id, storeId, { productType, tags, vendor, collections });
-    }
   }
 }
 
-function nextPageUrl(res: { headers: { get(name: string): string | null } }): string | null {
+export function nextPageUrl(res: { headers: { get(name: string): string | null } }): string | null {
   const link = res.headers.get('link') ?? '';
   const next = link.match(/<([^>]+)>;\s*rel="next"/);
   return next ? next[1] : null;
@@ -231,7 +213,10 @@ function nextPageUrl(res: { headers: { get(name: string): string | null } }): st
 /** Shopify's product resource has no `collections` field — the id→title map is
  *  fetched once per sync run from custom/smart collections, then joined against
  *  each product's `collects.json` membership. */
-async function fetchCollectionTitleMap(shop: string, token: string): Promise<Map<number, string>> {
+export async function fetchCollectionTitleMap(
+  shop: string,
+  token: string,
+): Promise<Map<number, string>> {
   const titleById = new Map<number, string>();
   for (const resource of ['custom_collections', 'smart_collections'] as const) {
     let url: string | null = `/${resource}.json?limit=250`;
@@ -267,10 +252,7 @@ async function fetchProductCollectionTitles(
   return titles;
 }
 
-export async function syncOneTask(
-  app: FastifyInstance,
-  task: { storeId: string; mode: 'full' | 'product'; shopifyProductId?: number },
-): Promise<void> {
+export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise<void> {
   const [store] = await app.db
     .select()
     .from(schema.shopifyStores)
@@ -291,6 +273,69 @@ export async function syncOneTask(
     token = await getValidAccessToken(app, store);
     return token;
   };
+
+  if (task.mode === 'collection') {
+    if (task.shopifyCollectionId === undefined) return;
+    const { syncCollectionMembership, CollectionNotFoundError } = await import(
+      './collections.sync.js'
+    );
+    const shopifyCollectionId = task.shopifyCollectionId;
+    try {
+      await syncCollectionMembership(app, store, shopifyCollectionId);
+    } catch (err) {
+      if (err instanceof CollectionNotFoundError) {
+        // Confirmed deleted on Shopify's side — the selection itself is
+        // meaningless now, so remove it along with the cached membership,
+        // not just the membership.
+        await app.db
+          .delete(schema.shopifyCollections)
+          .where(
+            and(
+              eq(schema.shopifyCollections.storeId, store.id),
+              eq(schema.shopifyCollections.shopifyCollectionId, shopifyCollectionId),
+            ),
+          );
+        await app.db
+          .delete(schema.shopifyCollectionProducts)
+          .where(
+            and(
+              eq(schema.shopifyCollectionProducts.storeId, store.id),
+              eq(schema.shopifyCollectionProducts.shopifyCollectionId, shopifyCollectionId),
+            ),
+          );
+        await app.db
+          .delete(schema.shopifyEnabledCollections)
+          .where(
+            and(
+              eq(schema.shopifyEnabledCollections.storeId, store.id),
+              eq(schema.shopifyEnabledCollections.shopifyCollectionId, shopifyCollectionId),
+            ),
+          );
+        await app.db
+          .delete(schema.shopifyExcludedCollections)
+          .where(
+            and(
+              eq(schema.shopifyExcludedCollections.storeId, store.id),
+              eq(schema.shopifyExcludedCollections.shopifyCollectionId, shopifyCollectionId),
+            ),
+          );
+        app.log.info(
+          { storeId: task.storeId, shopifyCollectionId },
+          'collection deleted on Shopify — removed selection and cached membership',
+        );
+        return;
+      }
+      // Anything else (rate limit, 5xx, network) is not a deletion — log and
+      // let next cycle's tick re-enqueue this same collection. The outer
+      // sync-consumer loop already isolates one task's throw from the rest of
+      // the stream, so re-throwing here would be redundant, not additive.
+      app.log.warn(
+        { err, storeId: task.storeId, shopifyCollectionId },
+        'scheduled collection resync failed — will retry next cycle',
+      );
+    }
+    return;
+  }
 
   if (task.mode === 'product' && task.shopifyProductId) {
     const res = await shopifyAdminFetch(shop, token, `/products/${task.shopifyProductId}.json`);
