@@ -12,3 +12,9 @@ export function createDb(url: string): { db: DB; close: () => Promise<void> } {
 
 export { and, eq, inArray, or, sql } from 'drizzle-orm';
 export * as schema from './schema/index.js';
+export type {
+  ShopifyWidgetBehavior,
+  ShopifyWidgetConfig,
+  ShopifyWidgetCopy,
+  ShopifyWidgetTheme,
+} from './schema/shopify.js';

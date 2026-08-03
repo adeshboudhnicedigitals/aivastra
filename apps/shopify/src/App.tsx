@@ -1,9 +1,8 @@
 import '@shopify/polaris/build/esm/styles.css';
-import './theme.css';
-import { AppProvider, Banner, Box, Spinner } from '@shopify/polaris';
+import { AppProvider, Banner, Box, Frame, Navigation, Spinner } from '@shopify/polaris';
 import { useCallback, useEffect, useState } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
-import { AppShell } from './components/AppShell';
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { AppNavMenu, NAV_ITEMS } from './components/AppNavMenu';
 import { LinkAccountGate } from './components/LinkAccountGate';
 import { apiFetch, setShopDomain } from './lib/api';
 import {
@@ -11,17 +10,21 @@ import {
   clearRecoveryReloadMarker,
   shouldAttemptRecoveryReload,
 } from './lib/appBridge';
-import CatalogGeneratePage from './pages/CatalogGeneratePage';
+import { runNavGuard } from './lib/navGuard';
+import AnalyticsPage from './pages/AnalyticsPage';
 import DashboardPage from './pages/DashboardPage';
-import FunnelSetupPage from './pages/FunnelSetupPage';
-import GeneratedImagesPage from './pages/GeneratedImagesPage';
-import ProductsPage from './pages/ProductsPage';
+import ManagePage from './pages/ManagePage';
+import SettingsPage from './pages/SettingsPage';
+import SupportPage from './pages/SupportPage';
+import WidgetDesignPage from './pages/WidgetDesignPage';
 import type { ShopifyMe } from './types';
 
 export default function App() {
   const [me, setMe] = useState<ShopifyMe | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const location = useLocation();
 
   const load = useCallback(() => {
     setLoading(true);
@@ -85,18 +88,48 @@ export default function App() {
     );
   }
 
+  // window.shopify is only defined inside the Shopify admin iframe (see
+  // lib/appBridge.ts). Outside it, <ui-nav-menu> renders nothing, so Frame's
+  // own `navigation` prop supplies a usable dev nav instead — Polaris's
+  // <Navigation> requires a <Frame> ancestor providing frame context, which
+  // it only gets by being passed in here rather than rendered as a sibling.
+  // When App Bridge IS present, <ui-nav-menu> (real Shopify nav) handles
+  // navigation natively, so no `navigation` prop is passed at all.
+  const devNavigation = !window.shopify ? (
+    <Navigation location={location.pathname}>
+      <Navigation.Section
+        title="AiVastra (dev)"
+        items={NAV_ITEMS.map((item) => ({
+          label: item.label,
+          icon: item.icon,
+          // Deliberately omit `url`: Polaris renders URL items as anchors and
+          // navigates after onClick, even when the guard rejects the attempt.
+          selected: location.pathname === item.path,
+          onClick: () => {
+            if (runNavGuard()) navigate(item.path);
+          },
+        }))}
+      />
+    </Navigation>
+  ) : undefined;
+
   return (
     <AppProvider i18n={{}}>
-      <AppShell shopDomain={me.store.shopDomain}>
+      <AppNavMenu />
+      <Frame navigation={devNavigation}>
         <Routes>
           <Route path="/" element={<DashboardPage />} />
-          <Route path="/products" element={<ProductsPage />} />
-          <Route path="/funnel-setup" element={<FunnelSetupPage />} />
-          <Route path="/catalog-generate" element={<CatalogGeneratePage />} />
-          <Route path="/generated-images" element={<GeneratedImagesPage />} />
+          <Route path="/manage" element={<ManagePage />} />
+          <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route path="/widget-design" element={<WidgetDesignPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/support" element={<SupportPage />} />
+          {/* Merchants may have bookmarked the old path while it was the only
+              product surface. */}
+          <Route path="/products" element={<Navigate to="/manage" replace />} />
           <Route path="/embedded" element={<Navigate to="/" replace />} />
         </Routes>
-      </AppShell>
+      </Frame>
     </AppProvider>
   );
 }
