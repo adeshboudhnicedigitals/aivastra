@@ -299,19 +299,25 @@
       const input = document.querySelector('form[action*="/cart/add"] [name="id"]');
       const fromForm = input ? Number(input.value) : 0;
       if (fromForm) return fromForm;
-      const fallback = addToCartBtn ? Number(addToCartBtn.dataset.defaultVariantId) : 0;
+      const templateBtn = resultCardTemplate
+        ? resultCardTemplate.content.querySelector('.aivastra-tryon__add-to-cart')
+        : null;
+      const fallback = templateBtn ? Number(templateBtn.dataset.defaultVariantId) : 0;
       return fallback || null;
     }
 
-    let shareFlashTimer = null;
+    const shareFlashTimers = new WeakMap();
     function flashShare(flashEl, message) {
       if (!flashEl) return;
       flashEl.textContent = message;
       flashEl.hidden = false;
-      clearTimeout(shareFlashTimer);
-      shareFlashTimer = setTimeout(() => {
-        flashEl.hidden = true;
-      }, 2000);
+      clearTimeout(shareFlashTimers.get(flashEl));
+      shareFlashTimers.set(
+        flashEl,
+        setTimeout(() => {
+          flashEl.hidden = true;
+        }, 2000),
+      );
     }
 
     async function addVariantToCart(btn, errorEl, viewCartEl) {
