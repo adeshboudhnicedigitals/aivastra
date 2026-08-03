@@ -46,9 +46,8 @@
       avatarImage.hidden = false;
     }
 
+    const backBtn = root.querySelector('.aivastra-tryon__back-btn');
     const historyBtn = root.querySelector('.aivastra-tryon__history-btn');
-    const historyIcon = root.querySelector('.aivastra-tryon__history-icon');
-    const backIcon = root.querySelector('.aivastra-tryon__back-icon');
     const historyBadge = root.querySelector('.aivastra-tryon__history-badge');
     const HISTORY_STORAGE_KEY = 'aivastra_tryon_history';
     const HISTORY_MAX_ITEMS = 12;
@@ -246,20 +245,16 @@
       }
     }
 
-    // historyBtn doubles as a back button while the merged Result feed is
-    // showing — same element, icon swapped, so there is no separate back
-    // control competing for header space.
+    // backBtn only ever appears next to historyBtn while the merged Result
+    // feed is the active step — it's how a shopper leaves the feed without
+    // closing the modal.
     function syncHeaderButton() {
       const onResult = steps.result ? !steps.result.hidden : false;
       const count = getHistory().length;
-      if (historyBtn) {
-        historyBtn.hidden = !onResult && count === 0;
-        historyBtn.setAttribute('aria-label', onResult ? 'Back' : 'View your try-ons');
-      }
-      if (historyIcon) historyIcon.hidden = onResult;
-      if (backIcon) backIcon.hidden = !onResult;
+      if (backBtn) backBtn.hidden = !onResult;
+      if (historyBtn) historyBtn.hidden = count === 0;
       if (historyBadge) {
-        historyBadge.hidden = onResult || count === 0;
+        historyBadge.hidden = count === 0;
         historyBadge.textContent = String(count);
       }
     }
@@ -675,14 +670,11 @@
 
     button.addEventListener('click', openModal);
     closeBtn.addEventListener('click', closeModal);
+    if (backBtn) backBtn.addEventListener('click', startOver);
     if (ctaBtn) ctaBtn.addEventListener('click', confirmReady);
     if (changePhotoBtn) changePhotoBtn.addEventListener('click', () => fileInput.click());
     if (historyBtn) {
       historyBtn.addEventListener('click', () => {
-        if (steps.result && !steps.result.hidden) {
-          startOver();
-          return;
-        }
         renderResultList();
         showStep('result');
       });
