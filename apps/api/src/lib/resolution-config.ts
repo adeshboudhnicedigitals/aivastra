@@ -1,4 +1,5 @@
 import {
+  MERCHANT_FREE_CREDITS,
   PIXVERSE_VIDEO_COST,
   RESOLUTION_COSTS,
   type Resolution,
@@ -29,6 +30,8 @@ export const DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG: { creditCost: number } = {
 };
 
 export const DEFAULT_PIXVERSE_CONFIG: { creditCost: number } = { creditCost: PIXVERSE_VIDEO_COST };
+
+export const DEFAULT_MERCHANT_FREE_CREDITS = MERCHANT_FREE_CREDITS;
 
 /**
  * Reads the admin-configured credit cost for a resolution from the same
@@ -111,5 +114,21 @@ export async function getPixverseCreditCost(app: FastifyInstance): Promise<numbe
     return typeof cost === 'number' ? cost : PIXVERSE_VIDEO_COST;
   } catch {
     return PIXVERSE_VIDEO_COST;
+  }
+}
+
+/**
+ * Reads the admin-configured free-credit grant for a newly self-serve-onboarded
+ * merchant from the same `config:system` Redis key. Falls back to
+ * MERCHANT_FREE_CREDITS (0) if nothing is stored yet, or the entry is malformed.
+ */
+export async function getMerchantFreeCredits(app: FastifyInstance): Promise<number> {
+  try {
+    const raw = await app.redis.get(CONFIG_KEY);
+    const cfg = raw ? JSON.parse(raw) : {};
+    const credits = cfg.merchantFreeCredits;
+    return typeof credits === 'number' ? credits : MERCHANT_FREE_CREDITS;
+  } catch {
+    return MERCHANT_FREE_CREDITS;
   }
 }
