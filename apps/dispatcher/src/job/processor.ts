@@ -137,6 +137,7 @@ export async function processJob(
       creditsCharged: schema.jobs.creditsCharged,
       attempts: schema.jobs.attempts,
       createdAt: schema.jobs.createdAt,
+      queuedAt: schema.jobs.queuedAt,
       watermark: schema.jobs.watermark,
     })
     .from(schema.jobs)
@@ -488,7 +489,14 @@ export async function processJob(
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
   const worker = await selectWorker(redis, WORKER_POOL.CATALOGUE);
   if (!worker) {
-    if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
+    // Released held jobs (queuedAt set) can legitimately wait far longer than
+    // MAX_QUEUE_WAIT_MS measured from createdAt would allow — createdAt is
+    // days old by the time an admin releases a batch. Mirror the sweeper's own
+    // queuedAt-first fallback (apps/dispatcher/src/stream/sweeper.ts) so this
+    // budget is measured from when the job actually entered the queue, not
+    // when it was originally created.
+    const queueWaitBaseline = (job.queuedAt ?? job.createdAt).getTime();
+    if (Date.now() - queueWaitBaseline > MAX_QUEUE_WAIT_MS) {
       jobLog.warn('no idle worker — job exceeded max queue wait, terminating with refund');
       await terminateJob(
         cfg,
