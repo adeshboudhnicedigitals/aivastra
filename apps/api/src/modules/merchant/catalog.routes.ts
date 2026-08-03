@@ -968,10 +968,9 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         }
       }
 
-      if (jobIds.length === 0) {
-        throw new AppError('VALIDATION', 400, 'all images in the batch failed to enqueue');
-      }
-
+      // Always return per-item failures rather than throwing, even when every
+      // item failed — the client needs the real reason for each row (e.g. a
+      // missing admin default), not a generic "all failed" message.
       reply.code(201);
       return { jobIds, failures };
     },
