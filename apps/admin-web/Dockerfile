@@ -21,6 +21,7 @@ FROM deps AS build
 COPY . .
 ARG VITE_CHATBOT_URL
 ENV VITE_CHATBOT_URL=$VITE_CHATBOT_URL
+RUN pnpm --filter @aivastra/types build
 RUN NODE_ENV=production pnpm --filter @aivastra/admin build
 
 FROM nginx:alpine AS runtime
