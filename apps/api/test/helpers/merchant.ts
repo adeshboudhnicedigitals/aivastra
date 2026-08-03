@@ -6,7 +6,12 @@ import type { TestApp } from './api.js';
 
 export async function createTestMerchant(
   app: TestApp,
-  opts: { isActive?: boolean; balance?: number; demoData?: boolean } = {},
+  opts: {
+    isActive?: boolean;
+    balance?: number;
+    merchantBalance?: number;
+    demoData?: boolean;
+  } = {},
 ) {
   const [user] = await app.db
     .insert(schema.users)
@@ -33,6 +38,9 @@ export async function createTestMerchant(
   if (!merchant) throw new Error('failed to create test merchant');
 
   await app.db.insert(schema.userCredits).values({ userId: user.id, balance: opts.balance ?? 100 });
+  await app.db
+    .insert(schema.merchantCredits)
+    .values({ merchantId: merchant.id, balance: opts.merchantBalance ?? 0 });
 
   return {
     merchantId: merchant.id,
@@ -42,6 +50,12 @@ export async function createTestMerchant(
         .update(schema.userCredits)
         .set({ balance: n })
         .where(eq(schema.userCredits.userId, user.id));
+    },
+    async merchantCredits(n: number) {
+      await app.db
+        .update(schema.merchantCredits)
+        .set({ balance: n })
+        .where(eq(schema.merchantCredits.merchantId, merchant.id));
     },
   };
 }
