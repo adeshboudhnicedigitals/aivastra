@@ -106,7 +106,7 @@ async function uploadCustomerPhoto(token: string) {
 
 describe('POST /v1/merchant/tryon/jobs with a demo item', () => {
   it('creates a job using the demo item image when the set is assigned', async () => {
-    const merchant = await createTestMerchant(app);
+    const merchant = await createTestMerchant(app, { merchantBalance: 100 });
     const token = await merchantToken(merchant.userId);
     const demo = await seedDemoItem();
     await app.db
@@ -134,8 +134,7 @@ describe('POST /v1/merchant/tryon/jobs with a demo item', () => {
     );
 
     const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
-    // Merchant try-ons are free — unchanged by demo data.
-    expect(job?.creditsCharged).toBe(0);
+    expect(job?.creditsCharged).toBe(5);
     expect(job?.merchantId).toBe(merchant.merchantId);
   });
 
@@ -204,7 +203,7 @@ describe('POST /v1/merchant/tryon/jobs with a demo item', () => {
   });
 
   it("still works for the merchant's own item", async () => {
-    const merchant = await createTestMerchant(app);
+    const merchant = await createTestMerchant(app, { merchantBalance: 100 });
     const token = await merchantToken(merchant.userId);
     const [sub] = await app.db
       .insert(schema.merchantCatalogSubcategories)
