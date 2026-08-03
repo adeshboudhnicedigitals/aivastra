@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { getMerchantFreeCredits } from '../../lib/resolution-config.js';
 import { assignMerchantToActiveDemoSets } from './demo-catalog-read.js';
 import { resolveMerchantStatus } from './status.js';
 
@@ -42,6 +43,8 @@ export async function merchantOnboardingRoutes(app: FastifyInstance) {
     { preHandler: app.requireDeviceUser, schema: { body: MerchantOnboardingBody } },
     async (req, reply) => {
       const body = req.body as z.infer<typeof MerchantOnboardingBody>;
+
+      const freeCredits = await getMerchantFreeCredits(app);
 
       const merchantId = await app.db.transaction(async (tx) => {
         const [existing] = await tx
@@ -84,7 +87,16 @@ export async function merchantOnboardingRoutes(app: FastifyInstance) {
         if (!created) throw new AppError('INTERNAL', 500, 'failed to create merchant');
 
         // Every merchant credit helper assumes this row exists.
-        await tx.insert(schema.merchantCredits).values({ merchantId: created.id, balance: 0 });
+        await tx
+          .insert(schema.merchantCredits)
+          .values({ merchantId: created.id, balance: freeCredits });
+        if (freeCredits > 0) {
+          await tx.insert(schema.merchantCreditLedger).values({
+            merchantId: created.id,
+            delta: freeCredits,
+            reason: 'FREE_TRIAL',
+          });
+        }
 
         if (!user.phone) {
           await tx
