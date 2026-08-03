@@ -70,35 +70,36 @@
   line-height: 1.2;
 }
 
-.aivastra-tryon__header-main[hidden],
-.aivastra-tryon__header-history[hidden] {
+.aivastra-tryon__header-main[hidden] {
   display: none;
-}
-
-.aivastra-tryon__header-history {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.aivastra-tryon__history-back {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  background: none;
-  border: none;
-  color: #374151;
-  cursor: pointer;
-  padding: 0;
-  flex-shrink: 0;
 }
 
 .aivastra-tryon__header-actions {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.aivastra-tryon__back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  color: #374151;
+  cursor: pointer;
+  padding: 0;
+}
+
+.aivastra-tryon__back-btn:hover {
+  background: #f3f4f6;
+}
+
+.aivastra-tryon__back-btn[hidden] {
+  display: none;
 }
 
 .aivastra-tryon__history-btn {
@@ -160,7 +161,7 @@
   display: none;
 }
 
-.aivastra-tryon__history-list {
+.aivastra-tryon__result-list {
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -169,64 +170,16 @@
   overflow-y: auto;
 }
 
-.aivastra-tryon__history-card {
+.aivastra-tryon__result-card {
   display: block;
 }
 
-.aivastra-tryon__history-media {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 3 / 4;
-  border-radius: 16px;
-  overflow: hidden;
-  background: #f9fafb;
+.aivastra-tryon__result-card + .aivastra-tryon__result-card {
+  padding-top: 20px;
+  border-top: 1px solid rgba(17, 24, 39, 0.08);
 }
 
-.aivastra-tryon__history-media img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.aivastra-tryon__history-meta {
-  margin: 10px 2px 8px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.aivastra-tryon__history-meta strong {
-  font-size: 14px;
-  font-weight: 700;
-  color: #111827;
-}
-
-.aivastra-tryon__history-meta span {
-  color: #9ca3af;
-  font-size: 11px;
-  flex-shrink: 0;
-}
-
-.aivastra-tryon__history-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.aivastra-tryon__history-share {
-  width: 44px;
-  height: 40px;
-  border-radius: 10px;
-  border: 1px solid #e5e7eb;
-  background: #fff;
-  color: #4b5563;
-  display: grid;
-  place-items: center;
-}
-
-.aivastra-tryon__history-empty {
+.aivastra-tryon__result-empty {
   flex: 1;
   display: flex;
   align-items: center;
@@ -237,7 +190,7 @@
   color: #6b7280;
 }
 
-.aivastra-tryon__history-empty[hidden] {
+.aivastra-tryon__result-empty[hidden] {
   display: none;
 }
 
@@ -383,10 +336,6 @@
   align-items: center;
   justify-content: center;
   text-align: center;
-}
-
-.aivastra-tryon__step--result {
-  justify-content: center;
 }
 
 .aivastra-tryon__ready-preview {

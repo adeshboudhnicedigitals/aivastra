@@ -51,17 +51,11 @@
                 <p class="aivastra-tryon__subheading">{{ cfg.copy.subheading | default: 'See how it looks on you' | escape }}</p>
               </div>
             </div>
-            <div class="aivastra-tryon__header-history" hidden>
-              <button type="button" class="aivastra-tryon__history-back" aria-label="Back">
+            <div class="aivastra-tryon__header-actions">
+              <button type="button" class="aivastra-tryon__back-btn" aria-label="Back" hidden>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
               </button>
-              <div>
-                <p class="aivastra-tryon__heading">Your Try-Ons</p>
-                <p class="aivastra-tryon__subheading">Results</p>
-              </div>
-            </div>
-            <div class="aivastra-tryon__header-actions">
-              <button type="button" class="aivastra-tryon__history-btn" aria-label="View history" hidden>
+              <button type="button" class="aivastra-tryon__history-btn" aria-label="View your try-ons" hidden>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                 <span class="aivastra-tryon__history-badge" hidden>0</span>
               </button>
@@ -152,6 +146,22 @@
             </div>
 
             <div class="aivastra-tryon__step aivastra-tryon__step--result" hidden>
+              <div class="aivastra-tryon__result-list"></div>
+              <p class="aivastra-tryon__result-empty" hidden>
+                No try-ons yet — results you generate will show up here.
+              </p>
+            </div>
+
+            <div class="aivastra-tryon__step aivastra-tryon__step--error" hidden>
+              <p>{{ cfg.copy.errorText | default: 'Something went wrong. Please try again.' | escape }}</p>
+              <button type="button" class="aivastra-tryon__retry">
+                {{ 'tryon.try_again' | t }}
+              </button>
+            </div>
+          </div>
+
+          <template class="aivastra-tryon__result-card-template">
+            <div class="aivastra-tryon__result-card">
               <img class="aivastra-tryon__result-image" alt="{{ 'tryon.result_alt' | t }}" />
 
               <div class="aivastra-tryon__result-actions">
@@ -179,21 +189,7 @@
               <span class="aivastra-tryon__share-flash" hidden></span>
               <a class="aivastra-tryon__view-cart" href="/cart" hidden>View cart</a>
             </div>
-
-            <div class="aivastra-tryon__step aivastra-tryon__step--error" hidden>
-              <p>{{ cfg.copy.errorText | default: 'Something went wrong. Please try again.' | escape }}</p>
-              <button type="button" class="aivastra-tryon__retry">
-                {{ 'tryon.try_again' | t }}
-              </button>
-            </div>
-          </div>
-
-          <div class="aivastra-tryon__page aivastra-tryon__page--history" hidden>
-            <div class="aivastra-tryon__history-list"></div>
-            <p class="aivastra-tryon__history-empty" hidden>
-              No try-ons yet — results you generate will show up here.
-            </p>
-          </div>
+          </template>
         </div>
       </div>
     </div>
