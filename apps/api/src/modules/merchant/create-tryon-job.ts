@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { JOB_SOURCE } from '@aivastra/types';
 import type { FastifyInstance } from 'fastify';
+import { getTryonCreditCost } from '../../lib/resolution-config.js';
+import { atomicMerchantDeduct } from './ledger.js';
 
 interface CreateMerchantTryonJobInput {
   merchantId: string;
@@ -11,12 +13,12 @@ interface CreateMerchantTryonJobInput {
   workflowTemplateId: string;
 }
 
-// Unlimited try-ons for now: creditsCharged is always 0 and no billing helper is called.
 export async function createMerchantTryonJob(
   app: FastifyInstance,
   input: CreateMerchantTryonJobInput,
 ): Promise<string> {
   const jobId = randomUUID();
+  const cost = await getTryonCreditCost(app);
 
   await app.db.transaction(async (tx) => {
     // biome-ignore lint/suspicious/noExplicitAny: nullable widget inputs are wider than Drizzle's inferred insert type.
@@ -27,7 +29,7 @@ export async function createMerchantTryonJob(
       kioskDeviceId: null,
       customerPhotoKey: input.customerPhotoKey,
       status: 'QUEUED',
-      creditsCharged: 0,
+      creditsCharged: cost,
       source: JOB_SOURCE.MERCHANT_TRYON,
     });
 
@@ -40,6 +42,9 @@ export async function createMerchantTryonJob(
       poseId: null,
       params: { workflowTemplateId: input.workflowTemplateId },
     });
+
+    // biome-ignore lint/suspicious/noExplicitAny: tx type narrowing loses the custom methods added by the merchant ledger helper.
+    await atomicMerchantDeduct(tx as any, input.merchantId, cost, jobId);
   });
 
   await app.redis.xadd(
