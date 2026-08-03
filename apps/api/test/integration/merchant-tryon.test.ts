@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { signAccess } from '../../src/modules/auth/service';
 import { buildTestApp, type TestApp } from '../helpers/api';
@@ -287,7 +287,7 @@ describe('merchant try-on jobs', () => {
     });
     expect(crossMerchant.statusCode).toBe(404);
   });
-  it('cancels a queued job without touching credits', async () => {
+  it('cancels a queued job and refunds the charged credits', async () => {
     const { merchant, merchantUser } = await createMerchant(app, 'tryon-g@example.com');
     const auth = await authHeader(merchantUser.id);
     const garmentType = await seedGarmentTypeWithWorkflow(app);
@@ -310,6 +310,12 @@ describe('merchant try-on jobs', () => {
     });
     const { jobId } = created.json() as { jobId: string };
 
+    const [creditsAfterCreate] = await app.db
+      .select()
+      .from(schema.merchantCredits)
+      .where(eq(schema.merchantCredits.merchantId, merchant.id));
+    expect(creditsAfterCreate.balance).toBe(95); // 100 - 5 (SIMPLE_TRYON_COST default)
+
     const cancelled = await app.inject({
       method: 'DELETE',
       url: `/v1/merchant/tryon/jobs/${jobId}`,
@@ -318,12 +324,36 @@ describe('merchant try-on jobs', () => {
     expect(cancelled.statusCode).toBe(200);
     expect((cancelled.json() as { status: string }).status).toBe('CANCELLED');
 
+    const [creditsAfterCancel] = await app.db
+      .select()
+      .from(schema.merchantCredits)
+      .where(eq(schema.merchantCredits.merchantId, merchant.id));
+    expect(creditsAfterCancel.balance).toBe(100); // fully refunded
+
+    const [ledgerRow] = await app.db
+      .select()
+      .from(schema.merchantCreditLedger)
+      .where(
+        and(
+          eq(schema.merchantCreditLedger.jobId, jobId),
+          eq(schema.merchantCreditLedger.reason, 'REFUND_CANCELLED'),
+        ),
+      );
+    expect(ledgerRow).toBeDefined();
+    expect(ledgerRow.delta).toBe(5);
+
     const cancelledAgain = await app.inject({
       method: 'DELETE',
       url: `/v1/merchant/tryon/jobs/${jobId}`,
       headers: auth,
     });
     expect(cancelledAgain.statusCode).toBe(409);
+
+    const [creditsAfterSecondCancel] = await app.db
+      .select()
+      .from(schema.merchantCredits)
+      .where(eq(schema.merchantCredits.merchantId, merchant.id));
+    expect(creditsAfterSecondCancel.balance).toBe(100); // unaffected by failed second cancel
   });
   it('rejects a job when the garment type has no tryon category configured', async () => {
     const { merchant, merchantUser } = await createMerchant(app, 'tryon-d@example.com');

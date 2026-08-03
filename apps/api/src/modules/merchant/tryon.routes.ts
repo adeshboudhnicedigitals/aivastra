@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 import { createMerchantTryonJob } from './create-tryon-job.js';
+import { merchantRefund } from './ledger.js';
 import { resolveTryonGarment } from './resolve-tryon-garment.js';
 
 async function loadOwnedJob(app: FastifyInstance, merchantId: string, id: string) {
@@ -197,7 +198,11 @@ export async function merchantTryonRoutes(app: FastifyInstance) {
         throw new AppError('NOT_CANCELLABLE', 409, 'job is already being processed');
       }
 
-      await app.db.update(schema.jobs).set({ status: 'CANCELLED' }).where(eq(schema.jobs.id, id));
+      await app.db.transaction(async (tx) => {
+        await tx.update(schema.jobs).set({ status: 'CANCELLED' }).where(eq(schema.jobs.id, id));
+        // biome-ignore lint/suspicious/noExplicitAny: tx type narrowing loses custom methods in the widget ledger helper.
+        await merchantRefund(tx as any, merchantId, job.creditsCharged, id, 'REFUND_CANCELLED');
+      });
 
       const evt = JSON.stringify({ type: 'STATUS', jobId: id, status: 'CANCELLED' });
       await app.redis.publish(`sse:events:widget:${merchantId}`, evt);
