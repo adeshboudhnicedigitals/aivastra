@@ -32,8 +32,10 @@ export const merchants = pgTable('merchants', {
   logoKey: text('logo_key'),
   // 'admin'          -- created through POST /admin/merchants (an admin IS the approval)
   // 'android_google' -- self-serve Google signup from the Android app via
-  //                    POST /v1/merchant/onboarding. Try-ons are free, so these
-  //                    accounts are the ones to watch for GPU abuse.
+  //                    POST /v1/merchant/onboarding. Free-credit signup bonus is
+  //                    admin-configurable (config:system.merchantFreeCredits) and
+  //                    tryons are billed like any other merchant, so watch for
+  //                    accounts burning through their balance via GPU abuse.
   signupSource: text('signup_source', { enum: ['admin', 'android_google'] })
     .notNull()
     .default('admin'),
