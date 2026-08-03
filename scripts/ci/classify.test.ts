@@ -70,7 +70,7 @@ describe('per-service directories that differ from the target name', () => {
 describe('shared packages', () => {
   it('selects all recursive consumers of types', () => {
     const result = run(['packages/types/src/jobs.ts']);
-    expect(result.services).toEqual(['api', 'chatbot', 'dispatcher', 'web']);
+    expect(result.services).toEqual(['admin', 'api', 'chatbot', 'dispatcher', 'web']);
     expect(result.changedPackages).toEqual(['@aivastra/types']);
   });
 

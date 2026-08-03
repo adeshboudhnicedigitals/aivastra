@@ -61,6 +61,10 @@ export const jobs = pgTable(
     }),
     customerPhotoKey: text('customer_photo_key'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    // Set only when a job enters the Redis stream later than it was created —
+    // i.e. when an admin releases a HELD bulk-flat batch. NULL means "enqueued at
+    // creation", so the sweeper falls back to created_at. See sweeper.ts.
+    queuedAt: timestamp('queued_at', { withTimezone: true }),
     startedAt: timestamp('started_at', { withTimezone: true }),
     completedAt: timestamp('completed_at', { withTimezone: true }),
   },

@@ -92,7 +92,13 @@ describe('real repository workspace', () => {
   });
 
   it('reproduces the documented shared-package impact table', () => {
-    expect(consumersAsTargets('@aivastra/types')).toEqual(['api', 'chatbot', 'dispatcher', 'web']);
+    expect(consumersAsTargets('@aivastra/types')).toEqual([
+      'admin',
+      'api',
+      'chatbot',
+      'dispatcher',
+      'web',
+    ]);
     expect(consumersAsTargets('@aivastra/db')).toEqual(['api', 'chatbot', 'dispatcher']);
     expect(consumersAsTargets('@aivastra/storage')).toEqual(['api', 'dispatcher']);
     expect(consumersAsTargets('@aivastra/logger')).toEqual(['api', 'chatbot', 'dispatcher']);

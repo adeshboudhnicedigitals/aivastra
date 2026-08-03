@@ -580,3 +580,22 @@ export const PutCatalogueTemplateLooksBody = z.object({
 export const PresignCatalogueTemplateThumbnailBody = z.object({
   contentType: AssetContentType,
 });
+
+export const AdminHeldJobsResponse = z.object({
+  total: z.number().int(),
+  byUser: z.array(
+    z.object({
+      userId: z.string().uuid().nullable(),
+      email: z.string().nullable(),
+      count: z.number().int(),
+      oldestCreatedAt: z.string(),
+    }),
+  ),
+});
+export type AdminHeldJobsResponse = z.infer<typeof AdminHeldJobsResponse>;
+
+export const AdminHeldJobsReleaseResponse = z.object({
+  released: z.number().int(),
+  remaining: z.number().int(),
+});
+export type AdminHeldJobsReleaseResponse = z.infer<typeof AdminHeldJobsReleaseResponse>;

@@ -187,11 +187,13 @@ function SubcategoriesScreenInner() {
         variant="back"
         title={categoryLabel}
         onBack={() => router.push('/tryon-library-app')}
-        action={{
-          label: 'Add Subcategory',
-          onClick: () =>
-            router.push(`/tryon-library-app/add-subcategory?category=${selectedCategory}`),
-        }}
+        actions={[
+          {
+            label: 'Add Subcategory',
+            onClick: () =>
+              router.push(`/tryon-library-app/add-subcategory?category=${selectedCategory}`),
+          },
+        ]}
       />
 
       {visibleSubs.length === 0 ? (

@@ -1,7 +1,7 @@
 import { type DB, schema } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
 import { JOB_SOURCE } from '@aivastra/types';
-import { and, eq, inArray, lte, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 import { transitionJob } from '../job/state.js';
 
@@ -14,6 +14,15 @@ const QUEUED_SLA_MS = 10 * 60 * 1000;
 // would refund healthy work that was about to run.
 const VIDEO_QUEUED_SLA_MS = 30 * 60 * 1000;
 const VIDEO_SOURCE = JOB_SOURCE.CATALOG_VIDEO;
+// Released bulk-flat batches can vastly exceed the GPU worker count in one
+// release — the in-flight cap is the worker-registry size, not the batch size,
+// so most released jobs sit legitimately QUEUED for a long time waiting for a
+// free worker, not orphaned. queued_at is stamped only at release (never at
+// normal QUEUED-on-creation), so it's the exact signal distinguishing "released,
+// waiting for capacity" from "just created, orphaned." Sized to processor.ts's
+// own MAX_QUEUE_WAIT_MS (3h) retry budget, so the sweeper never kills a job the
+// processor itself still considers worth retrying.
+const HELD_RELEASE_QUEUED_SLA_MS = 3 * 60 * 60 * 1000;
 // In-flight jobs whose work started (or, for PREPROCESSING, were created) longer ago than
 // this are stuck — a normal try-on completes in ~30-60s, so 15m means the dispatcher died
 // mid-flight. Longer than the QUEUED SLA because these are legitimately mid-processing.
@@ -38,6 +47,7 @@ export async function runSweeper(db: DB, pub: Redis, log: Logger): Promise<void>
   const now = Date.now();
   const queuedThreshold = new Date(now - QUEUED_SLA_MS);
   const videoQueuedThreshold = new Date(now - VIDEO_QUEUED_SLA_MS);
+  const heldReleaseThreshold = new Date(now - HELD_RELEASE_QUEUED_SLA_MS);
   // COALESCE(started_at, created_at): started_at is only set at GENERATING, so a job stuck
   // in PREPROCESSING falls back to created_at.
   const inFlightThreshold = new Date(now - IN_FLIGHT_SLA_MS);
@@ -62,7 +72,10 @@ export async function runSweeper(db: DB, pub: Redis, log: Logger): Promise<void>
       .where(eq(schema.jobEvents.eventType, 'PREPROCESSING'))
       .groupBy(schema.jobEvents.jobId)
       .as('last_attempt');
-    const staleness = sql`coalesce(${lastAttempt.lastAttemptAt}, ${schema.jobs.createdAt})`;
+    // queued_at is set only when a HELD job is released into the stream long
+    // after creation; without it a batch released after days of holding would
+    // look orphaned on the very next tick and be refunded out from under itself.
+    const staleness = sql`coalesce(${lastAttempt.lastAttemptAt}, ${schema.jobs.queuedAt}, ${schema.jobs.createdAt})`;
 
     // Pass 1 — orphaned QUEUED jobs that were never dispatched (or never re-touched).
     const orphaned = await db
@@ -78,11 +91,17 @@ export async function runSweeper(db: DB, pub: Redis, log: Logger): Promise<void>
             // silently stop sweeping them.
             and(
               sql`coalesce(${schema.jobs.source}, '') <> ${VIDEO_SOURCE}`,
+              isNull(schema.jobs.queuedAt),
               lte(staleness, sql`${queuedThreshold.toISOString()}`),
             ),
             and(
               eq(schema.jobs.source, VIDEO_SOURCE),
               lte(staleness, sql`${videoQueuedThreshold.toISOString()}`),
+            ),
+            and(
+              sql`coalesce(${schema.jobs.source}, '') <> ${VIDEO_SOURCE}`,
+              isNotNull(schema.jobs.queuedAt),
+              lte(staleness, sql`${heldReleaseThreshold.toISOString()}`),
             ),
           ),
         ),
