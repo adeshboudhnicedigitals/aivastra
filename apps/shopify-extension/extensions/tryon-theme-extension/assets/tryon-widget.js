@@ -17,6 +17,7 @@
     const button = root.querySelector('.aivastra-tryon__button');
     const modal = root.querySelector('.aivastra-tryon__modal');
     const closeBtn = root.querySelector('.aivastra-tryon__close');
+    const backBtn = root.querySelector('.aivastra-tryon__back-btn');
     const fileInput = root.querySelector('.aivastra-tryon__file-input');
     const avatarImage = root.querySelector('.aivastra-tryon__avatar-image');
     const steps = {
@@ -225,6 +226,7 @@
       for (const key in steps) {
         if (steps[key]) steps[key].hidden = key !== name;
       }
+      if (backBtn) backBtn.hidden = name !== 'result';
     }
 
     function getHistory() {
@@ -661,6 +663,7 @@
 
     button.addEventListener('click', openModal);
     closeBtn.addEventListener('click', closeModal);
+    if (backBtn) backBtn.addEventListener('click', startOver);
     if (ctaBtn) ctaBtn.addEventListener('click', confirmReady);
     if (changePhotoBtn) changePhotoBtn.addEventListener('click', () => fileInput.click());
     if (historyBtn) {
