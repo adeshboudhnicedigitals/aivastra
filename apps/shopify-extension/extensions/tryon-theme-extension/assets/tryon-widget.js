@@ -17,7 +17,6 @@
     const button = root.querySelector('.aivastra-tryon__button');
     const modal = root.querySelector('.aivastra-tryon__modal');
     const closeBtn = root.querySelector('.aivastra-tryon__close');
-    const backBtn = root.querySelector('.aivastra-tryon__back-btn');
     const fileInput = root.querySelector('.aivastra-tryon__file-input');
     const avatarImage = root.querySelector('.aivastra-tryon__avatar-image');
     const steps = {
@@ -48,6 +47,8 @@
     }
 
     const historyBtn = root.querySelector('.aivastra-tryon__history-btn');
+    const historyIcon = root.querySelector('.aivastra-tryon__history-icon');
+    const backIcon = root.querySelector('.aivastra-tryon__back-icon');
     const historyBadge = root.querySelector('.aivastra-tryon__history-badge');
     const HISTORY_STORAGE_KEY = 'aivastra_tryon_history';
     const HISTORY_MAX_ITEMS = 12;
@@ -226,7 +227,7 @@
       for (const key in steps) {
         if (steps[key]) steps[key].hidden = key !== name;
       }
-      if (backBtn) backBtn.hidden = name !== 'result';
+      syncHeaderButton();
     }
 
     function getHistory() {
@@ -245,11 +246,22 @@
       }
     }
 
-    function updateHistoryBadge(count) {
-      if (historyBtn) historyBtn.hidden = count === 0;
-      if (!historyBadge) return;
-      historyBadge.hidden = count === 0;
-      historyBadge.textContent = String(count);
+    // historyBtn doubles as a back button while the merged Result feed is
+    // showing — same element, icon swapped, so there is no separate back
+    // control competing for header space.
+    function syncHeaderButton() {
+      const onResult = steps.result ? !steps.result.hidden : false;
+      const count = getHistory().length;
+      if (historyBtn) {
+        historyBtn.hidden = !onResult && count === 0;
+        historyBtn.setAttribute('aria-label', onResult ? 'Back' : 'View your try-ons');
+      }
+      if (historyIcon) historyIcon.hidden = onResult;
+      if (backIcon) backIcon.hidden = !onResult;
+      if (historyBadge) {
+        historyBadge.hidden = onResult || count === 0;
+        historyBadge.textContent = String(count);
+      }
     }
 
     // Fires each time a job completes — resultUrl is a stable public R2 URL
@@ -271,7 +283,7 @@
       } catch (_err) {
         /* private-browsing / storage-full — history just won't persist */
       }
-      updateHistoryBadge(history.length);
+      syncHeaderButton();
     }
 
     // navigator.share is absent on desktop Firefox and older Safari. The
@@ -407,7 +419,7 @@
 
     function renderResultList() {
       const history = getHistory();
-      updateHistoryBadge(history.length);
+      syncHeaderButton();
       if (!resultList) return;
       resultList.innerHTML = '';
       if (resultEmpty) resultEmpty.hidden = history.length > 0;
@@ -663,16 +675,19 @@
 
     button.addEventListener('click', openModal);
     closeBtn.addEventListener('click', closeModal);
-    if (backBtn) backBtn.addEventListener('click', startOver);
     if (ctaBtn) ctaBtn.addEventListener('click', confirmReady);
     if (changePhotoBtn) changePhotoBtn.addEventListener('click', () => fileInput.click());
     if (historyBtn) {
       historyBtn.addEventListener('click', () => {
+        if (steps.result && !steps.result.hidden) {
+          startOver();
+          return;
+        }
         renderResultList();
         showStep('result');
       });
     }
-    updateHistoryBadge(getHistory().length);
+    syncHeaderButton();
     function handlePickedFile(input) {
       const file = input.files?.[0];
       if (!file) return;
