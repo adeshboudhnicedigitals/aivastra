@@ -8,6 +8,7 @@ import { resolveAccountLinkCode } from './customer-auth.js';
 import { writeWidgetKeyMetafield } from './metafields.js';
 import { SHOPIFY_API_VERSION, verifyQueryHmac } from './service.js';
 import { type TokenGrant, toTokenGrant } from './token.js';
+import { markWidgetConfigUnsynced, publishLatestConfig } from './widget-config.routes.js';
 
 export interface ShopDetails {
   shopifyShopId: number;
@@ -19,6 +20,7 @@ export interface ShopDetails {
   email: string;
   phone?: string;
   address?: string;
+  ianaTimezone?: string;
 }
 
 export async function upsertShopifyStore(
@@ -58,6 +60,7 @@ export async function upsertShopifyStore(
           accessToken: enc,
           ...refreshCols,
           scope,
+          ianaTimezone: shop.ianaTimezone ?? null,
           allowedOrigins: origins,
           uninstalledAt: null,
           updatedAt: new Date(),
@@ -75,6 +78,7 @@ export async function upsertShopifyStore(
         accessToken: enc,
         ...refreshCols,
         scope,
+        ianaTimezone: shop.ianaTimezone ?? null,
         allowedOrigins: origins,
       })
       .returning();
@@ -172,6 +176,7 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
         address1?: string;
         city?: string;
         country?: string;
+        iana_timezone?: string;
       };
     };
     const details: ShopDetails = {
@@ -184,10 +189,27 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
       email: s.email,
       phone: s.phone,
       address: [s.address1, s.city, s.country].filter(Boolean).join(', '),
+      ianaTimezone: s.iana_timezone,
     };
 
     const store = await upsertShopifyStore(app, details, access_token, scope, grant);
     await writeWidgetKeyMetafield(q.shop, access_token, store.storeKey, req.log);
+    // Reauthorization can be reached only after a widget-config PATCH has
+    // already committed Postgres and Shopify rejected the old token. Publish
+    // that authoritative row with the newly issued token before returning to
+    // the app; otherwise the reloaded design page looks clean while Liquid is
+    // still rendering the previous metafield value.
+    await markWidgetConfigUnsynced(app, store.id);
+    await publishLatestConfig(app, store.id, req.log).catch((err) => {
+      // Match widget-key/webhook installation tolerance. A post-install mirror
+      // problem must not consume a valid OAuth callback without returning the
+      // merchant to Shopify; the saved Postgres config remains authoritative.
+      req.log.error(
+        { err, storeId: store.id, shop: q.shop },
+        'failed to republish widget config after shopify authorization',
+      );
+      return false;
+    });
     // Webhook registration is Task 7; call registerWebhooks(app, q.shop, access_token) here once it exists.
     await app.shopifyRegisterWebhooks?.(q.shop, access_token);
 

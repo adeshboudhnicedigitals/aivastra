@@ -23,14 +23,21 @@ function uploadFile(url: string, file: Blob, contentType: string): Promise<void>
 
 type Theme = 'light' | 'dark' | 'system';
 
-import type { CreditPlan } from '../types';
+import type { CreditPlan, SignupCampaign } from '../types';
 
-type SettingsSection = 'appearance' | 'notifications' | 'credit-plans' | 'system' | 'session';
+type SettingsSection =
+  | 'appearance'
+  | 'notifications'
+  | 'credit-plans'
+  | 'signup-campaigns'
+  | 'system'
+  | 'session';
 
 const SETTING_SECTIONS: { k: SettingsSection; label: string }[] = [
   { k: 'appearance', label: 'Appearance' },
   { k: 'notifications', label: 'Notifications' },
   { k: 'credit-plans', label: 'Credit Plans' },
+  { k: 'signup-campaigns', label: 'Signup Campaigns' },
   { k: 'system', label: 'System' },
   { k: 'session', label: 'Session' },
 ];
@@ -373,6 +380,205 @@ function PlanModal({
   );
 }
 
+const EMPTY_CAMPAIGN_FORM = {
+  code: '',
+  name: '',
+  bonusPercent: 25,
+  startAt: '',
+  endAt: '',
+  isActive: true,
+};
+
+// Converts an ISO instant to the local wall time required by <input type="datetime-local">.
+function toDatetimeLocal(iso: string): string {
+  const date = new Date(iso);
+  const pad = (value: number) => value.toString().padStart(2, '0');
+
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
+    date.getHours(),
+  )}:${pad(date.getMinutes())}`;
+}
+
+function serializeCampaignDatetime(datetimeLocal: string, originalIso?: string): string {
+  // datetime-local has minute precision, so preserve the API instant when its displayed value is unchanged.
+  return originalIso && datetimeLocal === toDatetimeLocal(originalIso)
+    ? originalIso
+    : new Date(datetimeLocal).toISOString();
+}
+
+function CampaignModal({
+  campaign,
+  onSaved,
+  onClose,
+  toast,
+}: {
+  campaign: SignupCampaign | null;
+  onSaved: (c: SignupCampaign) => void;
+  onClose: () => void;
+  toast: Props['toast'];
+}) {
+  const [form, setForm] = useState(
+    campaign
+      ? {
+          code: campaign.code,
+          name: campaign.name,
+          bonusPercent: campaign.bonusPercent,
+          startAt: toDatetimeLocal(campaign.startAt),
+          endAt: toDatetimeLocal(campaign.endAt),
+          isActive: campaign.isActive,
+        }
+      : EMPTY_CAMPAIGN_FORM,
+  );
+  const [saving, setSaving] = useState(false);
+
+  const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) =>
+    setForm((f) => ({ ...f, [k]: v }));
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const body = {
+        ...form,
+        startAt: serializeCampaignDatetime(form.startAt, campaign?.startAt),
+        endAt: serializeCampaignDatetime(form.endAt, campaign?.endAt),
+      };
+      const saved = campaign
+        ? await apiFetch<SignupCampaign>(`/admin/signup-campaigns/${campaign.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify(body),
+          })
+        : await apiFetch<SignupCampaign>('/admin/signup-campaigns', {
+            method: 'POST',
+            body: JSON.stringify(body),
+          });
+      onSaved(saved);
+      toast({ title: campaign ? `${saved.name} updated` : `${saved.name} created` });
+      onClose();
+    } catch (err) {
+      toast({
+        kind: 'error',
+        title: campaign ? 'Failed to update campaign' : 'Failed to create campaign',
+        body: apiErrorMessage(err, 'Please try again.'),
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const valid =
+    form.code.trim().length > 0 &&
+    form.name.trim().length > 0 &&
+    form.bonusPercent >= 0 &&
+    form.bonusPercent <= 100 &&
+    form.startAt.length > 0 &&
+    form.endAt.length > 0 &&
+    new Date(form.endAt) > new Date(form.startAt);
+
+  return (
+    <div className="modal-overlay" onClick={saving ? undefined : onClose}>
+      <div className="drawer" onClick={(e) => e.stopPropagation()}>
+        <div className="drawer-head">
+          <h2>{campaign ? 'Edit campaign' : 'Add campaign'}</h2>
+          <button
+            className="btn sm ghost"
+            onClick={onClose}
+            disabled={saving}
+            style={{ marginLeft: 'auto' }}
+          >
+            <Icon.Close />
+          </button>
+        </div>
+
+        <div className="drawer-body" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <div style={{ display: 'flex', gap: 16 }}>
+            <div className="field" style={{ flex: 1 }}>
+              <label>Code</label>
+              <input
+                className="input"
+                value={form.code}
+                disabled={saving || !!campaign}
+                placeholder="e.g. gartex2026"
+                onChange={(e) =>
+                  set('code', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))
+                }
+              />
+              {!campaign && (
+                <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                  Matches the ?src= value on the signup link. Cannot change later.
+                </span>
+              )}
+            </div>
+            <div className="field" style={{ flex: 1.5 }}>
+              <label>Name</label>
+              <input
+                className="input"
+                value={form.name}
+                disabled={saving}
+                placeholder="e.g. Gartex Expo Delhi 2026"
+                onChange={(e) => set('name', e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="field">
+            <label>Bonus % (applied to first purchase and signup free credits)</label>
+            <input
+              className="input"
+              type="number"
+              min={0}
+              max={100}
+              value={form.bonusPercent}
+              disabled={saving}
+              onChange={(e) => set('bonusPercent', Number(e.target.value))}
+            />
+          </div>
+
+          <div style={{ display: 'flex', gap: 16 }}>
+            <div className="field" style={{ flex: 1 }}>
+              <label>Starts</label>
+              <input
+                className="input"
+                type="datetime-local"
+                value={form.startAt}
+                disabled={saving}
+                onChange={(e) => set('startAt', e.target.value)}
+              />
+            </div>
+            <div className="field" style={{ flex: 1 }}>
+              <label>Ends</label>
+              <input
+                className="input"
+                type="datetime-local"
+                value={form.endAt}
+                disabled={saving}
+                onChange={(e) => set('endAt', e.target.value)}
+              />
+            </div>
+          </div>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Switch
+              checked={form.isActive}
+              onChange={(v) => set('isActive', v)}
+              disabled={saving}
+            />
+            Active
+          </label>
+        </div>
+
+        <div className="drawer-foot">
+          <button className="btn ghost" onClick={onClose} disabled={saving}>
+            Cancel
+          </button>
+          <button className="btn primary" onClick={handleSave} disabled={saving || !valid}>
+            {saving ? 'Saving…' : campaign ? 'Save changes' : 'Create campaign'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: Props) {
   const { logout } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -435,6 +641,15 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   });
   const [confirmDelete, setConfirmDelete] = useState<CreditPlan | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  const [campaigns, setCampaigns] = useState<SignupCampaign[]>([]);
+  const [campaignsLoading, setCampaignsLoading] = useState(true);
+  const [campaignModal, setCampaignModal] = useState<{
+    open: boolean;
+    campaign: SignupCampaign | null;
+  }>({ open: false, campaign: null });
+  const [confirmDeleteCampaign, setConfirmDeleteCampaign] = useState<SignupCampaign | null>(null);
+  const [deletingCampaign, setDeletingCampaign] = useState(false);
 
   useEffect(() => {
     apiFetch<{
@@ -613,6 +828,19 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
       .finally(() => setPlansLoading(false));
   }, [toast]);
 
+  useEffect(() => {
+    apiFetch<SignupCampaign[]>('/admin/signup-campaigns')
+      .then(setCampaigns)
+      .catch((e) =>
+        toast({
+          kind: 'error',
+          title: 'Failed to load signup campaigns',
+          body: apiErrorMessage(e, 'Please try again.'),
+        }),
+      )
+      .finally(() => setCampaignsLoading(false));
+  }, [toast]);
+
   const handlePlanSaved = (saved: CreditPlan) => {
     setPlans((prev) => {
       const idx = prev.findIndex((p) => p.id === saved.id);
@@ -641,6 +869,37 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
     } finally {
       setDeleting(false);
       setConfirmDelete(null);
+    }
+  };
+
+  const handleCampaignSaved = (saved: SignupCampaign) => {
+    setCampaigns((prev) => {
+      const idx = prev.findIndex((c) => c.id === saved.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = saved;
+        return next;
+      }
+      return [...prev, saved];
+    });
+  };
+
+  const handleDeleteCampaign = async () => {
+    if (!confirmDeleteCampaign) return;
+    setDeletingCampaign(true);
+    try {
+      await apiFetch(`/admin/signup-campaigns/${confirmDeleteCampaign.id}`, { method: 'DELETE' });
+      setCampaigns((prev) => prev.filter((c) => c.id !== confirmDeleteCampaign.id));
+      toast({ title: `${confirmDeleteCampaign.name} deleted` });
+    } catch (err) {
+      toast({
+        kind: 'error',
+        title: 'Failed to delete campaign',
+        body: apiErrorMessage(err, 'Please try again.'),
+      });
+    } finally {
+      setDeletingCampaign(false);
+      setConfirmDeleteCampaign(null);
     }
   };
 
@@ -1103,6 +1362,111 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                   No paid plans yet — click "Add paid plan" to create one.
                 </div>
               )}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Signup Campaigns */}
+      {section === 'signup-campaigns' && (
+        <>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: 20,
+            }}
+          >
+            <h3
+              style={{
+                margin: 0,
+                fontSize: 18,
+                fontWeight: 500,
+                color: 'var(--ink)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <Icon.Coin /> Signup Campaigns
+            </h3>
+            <button
+              className="btn sm primary"
+              onClick={() => setCampaignModal({ open: true, campaign: null })}
+            >
+              <Icon.Add /> Add campaign
+            </button>
+          </div>
+
+          {campaignsLoading ? (
+            <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+          ) : campaigns.length === 0 ? (
+            <div
+              style={{
+                textAlign: 'center',
+                padding: '40px 20px',
+                color: 'var(--muted)',
+                background: 'var(--surface-2)',
+                borderRadius: 'var(--r-lg)',
+                border: '1px dashed var(--border)',
+              }}
+            >
+              No signup campaigns yet — click "Add campaign" to create one.
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Code</th>
+                    <th>Name</th>
+                    <th>Bonus %</th>
+                    <th>Window</th>
+                    <th>Status</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {campaigns.map((c) => (
+                    <tr key={c.id} style={{ opacity: c.isActive ? 1 : 0.55 }}>
+                      <td className="mono">{c.code}</td>
+                      <td>{c.name}</td>
+                      <td>{c.bonusPercent}%</td>
+                      <td style={{ fontSize: 12, color: 'var(--muted)' }}>
+                        {new Date(c.startAt).toLocaleDateString()} –{' '}
+                        {new Date(c.endAt).toLocaleDateString()}
+                      </td>
+                      <td>
+                        {c.isActive ? (
+                          <span className="badge">Active</span>
+                        ) : (
+                          <span className="badge dot">Inactive</span>
+                        )}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            className="btn sm ghost"
+                            onClick={() => setCampaignModal({ open: true, campaign: c })}
+                            title="Edit"
+                          >
+                            <Icon.Edit />
+                          </button>
+                          <button
+                            className="btn sm ghost"
+                            onClick={() => setConfirmDeleteCampaign(c)}
+                            title="Delete"
+                            style={{ color: 'var(--danger)' }}
+                          >
+                            <Icon.Trash />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </>
@@ -1747,6 +2111,27 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
           confirmLabel={deleting ? 'Deleting…' : 'Delete'}
           onConfirm={handleDelete}
           onClose={() => setConfirmDelete(null)}
+        />
+      )}
+
+      {campaignModal.open && (
+        <CampaignModal
+          campaign={campaignModal.campaign}
+          onSaved={handleCampaignSaved}
+          onClose={() => setCampaignModal({ open: false, campaign: null })}
+          toast={toast}
+        />
+      )}
+
+      {confirmDeleteCampaign && (
+        <ConfirmModal
+          title="Delete campaign"
+          body={`Are you sure you want to delete "${confirmDeleteCampaign.name}"? This cannot be undone.`}
+          what={`code: ${confirmDeleteCampaign.code}`}
+          danger
+          confirmLabel={deletingCampaign ? 'Deleting…' : 'Delete'}
+          onConfirm={handleDeleteCampaign}
+          onClose={() => setConfirmDeleteCampaign(null)}
         />
       )}
     </>

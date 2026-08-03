@@ -41,6 +41,7 @@ graphify-out/*
 assets/*
 
 .superpowers/*
+.worktrees/
 .opencode/*
 .codeboarding/
 

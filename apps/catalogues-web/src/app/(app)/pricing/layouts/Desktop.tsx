@@ -5,12 +5,14 @@ import { SupportModal } from '@/components/SupportModal';
 import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { Tooltip } from '@/components/ui/tooltip';
+import { PaymentResultModal } from '../PaymentResultModal';
 import { COUNTRIES, FLAGS, PLAN_FEATURES, PLAN_META } from '../use-pricing-data';
 import type { PricingLayoutProps } from './types';
 
 export function Desktop(props: PricingLayoutProps): React.ReactElement {
   const {
-    toast,
+    paymentResult,
+    setPaymentResult,
     buying,
     activeTab,
     setActiveTab,
@@ -25,6 +27,7 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
     isNonIn,
     visiblePlans,
     plansLoading,
+    firstPurchaseBonusPercent,
     resolutions,
     displayBase,
     buy,
@@ -1165,6 +1168,24 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
                           </span>
                         </div>
 
+                        {firstPurchaseBonusPercent ? (
+                          <div
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              padding: '3px 10px',
+                              borderRadius: 999,
+                              background: grad,
+                              marginBottom: 12,
+                            }}
+                          >
+                            <span style={{ fontSize: 12, color: '#fff', fontWeight: 700 }}>
+                              +{firstPurchaseBonusPercent}% bonus credits on this purchase
+                            </span>
+                          </div>
+                        ) : null}
+
                         {features.map((feat) => (
                           <div
                             key={feat}
@@ -1338,23 +1359,8 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
         <SupportModal initialMessage={salesModal} onClose={() => setSalesModal(null)} />
       )}
 
-      {toast && (
-        <div
-          style={{
-            position: 'fixed',
-            bottom: 24,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            background: C.dark,
-            color: C.onDark,
-            padding: '10px 20px',
-            borderRadius: 8,
-            fontSize: 13,
-            zIndex: 1000,
-          }}
-        >
-          {toast}
-        </div>
+      {paymentResult && (
+        <PaymentResultModal result={paymentResult} onClose={() => setPaymentResult(null)} />
       )}
     </div>
   );
