@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AppNavMenu, NAV_ITEMS } from './components/AppNavMenu';
 import { LinkAccountGate } from './components/LinkAccountGate';
-import { apiFetch, setShopDomain } from './lib/api';
+import { ApiError, apiFetch, redirectToShopifyAuth, setShopDomain } from './lib/api';
 import {
   AppBridgeTimeoutError,
   clearRecoveryReloadMarker,
@@ -44,6 +44,18 @@ export default function App() {
         if (err instanceof AppBridgeTimeoutError && shouldAttemptRecoveryReload()) {
           window.location.reload();
           return; // Keep the spinner up; this document is being replaced.
+        }
+        // requireShopifySession's only 403 is "Store not installed" — the
+        // shop has no shopifyStores row yet, so there's no currentShopDomain
+        // to key off. This is the path a fresh install (and Shopify's
+        // automated app-review install check) takes on first load: begin
+        // OAuth instead of showing an error banner.
+        if (err instanceof ApiError && err.code === 'FORBIDDEN') {
+          const shop = new URLSearchParams(window.location.search).get('shop');
+          if (shop) {
+            redirectToShopifyAuth(shop);
+            return; // Keep the spinner up; top-level navigation is underway.
+          }
         }
         setError((err as Error).message);
         setLoading(false);

@@ -34,6 +34,15 @@ async function parseErrorBody(res: Response): Promise<{ message: string; code?: 
   return { message: text || res.statusText };
 }
 
+// Shopify's OAuth consent page refuses to be framed — must break out of the
+// embedded admin iframe with a top-level navigation, not a fetch/redirect.
+// Exported for App.tsx's fresh-install redirect, where there is no
+// currentShopDomain yet to fall back on.
+export function redirectToShopifyAuth(shop: string): void {
+  const target = `${API_BASE}/v1/shopify/auth?shop=${encodeURIComponent(shop)}`;
+  (window.top ?? window).location.href = target;
+}
+
 // The store's granted OAuth scope can fall behind what this app currently
 // requires (e.g. after a scope bump ships) — Shopify then rejects our stored
 // offline token. The backend surfaces that as SHOPIFY_REAUTH_REQUIRED so we
@@ -41,10 +50,7 @@ async function parseErrorBody(res: Response): Promise<{ message: string; code?: 
 // them (or us) having to notice and manually reinstall the app.
 function handleReauthIfNeeded(code: string | undefined): void {
   if (code !== 'SHOPIFY_REAUTH_REQUIRED' || !currentShopDomain) return;
-  const target = `${API_BASE}/v1/shopify/auth?shop=${encodeURIComponent(currentShopDomain)}`;
-  // Shopify's OAuth consent page refuses to be framed — must break out of the
-  // embedded admin iframe with a top-level navigation, not a fetch/redirect.
-  (window.top ?? window).location.href = target;
+  redirectToShopifyAuth(currentShopDomain);
 }
 
 // Plain fetch() has no built-in timeout — a stalled connection (dead tunnel,
