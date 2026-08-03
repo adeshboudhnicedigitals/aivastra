@@ -9,7 +9,7 @@ import { type Containers, startContainers } from '../helpers/containers';
 const JWT_SECRET = 'test-jwt-secret-0123456789abcdef-32min';
 const secret = new TextEncoder().encode(JWT_SECRET);
 
-async function createMerchant(app: TestApp, email: string) {
+async function createMerchant(app: TestApp, email: string, merchantBalance = 100) {
   const [merchantUser] = await app.db
     .insert(schema.users)
     .values({ email, passwordHash: 'unused' })
@@ -25,6 +25,9 @@ async function createMerchant(app: TestApp, email: string) {
       userId: merchantUser.id,
     })
     .returning();
+  await app.db
+    .insert(schema.merchantCredits)
+    .values({ merchantId: merchant.id, balance: merchantBalance });
   return { merchant, merchantUser };
 }
 
@@ -111,7 +114,7 @@ describe('merchant try-on jobs', () => {
     await c?.stop();
   });
 
-  it('presigns a customer photo, creates a job with zero credits charged, and rejects a photo key from a different merchant', async () => {
+  it('presigns a customer photo, creates a job charging the admin-configured tryon cost, and rejects a photo key from a different merchant', async () => {
     const { merchant, merchantUser } = await createMerchant(app, 'tryon-a@example.com');
     const { merchant: otherMerchant } = await createMerchant(app, 'tryon-b@example.com');
     const auth = await authHeader(merchantUser.id);
@@ -139,10 +142,16 @@ describe('merchant try-on jobs', () => {
     const { jobId } = created.json() as { jobId: string };
 
     const [jobRow] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
-    expect(jobRow.creditsCharged).toBe(0);
+    expect(jobRow.creditsCharged).toBe(5); // SIMPLE_TRYON_COST default, no config:system override in this test
     expect(jobRow.merchantId).toBe(merchant.id);
     expect(jobRow.userId).toBe(merchantUser.id);
     expect(jobRow.source).toBe('merchant_tryon');
+
+    const [credits] = await app.db
+      .select()
+      .from(schema.merchantCredits)
+      .where(eq(schema.merchantCredits.merchantId, merchant.id));
+    expect(credits.balance).toBe(95);
 
     const otherAuth = await authHeader(
       (await createMerchant(app, 'tryon-c@example.com')).merchantUser.id,
@@ -155,6 +164,49 @@ describe('merchant try-on jobs', () => {
     });
     expect(crossMerchant.statusCode).toBe(404);
     void otherMerchant;
+  });
+
+  it('402s with no job row when merchant credits are insufficient', async () => {
+    const { merchant, merchantUser } = await createMerchant(
+      app,
+      'tryon-low-balance@example.com',
+      2,
+    );
+    const auth = await authHeader(merchantUser.id);
+    const garmentType = await seedGarmentTypeWithWorkflow(app);
+    const item = await seedCatalogItem(app, merchant.id, garmentType.id);
+
+    const presigned = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/tryon/presign',
+      headers: auth,
+      payload: { contentType: 'image/jpeg', contentLength: 1024 },
+    });
+    const { r2Key } = presigned.json() as { r2Key: string };
+    await app.storage.putObject(r2Key, Buffer.from('photo'), 'image/jpeg');
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/tryon/jobs',
+      headers: auth,
+      payload: { merchantCatalogItemId: item.id, customerPhotoKey: r2Key },
+    });
+    expect(created.statusCode).toBe(402);
+    expect(created.json()).toMatchObject({
+      error: { code: 'INSUFFICIENT_CREDITS', message: 'insufficient credits' },
+    });
+
+    const jobs = await app.db
+      .select({ id: schema.jobs.id })
+      .from(schema.jobs)
+      .where(eq(schema.jobs.merchantId, merchant.id));
+    expect(jobs).toHaveLength(0);
+
+    const [credits] = await app.db
+      .select()
+      .from(schema.merchantCredits)
+      .where(eq(schema.merchantCredits.merchantId, merchant.id));
+    expect(credits.balance).toBe(2);
   });
 
   it('rejects a customer photo above the admin-configured limit', async () => {
