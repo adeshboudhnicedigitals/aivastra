@@ -4,18 +4,18 @@ import { SpinnerIcon, TrashIcon, UploadIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { api } from '@/lib/api';
-import {
-  deleteProduct,
-  finalizeGeneratedProduct,
-  pollGenerateBatch,
-  presignAndUpload,
-} from './api';
+import { presignAndUpload } from './api';
 
 interface QueueItem {
   id: string;
   file: File;
   fileUrl: string;
-  status: 'queued' | 'uploading' | 'generating' | 'generated' | 'failed';
+  // 'uploaded' — catalogue mode: a finished product photo, nothing to
+  // generate, details are editable immediately. No server row until Save.
+  // 'sent' — flat mode: handed off to the held-job pipeline. Nothing more
+  // happens in this modal for it; it shows up in the catalogue once an admin
+  // releases the batch and reconcile-held picks up the result.
+  status: 'queued' | 'uploading' | 'generating' | 'uploaded' | 'sent' | 'failed';
   jobId?: string;
   itemId?: string;
   sku: string;
@@ -36,14 +36,15 @@ const generateId = () => Math.random().toString(36).substring(2, 9);
 
 export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkUploadModalProps) {
   const [items, setItems] = useState<QueueItem[]>([]);
+  const [imageMode, setImageMode] = useState<'catalogue' | 'flat'>('catalogue');
   const [isDragging, setIsDragging] = useState(false);
   const [isGeneratingAll, setIsGeneratingAll] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [sentForProcessing, setSentForProcessing] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const itemsRef = useRef<QueueItem[]>([]);
   itemsRef.current = items;
-  const finalizingJobIds = useRef<Set<string>>(new Set());
 
   const [globalActual, setGlobalActual] = useState('');
   const [globalOffer, setGlobalOffer] = useState('');
@@ -52,21 +53,24 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
   useEffect(() => {
     if (open) {
       setItems([]);
+      setImageMode('catalogue');
       setGlobalActual('');
       setGlobalOffer('');
       setIsDragging(false);
       setIsGeneratingAll(false);
       setIsSaving(false);
-      finalizingJobIds.current = new Set();
+      setSentForProcessing(0);
     }
   }, [open]);
 
-  // Clean up local previews + any generated-but-unsaved products on close.
+  // Clean up local previews on close. Catalogue-mode 'uploaded' items and
+  // flat-mode 'sent' items never create a server row inside this modal, so
+  // there's nothing to delete — only relevant if a future path re-introduces
+  // an inline generate step.
   useEffect(() => {
     if (open) return;
     for (const item of itemsRef.current) {
       URL.revokeObjectURL(item.fileUrl);
-      if (item.status === 'generated' && item.itemId) void deleteProduct(item.itemId);
     }
   }, [open]);
 
@@ -116,7 +120,8 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
         id: generateId(),
         file,
         fileUrl: URL.createObjectURL(file),
-        status: 'queued',
+        // Catalogue images are already final — no generate step to wait through.
+        status: imageMode === 'catalogue' ? 'uploaded' : 'queued',
         sku: '',
         actualPrice: '',
         offerPrice: '',
@@ -136,35 +141,7 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
     if (e.dataTransfer.files) processFiles(e.dataTransfer.files);
   };
 
-  const finalizeCompletedJob = async (jobId: string) => {
-    if (finalizingJobIds.current.has(jobId) || !subcategoryId) return;
-    finalizingJobIds.current.add(jobId);
-    try {
-      const item = await finalizeGeneratedProduct(jobId, subcategoryId);
-      setItems((prev) =>
-        prev.map((p) =>
-          p.jobId === jobId
-            ? { ...p, status: 'generated', itemId: item.id, fileUrl: item.imageUrl ?? p.fileUrl }
-            : p,
-        ),
-      );
-    } catch (err) {
-      setItems((prev) =>
-        prev.map((p) =>
-          p.jobId === jobId
-            ? {
-                ...p,
-                status: 'failed',
-                hasError: true,
-                errorMessage: err instanceof Error ? err.message : 'Import failed',
-              }
-            : p,
-        ),
-      );
-    }
-  };
-
-  const handleGenerateAll = async () => {
+  const handleSendForProcessing = async () => {
     const queued = items.filter((i) => i.status === 'queued');
     if (queued.length === 0 || !subcategoryId) return;
     setIsGeneratingAll(true);
@@ -247,41 +224,19 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
       }),
     );
 
-    if (jobIds.length > 0) {
-      try {
-        await pollGenerateBatch(jobIds, (statuses) => {
-          for (const s of statuses) {
-            if (s.status === 'COMPLETED') {
-              void finalizeCompletedJob(s.jobId);
-            } else if (s.status === 'FAILED' || s.status === 'CANCELLED') {
-              setItems((prev) =>
-                prev.map((p) =>
-                  p.jobId === s.jobId && p.status !== 'generated'
-                    ? {
-                        ...p,
-                        status: 'failed',
-                        hasError: true,
-                        errorMessage: s.errorCode ?? 'Generation failed',
-                      }
-                    : p,
-                ),
-              );
-            }
-          }
-        });
-      } catch {
-        // Timed out — items left mid-flight stay 'generating'; remove & retry.
-      }
-    }
-
+    // Held batches run only when an admin releases them, so there is nothing to
+    // poll here. The images land in the catalogue (marked "Needs details") once
+    // generation finishes — see reconcileHeldProducts in CatalogueManagerContent.
+    setItems((prev) => prev.map((p) => (jobIdByLocalId.get(p.id) ? { ...p, status: 'sent' } : p)));
     setIsGeneratingAll(false);
+    setSentForProcessing((prev) => prev + jobIds.length);
   };
 
   const handleApplyGlobalPrice = () => {
     if (!globalActual && !globalOffer) return;
     setItems((prev) =>
       prev.map((item) => {
-        if (item.status === 'generated') {
+        if (item.status === 'uploaded') {
           return {
             ...item,
             actualPrice: globalActual || item.actualPrice,
@@ -302,17 +257,15 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
 
   const handleRemoveItem = (id: string) => {
     const item = items.find((i) => i.id === id);
-    if (item) {
-      URL.revokeObjectURL(item.fileUrl);
-      if (item.status === 'generated' && item.itemId) void deleteProduct(item.itemId);
-    }
+    if (item) URL.revokeObjectURL(item.fileUrl);
     setItems((prev) => prev.filter((i) => i.id !== id));
   };
 
   const handleAddCatalogue = async () => {
+    if (!subcategoryId) return;
     let hasValidationError = false;
     const validated = items.map((item) => {
-      if (item.status !== 'generated') return item;
+      if (item.status !== 'uploaded') return item;
       const act = parseInt(item.actualPrice, 10) || 0;
       const off = parseInt(item.offerPrice, 10) || 0;
       const isValid =
@@ -323,22 +276,28 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
     setItems(validated);
     if (hasValidationError) return;
 
-    const ready = validated.filter(
-      (i): i is QueueItem & { itemId: string } => i.status === 'generated' && !!i.itemId,
-    );
+    const ready = validated.filter((i) => i.status === 'uploaded');
     if (ready.length === 0) return;
 
     setIsSaving(true);
     try {
+      // No job, no generation — upload each finished photo and create the row directly.
       await Promise.all(
-        ready.map((item) =>
-          api.patch(`/v1/merchant/catalog/${item.itemId}`, {
-            label: `Product ${item.sku.toUpperCase()}`,
+        ready.map(async (item) => {
+          const [{ r2Key }, { r2Key: thumbnailKey }] = await Promise.all([
+            presignAndUpload(item.file, 'image'),
+            presignAndUpload(item.file, 'thumbnail'),
+          ]);
+          await api.post('/v1/merchant/catalog', {
+            subcategoryId,
+            r2Key,
+            thumbnailKey,
+            label: `Product ${item.sku.trim().toUpperCase()}`,
             sku: item.sku.trim(),
             actualPrice: parseInt(item.actualPrice, 10),
             offerPrice: parseInt(item.offerPrice, 10),
-          }),
-        ),
+          });
+        }),
       );
       onSaved();
     } finally {
@@ -347,8 +306,8 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
   };
 
   const hasQueued = items.some((i) => i.status === 'queued');
-  const hasGenerated = items.some((i) => i.status === 'generated');
-  const generatedCount = items.filter((i) => i.status === 'generated').length;
+  const hasUploaded = items.some((i) => i.status === 'uploaded');
+  const uploadedCount = items.filter((i) => i.status === 'uploaded').length;
   const isAnyGenerating = items.some((i) => i.status === 'uploading' || i.status === 'generating');
 
   return (
@@ -389,10 +348,14 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <h3 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>
-              Bulk Upload Flat Images
+              {imageMode === 'catalogue'
+                ? 'Bulk Upload Catalogue Images'
+                : 'Bulk Upload Flat Images'}
             </h3>
             <div style={{ fontSize: 13, color: C.mid, marginTop: 4 }}>
-              Upload multiple flat garment photos and process them into catalogue images.
+              {imageMode === 'catalogue'
+                ? 'Upload multiple finished product photos directly to your catalogue.'
+                : 'Upload multiple flat garment photos. They’ll be processed during the next GPU window, then appear in your catalogue once ready.'}
             </div>
           </div>
           <button
@@ -409,6 +372,56 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
             }}
           >
             &times;
+          </button>
+        </div>
+
+        {/* Mode toggle */}
+        <div
+          style={{
+            display: 'flex',
+            borderRadius: 8,
+            border: `1px solid ${C.border2}`,
+            overflow: 'hidden',
+            background: C.white,
+            flexShrink: 0,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setImageMode('catalogue')}
+            disabled={busy || items.length > 0}
+            style={{
+              flex: 1,
+              padding: '12px 16px',
+              border: 'none',
+              background: imageMode === 'catalogue' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
+              color: imageMode === 'catalogue' ? C.pink : C.text,
+              fontWeight: imageMode === 'catalogue' ? 600 : 500,
+              fontSize: 14,
+              cursor: busy || items.length > 0 ? 'not-allowed' : 'pointer',
+              transition: 'all 0.15s ease',
+              borderRight: `1px solid ${C.border2}`,
+            }}
+          >
+            Catalogue Images
+          </button>
+          <button
+            type="button"
+            onClick={() => setImageMode('flat')}
+            disabled={busy || items.length > 0}
+            style={{
+              flex: 1,
+              padding: '12px 16px',
+              border: 'none',
+              background: imageMode === 'flat' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
+              color: imageMode === 'flat' ? C.pink : C.text,
+              fontWeight: imageMode === 'flat' ? 600 : 500,
+              fontSize: 14,
+              cursor: busy || items.length > 0 ? 'not-allowed' : 'pointer',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            Flat Images
           </button>
         </div>
 
@@ -442,7 +455,9 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
             <UploadIcon size={24} />
           </div>
           <div style={{ fontSize: 13, color: isDragging ? C.pink : C.mid, fontWeight: 500 }}>
-            Drop flat images here or click to browse
+            {imageMode === 'catalogue'
+              ? 'Drop product photos here or click to browse'
+              : 'Drop flat images here or click to browse'}
           </div>
           <input
             type="file"
@@ -469,16 +484,23 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
             }}
           >
             <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-              <GradBtn type="button" onClick={handleGenerateAll} disabled={!hasQueued || busy}>
-                {isGeneratingAll && <SpinnerIcon size={14} />}
-                {isGeneratingAll ? 'Generating...' : 'Generate All'}
-              </GradBtn>
+              {imageMode === 'flat' && (
+                <GradBtn
+                  type="button"
+                  onClick={() => void handleSendForProcessing()}
+                  disabled={!hasQueued || busy}
+                >
+                  {isGeneratingAll && <SpinnerIcon size={14} />}
+                  {isGeneratingAll ? 'Sending...' : 'Send for Processing'}
+                </GradBtn>
+              )}
               <span style={{ fontSize: 13, color: C.mid, fontWeight: 500 }}>
-                {items.length} item{items.length !== 1 && 's'} ({generatedCount} ready)
+                {items.length} item{items.length !== 1 && 's'}
+                {imageMode === 'catalogue' ? ` (${uploadedCount} ready)` : ''}
               </span>
             </div>
 
-            {hasGenerated && (
+            {hasUploaded && (
               <div
                 style={{
                   display: 'flex',
@@ -641,7 +663,7 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
                       {item.status === 'uploading' ? 'Uploading' : 'Generating'}
                     </div>
                   )}
-                  {item.status === 'generated' && (
+                  {item.status === 'uploaded' && (
                     <div
                       style={{
                         background: '#10b981',
@@ -656,7 +678,22 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
                         gap: 4,
                       }}
                     >
-                      ✓ Generated
+                      ✓ Ready
+                    </div>
+                  )}
+                  {item.status === 'sent' && (
+                    <div
+                      style={{
+                        background: C.mid,
+                        color: C.white,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        padding: '2px 6px',
+                        borderRadius: 4,
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      Sent
                     </div>
                   )}
                   {item.status === 'failed' && (
@@ -677,103 +714,151 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
                 </div>
               </div>
 
-              {item.status === 'generated' && (
-                <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <input
-                    placeholder="SKU"
-                    value={item.sku}
-                    onChange={(e) => handleUpdateItem(item.id, { sku: e.target.value })}
-                    style={{
-                      width: '100%',
-                      height: 30,
-                      fontSize: 12,
-                      borderRadius: 6,
-                      border: `1px solid ${item.hasError && !item.sku ? C.pink : C.border2}`,
-                      padding: '0 8px',
-                      background: C.field,
-                      color: C.text,
-                    }}
-                  />
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <div style={{ position: 'relative', flex: 1 }}>
-                      <span
-                        style={{
-                          position: 'absolute',
-                          left: 8,
-                          top: '50%',
-                          transform: 'translateY(-50%)',
-                          fontSize: 11,
-                          color: C.mid,
-                          fontWeight: 600,
-                        }}
-                      >
-                        ₹
-                      </span>
-                      <input
-                        type="number"
-                        placeholder="Actual"
-                        value={item.actualPrice}
-                        onChange={(e) => handleUpdateItem(item.id, { actualPrice: e.target.value })}
-                        style={{
-                          width: '100%',
-                          height: 30,
-                          fontSize: 12,
-                          borderRadius: 6,
-                          border: `1px solid ${item.hasError && (!item.actualPrice || parseInt(item.offerPrice, 10) > parseInt(item.actualPrice, 10)) ? C.pink : C.border2}`,
-                          padding: '0 6px 0 20px',
-                          background: C.field,
-                          color: C.text,
-                        }}
-                      />
+              {/* Fixed height regardless of status/content so every tile in the grid
+                  matches — a validation error or a long failure message used to
+                  make individual tiles taller than their neighbors. */}
+              <div
+                style={{
+                  height: 132,
+                  boxSizing: 'border-box',
+                  padding: 12,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                  overflow: 'hidden',
+                }}
+              >
+                {item.status === 'uploaded' && (
+                  <>
+                    <input
+                      placeholder="SKU"
+                      value={item.sku}
+                      onChange={(e) => handleUpdateItem(item.id, { sku: e.target.value })}
+                      style={{
+                        width: '100%',
+                        height: 30,
+                        fontSize: 12,
+                        borderRadius: 6,
+                        border: `1px solid ${item.hasError && !item.sku ? C.pink : C.border2}`,
+                        padding: '0 8px',
+                        background: C.field,
+                        color: C.text,
+                      }}
+                    />
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <div style={{ position: 'relative', flex: 1 }}>
+                        <span
+                          style={{
+                            position: 'absolute',
+                            left: 8,
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            fontSize: 11,
+                            color: C.mid,
+                            fontWeight: 600,
+                          }}
+                        >
+                          ₹
+                        </span>
+                        <input
+                          type="number"
+                          placeholder="Actual"
+                          value={item.actualPrice}
+                          onChange={(e) =>
+                            handleUpdateItem(item.id, { actualPrice: e.target.value })
+                          }
+                          style={{
+                            width: '100%',
+                            height: 30,
+                            fontSize: 12,
+                            borderRadius: 6,
+                            border: `1px solid ${item.hasError && (!item.actualPrice || parseInt(item.offerPrice, 10) > parseInt(item.actualPrice, 10)) ? C.pink : C.border2}`,
+                            padding: '0 6px 0 20px',
+                            background: C.field,
+                            color: C.text,
+                          }}
+                        />
+                      </div>
+                      <div style={{ position: 'relative', flex: 1 }}>
+                        <span
+                          style={{
+                            position: 'absolute',
+                            left: 8,
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            fontSize: 11,
+                            color: C.mid,
+                            fontWeight: 600,
+                          }}
+                        >
+                          ₹
+                        </span>
+                        <input
+                          type="number"
+                          placeholder="Offer"
+                          value={item.offerPrice}
+                          onChange={(e) =>
+                            handleUpdateItem(item.id, { offerPrice: e.target.value })
+                          }
+                          style={{
+                            width: '100%',
+                            height: 30,
+                            fontSize: 12,
+                            borderRadius: 6,
+                            border: `1px solid ${item.hasError && (!item.offerPrice || parseInt(item.offerPrice, 10) > parseInt(item.actualPrice, 10)) ? C.pink : C.border2}`,
+                            padding: '0 6px 0 20px',
+                            background: C.field,
+                            color: C.text,
+                          }}
+                        />
+                      </div>
                     </div>
-                    <div style={{ position: 'relative', flex: 1 }}>
-                      <span
-                        style={{
-                          position: 'absolute',
-                          left: 8,
-                          top: '50%',
-                          transform: 'translateY(-50%)',
-                          fontSize: 11,
-                          color: C.mid,
-                          fontWeight: 600,
-                        }}
-                      >
-                        ₹
-                      </span>
-                      <input
-                        type="number"
-                        placeholder="Offer"
-                        value={item.offerPrice}
-                        onChange={(e) => handleUpdateItem(item.id, { offerPrice: e.target.value })}
-                        style={{
-                          width: '100%',
-                          height: 30,
-                          fontSize: 12,
-                          borderRadius: 6,
-                          border: `1px solid ${item.hasError && (!item.offerPrice || parseInt(item.offerPrice, 10) > parseInt(item.actualPrice, 10)) ? C.pink : C.border2}`,
-                          padding: '0 6px 0 20px',
-                          background: C.field,
-                          color: C.text,
-                        }}
-                      />
-                    </div>
-                  </div>
-                  {item.hasError && (
                     <div style={{ fontSize: 10, color: C.pink, lineHeight: 1.2 }}>
-                      Please fill valid SKU and ensure Offer ≤ Actual Price.
+                      {item.hasError
+                        ? 'Please fill valid SKU and ensure Offer ≤ Actual Price.'
+                        : ''}
                     </div>
-                  )}
-                </div>
-              )}
+                  </>
+                )}
 
-              {item.status === 'failed' && item.errorMessage && (
-                <div style={{ padding: 12, fontSize: 10, color: C.pink, lineHeight: 1.3 }}>
-                  {item.errorMessage}
-                </div>
-              )}
+                {item.status === 'failed' && item.errorMessage && (
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: C.pink,
+                      lineHeight: 1.3,
+                      display: '-webkit-box',
+                      WebkitLineClamp: 6,
+                      WebkitBoxOrient: 'vertical',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    {item.errorMessage}
+                  </div>
+                )}
+              </div>
             </div>
           ))}
         </div>
+
+        {sentForProcessing > 0 && (
+          <div
+            style={{
+              padding: '10px 12px',
+              borderRadius: 8,
+              background: C.lighter,
+              border: `1px solid ${C.border}`,
+              fontSize: 13,
+              color: C.text,
+              lineHeight: 1.4,
+              flexShrink: 0,
+            }}
+          >
+            {sentForProcessing} image{sentForProcessing === 1 ? '' : 's'} sent for processing.
+            They&apos;re queued for the next processing window — you&apos;ll find them in this
+            catalogue once they&apos;re ready, waiting for SKU and pricing.
+          </div>
+        )}
 
         {/* Footer */}
         <div
@@ -805,13 +890,19 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
           >
             Cancel
           </button>
-          <GradBtn
-            type="button"
-            disabled={generatedCount === 0 || isAnyGenerating || isSaving}
-            onClick={handleAddCatalogue}
-          >
-            {isSaving ? 'Saving...' : `Add ${generatedCount} to Catalogue`}
-          </GradBtn>
+          {imageMode === 'catalogue' ? (
+            <GradBtn
+              type="button"
+              disabled={uploadedCount === 0 || isAnyGenerating || isSaving}
+              onClick={() => void handleAddCatalogue()}
+            >
+              {isSaving ? 'Saving...' : `Add ${uploadedCount} to Catalogue`}
+            </GradBtn>
+          ) : (
+            <GradBtn type="button" disabled={busy} onClick={onClose}>
+              Done
+            </GradBtn>
+          )}
         </div>
       </div>
     </div>
