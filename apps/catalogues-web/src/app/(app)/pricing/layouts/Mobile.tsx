@@ -3,12 +3,14 @@ import { CheckIcon, ChevronDown, ChevronRight } from '@/components/icons';
 import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { Tooltip } from '@/components/ui/tooltip';
+import { PaymentResultModal } from '../PaymentResultModal';
 import { COUNTRIES, FLAGS, PLAN_FEATURES, PLAN_META } from '../use-pricing-data';
 import type { PricingLayoutProps } from './types';
 
 export function Mobile(props: PricingLayoutProps): React.ReactElement {
   const {
-    toast,
+    paymentResult,
+    setPaymentResult,
     buying,
     activeTab,
     setActiveTab,
@@ -789,23 +791,8 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
         <div style={{ height: 48 }} />
       </div>
 
-      {toast && (
-        <div
-          style={{
-            position: 'fixed',
-            bottom: 24,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            background: C.dark,
-            color: C.onDark,
-            padding: '10px 20px',
-            borderRadius: 8,
-            fontSize: 13,
-            zIndex: 1000,
-          }}
-        >
-          {toast}
-        </div>
+      {paymentResult && (
+        <PaymentResultModal result={paymentResult} onClose={() => setPaymentResult(null)} />
       )}
     </div>
   );
