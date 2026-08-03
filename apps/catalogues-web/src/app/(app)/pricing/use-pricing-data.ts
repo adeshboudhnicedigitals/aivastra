@@ -1,6 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BarChart2, Building2, Rocket } from 'lucide-react';
-import { useRouter } from 'next/navigation';
 import React, { useEffect, useRef, useState } from 'react';
 import { FlagAE, FlagGB, FlagIN, FlagUS } from '@/components/icons';
 import { C } from '@/components/tokens';
@@ -27,6 +26,24 @@ export const FLAGS: Record<string, React.ReactElement> = {
 };
 
 const GST_RATE = 0.18;
+
+export type PaymentResult =
+  | {
+      kind: 'success';
+      planName: string;
+      base: string; // formatted, e.g. "₹1,000"
+      tax: string;
+      total: string;
+      baseCredits: number;
+      bonusPercent: number | null; // null => no bonus line, single "Credits added" line
+      bonusCredits: number;
+      totalCredits: number;
+    }
+  | {
+      kind: 'error';
+      message: string;
+      onRetry: () => void;
+    };
 
 interface ResolutionConfig {
   enabled: boolean;
@@ -175,9 +192,8 @@ function loadRazorpay(): Promise<boolean> {
 }
 
 export function usePricingData() {
-  const router = useRouter();
   const qc = useQueryClient();
-  const [toast, setToast] = useState('');
+  const [paymentResult, setPaymentResult] = useState<PaymentResult | null>(null);
   const [buying, setBuying] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'catalogue' | 'tryon'>('catalogue');
   const [salesModal, setSalesModal] = useState<string | null>(null);
@@ -282,7 +298,11 @@ export function usePricingData() {
     try {
       const ok = await loadRazorpay();
       if (!ok || !window.Razorpay) {
-        setToast('Could not load payment gateway. Please try again.');
+        setPaymentResult({
+          kind: 'error',
+          message: 'Could not load payment gateway. Please try again.',
+          onRetry: () => void buy(plan),
+        });
         return;
       }
 
@@ -331,13 +351,28 @@ export function usePricingData() {
       });
 
       qc.invalidateQueries({ queryKey: ['credits'] });
-      setToast(`${creditsGranted.toLocaleString('en-IN')} credits added to your account!`);
-      setTimeout(() => router.push('/catalogues'), 1500);
+      const bonusPercent = firstPurchaseBonusPercent;
+      const bonusCredits = bonusPercent ? creditsGranted - plan.credits : 0;
+      setPaymentResult({
+        kind: 'success',
+        planName: plan.name,
+        base: displayBase(plan.basePaise),
+        tax: displayTax(plan.basePaise),
+        total: displayTotal(plan.basePaise),
+        baseCredits: plan.credits,
+        bonusPercent,
+        bonusCredits,
+        totalCredits: creditsGranted,
+      });
     } catch (err) {
       if (err instanceof Error && err.message === 'dismissed') {
         // user closed modal — no toast
       } else {
-        setToast((err as Error).message ?? 'Payment failed. Please try again.');
+        setPaymentResult({
+          kind: 'error',
+          message: (err as Error).message ?? 'Payment failed. Please try again.',
+          onRetry: () => void buy(plan),
+        });
       }
     } finally {
       setBuying(null);
@@ -375,7 +410,8 @@ export function usePricingData() {
     : null;
 
   return {
-    toast,
+    paymentResult,
+    setPaymentResult,
     buying,
     activeTab,
     setActiveTab,
