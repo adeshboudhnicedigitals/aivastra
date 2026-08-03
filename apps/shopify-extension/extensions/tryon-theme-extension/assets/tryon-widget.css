@@ -70,7 +70,31 @@
   line-height: 1.2;
 }
 
+.aivastra-tryon__header-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .aivastra-tryon__header-main[hidden] {
+  display: none;
+}
+
+.aivastra-tryon__back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: none;
+  border: none;
+  color: #374151;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.aivastra-tryon__back-btn[hidden] {
   display: none;
 }
 
