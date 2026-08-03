@@ -63,6 +63,70 @@ Subagent-Driven Development, in place on `feat/merchant-tryon-credits`.
   admin-created merchants, making `MERCHANT_PLAN_BILLING` admin-configurable,
   Shopify store-owner billing changes.
 
+## 2026-08-03 - Admin users list: hide suspended/deleted by default
+
+### Done
+- `GET /admin/users` (`apps/api/src/modules/admin/users.routes.ts`) now defaults to `WHERE is_banned = false`; added `showBanned` querystring flag to bring suspended/erased accounts back into view. Fixes the erasure feature below shipping with no way to hide its own output from the default list.
+- Added a "Show suspended/deleted" checkbox toggle to `apps/admin-web/src/pages/UsersPage.tsx`'s list toolbar, wired to the new query param.
+- Added integration test asserting a suspended user is excluded by default and included with `showBanned=true`.
+- Verified: `admin-users.test.ts` (8/8), `tsc --noEmit` on `@aivastra/api`, `@aivastra/admin` build, biome lint on all touched files.
+
+### Failed / Not Done
+- None. Not committed to git per push/commit policy.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-08-03 - Admin panel full user PII erasure (single + bulk)
+
+### Done
+- Extended backend `DELETE /admin/users/:id` in `apps/api/src/modules/admin/users.routes.ts` to perform a full GDPR-style PII scrub (anonymizing `email` to `deleted+<id>@example.invalid`, `displayName` to `'Deleted User'`, setting `phone`, `companyName`, `username` to `null`, `isBanned: true`, `banReason: 'admin erasure (GDPR)'`), hard-deleting `oauth_accounts` rows, revoking `refresh_tokens`, and preserving financial/job history rows intact.
+- Added merchant account owner guard (`403` with `'cannot erase a merchant account owner'`) in addition to the existing admin-row guard (`403` with `'cannot delete an admin user'`).
+- Extracted per-id erasure into a shared `eraseUser` function and added `POST /admin/users/bulk-delete` (body validated via `BulkDeleteUsersBody` in `packages/types/src/admin.ts`), returning `{ succeeded: string[], skipped: { id, reason }[] }`.
+- Added structured warn log audit lines (`action: 'USER_ERASURE'`, `adminUserId`, `targetUserId`) for every successful erasure.
+- Added single delete action and confirmation modal to `apps/admin-web/src/pages/UsersPage.tsx`.
+- Added multi-select bulk selection (page toggle + per-row checkboxes + "Delete selected" confirmation modal with email preview list and summary toast) to `UsersPage.tsx`.
+- Added comprehensive integration tests in `apps/api/test/integration/admin-users.test.ts` covering single delete PII anonymization, admin/merchant guards, non-super-admin 403, and bulk delete independent batch execution with succeeded/skipped splits.
+- Verified test suite (`50 passed, 418 passed`), typechecks, build (`@aivastra/admin`), and biome lint checks.
+
+### Failed / Not Done
+- None. Changes kept uncommitted locally per repo git policy.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-08-03 - Pricing Page breakdown modal for payments
+
+### Done
+- Replaced the single-line 1.5s auto-redirecting payment toast on `/pricing` with a premium centered breakdown modal (`PaymentResultModal.tsx`).
+- Built `PaymentResultModal.tsx` matching `SupportModal.tsx` chrome (backdrop, centered card, focus trap, Escape key handling, close button, `C`/`grad` design tokens).
+- Handled Success state: displays plan price, GST (18%), total paid, plan credits, bonus credits (if QR campaign attributed), total credited, and explicit "Continue" button navigating to `/catalogues`.
+- Handled Error state: displays error message with a tinted red `!` badge, "Close" button, and "Try Again" retry action.
+- Replaced `toast: string` state in `use-pricing-data.ts` with `PaymentResult` discriminated union and updated all 3 buy flow call sites.
+- Cleaned up duplicated toast rendering across `Desktop.tsx`, `Mobile.tsx`, and `Tablet.tsx` in favor of `{paymentResult && <PaymentResultModal ... />}`.
+- Verified TypeScript compilation (`tsc --noEmit`), Biome lint checks, and full API test suite (`50 passed, 413 passed`).
+
+### Failed / Not Done
+- None. Not committed to git per push/commit policy.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-08-01 - Gartex expo QR signup campaign (25% bonus credits)
+
+### Done
+- Added `signup_campaigns` table (code, name, bonusPercent, date window, isActive) and `users.signupCampaignId` FK, set once at signup.
+- Email/password register (`?src=` query param -> `RegisterBody.signupSource`) and Google OAuth (`google_src` cookie, mirroring `google_next`) both attribute brand-new signups to a matching active, in-window campaign.
+- `FREE_TRIAL` grant (both the `PATCH /v1/me` profile-completion path and the Google new-account path) is boosted by the campaign's `bonusPercent` when attributed.
+- First plan purchase for a campaign-attributed user grants an extra `CAMPAIGN_BONUS` ledger entry (bonusPercent of the plan's credits), applied once via a shared `grantPurchaseCredits` helper used by both `/v1/payments/verify` and the Razorpay webhook.
+- Admin CRUD (`/admin/signup-campaigns`) + a new "Signup Campaigns" tab in the admin Settings page (`apps/admin-web/src/pages/SettingsPage.tsx`).
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- The actual `gartex2026` campaign row still needs to be created via the admin UI in production, with the real expo dates, before the QR code is printed (see `docs/superpowers/specs/2026-08-01-gartex-expo-qr-campaign-design.md` §3.6) — this is an operational step, not a code task.
+
 ## 2026-08-02 — Shopify activation model
 
 Replaces the old per-product Manage page (enable/disable one product at a
