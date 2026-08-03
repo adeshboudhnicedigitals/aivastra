@@ -28,14 +28,9 @@
       error: root.querySelector('.aivastra-tryon__step--error'),
       email: root.querySelector('.aivastra-tryon__step--email'),
     };
-    const resultImage = root.querySelector('.aivastra-tryon__result-image');
-    const addToCartBtn = root.querySelector('.aivastra-tryon__add-to-cart');
-    const shareBtn = root.querySelector('.aivastra-tryon__share');
-    const viewCartLink = root.querySelector('.aivastra-tryon__view-cart');
-    const cartError = root.querySelector('.aivastra-tryon__cart-error');
-    const shareFlash = root.querySelector('.aivastra-tryon__share-flash');
-    const addToCartLabel = addToCartBtn ? addToCartBtn.textContent.trim() : '';
-    let currentResultUrl = null;
+    const resultList = root.querySelector('.aivastra-tryon__result-list');
+    const resultEmpty = root.querySelector('.aivastra-tryon__result-empty');
+    const resultCardTemplate = root.querySelector('.aivastra-tryon__result-card-template');
     const readyImage = root.querySelector('.aivastra-tryon__ready-image');
     const changePhotoBtn = root.querySelector('.aivastra-tryon__change-photo');
     const ctaBtn = root.querySelector('.aivastra-tryon__cta');
@@ -51,17 +46,8 @@
       avatarImage.hidden = false;
     }
 
-    const pages = {
-      main: root.querySelector('.aivastra-tryon__page--main'),
-      history: root.querySelector('.aivastra-tryon__page--history'),
-    };
-    const headerMain = root.querySelector('.aivastra-tryon__header-main');
-    const headerHistory = root.querySelector('.aivastra-tryon__header-history');
     const historyBtn = root.querySelector('.aivastra-tryon__history-btn');
-    const historyBackBtn = root.querySelector('.aivastra-tryon__history-back');
     const historyBadge = root.querySelector('.aivastra-tryon__history-badge');
-    const historyList = root.querySelector('.aivastra-tryon__history-list');
-    const historyEmpty = root.querySelector('.aivastra-tryon__history-empty');
     const HISTORY_STORAGE_KEY = 'aivastra_tryon_history';
     const HISTORY_MAX_ITEMS = 12;
 
@@ -241,17 +227,6 @@
       }
     }
 
-    function showPage(name) {
-      for (const key in pages) {
-        if (pages[key]) pages[key].hidden = key !== name;
-      }
-      const onHistory = name === 'history';
-      if (headerMain) headerMain.hidden = onHistory;
-      if (headerHistory) headerHistory.hidden = !onHistory;
-      if (historyBtn) historyBtn.hidden = onHistory || getHistory().length === 0;
-      if (onHistory) renderHistoryList();
-    }
-
     function getHistory() {
       let raw;
       try {
@@ -297,22 +272,11 @@
       updateHistoryBadge(history.length);
     }
 
-    function formatHistoryDate(timestamp) {
-      try {
-        return new Date(timestamp).toLocaleDateString(undefined, {
-          month: 'short',
-          day: 'numeric',
-        });
-      } catch (_err) {
-        return '';
-      }
-    }
-
     // navigator.share is absent on desktop Firefox and older Safari. The
     // payload is a plain public URL either way, so the fallback is a clipboard
     // copy rather than hiding the affordance — a share button that vanishes on
     // some browsers leaves the result actions visibly lopsided.
-    function shareResult(url) {
+    function shareResult(url, flashEl) {
       trackEvent('share');
       if (!url) return;
       if (typeof navigator.share === 'function') {
@@ -323,8 +287,8 @@
       }
       if (!navigator.clipboard) return;
       navigator.clipboard.writeText(url).then(
-        () => flashShare('Link copied'),
-        () => flashShare('Copy failed'),
+        () => flashShare(flashEl, 'Link copied'),
+        () => flashShare(flashEl, 'Copy failed'),
       );
     }
 
@@ -339,24 +303,23 @@
       return fallback || null;
     }
 
-    function resetResultActions() {
-      if (addToCartBtn) {
-        addToCartBtn.disabled = false;
-        addToCartBtn.textContent = addToCartLabel;
-      }
-      if (viewCartLink) viewCartLink.hidden = true;
-      if (cartError) {
-        cartError.hidden = true;
-        cartError.textContent = '';
-      }
+    let shareFlashTimer = null;
+    function flashShare(flashEl, message) {
+      if (!flashEl) return;
+      flashEl.textContent = message;
+      flashEl.hidden = false;
+      clearTimeout(shareFlashTimer);
+      shareFlashTimer = setTimeout(() => {
+        flashEl.hidden = true;
+      }, 2000);
     }
 
-    async function addCurrentVariantToCart() {
+    async function addVariantToCart(btn, errorEl, viewCartEl) {
       const variantId = resolveVariantId();
-      if (!variantId || !addToCartBtn) return;
+      if (!variantId) return;
 
-      addToCartBtn.disabled = true;
-      if (cartError) cartError.hidden = true;
+      btn.disabled = true;
+      if (errorEl) errorEl.hidden = true;
 
       try {
         const res = await fetch('/cart/add.js', {
@@ -370,97 +333,78 @@
           // message. Showing Shopify's own string beats tracking variant
           // availability client-side across each theme's selector JS.
           const body = await res.json().catch(() => ({}));
-          if (cartError) {
-            cartError.textContent = body.description || 'Could not add to cart.';
-            cartError.hidden = false;
+          if (errorEl) {
+            errorEl.textContent = body.description || 'Could not add to cart.';
+            errorEl.hidden = false;
           }
-          addToCartBtn.disabled = false;
+          btn.disabled = false;
           return;
         }
 
-        addToCartBtn.textContent = 'Added ✓';
+        btn.textContent = 'Added ✓';
         trackEvent('add_to_cart');
-        if (viewCartLink) viewCartLink.hidden = false;
+        if (viewCartEl) viewCartEl.hidden = false;
         // Themes that listen refresh their cart badge; the rest ignore an
         // unknown event. Cheaper and safer than detecting each theme's drawer.
         document.dispatchEvent(new CustomEvent('cart:refresh', { bubbles: true }));
       } catch {
-        if (cartError) {
-          cartError.textContent = 'Could not add to cart.';
-          cartError.hidden = false;
+        if (errorEl) {
+          errorEl.textContent = 'Could not add to cart.';
+          errorEl.hidden = false;
         }
-        addToCartBtn.disabled = false;
+        btn.disabled = false;
       }
     }
 
-    if (addToCartBtn) addToCartBtn.addEventListener('click', addCurrentVariantToCart);
-    if (shareBtn) shareBtn.addEventListener('click', () => shareResult(currentResultUrl));
+    // One full-size card per stored result — the just-generated one lands on
+    // top because addToHistory() unshifts it. Every card is a fresh clone of
+    // the Liquid <template>, so each has its own Add to Cart / Share state;
+    // nothing needs resetting between renders.
+    function buildResultCard(entry) {
+      const fragment = resultCardTemplate.content.cloneNode(true);
+      const card = fragment.querySelector('.aivastra-tryon__result-card');
 
-    let shareFlashTimer = null;
-    function flashShare(message) {
-      if (!shareFlash) return;
-      shareFlash.textContent = message;
-      shareFlash.hidden = false;
-      clearTimeout(shareFlashTimer);
-      shareFlashTimer = setTimeout(() => {
-        shareFlash.hidden = true;
-      }, 2000);
+      const img = card.querySelector('.aivastra-tryon__result-image');
+      img.src = entry.resultUrl;
+      // Retention may have deleted this result since it was cached locally. A
+      // broken image is worse than a missing card, so drop the entry and
+      // rewrite the stored history.
+      img.addEventListener('error', () => {
+        const remaining = getHistory().filter((h) => h.resultUrl !== entry.resultUrl);
+        try {
+          localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(remaining));
+        } catch (_err) {
+          // Storage blocked — the entry reappears next load; harmless.
+        }
+        renderResultList();
+      });
+
+      const addToCartBtn = card.querySelector('.aivastra-tryon__add-to-cart');
+      const cartError = card.querySelector('.aivastra-tryon__cart-error');
+      const viewCartLink = card.querySelector('.aivastra-tryon__view-cart');
+      if (addToCartBtn) {
+        addToCartBtn.addEventListener('click', () =>
+          addVariantToCart(addToCartBtn, cartError, viewCartLink),
+        );
+      }
+
+      const shareBtn = card.querySelector('.aivastra-tryon__share');
+      const shareFlash = card.querySelector('.aivastra-tryon__share-flash');
+      if (shareBtn) {
+        shareBtn.addEventListener('click', () => shareResult(entry.resultUrl, shareFlash));
+      }
+
+      return card;
     }
 
-    function renderHistoryList() {
+    function renderResultList() {
       const history = getHistory();
       updateHistoryBadge(history.length);
-      if (!historyList) return;
-      historyList.innerHTML = '';
-      if (historyEmpty) historyEmpty.hidden = history.length > 0;
+      if (!resultList) return;
+      resultList.innerHTML = '';
+      if (resultEmpty) resultEmpty.hidden = history.length > 0;
       for (let i = 0; i < history.length; i++) {
-        const entry = history[i];
-        const card = document.createElement('div');
-        card.className = 'aivastra-tryon__history-card';
-
-        const media = document.createElement('div');
-        media.className = 'aivastra-tryon__history-media';
-        const img = document.createElement('img');
-        img.src = entry.resultUrl;
-        img.alt = '';
-        // Retention may have deleted this result since it was cached locally.
-        // A broken image is worse than a missing row, so drop the entry and
-        // rewrite the stored history.
-        img.addEventListener('error', () => {
-          const remaining = getHistory().filter((h) => h.resultUrl !== entry.resultUrl);
-          try {
-            localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(remaining));
-          } catch (_err) {
-            // Storage blocked — the entry reappears next load; harmless.
-          }
-          renderHistoryList();
-        });
-        media.appendChild(img);
-        card.appendChild(media);
-
-        const meta = document.createElement('div');
-        meta.className = 'aivastra-tryon__history-meta';
-        const title = document.createElement('strong');
-        title.textContent = entry.productTitle || 'Try-on';
-        meta.appendChild(title);
-        const date = document.createElement('span');
-        date.textContent = formatHistoryDate(entry.createdAt);
-        meta.appendChild(date);
-        card.appendChild(meta);
-
-        const actions = document.createElement('div');
-        actions.className = 'aivastra-tryon__history-actions';
-        const historyShareBtn = document.createElement('button');
-        historyShareBtn.type = 'button';
-        historyShareBtn.className = 'aivastra-tryon__history-share';
-        historyShareBtn.setAttribute('aria-label', 'Share');
-        historyShareBtn.innerHTML =
-          '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="2.2"/><circle cx="6" cy="12" r="2.2"/><circle cx="18" cy="19" r="2.2"/><path d="m8 11 7.8-4.6M8 13l7.8 4.6"/></svg>';
-        historyShareBtn.addEventListener('click', () => shareResult(entry.resultUrl));
-        actions.appendChild(historyShareBtn);
-        if (actions.childNodes.length > 0) card.appendChild(actions);
-
-        historyList.appendChild(card);
+        resultList.appendChild(buildResultCard(history[i]));
       }
     }
 
@@ -502,7 +446,6 @@
     function openModal() {
       trackEvent('button_click');
       modal.hidden = false;
-      showPage('main');
       startOver();
     }
 
@@ -552,7 +495,6 @@
         }),
       });
       if (res.status === 402) {
-        showPage('main');
         showStep('error');
         const errorStep = steps.error;
         if (errorStep) {
@@ -659,7 +601,6 @@
         rememberPhoto(customerPhotoKey);
         const jobResult = await createJob(customerPhotoKey);
         if (jobResult.pending) {
-          showPage('main');
           if (jobResult.reason === 'email_required') {
             // Hold the photo key: the retry reuses the same upload (its Redis
             // ownership record lives 600s), so nothing is re-uploaded.
@@ -675,22 +616,17 @@
           return;
         }
         const resultUrl = await waitForResult(jobResult.jobId);
-        currentResultUrl = resultUrl;
-        resetResultActions();
-        resultImage.src = resultUrl;
-        showPage('main');
+        addToHistory(resultUrl);
+        renderResultList();
         showStep('result');
         trackEvent('result_view');
-        addToHistory(resultUrl);
       } catch (err) {
         if (isReuse && err && err.expiredReuse) {
           forgetPhoto();
-          showPage('main');
           showStep('upload');
           if (reuseExpiredNote) reuseExpiredNote.hidden = false;
           return;
         }
-        showPage('main');
         showStep('error');
       }
     }
@@ -709,7 +645,6 @@
           const customerPhotoKey = await uploadPhoto(file);
           await proceedWithPhoto(customerPhotoKey, false);
         } catch (_err) {
-          showPage('main');
           showStep('error');
         }
       } else if (reuseKey) {
@@ -722,8 +657,12 @@
     closeBtn.addEventListener('click', closeModal);
     if (ctaBtn) ctaBtn.addEventListener('click', confirmReady);
     if (changePhotoBtn) changePhotoBtn.addEventListener('click', () => fileInput.click());
-    if (historyBtn) historyBtn.addEventListener('click', () => showPage('history'));
-    if (historyBackBtn) historyBackBtn.addEventListener('click', () => showPage('main'));
+    if (historyBtn) {
+      historyBtn.addEventListener('click', () => {
+        renderResultList();
+        showStep('result');
+      });
+    }
     updateHistoryBadge(getHistory().length);
     function handlePickedFile(input) {
       const file = input.files?.[0];
