@@ -80,6 +80,28 @@
   gap: 12px;
 }
 
+.aivastra-tryon__back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  color: #374151;
+  cursor: pointer;
+  padding: 0;
+}
+
+.aivastra-tryon__back-btn:hover {
+  background: #f3f4f6;
+}
+
+.aivastra-tryon__back-btn[hidden] {
+  display: none;
+}
+
 .aivastra-tryon__history-btn {
   position: relative;
   display: flex;
