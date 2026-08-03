@@ -243,14 +243,14 @@ describe('kiosk jobs', () => {
       .select()
       .from(schema.merchantCredits)
       .where(eq(schema.merchantCredits.merchantId, merchant.id));
-    expect(credits.balance).toBe(90);
+    expect(credits.balance).toBe(95);
 
     const ledgerRows = await app.db
       .select()
       .from(schema.merchantCreditLedger)
       .where(eq(schema.merchantCreditLedger.jobId, jobId));
     expect(ledgerRows).toHaveLength(1);
-    expect(ledgerRows[0]?.delta).toBe(-10);
+    expect(ledgerRows[0]?.delta).toBe(-5);
     expect(ledgerRows[0]?.reason).toBe('JOB_DISPATCH');
 
     const resultBytes = Buffer.from('completed-kiosk-result');
@@ -427,7 +427,7 @@ describe('kiosk jobs', () => {
   });
 
   it('fails atomically when merchant credits are insufficient', async () => {
-    const merchant = await seedMerchant(app, 'merchant-low-balance@example.com', 5);
+    const merchant = await seedMerchant(app, 'merchant-low-balance@example.com', 4);
     const device = await claimDevice(app, merchant.id, 'Balance Tablet', 'android-balance');
     const item = await seedCatalogItem(app, merchant.id);
     const customerPhotoKey = await uploadCustomerPhoto(
@@ -462,7 +462,7 @@ describe('kiosk jobs', () => {
       .select()
       .from(schema.merchantCredits)
       .where(eq(schema.merchantCredits.merchantId, merchant.id));
-    expect(credits.balance).toBe(5);
+    expect(credits.balance).toBe(4);
 
     const ledger = await app.db
       .select()
