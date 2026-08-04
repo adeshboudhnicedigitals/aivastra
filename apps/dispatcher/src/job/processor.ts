@@ -2183,25 +2183,36 @@ async function markWidgetFailed(
 ): Promise<void> {
   const { db, redis, pub } = cfg;
 
-  // Refund widget credits (idempotent)
+  // Refund to the merchant's owning user — one credit pool per human. Kiosk jobs
+  // carry jobs.user_id = null (the shopper is anonymous), so the billing owner is
+  // resolved through the merchants row rather than read off the job.
   await db.transaction(async (tx) => {
+    const [owner] = await tx
+      .select({ userId: schema.merchants.userId })
+      .from(schema.merchants)
+      .where(eq(schema.merchants.id, merchantId))
+      .limit(1);
+    if (!owner?.userId) {
+      log.error({ jobId, merchantId }, 'refund skipped — merchant has no owning user');
+      return;
+    }
     const existing = await tx
       .select()
-      .from(schema.merchantCreditLedger)
+      .from(schema.creditLedger)
       .where(
         and(
-          eq(schema.merchantCreditLedger.jobId, jobId),
-          eq(schema.merchantCreditLedger.reason, 'JOB_FAIL_REFUND'),
+          eq(schema.creditLedger.jobId, jobId),
+          eq(schema.creditLedger.reason, 'JOB_FAIL_REFUND'),
         ),
       );
     if (existing.length) return;
     await tx
-      .update(schema.merchantCredits)
-      .set({ balance: sql`${schema.merchantCredits.balance} + ${creditsCharged}` })
-      .where(eq(schema.merchantCredits.merchantId, merchantId));
+      .update(schema.userCredits)
+      .set({ balance: sql`${schema.userCredits.balance} + ${creditsCharged}` })
+      .where(eq(schema.userCredits.userId, owner.userId));
     await tx
-      .insert(schema.merchantCreditLedger)
-      .values({ merchantId, delta: creditsCharged, reason: 'JOB_FAIL_REFUND', jobId });
+      .insert(schema.creditLedger)
+      .values({ userId: owner.userId, delta: creditsCharged, reason: 'JOB_FAIL_REFUND', jobId });
   });
 
   await transitionJob(db, pub, jobId, '', 'FAILED', { errorCode }, log);
@@ -2226,7 +2237,7 @@ async function markWidgetFailed(
   );
   await redis.xack(stream, 'dispatcher-cg', messageId);
   recordJobOutcome('failed', startedAt);
-  log.warn({ jobId, errorCode }, 'widget job FAILED — widget credits refunded');
+  log.warn({ jobId, errorCode }, 'widget job FAILED — credits refunded');
 }
 
 async function markShopifyFailed(
