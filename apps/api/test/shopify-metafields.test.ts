@@ -70,6 +70,21 @@ describe('writeWidgetKeyMetafield', () => {
       ),
     ).resolves.toBeUndefined();
   });
+
+  it('does not throw even on SHOPIFY_REAUTH_REQUIRED (unlike writeWidgetConfigMetafield)', async () => {
+    const fakeFetch = vi.fn(async () => new Response(null, { status: 401 }));
+
+    await expect(
+      writeWidgetKeyMetafield(
+        'shop.myshopify.com',
+        'shpat_expired',
+        123,
+        'wk-expired',
+        log,
+        fakeFetch as unknown as typeof fetch,
+      ),
+    ).resolves.toBeUndefined();
+  });
 });
 
 describe('writeWidgetConfigMetafield', () => {
