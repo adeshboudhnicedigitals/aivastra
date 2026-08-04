@@ -6,7 +6,7 @@ import { encryptToken } from '../../lib/crypto.js';
 import { AppError } from '../../lib/errors.js';
 import { resolveAccountLinkCode } from './customer-auth.js';
 import { writeWidgetKeyMetafield } from './metafields.js';
-import { SHOPIFY_API_VERSION, verifyQueryHmac } from './service.js';
+import { numericIdFromGid, shopifyGraphQL, verifyQueryHmac } from './service.js';
 import { type TokenGrant, toTokenGrant } from './token.js';
 import { markWidgetConfigUnsynced, publishLatestConfig } from './widget-config.routes.js';
 
@@ -102,6 +102,39 @@ export function buildPostInstallRedirect(shop: string, apiKey: string): string {
   return `https://admin.shopify.com/store/${storeHandle}/apps/${apiKey}`;
 }
 
+const SHOP_DETAILS = `
+  query ShopDetails {
+    shop {
+      id
+      name
+      email
+      myshopifyDomain
+      primaryDomain { host }
+      shopOwnerName
+      billingAddress { phone address1 city country }
+      ianaTimezone
+    }
+  }
+`;
+
+interface ShopDetailsData {
+  shop: {
+    id: string;
+    name: string;
+    email: string;
+    myshopifyDomain: string;
+    primaryDomain?: { host?: string | null } | null;
+    shopOwnerName?: string | null;
+    billingAddress?: {
+      phone?: string | null;
+      address1?: string | null;
+      city?: string | null;
+      country?: string | null;
+    } | null;
+    ianaTimezone?: string | null;
+  };
+}
+
 export async function shopifyAuthRoutes(app: FastifyInstance) {
   app.get('/v1/shopify/auth', async (req, reply) => {
     const shop = (req.query as { shop?: string }).shop;
@@ -159,41 +192,31 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
     // it has to be captured here — this is the one place Shopify hands it over.
     const grant = toTokenGrant(tokenBody);
 
-    // Fetch shop details
-    const shopRes = await fetch(`https://${q.shop}/admin/api/${SHOPIFY_API_VERSION}/shop.json`, {
-      headers: { 'X-Shopify-Access-Token': access_token },
-    });
-    if (!shopRes.ok) throw new AppError('SHOPIFY', 502, 'shop fetch failed');
-    const { shop: s } = (await shopRes.json()) as {
-      shop: {
-        id: number;
-        myshopify_domain: string;
-        domain?: string;
-        name: string;
-        shop_owner?: string;
-        email: string;
-        phone?: string;
-        address1?: string;
-        city?: string;
-        country?: string;
-        iana_timezone?: string;
-      };
-    };
+    // Shop details
+    const { shop: s } = await shopifyGraphQL<ShopDetailsData>(q.shop, access_token, SHOP_DETAILS);
     const details: ShopDetails = {
-      shopifyShopId: s.id,
-      shopDomain: s.myshopify_domain,
-      myshopifyDomain: s.myshopify_domain,
-      primaryDomain: s.domain,
+      shopifyShopId: numericIdFromGid(s.id),
+      shopDomain: s.myshopifyDomain,
+      myshopifyDomain: s.myshopifyDomain,
+      primaryDomain: s.primaryDomain?.host ?? undefined,
       name: s.name,
-      shopOwner: s.shop_owner,
+      shopOwner: s.shopOwnerName ?? undefined,
       email: s.email,
-      phone: s.phone,
-      address: [s.address1, s.city, s.country].filter(Boolean).join(', '),
-      ianaTimezone: s.iana_timezone,
+      phone: s.billingAddress?.phone ?? undefined,
+      address: [s.billingAddress?.address1, s.billingAddress?.city, s.billingAddress?.country]
+        .filter(Boolean)
+        .join(', '),
+      ianaTimezone: s.ianaTimezone ?? undefined,
     };
 
     const store = await upsertShopifyStore(app, details, access_token, scope, grant);
-    await writeWidgetKeyMetafield(q.shop, access_token, store.storeKey, req.log);
+    await writeWidgetKeyMetafield(
+      q.shop,
+      access_token,
+      details.shopifyShopId,
+      store.storeKey,
+      req.log,
+    );
     // Reauthorization can be reached only after a widget-config PATCH has
     // already committed Postgres and Shopify rejected the old token. Publish
     // that authoritative row with the newly issued token before returning to
