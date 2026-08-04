@@ -118,22 +118,26 @@ describe('PATCH /v1/shopify/activation/mode', () => {
 describe('collections enable/exclude CRUD', () => {
   it('adds an enabled collection, syncing its membership, then removes it', async () => {
     const originalFetch = global.fetch;
-    global.fetch = (async (url: string) => {
-      if (url.includes('/custom_collections/50.json')) {
-        return {
-          ok: true,
-          json: async () => ({ custom_collection: { id: 50, title: 'Hats' } }),
-        } as Response;
-      }
-      if (url.includes('/smart_collections/50.json')) {
-        return { ok: false, status: 404, json: async () => ({}) } as Response;
-      }
-      if (url.includes('/collects.json')) {
-        return {
-          ok: true,
-          headers: new Map(),
-          json: async () => ({ collects: [{ collection_id: 50, product_id: 1 }] }),
-        } as unknown as Response;
+    global.fetch = (async (url: string, init?: RequestInit) => {
+      if (url.includes('/graphql.json')) {
+        const body = JSON.parse(String(init?.body ?? '{}'));
+        if (body.variables?.id === 'gid://shopify/Collection/50') {
+          return new Response(
+            JSON.stringify({
+              data: {
+                collection: {
+                  title: 'Hats',
+                  products: {
+                    pageInfo: { hasNextPage: false, endCursor: null },
+                    nodes: [{ id: 'gid://shopify/Product/1' }],
+                  },
+                },
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        throw new Error(`unexpected graphql variables: ${JSON.stringify(body.variables)}`);
       }
       throw new Error(`unexpected fetch: ${url}`);
     }) as typeof fetch;
@@ -186,19 +190,26 @@ describe('collections enable/exclude CRUD', () => {
 describe('exclusions/collections CRUD', () => {
   it('adds and removes an excluded collection', async () => {
     const originalFetch = global.fetch;
-    global.fetch = (async (url: string) => {
-      if (url.includes('/custom_collections/60.json')) {
-        return {
-          ok: true,
-          json: async () => ({ custom_collection: { id: 60, title: 'Clearance' } }),
-        } as Response;
-      }
-      if (url.includes('/collects.json')) {
-        return {
-          ok: true,
-          headers: new Map(),
-          json: async () => ({ collects: [] }),
-        } as unknown as Response;
+    global.fetch = (async (url: string, init?: RequestInit) => {
+      if (url.includes('/graphql.json')) {
+        const body = JSON.parse(String(init?.body ?? '{}'));
+        if (body.variables?.id === 'gid://shopify/Collection/60') {
+          return new Response(
+            JSON.stringify({
+              data: {
+                collection: {
+                  title: 'Clearance',
+                  products: {
+                    pageInfo: { hasNextPage: false, endCursor: null },
+                    nodes: [],
+                  },
+                },
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        throw new Error(`unexpected graphql variables: ${JSON.stringify(body.variables)}`);
       }
       throw new Error(`unexpected fetch: ${url}`);
     }) as typeof fetch;
@@ -227,22 +238,26 @@ describe('exclusions/collections CRUD', () => {
 describe('DELETE collection membership sharing', () => {
   it('keeps cached membership when the collection is still selected in the sibling table', async () => {
     const originalFetch = global.fetch;
-    global.fetch = (async (url: string) => {
-      if (url.includes('/custom_collections/70.json')) {
-        return {
-          ok: true,
-          json: async () => ({ custom_collection: { id: 70, title: 'Shared' } }),
-        } as Response;
-      }
-      if (url.includes('/smart_collections/70.json')) {
-        return { ok: false, status: 404, json: async () => ({}) } as Response;
-      }
-      if (url.includes('/collects.json')) {
-        return {
-          ok: true,
-          headers: new Map(),
-          json: async () => ({ collects: [{ collection_id: 70, product_id: 100 }] }),
-        } as unknown as Response;
+    global.fetch = (async (url: string, init?: RequestInit) => {
+      if (url.includes('/graphql.json')) {
+        const body = JSON.parse(String(init?.body ?? '{}'));
+        if (body.variables?.id === 'gid://shopify/Collection/70') {
+          return new Response(
+            JSON.stringify({
+              data: {
+                collection: {
+                  title: 'Shared',
+                  products: {
+                    pageInfo: { hasNextPage: false, endCursor: null },
+                    nodes: [{ id: 'gid://shopify/Product/100' }],
+                  },
+                },
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        throw new Error(`unexpected graphql variables: ${JSON.stringify(body.variables)}`);
       }
       throw new Error(`unexpected fetch: ${url}`);
     }) as typeof fetch;
@@ -312,19 +327,18 @@ describe('GET /v1/shopify/activation/collections/search', () => {
   it('proxies a live title search', async () => {
     const originalFetch = global.fetch;
     global.fetch = (async (url: string) => {
-      if (url.includes('/custom_collections.json')) {
-        return {
-          ok: true,
-          headers: new Map(),
-          json: async () => ({ custom_collections: [{ id: 1, title: 'Summer' }] }),
-        } as unknown as Response;
-      }
-      if (url.includes('/smart_collections.json')) {
-        return {
-          ok: true,
-          headers: new Map(),
-          json: async () => ({ smart_collections: [] }),
-        } as unknown as Response;
+      if (url.includes('/graphql.json')) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              collections: {
+                pageInfo: { hasNextPage: false, endCursor: null },
+                nodes: [{ id: 'gid://shopify/Collection/1', title: 'Summer' }],
+              },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
       }
       throw new Error(`unexpected fetch: ${url}`);
     }) as typeof fetch;

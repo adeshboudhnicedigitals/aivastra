@@ -41,7 +41,13 @@ function stubOAuthCallbackFetch(options: {
   shopifyShopId: number;
   configStatus?: number;
 }) {
-  const published: { config: unknown; token: string | null }[] = [];
+  // The install/reauth flow writes two distinct metafields through the same
+  // metafieldsSet mutation (widget_key: a bare UUID string, widget_config: a
+  // JSON blob) — discriminate on `key`, not merely on `metafields` being
+  // present, or the two writes are indistinguishable and a broken one hides
+  // behind the other.
+  const configWrites: { config: unknown; token: string | null }[] = [];
+  const keyWrites: { value: string; ownerId: string | null; token: string | null }[] = [];
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
@@ -52,34 +58,56 @@ function stubOAuthCallbackFetch(options: {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
       }
-      if (url.endsWith('/shop.json')) {
-        return new Response(
-          JSON.stringify({
-            shop: {
-              id: options.shopifyShopId,
-              myshopify_domain: options.shopDomain,
-              name: 'Recovery Demo',
-              email: 'owner@example.com',
-            },
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        );
-      }
       if (url.endsWith('/graphql.json')) {
         const body = JSON.parse(String(init?.body)) as {
-          variables: { metafields: { value: string }[] };
+          query?: string;
+          variables?: { metafields?: { key: string; value: string; ownerId?: string }[] };
         };
-        published.push({
-          config: JSON.parse(body.variables.metafields[0].value),
-          token: new Headers(init?.headers).get('X-Shopify-Access-Token'),
-        });
-        if (options.configStatus && options.configStatus !== 200) {
-          return new Response('failed', { status: options.configStatus });
+        // Handle SHOP_DETAILS query (new GraphQL flow)
+        if (body.query?.includes('ShopDetails')) {
+          return new Response(
+            JSON.stringify({
+              data: {
+                shop: {
+                  id: `gid://shopify/Shop/${options.shopifyShopId}`,
+                  myshopifyDomain: options.shopDomain,
+                  name: 'Recovery Demo',
+                  email: 'owner@example.com',
+                  primaryDomain: null,
+                  shopOwnerName: null,
+                  billingAddress: null,
+                  ianaTimezone: null,
+                },
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
         }
-        return new Response(JSON.stringify({ data: { metafieldsSet: { userErrors: [] } } }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
+        const mf = body.variables?.metafields?.[0];
+        if (mf?.key === 'widget_key') {
+          keyWrites.push({
+            value: mf.value,
+            ownerId: mf.ownerId ?? null,
+            token: new Headers(init?.headers).get('X-Shopify-Access-Token'),
+          });
+          return new Response(JSON.stringify({ data: { metafieldsSet: { userErrors: [] } } }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        if (mf?.key === 'widget_config') {
+          configWrites.push({
+            config: JSON.parse(mf.value),
+            token: new Headers(init?.headers).get('X-Shopify-Access-Token'),
+          });
+          if (options.configStatus && options.configStatus !== 200) {
+            return new Response('failed', { status: options.configStatus });
+          }
+          return new Response(JSON.stringify({ data: { metafieldsSet: { userErrors: [] } } }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
       }
       return new Response('{}', {
         status: 200,
@@ -87,7 +115,7 @@ function stubOAuthCallbackFetch(options: {
       });
     }),
   );
-  return published;
+  return { configWrites, keyWrites };
 }
 
 beforeAll(async () => {
@@ -154,6 +182,64 @@ describe('upsertShopifyStore', () => {
   });
 });
 
+describe('GET /v1/shopify/install-status', () => {
+  it('rejects a malformed shop param', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/install-status?shop=not-a-shop',
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('reports installed:false for a shop with no store row', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/install-status?shop=never-installed.myshopify.com',
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ installed: false });
+  });
+
+  it('reports installed:true for an active store', async () => {
+    const activeShop = 'install-status-active.myshopify.com';
+    await upsertShopifyStore(
+      app,
+      { ...shop, shopifyShopId: 99001, shopDomain: activeShop, myshopifyDomain: activeShop },
+      'shpat_active',
+      'read_products',
+    );
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/shopify/install-status?shop=${activeShop}`,
+    });
+    expect(response.json()).toEqual({ installed: true });
+  });
+
+  it('reports installed:false for an uninstalled store', async () => {
+    const uninstalledShop = 'install-status-uninstalled.myshopify.com';
+    await upsertShopifyStore(
+      app,
+      {
+        ...shop,
+        shopifyShopId: 99002,
+        shopDomain: uninstalledShop,
+        myshopifyDomain: uninstalledShop,
+      },
+      'shpat_gone',
+      'read_products',
+    );
+    await app.db
+      .update(schema.shopifyStores)
+      .set({ uninstalledAt: new Date() })
+      .where(eq(schema.shopifyStores.shopifyShopId, 99002));
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/shopify/install-status?shop=${uninstalledShop}`,
+    });
+    expect(response.json()).toEqual({ installed: false });
+  });
+});
+
 describe('GET /v1/shopify/auth/callback', () => {
   it('republishes the committed widget config after reauthorization', async () => {
     const recoveryShop = 'recovery-demo.myshopify.com';
@@ -185,7 +271,7 @@ describe('GET /v1/shopify/auth/callback', () => {
       shop: recoveryShop,
       state,
     };
-    const published = stubOAuthCallbackFetch({
+    const { configWrites, keyWrites } = stubOAuthCallbackFetch({
       shopDomain: recoveryShop,
       shopifyShopId: 54321,
     });
@@ -199,7 +285,10 @@ describe('GET /v1/shopify/auth/callback', () => {
     expect(response.headers.location).toBe(
       `https://admin.shopify.com/store/recovery-demo/apps/${API_KEY}`,
     );
-    expect(published).toEqual([{ config: storedConfig, token: 'fresh-token' }]);
+    expect(configWrites).toEqual([{ config: storedConfig, token: 'fresh-token' }]);
+    expect(keyWrites).toEqual([
+      { value: store.storeKey, ownerId: 'gid://shopify/Shop/54321', token: 'fresh-token' },
+    ]);
 
     const [updated] = await app.db
       .select({ settings: schema.shopifyStores.settings })
@@ -230,7 +319,7 @@ describe('GET /v1/shopify/auth/callback', () => {
 
     const state = 'reauth-failure-state';
     await app.redis.set(`shopify:nonce:${state}`, recoveryShop, 'EX', 600);
-    stubOAuthCallbackFetch({
+    const { keyWrites } = stubOAuthCallbackFetch({
       shopDomain: recoveryShop,
       shopifyShopId: 54322,
       configStatus: 500,
@@ -245,6 +334,11 @@ describe('GET /v1/shopify/auth/callback', () => {
     expect(response.headers.location).toBe(
       `https://admin.shopify.com/store/recovery-failure/apps/${API_KEY}`,
     );
+    // The widget_key write is independent of the widget_config publish that
+    // fails below — it must still have gone through.
+    expect(keyWrites).toEqual([
+      { value: store.storeKey, ownerId: 'gid://shopify/Shop/54322', token: 'fresh-token' },
+    ]);
     const [updated] = await app.db
       .select({ settings: schema.shopifyStores.settings })
       .from(schema.shopifyStores)
