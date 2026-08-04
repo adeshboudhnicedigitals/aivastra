@@ -9,7 +9,7 @@ import { type Containers, startContainers } from '../helpers/containers';
 const JWT_SECRET = 'test-jwt-secret-0123456789abcdef-32min';
 const secret = new TextEncoder().encode(JWT_SECRET);
 
-async function createMerchant(app: TestApp, email: string, merchantBalance = 100) {
+async function createMerchant(app: TestApp, email: string, balance = 100) {
   const [merchantUser] = await app.db
     .insert(schema.users)
     .values({ email, passwordHash: 'unused' })
@@ -25,9 +25,7 @@ async function createMerchant(app: TestApp, email: string, merchantBalance = 100
       userId: merchantUser.id,
     })
     .returning();
-  await app.db
-    .insert(schema.merchantCredits)
-    .values({ merchantId: merchant.id, balance: merchantBalance });
+  await app.db.insert(schema.userCredits).values({ userId: merchantUser.id, balance });
   return { merchant, merchantUser };
 }
 
@@ -149,8 +147,8 @@ describe('merchant try-on jobs', () => {
 
     const [credits] = await app.db
       .select()
-      .from(schema.merchantCredits)
-      .where(eq(schema.merchantCredits.merchantId, merchant.id));
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, merchantUser.id));
     expect(credits.balance).toBe(95);
 
     const otherAuth = await authHeader(
@@ -204,8 +202,8 @@ describe('merchant try-on jobs', () => {
 
     const [credits] = await app.db
       .select()
-      .from(schema.merchantCredits)
-      .where(eq(schema.merchantCredits.merchantId, merchant.id));
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, merchantUser.id));
     expect(credits.balance).toBe(2);
   });
 
@@ -312,8 +310,8 @@ describe('merchant try-on jobs', () => {
 
     const [creditsAfterCreate] = await app.db
       .select()
-      .from(schema.merchantCredits)
-      .where(eq(schema.merchantCredits.merchantId, merchant.id));
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, merchantUser.id));
     expect(creditsAfterCreate.balance).toBe(95); // 100 - 5 (SIMPLE_TRYON_COST default)
 
     const cancelled = await app.inject({
@@ -326,17 +324,17 @@ describe('merchant try-on jobs', () => {
 
     const [creditsAfterCancel] = await app.db
       .select()
-      .from(schema.merchantCredits)
-      .where(eq(schema.merchantCredits.merchantId, merchant.id));
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, merchantUser.id));
     expect(creditsAfterCancel.balance).toBe(100); // fully refunded
 
     const [ledgerRow] = await app.db
       .select()
-      .from(schema.merchantCreditLedger)
+      .from(schema.creditLedger)
       .where(
         and(
-          eq(schema.merchantCreditLedger.jobId, jobId),
-          eq(schema.merchantCreditLedger.reason, 'REFUND_CANCELLED'),
+          eq(schema.creditLedger.jobId, jobId),
+          eq(schema.creditLedger.reason, 'REFUND_CANCELLED'),
         ),
       );
     expect(ledgerRow).toBeDefined();
@@ -351,8 +349,8 @@ describe('merchant try-on jobs', () => {
 
     const [creditsAfterSecondCancel] = await app.db
       .select()
-      .from(schema.merchantCredits)
-      .where(eq(schema.merchantCredits.merchantId, merchant.id));
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, merchantUser.id));
     expect(creditsAfterSecondCancel.balance).toBe(100); // unaffected by failed second cancel
   });
   it('rejects a job when the garment type has no tryon category configured', async () => {

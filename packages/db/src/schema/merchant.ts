@@ -32,10 +32,11 @@ export const merchants = pgTable('merchants', {
   logoKey: text('logo_key'),
   // 'admin'          -- created through POST /admin/merchants (an admin IS the approval)
   // 'android_google' -- self-serve Google signup from the Android app via
-  //                    POST /v1/merchant/onboarding. Free-credit signup bonus is
-  //                    admin-configurable (config:system.merchantFreeCredits) and
-  //                    tryons are billed like any other merchant, so watch for
-  //                    accounts burning through their balance via GPU abuse.
+  //                    POST /v1/merchant/onboarding. No separate free-credit
+  //                    grant: the user already received their signup free trial,
+  //                    and merchant spend draws from that same user_credits
+  //                    balance, so watch for accounts burning through it via
+  //                    GPU abuse.
   signupSource: text('signup_source', { enum: ['admin', 'android_google'] })
     .notNull()
     .default('admin'),
@@ -68,14 +69,6 @@ export const merchantCatalogSubcategories = pgTable(
   (t) => [index('merchant_catalog_subcategories_merchant_idx').on(t.merchantId, t.category)],
 );
 
-export const merchantCredits = pgTable('merchant_credits', {
-  merchantId: uuid('merchant_id')
-    .primaryKey()
-    .references(() => merchants.id, { onDelete: 'cascade' }),
-  balance: integer('balance').notNull().default(0),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
-
 export const merchantPayments = pgTable('merchant_payments', {
   id: uuid('id').primaryKey().defaultRandom(),
   merchantId: uuid('merchant_id')
@@ -92,18 +85,6 @@ export const merchantPayments = pgTable('merchant_payments', {
   status: text('status').notNull().default('created'), // created | paid | failed
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   paidAt: timestamp('paid_at', { withTimezone: true }),
-});
-
-export const merchantCreditLedger = pgTable('merchant_credit_ledger', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  merchantId: uuid('merchant_id')
-    .notNull()
-    .references(() => merchants.id, { onDelete: 'cascade' }),
-  delta: integer('delta').notNull(),
-  reason: text('reason').notNull(),
-  jobId: uuid('job_id'),
-  adminId: uuid('admin_id'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const merchantCatalogItems = pgTable(

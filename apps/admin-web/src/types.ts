@@ -205,7 +205,6 @@ export interface UserMerchant {
   maxKioskDevices: number;
   logoKey: string | null;
   logoUrl: string | null;
-  creditBalance: number | null;
 }
 
 export interface User {

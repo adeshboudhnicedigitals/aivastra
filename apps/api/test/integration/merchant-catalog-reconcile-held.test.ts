@@ -73,7 +73,6 @@ describe('merchant catalog reconcile-held', () => {
         userId: user.id,
       })
       .returning();
-    await app.db.insert(schema.merchantCredits).values({ merchantId: merchant.id, balance: 0 });
     const [subcategory] = await app.db
       .insert(schema.merchantCatalogSubcategories)
       .values({
@@ -209,18 +208,16 @@ describe('merchant catalog reconcile-held', () => {
       .insert(schema.users)
       .values({ email: `rec-malformed-${randomUUID()}@test.com`, passwordHash: 'x' })
       .returning();
-    const [merchant] = await app.db
-      .insert(schema.merchants)
-      .values({
-        companyName: 'Co',
-        contactName: 'Owner',
-        phone: '9999999999',
-        businessAddress: 'Street',
-        isActive: true,
-        userId: user.id,
-      })
-      .returning();
-    await app.db.insert(schema.merchantCredits).values({ merchantId: merchant.id, balance: 0 });
+    // The reconcile-held route resolves the caller's merchant by userId, so
+    // this row must exist even though the binding itself is otherwise unused.
+    await app.db.insert(schema.merchants).values({
+      companyName: 'Co',
+      contactName: 'Owner',
+      phone: '9999999999',
+      businessAddress: 'Street',
+      isActive: true,
+      userId: user.id,
+    });
 
     // Completed, released, held job whose job_inputs.params never got a
     // subcategoryId — e.g. a data bug upstream. This can never be fixed by
