@@ -163,13 +163,8 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           maxKioskDevices: schema.merchants.maxKioskDevices,
           logoKey: schema.merchants.logoKey,
           logoUpdatedAt: schema.merchants.updatedAt,
-          creditBalance: schema.merchantCredits.balance,
         })
         .from(schema.merchants)
-        .leftJoin(
-          schema.merchantCredits,
-          eq(schema.merchantCredits.merchantId, schema.merchants.id),
-        )
         .where(eq(schema.merchants.userId, id));
       const [[jobsCount], jobs] = await Promise.all([
         app.db.select({ total: count() }).from(schema.jobs).where(eq(schema.jobs.userId, id)),
