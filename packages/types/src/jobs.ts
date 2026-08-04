@@ -116,9 +116,6 @@ export const SAREE_MANNEQUIN_DEV_COST = 10;
 /** Fallback default — the actual charged cost is admin-configurable, see getPixverseCreditCost(). */
 export const PIXVERSE_VIDEO_COST = 150;
 
-/** Fallback default — the actual granted amount is admin-configurable, see getMerchantFreeCredits(). */
-export const MERCHANT_FREE_CREDITS = 0;
-
 export const CreateSimpleTryonRequest = z.object({
   personKey: z.string().regex(INPUT_GARMENT_KEY),
   sourceJobId: z.string().uuid(),
