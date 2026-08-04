@@ -4,8 +4,28 @@ Collapses the parallel merchant credit pool into `user_credits`/`credit_ledger` 
 a merchant is a tag on a user, not a separate financial entity. Design doc:
 `docs/superpowers/specs/2026-08-04-unified-credits-remove-merchant-credits-design.md`.
 Plan: `docs/superpowers/plans/2026-08-04-unified-credits-remove-merchant-credits.md`.
-Built via Subagent-Driven Development across 9 implementation tasks (this entry
-is the 10th, docs-only), every task reviewed clean.
+Built via Subagent-Driven Development across 10 implementation tasks, every
+task reviewed clean, plus a final whole-branch review.
+
+**Not yet deployed.** As of this entry, `main` has not moved — none of this
+work has merged or reached production. Split into two branches for a
+two-release rollout (the plan called for this explicitly; the split had to be
+corrected after the fact, see Open Questions below):
+
+- `refactor/unified-credits-release1` — Tasks 1–8 plus fixes from the final
+  review. Repoints every merchant credit write/read/refund/free-trial path
+  onto `user_credits`, and additively backfills existing `merchant_credits`
+  balances (migration `0143`). **This is what should be reviewed and merged
+  first.** Both credit tables stay in the schema, unread and unwritten, so the
+  backfill can be reconciled against real data after deploy.
+- `refactor/unified-credits` — everything in Release 1 plus Task 9 (drops
+  `merchant_credits`/`merchant_credit_ledger`, migration `0144`) and Task 10
+  (this doc, `CLAUDE.md` fix). **Must not merge or deploy until Release 1 has
+  shipped and production balances have been verified** against the backfill —
+  per the design, the two largest known balances (Rahul Goolla ≈ 99,860; Nice
+  Interactive = 100,000) should land additively on top of existing personal
+  balances, each with a `MERCHANT_CREDITS_MIGRATION` ledger row, before `0144`
+  ever runs anywhere.
 
 **Done**
 - Collapsed `merchant_credits` / `merchant_credit_ledger` into `user_credits` /
@@ -20,34 +40,58 @@ is the 10th, docs-only), every task reviewed clean.
   grant — a user gets exactly one free trial, at signup. Self-serve Android
   onboarding no longer grants a second one.
 - Dispatcher refunds (`markWidgetFailed`, stuck-job sweeper) unified onto
-  `user_credits`. Found and fixed a real bug along the way: both refund paths,
-  on an unresolvable merchant→user lookup, logged an error but fell through to
-  `transitionJob(FAILED)`/ACK anyway — silently losing the refund while the log
-  line claimed one happened. Changed to throw instead, so the stream message
-  stays pending for the existing XPENDING recovery/sweeper instead of being
-  lost.
+  `user_credits`. Found and fixed a real Critical bug along the way: both
+  refund paths, on an unresolvable merchant→user lookup, logged an error but
+  fell through to `transitionJob(FAILED)`/ACK anyway — silently losing the
+  refund while the log line claimed one happened. Changed to throw instead, so
+  the stream message stays pending for the existing XPENDING recovery/sweeper
+  instead of being lost. Caught by task review, independently re-verified
+  closed by re-review.
 - admin-web: removed the merchant-specific "Tryon credits" grant modal from
   `UsersPage.tsx` — now that both pools are one, the existing per-user "Adjust
   credits" action already covers merchants, so there's one balance and one
   grant path per user instead of a redundant merchant-only second one.
-- Migration 0143 backfilled every merchant's existing `merchant_credits`
+- Migration `0143` backfills every merchant's existing `merchant_credits`
   balance additively into `user_credits` (zero-balance merchants excluded),
   writing one `MERCHANT_CREDITS_MIGRATION` `credit_ledger` row per merchant for
-  audit continuity. Migration 0144 dropped `merchant_credits` and
-  `merchant_credit_ledger` after production balances were verified against the
-  backfill.
+  audit continuity. Verified additive and idempotent by independent replay
+  against a temp-table harness during task review, and by a live read-only
+  check against the actual dev DB after `0144` ran there. Migration `0144`
+  drops `merchant_credits` and `merchant_credit_ledger` — written and reviewed,
+  but gated behind the Release 1 → production-verification → Release 2
+  sequence above.
 - Along the way, removed one dead `merchant_credits` seed line from
   `apps/dispatcher/test/integration/merchant-widget-webp.test.ts` (found by
   Task 9's pre-drop repo-wide grep gate; unrelated to the plan's own file
   list, but the table couldn't be dropped with a live reference remaining).
+- Final whole-branch review closed out remaining gaps: added dispatcher and
+  merchant-payments integration test coverage that didn't exist before this
+  plan, seeded a `user_credits` row in the one user-creation path
+  (`findOrCreateUserForMerchant`) that was missing one, and fixed a second,
+  independent stale-schema reference in `CLAUDE.md`'s API Route Modules table
+  (a `widget/` module that no longer exists, several real modules never
+  listed).
 
 **Failed / Not Done**
 - `pnpm db:generate` remains unusable in this repo — snapshots 0128–0142 are
   still missing (a pre-existing gap, not caused by this plan), so migrations
   0143 and 0144 were hand-written against the stale `0127` snapshot instead of
   generated. Backfilling the missing snapshot chain is still outstanding.
+- Neither migration has been deployed anywhere yet — see the rollout section
+  above.
 
 **Open Questions / Decisions**
+- **Process note, worth remembering:** partway through execution, Task 9 (the
+  table drop) was authorized and completed after an explicit "production
+  balances verified" confirmation — but `main` had not moved and migration
+  `0143` had never left this local work. The confirmation was given based on a
+  misunderstanding, not a real check. Caught by the final whole-branch review
+  (`git branch -a --contains` showed the backfill commit reachable only from
+  this branch), corrected by splitting the branch as described above before
+  anything shipped. No data was at risk — nothing had deployed — but the near-
+  miss is worth remembering: "has production been verified" should be answered
+  by checking `main`/deploy state, not by asking the person who requested the
+  work whether they've verified it, when the two can silently diverge.
 - Merchant plan pricing (`MERCHANT_PLAN_BILLING`) and personal plan pricing
   (`credit_plans`) remain two separate price lists feeding one credit pool.
   Deliberate for now — different customer segments — but worth revisiting if
@@ -55,7 +99,7 @@ is the 10th, docs-only), every task reviewed clean.
 - `apps/api/test/integration/merchant-kiosk-admin.test.ts` has a pre-existing
   failure (404 vs. expected 201 on admin kiosk-device creation), reconfirmed
   unrelated to credits at every task that touched adjacent code (Tasks 2, 3,
-  6, 8) via `git stash` baseline comparison. Still open, still unrelated to
+  6, 8, 9) via `git stash` baseline comparison. Still open, still unrelated to
   this plan.
 
 ## 2026-08-03 — Merchant tryon credits
