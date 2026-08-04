@@ -16,12 +16,27 @@
   // or an already-installed store.
   var shop = new URLSearchParams(window.location.search).get('shop');
   if (!shop) return;
+  var breakoutLink;
   fetch('%VITE_API_BASE_URL%/v1/shopify/install-status?shop=' + encodeURIComponent(shop))
     .then(function (res) { return res.ok ? res.json() : null; })
     .then(function (data) {
       if (data && data.installed === false) {
-        (window.top || window).location.href =
-          '%VITE_API_BASE_URL%/v1/shopify/auth?shop=' + encodeURIComponent(shop);
+        // Assigning window.top.location.href here is a script-driven
+        // navigation with no active user gesture behind it (this runs from a
+        // fetch().then() continuation) — some browsers restrict exactly that
+        // for a cross-origin iframe. Route through a target="_top" anchor's
+        // native click handling instead, which isn't subject to that
+        // restriction. Kept in sync with navigateTopLevel in src/lib/api.ts.
+        breakoutLink = document.createElement('a');
+        breakoutLink.href = '%VITE_API_BASE_URL%/v1/shopify/auth?shop=' + encodeURIComponent(shop);
+        breakoutLink.target = '_top';
+        breakoutLink.rel = 'noopener';
+        // document.body doesn't exist yet — this script runs from <head>,
+        // before <body> is parsed. document.documentElement (<html>) always
+        // does.
+        document.documentElement.appendChild(breakoutLink);
+        breakoutLink.click();
+        breakoutLink.remove();
       }
     })
     .catch(function () {
