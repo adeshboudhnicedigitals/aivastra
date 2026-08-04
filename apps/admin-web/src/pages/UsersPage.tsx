@@ -94,6 +94,10 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [showGrantMerchant, setShowGrantMerchant] = useState(false);
   const [grantMerchantForm, setGrantMerchantForm] = useState(EMPTY_GRANT_MERCHANT_FORM);
   const [grantingMerchant, setGrantingMerchant] = useState(false);
+  const [showGrantMerchantCredits, setShowGrantMerchantCredits] = useState(false);
+  const [grantMerchantCreditsAmount, setGrantMerchantCreditsAmount] = useState('');
+  const [grantMerchantCreditsReason, setGrantMerchantCreditsReason] = useState('');
+  const [grantingMerchantCredits, setGrantingMerchantCredits] = useState(false);
   const [showEditMerchant, setShowEditMerchant] = useState(false);
   const [merchantEditForm, setMerchantEditForm] = useState(EMPTY_EDIT_MERCHANT_FORM);
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -432,6 +436,45 @@ export default function UsersPage({ onNav, toast }: Props) {
       toast({ kind: 'error', title: apiErrorMessage(err, 'Failed to grant merchant access') });
     } finally {
       setGrantingMerchant(false);
+    }
+  }
+
+  function openGrantMerchantCredits() {
+    setGrantMerchantCreditsAmount('');
+    setGrantMerchantCreditsReason('');
+    setShowGrantMerchantCredits(true);
+  }
+
+  // Tops up merchant_credits — a separate pool from the personal/studio balance
+  // above (user_credits). This is the balance /v1/merchant/tryon/jobs actually
+  // deducts from; "Adjust credits" above never touches it.
+  async function handleGrantMerchantCredits() {
+    if (!detail?.merchant || !grantMerchantCreditsAmount) return;
+    const amt = parseInt(grantMerchantCreditsAmount, 10);
+    if (Number.isNaN(amt) || amt < 1) return;
+    setGrantingMerchantCredits(true);
+    try {
+      const { newBalance } = await apiFetch<{ newBalance: number }>(
+        `/admin/merchants/${detail.merchant.id}/credits`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            amount: amt,
+            reason: grantMerchantCreditsReason.trim() || 'Manual tryon credit grant',
+          }),
+        },
+      );
+      setDetail((prev) =>
+        prev?.merchant
+          ? { ...prev, merchant: { ...prev.merchant, creditBalance: newBalance } }
+          : prev,
+      );
+      toast({ title: `Granted ${amt.toLocaleString()} tryon credits` });
+      setShowGrantMerchantCredits(false);
+    } catch (err) {
+      toast({ kind: 'error', title: apiErrorMessage(err, 'Failed to grant tryon credits') });
+    } finally {
+      setGrantingMerchantCredits(false);
     }
   }
 
@@ -858,9 +901,27 @@ export default function UsersPage({ onNav, toast }: Props) {
                       }
                     />
                     <KV
-                      k="Catalogue credits"
-                      v={(u.merchant.creditBalance ?? 0).toLocaleString()}
-                      mono
+                      k="Tryon credits"
+                      v={
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+                          <span className="mono">
+                            {(u.merchant.creditBalance ?? 0).toLocaleString()}
+                          </span>
+                          <button
+                            type="button"
+                            className="btn sm ghost"
+                            onClick={openGrantMerchantCredits}
+                            disabled={!isSuperAdmin}
+                            title={
+                              isSuperAdmin
+                                ? 'Grant credits for the customer-facing tryon feature'
+                                : 'Super admin only'
+                            }
+                          >
+                            + Grant
+                          </button>
+                        </span>
+                      }
                     />
                   </div>
                 )}
@@ -1206,6 +1267,68 @@ export default function UsersPage({ onNav, toast }: Props) {
                     : grantMode === 'grant'
                       ? `Grant ${grantAmount ? parseInt(grantAmount, 10).toLocaleString() : ''} credits`
                       : `Deduct ${grantAmount ? parseInt(grantAmount, 10).toLocaleString() : ''} credits`}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showGrantMerchantCredits && u.merchant && (
+          <div className="modal-overlay" onClick={() => setShowGrantMerchantCredits(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <h3>Grant tryon credits — {u.merchant.companyName}</h3>
+              </div>
+              <div
+                className="modal-body"
+                style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
+              >
+                <div className="field">
+                  <label>Amount</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min={1}
+                    value={grantMerchantCreditsAmount}
+                    onChange={(e) => setGrantMerchantCreditsAmount(e.target.value)}
+                    placeholder="Credits to add"
+                  />
+                  <p className="hint">
+                    Current balance: {(u.merchant.creditBalance ?? 0).toLocaleString()} credits
+                  </p>
+                </div>
+                <div className="field">
+                  <label>Reason</label>
+                  <textarea
+                    className="input"
+                    value={grantMerchantCreditsReason}
+                    onChange={(e) => setGrantMerchantCreditsReason(e.target.value)}
+                    placeholder="e.g. Customer support, bulk top-up"
+                    rows={3}
+                  />
+                </div>
+                <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>
+                  This funds the merchant's own credit pool for the customer-facing tryon feature
+                  (POST /v1/merchant/tryon/jobs) — separate from {userLabel(u)}'s personal credit
+                  balance above.
+                </p>
+              </div>
+              <div className="modal-foot">
+                <button className="btn ghost" onClick={() => setShowGrantMerchantCredits(false)}>
+                  Cancel
+                </button>
+                <button
+                  className="btn primary"
+                  onClick={() => void handleGrantMerchantCredits()}
+                  disabled={
+                    grantingMerchantCredits ||
+                    !grantMerchantCreditsAmount ||
+                    parseInt(grantMerchantCreditsAmount, 10) < 1
+                  }
+                >
+                  {grantingMerchantCredits
+                    ? 'Granting…'
+                    : `Grant ${grantMerchantCreditsAmount ? parseInt(grantMerchantCreditsAmount, 10).toLocaleString() : ''} credits`}
                 </button>
               </div>
             </div>
