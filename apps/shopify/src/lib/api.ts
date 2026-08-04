@@ -36,11 +36,27 @@ async function parseErrorBody(res: Response): Promise<{ message: string; code?: 
 
 // Shopify's OAuth consent page refuses to be framed — must break out of the
 // embedded admin iframe with a top-level navigation, not a fetch/redirect.
+// Assigning window.top.location.href directly is a script-driven navigation,
+// which some browsers (Chrome, notably) restrict for a cross-origin iframe
+// unless it has active user activation — exactly the situation here, since
+// this fires from an async fetch().then()/.catch() continuation, not a click
+// handler. An <a target="_top"> element's native click handling is not
+// subject to that restriction, so route through one instead of assigning
+// location directly.
+function navigateTopLevel(url: string): void {
+  const a = document.createElement('a');
+  a.href = url;
+  a.target = '_top';
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 // Exported for App.tsx's fresh-install redirect, where there is no
 // currentShopDomain yet to fall back on.
 export function redirectToShopifyAuth(shop: string): void {
-  const target = `${API_BASE}/v1/shopify/auth?shop=${encodeURIComponent(shop)}`;
-  (window.top ?? window).location.href = target;
+  navigateTopLevel(`${API_BASE}/v1/shopify/auth?shop=${encodeURIComponent(shop)}`);
 }
 
 // The store's granted OAuth scope can fall behind what this app currently
