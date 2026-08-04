@@ -60,8 +60,8 @@ async function seedMerchant(app: TestApp, email: string, balance = 100) {
     })
     .returning();
 
-  await app.db.insert(schema.merchantCredits).values({
-    merchantId: client.id,
+  await app.db.insert(schema.userCredits).values({
+    userId: merchantUser.id,
     balance,
   });
 
@@ -241,14 +241,14 @@ describe('kiosk jobs', () => {
 
     const [credits] = await app.db
       .select()
-      .from(schema.merchantCredits)
-      .where(eq(schema.merchantCredits.merchantId, merchant.id));
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, merchant.userId));
     expect(credits.balance).toBe(95);
 
     const ledgerRows = await app.db
       .select()
-      .from(schema.merchantCreditLedger)
-      .where(eq(schema.merchantCreditLedger.jobId, jobId));
+      .from(schema.creditLedger)
+      .where(eq(schema.creditLedger.jobId, jobId));
     expect(ledgerRows).toHaveLength(1);
     expect(ledgerRows[0]?.delta).toBe(-5);
     expect(ledgerRows[0]?.reason).toBe('JOB_DISPATCH');
@@ -460,14 +460,14 @@ describe('kiosk jobs', () => {
 
     const [credits] = await app.db
       .select()
-      .from(schema.merchantCredits)
-      .where(eq(schema.merchantCredits.merchantId, merchant.id));
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, merchant.userId));
     expect(credits.balance).toBe(4);
 
     const ledger = await app.db
       .select()
-      .from(schema.merchantCreditLedger)
-      .where(eq(schema.merchantCreditLedger.merchantId, merchant.id));
+      .from(schema.creditLedger)
+      .where(eq(schema.creditLedger.userId, merchant.userId));
     expect(ledger).toHaveLength(0);
   });
 });

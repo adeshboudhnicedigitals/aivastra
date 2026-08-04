@@ -29,7 +29,6 @@ async function createMerchant(app: TestApp, email: string) {
       userId: merchantUser.id,
     })
     .returning();
-  await app.db.insert(schema.merchantCredits).values({ merchantId: merchant.id, balance: 0 });
   return { merchant, userId: merchantUser.id };
 }
 

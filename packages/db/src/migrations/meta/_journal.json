@@ -1002,6 +1002,20 @@
       "when": 1785537600000,
       "tag": "0142_jobs_queued_at",
       "breakpoints": true
+    },
+    {
+      "idx": 143,
+      "version": "7",
+      "when": 1785624000000,
+      "tag": "0143_merchant_credits_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "7",
+      "when": 1785710400000,
+      "tag": "0144_drop_merchant_credits",
+      "breakpoints": true
     }
   ]
 }

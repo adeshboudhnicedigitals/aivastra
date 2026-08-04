@@ -5,7 +5,6 @@ import { and, count, countDistinct, eq, gte, lt, lte, sql, sum } from 'drizzle-o
 import type { FastifyInstance } from 'fastify';
 import {
   DEFAULT_MAX_OUTPUT_PX,
-  DEFAULT_MERCHANT_FREE_CREDITS,
   DEFAULT_PIXVERSE_CONFIG,
   DEFAULT_RESOLUTION_CONFIG,
   DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG,
@@ -38,7 +37,6 @@ export async function adminConfigRoutes(app: FastifyInstance) {
       cfg.tryon = cfg.tryon ?? DEFAULT_TRYON_CONFIG;
       cfg.sareeMannequinDev = cfg.sareeMannequinDev ?? DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG;
       cfg.pixverse = cfg.pixverse ?? DEFAULT_PIXVERSE_CONFIG;
-      cfg.merchantFreeCredits = cfg.merchantFreeCredits ?? DEFAULT_MERCHANT_FREE_CREDITS;
       cfg.uploadLimits = { ...DEFAULT_UPLOAD_LIMITS, ...cfg.uploadLimits };
       return cfg;
     },

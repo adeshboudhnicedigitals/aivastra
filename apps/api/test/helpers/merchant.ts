@@ -9,7 +9,6 @@ export async function createTestMerchant(
   opts: {
     isActive?: boolean;
     balance?: number;
-    merchantBalance?: number;
     demoData?: boolean;
   } = {},
 ) {
@@ -37,10 +36,9 @@ export async function createTestMerchant(
     .returning();
   if (!merchant) throw new Error('failed to create test merchant');
 
+  // One pool: merchant spend (kiosk, android tryon) and personal spend
+  // (studio, catalogue generation) both draw from this balance.
   await app.db.insert(schema.userCredits).values({ userId: user.id, balance: opts.balance ?? 100 });
-  await app.db
-    .insert(schema.merchantCredits)
-    .values({ merchantId: merchant.id, balance: opts.merchantBalance ?? 0 });
 
   return {
     merchantId: merchant.id,
@@ -50,12 +48,6 @@ export async function createTestMerchant(
         .update(schema.userCredits)
         .set({ balance: n })
         .where(eq(schema.userCredits.userId, user.id));
-    },
-    async merchantCredits(n: number) {
-      await app.db
-        .update(schema.merchantCredits)
-        .set({ balance: n })
-        .where(eq(schema.merchantCredits.merchantId, merchant.id));
     },
   };
 }
