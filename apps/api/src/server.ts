@@ -195,8 +195,7 @@ export async function buildServer(env: Env) {
       // a shared-traffic 429 here reads to Shopify as "app failed to install" /
       // turns into needless webhook redelivery, not just a slower response.
       req.url.startsWith('/v1/shopify/webhooks/') ||
-      req.url.startsWith('/v1/shopify/auth') ||
-      req.url.startsWith('/v1/shopify/install-status'),
+      req.url.startsWith('/v1/shopify/auth'),
   });
   await app.register(sensible);
   await app.register(multipart, { limits: { fileSize: 2.5 * 1024 * 1024 * 1024 } });

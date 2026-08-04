@@ -12,9 +12,10 @@ embedded = true
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+# Mirrors shopify.app.toml: managed installation, so no
+# `use_legacy_install_flow` here either. See that file for why.
 scopes = "read_products,write_products"
 optional_scopes = [ ]
-use_legacy_install_flow = true
 
 [auth]
 redirect_urls = [
