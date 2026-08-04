@@ -73,7 +73,6 @@ describe('merchant catalog reconcile-held', () => {
         userId: user.id,
       })
       .returning();
-    await app.db.insert(schema.merchantCredits).values({ merchantId: merchant.id, balance: 0 });
     const [subcategory] = await app.db
       .insert(schema.merchantCatalogSubcategories)
       .values({
@@ -220,7 +219,6 @@ describe('merchant catalog reconcile-held', () => {
         userId: user.id,
       })
       .returning();
-    await app.db.insert(schema.merchantCredits).values({ merchantId: merchant.id, balance: 0 });
 
     // Completed, released, held job whose job_inputs.params never got a
     // subcategoryId — e.g. a data bug upstream. This can never be fixed by

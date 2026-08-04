@@ -111,7 +111,6 @@ describe('merchant catalog bulk generate — held batches', () => {
         userId: merchantUser.id,
       })
       .returning();
-    await app.db.insert(schema.merchantCredits).values({ merchantId: merchant.id, balance: 0 });
     await app.db.insert(schema.userCredits).values({ userId: merchantUser.id, balance: 500 });
 
     const [subcategory] = await app.db
