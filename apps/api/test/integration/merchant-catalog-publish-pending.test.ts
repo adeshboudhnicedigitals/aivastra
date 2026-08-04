@@ -72,7 +72,6 @@ describe('merchant catalog — publishing a pending held-batch product', () => {
         userId: user.id,
       })
       .returning();
-    await app.db.insert(schema.merchantCredits).values({ merchantId: merchant.id, balance: 0 });
     const [subcategory] = await app.db
       .insert(schema.merchantCatalogSubcategories)
       .values({
