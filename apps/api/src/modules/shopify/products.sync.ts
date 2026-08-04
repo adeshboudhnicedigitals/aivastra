@@ -1,6 +1,7 @@
 import { schema } from '@aivastra/db';
 import { and, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { AppError } from '../../lib/errors.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 import { numericIdFromGid, type SyncTask, shopifyGraphQL, toGid } from './service.js';
 import { getValidAccessToken } from './token.js';
@@ -365,6 +366,13 @@ export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise
       );
       node = data.product;
     } catch (err) {
+      // SHOPIFY_REAUTH_REQUIRED is a store-wide auth failure, not a per-product
+      // one — blanking this one garment row doesn't address it, and the whole
+      // store needs reauth. Propagate it exactly as the old REST code did,
+      // rather than letting it fall into the generic "couldn't fetch" path
+      // below and blank a healthy, previously-synced product out of the
+      // storefront widget until the next successful sync.
+      if (err instanceof AppError && err.code === 'SHOPIFY_REAUTH_REQUIRED') throw err;
       // Previously a silent no-op: no row, no log — a persistently-failing
       // product re-enqueued via customer.routes.ts on every try-on attempt and
       // never left a trace to debug from.
