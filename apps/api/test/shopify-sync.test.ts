@@ -2,7 +2,7 @@ import { schema } from '@aivastra/db';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { upsertShopifyStore } from '../src/modules/shopify/auth.routes.js';
-import { syncProduct } from '../src/modules/shopify/products.sync.js';
+import { syncOneTask, syncProduct } from '../src/modules/shopify/products.sync.js';
 import { buildTestApp, type TestApp } from './helpers/api.js';
 import { type Containers, startContainers } from './helpers/containers.js';
 
@@ -299,5 +299,172 @@ describe('syncProduct', () => {
         ),
       );
     expect(row.collections).toEqual(['Summer Sale', 'New Arrivals']);
+  });
+});
+
+describe('syncOneTask — full sync pagination', () => {
+  it('threads the cursor across pages and syncs products from both', async () => {
+    let callCount = 0;
+    const originalFetch = global.fetch;
+    global.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (!url.endsWith('/graphql.json')) {
+        throw new Error(`unexpected fetch during full sync: ${url}`);
+      }
+      callCount++;
+      const body = JSON.parse(String(init?.body)) as { variables?: { cursor?: string | null } };
+      if (callCount === 1) {
+        expect(body.variables?.cursor ?? null).toBeNull();
+        return new Response(
+          JSON.stringify({
+            data: {
+              products: {
+                pageInfo: { hasNextPage: true, endCursor: 'p1' },
+                nodes: [
+                  {
+                    id: 'gid://shopify/Product/601',
+                    title: 'Page One Product',
+                    productType: null,
+                    tags: [],
+                    vendor: null,
+                    featuredImage: null,
+                    collections: { nodes: [] },
+                  },
+                ],
+              },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      expect(body.variables?.cursor).toBe('p1');
+      return new Response(
+        JSON.stringify({
+          data: {
+            products: {
+              pageInfo: { hasNextPage: false, endCursor: null },
+              nodes: [
+                {
+                  id: 'gid://shopify/Product/602',
+                  title: 'Page Two Product',
+                  productType: null,
+                  tags: [],
+                  vendor: null,
+                  featuredImage: null,
+                  collections: { nodes: [] },
+                },
+              ],
+            },
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }) as typeof fetch;
+
+    try {
+      await syncOneTask(app, { storeId, mode: 'full' });
+      expect(callCount).toBe(2);
+
+      const rows = await app.db
+        .select()
+        .from(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, storeId),
+            eq(schema.shopifyProductGarments.shopifyProductId, 601),
+          ),
+        );
+      const [row2] = await app.db
+        .select()
+        .from(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, storeId),
+            eq(schema.shopifyProductGarments.shopifyProductId, 602),
+          ),
+        );
+      expect(rows[0]?.title).toBe('Page One Product');
+      expect(row2?.title).toBe('Page Two Product');
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});
+
+describe('syncOneTask — product mode', () => {
+  it('throws SHOPIFY_REAUTH_REQUIRED rather than blanking the garment row, on a 401 from Shopify', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = (async () => new Response('unauthorized', { status: 401 })) as typeof fetch;
+
+    try {
+      await expect(
+        syncOneTask(app, { storeId, mode: 'product', shopifyProductId: 701 }),
+      ).rejects.toMatchObject({ code: 'SHOPIFY_REAUTH_REQUIRED' });
+
+      const rows = await app.db
+        .select()
+        .from(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, storeId),
+            eq(schema.shopifyProductGarments.shopifyProductId, 701),
+          ),
+        );
+      // No garment row written: a store-wide auth failure must not blank a
+      // per-product row.
+      expect(rows).toHaveLength(0);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  it('still records a failure row for a generic (non-auth) fetch failure', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = (async () => new Response('boom', { status: 502 })) as typeof fetch;
+
+    try {
+      await syncOneTask(app, { storeId, mode: 'product', shopifyProductId: 702 });
+
+      const [row] = await app.db
+        .select()
+        .from(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, storeId),
+            eq(schema.shopifyProductGarments.shopifyProductId, 702),
+          ),
+        );
+      expect(row.status).toBe('failed');
+      expect(row.failedReason).toContain('product fetch failed');
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  it('still records a failure row when Shopify reports the product does not exist', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = (async () =>
+      new Response(JSON.stringify({ data: { product: null } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch;
+
+    try {
+      await syncOneTask(app, { storeId, mode: 'product', shopifyProductId: 703 });
+
+      const [row] = await app.db
+        .select()
+        .from(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, storeId),
+            eq(schema.shopifyProductGarments.shopifyProductId, 703),
+          ),
+        );
+      expect(row.status).toBe('failed');
+      expect(row.failedReason).toBe('product not found on Shopify');
+    } finally {
+      global.fetch = originalFetch;
+    }
   });
 });
