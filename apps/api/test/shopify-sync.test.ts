@@ -51,7 +51,7 @@ describe('syncProduct', () => {
     await syncProduct(
       app,
       storeId,
-      { id: 42, title: 'Test Product', image: { src: 'https://cdn.shopify.com/x.jpg' } },
+      { id: 42, title: 'Test Product', imageUrl: 'https://cdn.shopify.com/x.jpg' },
       fakeFetch,
     );
     const [row] = await app.db
@@ -74,7 +74,12 @@ describe('syncProduct', () => {
     const fakeFetch = (async () => {
       throw new Error('should not be called');
     }) as typeof fetch;
-    await syncProduct(app, storeId, { id: 43, title: 'No Image Product', image: null }, fakeFetch);
+    await syncProduct(
+      app,
+      storeId,
+      { id: 43, title: 'No Image Product', imageUrl: null },
+      fakeFetch,
+    );
     const [row] = await app.db
       .select()
       .from(schema.shopifyProductGarments)
@@ -104,7 +109,7 @@ describe('syncProduct', () => {
       {
         id: 44,
         title: 'Redirect Check Product',
-        image: { src: 'https://cdn.shopify.com/redirect-check.jpg' },
+        imageUrl: 'https://cdn.shopify.com/redirect-check.jpg',
       },
       fakeFetch,
     );
@@ -122,7 +127,7 @@ describe('syncProduct', () => {
       {
         id: 45,
         title: 'Redirects Elsewhere Product',
-        image: { src: 'https://cdn.shopify.com/redirects-elsewhere.jpg' },
+        imageUrl: 'https://cdn.shopify.com/redirects-elsewhere.jpg',
       },
       redirectingFetch,
     );
@@ -156,7 +161,7 @@ describe('syncProduct', () => {
     await syncProduct(
       app,
       storeId,
-      { id: 46, title: 'Big Product', image: { src: 'https://cdn.shopify.com/big.jpg' } },
+      { id: 46, title: 'Big Product', imageUrl: 'https://cdn.shopify.com/big.jpg' },
       fakeFetch,
     );
     const [row] = await app.db
@@ -187,7 +192,7 @@ describe('syncProduct', () => {
       {
         id: 47,
         title: 'Big No Header Product',
-        image: { src: 'https://cdn.shopify.com/big-no-header.jpg' },
+        imageUrl: 'https://cdn.shopify.com/big-no-header.jpg',
       },
       fakeFetch,
     );
@@ -222,7 +227,7 @@ describe('syncProduct', () => {
         {
           id: 48,
           title: 'Configured Limit Product',
-          image: { src: 'https://cdn.shopify.com/c.jpg' },
+          imageUrl: 'https://cdn.shopify.com/c.jpg',
         },
         fakeFetch,
       );
@@ -249,9 +254,9 @@ describe('syncProduct', () => {
       {
         id: 501,
         title: 'Test Shirt',
-        image: { src: 'https://cdn.shopify.com/shirt.jpg' },
-        product_type: 'Shirts',
-        tags: 'Sale, Cotton',
+        imageUrl: 'https://cdn.shopify.com/shirt.jpg',
+        productType: 'Shirts',
+        tags: ['Sale', 'Cotton'],
         vendor: 'Acme Co',
       },
       mockFetch,
@@ -278,7 +283,7 @@ describe('syncProduct', () => {
       {
         id: 504,
         title: 'Summer Shirt',
-        image: { src: 'https://cdn.shopify.com/shirt4.jpg' },
+        imageUrl: 'https://cdn.shopify.com/shirt4.jpg',
         collections: ['Summer Sale', 'New Arrivals'],
       },
       mockFetch,
