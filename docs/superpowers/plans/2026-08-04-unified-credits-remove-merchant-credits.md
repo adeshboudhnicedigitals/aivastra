@@ -14,6 +14,14 @@
 - **ESM only** (`"type": "module"` everywhere). Relative imports inside `apps/api` and `apps/dispatcher` must carry the `.js` extension.
 - **No `console.log`** in committed code. Use `@aivastra/logger`.
 - **Docker must be running** before any test task: `pnpm docker:up`. The Vitest integration harness creates a fresh Postgres database and MinIO bucket per test file against the localhost compose stack. There are no testcontainers; do not reintroduce the (installed but unused) `testcontainers` package.
+- **`pnpm --filter @aivastra/api test` and `test:unit` do NOT run integration tests.** `apps/api/vitest.config.ts` unconditionally excludes `test/integration/**` — CLAUDE.md's description of the plain `test` script as the "Full API integration suite" is stale. Every file this plan touches under `apps/api/test/integration/` (`merchant-tryon.test.ts`, `kiosk-jobs.test.ts`, `merchant-me.test.ts`, `merchant-kiosk-admin.test.ts`, `merchant-catalog*.test.ts`, `merchant-credit-unification.test.ts`, etc.) must instead be run with:
+  ```bash
+  cd apps/api && npx vitest run --config vitest.integration.config.ts -- <pattern>
+  ```
+  This config file exists (`apps/api/vitest.integration.config.ts`) but is wired to no package.json script and no automated hook — nothing in this repo runs it except by hand. Every command shown later in this plan as `pnpm --filter @aivastra/api test -- <pattern>` targeting a file under `test/integration/` has already been corrected to the command above — if you spot the plain form pointed at an integration file, use the corrected command instead. `apps/api/test/merchant-onboarding.test.ts` is the one exception worth naming explicitly: despite the similar name, it lives directly under `apps/api/test/` (not `test/integration/`), so the plain `pnpm --filter @aivastra/api test -- merchant-onboarding` is correct for it as written.
+- **Known pre-existing integration-suite flakiness** (established 2026-08-04, before any task in this plan ran, two consecutive full runs of `vitest.integration.config.ts`, no filter, ~380s each): run 1 showed 13/84 files failing (39/436 tests); run 2, immediately after with no code change in between, showed 10/84 files failing (23/436 tests) — the failure count is not deterministic. The overlap includes `catalog.test.ts`, `catalogue-templates-public.test.ts`, `credit-plans.test.ts`, `credits.test.ts`, `e2e.test.ts`, `jobs-create.test.ts`, `saree-jobs.test.ts`, and `signup-campaign.test.ts` — all unrelated to merchant credits — plus one unhandled rejection in `signup-campaigns-admin.test.ts` (`UNDEFINED_VALUE` in a Postgres tx). The likely cause: several files intentionally simulate Redis failures (`shopify shopper limits`, etc.) for retry-behavior tests, and `fileParallelism: false` means all files share one process — a simulation that doesn't fully unwind can bleed into files that run after it. **This is out of scope for this plan; do not attempt to fix it.**
+
+  One file in the flaky set is directly relevant here: **`merchant-kiosk-admin.test.ts`** — modified in Task 2 and re-run in Task 3 — appeared in the failing set in one baseline run. Before treating any full-suite failure in a file this plan touches as a regression, re-run that one file in isolation (`cd apps/api && npx vitest run --config vitest.integration.config.ts -- <that file's name>`) — the per-task steps in this plan already do this for every file they modify, precisely to sidestep this cross-file pollution. Only a failure that reproduces in isolation is this plan's problem to fix.
 - **Never run schema or data migrations directly against production or `tryon_prod`.** Migrations ship through push → CI/CD → `db:migrate:prod` only. This is a hard rule from `CLAUDE.md`, following the 2026-07-27 incident.
 - **`pnpm db:generate` is broken in this repo** — snapshots for migrations 0128–0142 were never committed, so drizzle-kit diffs against the stale `0127_snapshot.json` and regenerates already-applied schema. **Do not run `pnpm db:generate` anywhere in this plan.** Both migrations are hand-written SQL plus a hand-added `_journal.json` entry, exactly as `0142_jobs_queued_at` already is (it has no snapshot either).
 - **Credit deduct + job insert must remain one Postgres transaction**, and refunds on terminal failure must remain transactional and idempotent.
@@ -113,9 +121,9 @@ Run:
 ```bash
 pnpm docker:up
 pnpm --filter @aivastra/types build
-pnpm --filter @aivastra/api test -- merchant-tryon
+cd apps/api && npx vitest run --config vitest.integration.config.ts -- merchant-tryon
 ```
-Expected: PASS. `merchant-tryon.test.ts` currently asserts deductions against `merchant_credits`; it must be green *before* you start so that its failure in Task 2 is meaningful.
+Expected: PASS. `merchant-tryon.test.ts` currently asserts deductions against `merchant_credits`; it must be green *before* you start so that its failure in Task 2 is meaningful. (This uses `vitest.integration.config.ts` directly, not `pnpm --filter @aivastra/api test` — see the Global Constraints note on why the plain script excludes this file.)
 
 If `pnpm --filter @aivastra/types build` is skipped, downstream typechecks fail with `TS2305: Module '@aivastra/types' has no exported member ...` from a stale `packages/types/dist`.
 
@@ -265,7 +273,7 @@ Expected: no output. (`merchant-onboarding.test.ts` is handled in Task 5.)
 
 Run:
 ```bash
-pnpm --filter @aivastra/api test -- merchant-tryon
+cd apps/api && npx vitest run --config vitest.integration.config.ts -- merchant-tryon
 ```
 Expected: FAIL. Multiple assertions fail with a 402 / `INSUFFICIENT_CREDITS`, because `atomicMerchantDeduct` still updates `merchant_credits` and no such row exists any more.
 
@@ -339,18 +347,19 @@ Two behaviour changes come for free and are intended: merchant spend now increme
 
 Run:
 ```bash
-pnpm --filter @aivastra/api test -- merchant-tryon
-pnpm --filter @aivastra/api test -- kiosk-jobs
+cd apps/api && npx vitest run --config vitest.integration.config.ts -- merchant-tryon
+cd apps/api && npx vitest run --config vitest.integration.config.ts -- kiosk-jobs
 ```
 Expected: PASS for both.
 
-- [ ] **Step 7: Run the full API suite**
+- [ ] **Step 7: Run the full API suite (unit + integration)**
 
 Run:
 ```bash
 pnpm --filter @aivastra/api test
+cd apps/api && npx vitest run --config vitest.integration.config.ts
 ```
-Expected: PASS, except failures confined to `merchant-onboarding.test.ts` (free-credit assertions, fixed in Task 5) and any admin merchant/user route tests reading `creditBalance` (fixed in Task 3). Note which files fail; they must all be green by the end of Task 5.
+Expected: the unit run (first command) PASSes outright. The integration run (second command, ~6 minutes — `fileParallelism` is disabled) has a known-flaky pre-existing set of failures unrelated to credits (see Global Constraints — the failure count varies run to run). Beyond that set, expect new failures confined to `merchant-onboarding.test.ts` (free-credit assertions, fixed in Task 5) and any admin merchant/user route tests reading `creditBalance` (fixed in Task 3). For any other failing file, re-run it alone before concluding it's a regression; note exactly which ones reproduce in isolation — they must all be green by the end of Task 5.
 
 - [ ] **Step 8: Commit**
 
@@ -398,7 +407,7 @@ Expected: the seed and an assertion such as `expect(body.balance).toBe(250)`. If
 
 Run:
 ```bash
-pnpm --filter @aivastra/api test -- merchant-me
+cd apps/api && npx vitest run --config vitest.integration.config.ts -- merchant-me
 ```
 Expected: FAIL — `balance` comes back `0`, because `me.routes.ts` still `leftJoin`s `merchant_credits`, which now has no row for this merchant.
 
@@ -423,7 +432,7 @@ In `apps/api/src/modules/merchant/me.routes.ts`, replace the query at lines 11�
 
 Run:
 ```bash
-pnpm --filter @aivastra/api test -- merchant-me
+cd apps/api && npx vitest run --config vitest.integration.config.ts -- merchant-me
 ```
 Expected: PASS.
 
@@ -552,8 +561,8 @@ The top-level `balance` field on this endpoint (already sourced from `user_credi
 Run:
 ```bash
 pnpm --filter @aivastra/api typecheck
-pnpm --filter @aivastra/api test -- merchant-me
-pnpm --filter @aivastra/api test -- merchant-kiosk-admin
+cd apps/api && npx vitest run --config vitest.integration.config.ts -- merchant-me
+cd apps/api && npx vitest run --config vitest.integration.config.ts -- merchant-kiosk-admin
 ```
 Expected: typecheck clean, both suites PASS.
 
@@ -867,13 +876,14 @@ pnpm --filter @aivastra/api test -- merchant-onboarding
 ```
 Expected: PASS.
 
-- [ ] **Step 12: Run the full API suite**
+- [ ] **Step 12: Run the full API suite (unit + integration)**
 
 Run:
 ```bash
 pnpm --filter @aivastra/api test
+cd apps/api && npx vitest run --config vitest.integration.config.ts
 ```
-Expected: PASS, all files. Every deferred failure from Task 2 Step 7 should now be resolved.
+Expected: unit PASSes outright. Integration shows no failures beyond the known-flaky pre-existing set (see Global Constraints) — re-run any other failing file alone before treating it as real. Every deferred failure from Task 2 Step 7 should now be resolved.
 
 - [ ] **Step 13: Commit**
 
@@ -1308,7 +1318,7 @@ import { createTestMerchant, createTestTryonCategory } from '../helpers/merchant
 Run:
 ```bash
 pnpm db:migrate
-pnpm --filter @aivastra/api test -- merchant-credit-unification
+cd apps/api && npx vitest run --config vitest.integration.config.ts -- merchant-credit-unification
 ```
 Expected: migration applies without error (a `NOTICE` is harmless); the test file PASSes all four cases.
 
@@ -1329,10 +1339,11 @@ Adapt the container name and database name if your compose stack differs; check 
 Run:
 ```bash
 pnpm --filter @aivastra/api test
+cd apps/api && npx vitest run --config vitest.integration.config.ts
 pnpm --filter @aivastra/dispatcher test
 pnpm typecheck
 ```
-Expected: all PASS/clean. This is the Release 1 gate.
+Expected: unit and dispatcher PASS outright, typecheck clean. Integration shows no failures beyond the known-flaky pre-existing set (see Global Constraints) — re-run any other failing file alone before treating it as real. This is the Release 1 gate.
 
 - [ ] **Step 7: Commit**
 
@@ -1438,9 +1449,10 @@ Expected: migration applies, build and typecheck clean.
 Run:
 ```bash
 pnpm --filter @aivastra/api test
+cd apps/api && npx vitest run --config vitest.integration.config.ts
 pnpm --filter @aivastra/dispatcher test
 ```
-Expected: all PASS.
+Expected: unit and dispatcher PASS outright. Integration shows no failures beyond the known-flaky pre-existing set (see Global Constraints) — re-run any other failing file alone before treating it as real.
 
 - [ ] **Step 7: Commit**
 
