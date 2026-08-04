@@ -153,9 +153,20 @@ async function failAndRefund(
         .from(schema.merchants)
         .where(eq(schema.merchants.id, job.merchantId))
         .limit(1);
-      userId = owner?.userId ?? null;
+      if (!owner?.userId) {
+        // merchantId was set but resolves to no owning user — a genuine
+        // data-integrity anomaly, not "this job has nothing to refund".
+        // Throw (aborting before transitionJob/XACK below) rather than
+        // silently marking the job FAILED with no refund issued.
+        // merchants.userId is NOT NULL in the schema, so this should not
+        // happen in normal operation.
+        throw new Error(
+          `failAndRefund: merchant ${job.merchantId} has no owning user (job ${job.id})`,
+        );
+      }
+      userId = owner.userId;
     }
-    if (!userId) return;
+    if (!userId) return; // job genuinely has no billing owner (userId and merchantId both unset) — nothing to refund, pre-existing behavior unchanged
 
     const existing = await tx
       .select()

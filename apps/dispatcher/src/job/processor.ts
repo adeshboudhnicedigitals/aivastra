@@ -2193,8 +2193,12 @@ async function markWidgetFailed(
       .where(eq(schema.merchants.id, merchantId))
       .limit(1);
     if (!owner?.userId) {
-      log.error({ jobId, merchantId }, 'refund skipped — merchant has no owning user');
-      return;
+      // Throwing aborts the transaction AND this function before the caller
+      // transitions the job to FAILED or ACKs the stream message — a job that
+      // silently loses its refund is worse than one that stays pending for
+      // recovery/XPENDING redelivery. merchants.userId is NOT NULL in the
+      // schema, so this only fires on a genuine data-integrity anomaly.
+      throw new Error(`markWidgetFailed: merchant ${merchantId} has no owning user (job ${jobId})`);
     }
     const existing = await tx
       .select()
