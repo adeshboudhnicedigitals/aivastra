@@ -12,16 +12,10 @@ import { shopifyProductsRoutes } from './products.routes.js';
 import { enqueueSync } from './service.js';
 import { shopifySettingsRoutes } from './settings.routes.js';
 import { shopifyShoppersRoutes } from './shoppers.routes.js';
-import { registerWebhooksDecorator, shopifyWebhookRoutes } from './webhook.routes.js';
+import { shopifyWebhookRoutes } from './webhook.routes.js';
 import { shopifyWidgetConfigRoutes } from './widget-config.routes.js';
 
 export async function shopifyRoutes(app: FastifyInstance) {
-  // Must register before shopifyAuthRoutes: the callback handler in auth.routes.ts
-  // calls `app.shopifyRegisterWebhooks?.()`. registerWebhooksDecorator is wrapped in
-  // fp(), so it decorates this shared context (no new child context), meaning the
-  // decoration exists before shopifyAuthRoutes' own child context is created below
-  // and is inherited by it.
-  await app.register(registerWebhooksDecorator);
   await app.register(shopifyAuthRoutes);
   await app.register(shopifyMeRoutes);
   await app.register(shopifyProductsRoutes);
