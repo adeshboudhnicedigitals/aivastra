@@ -16,11 +16,31 @@
   // or an already-installed store.
   var shop = new URLSearchParams(window.location.search).get('shop');
   if (!shop) return;
+  // One redirect attempt per tab session. Without this, a shop that stays
+  // uninstalled (OAuth never completes, a stuck install, a bounce back to
+  // Shopify's install entry) gets redirected on every single load — an
+  // unbounded loop that hammers {shop}.myshopify.com/admin/oauth/* until
+  // Shopify throttles the shop with 429. Mirrors the same one-shot guard
+  // App.tsx already applies to its FORBIDDEN redirect path
+  // (shouldAttemptForbiddenRedirect in src/lib/appBridge.ts).
+  var MARKER = 'aivastra:forbidden-oauth-redirect';
+  try {
+    if (sessionStorage.getItem(MARKER)) return;
+  } catch (e) {
+    // sessionStorage unavailable (partitioned/storage-blocked iframe) — with
+    // no way to record the attempt there is no way to bound the redirects,
+    // so don't start a loop we can't stop.
+    return;
+  }
   var breakoutLink;
   fetch('%VITE_API_BASE_URL%/v1/shopify/install-status?shop=' + encodeURIComponent(shop))
     .then(function (res) { return res.ok ? res.json() : null; })
     .then(function (data) {
       if (data && data.installed === false) {
+        // Record the attempt only now that we're actually redirecting, so a
+        // load that never needed OAuth doesn't burn this session's one shot.
+        // App.tsx clears this marker on a successful /v1/shopify/me.
+        try { sessionStorage.setItem(MARKER, '1'); } catch (e) { return; }
         // Assigning window.top.location.href here is a script-driven
         // navigation with no active user gesture behind it (this runs from a
         // fetch().then() continuation) — some browsers restrict exactly that
