@@ -34,7 +34,7 @@ describe('writeWidgetConfigMetafield', () => {
       'X-Shopify-Access-Token': 'tok',
     });
     const sent = JSON.parse((init as RequestInit).body as string);
-    expect(sent.query).toContain('mutation SetWidgetConfig');
+    expect(sent.query).toContain('mutation SetShopMetafield');
     const mf = sent.variables.metafields[0];
     expect(mf.ownerId).toBe('gid://shopify/Shop/4242');
     expect(mf.namespace).toBe('aivastra');
