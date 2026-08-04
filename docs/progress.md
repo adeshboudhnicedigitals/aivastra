@@ -1,3 +1,63 @@
+## 2026-08-04 — Unified credit system
+
+Collapses the parallel merchant credit pool into `user_credits`/`credit_ledger` —
+a merchant is a tag on a user, not a separate financial entity. Design doc:
+`docs/superpowers/specs/2026-08-04-unified-credits-remove-merchant-credits-design.md`.
+Plan: `docs/superpowers/plans/2026-08-04-unified-credits-remove-merchant-credits.md`.
+Built via Subagent-Driven Development across 9 implementation tasks (this entry
+is the 10th, docs-only), every task reviewed clean.
+
+**Done**
+- Collapsed `merchant_credits` / `merchant_credit_ledger` into `user_credits` /
+  `credit_ledger`. `merchant/ledger.ts` (spend + refund) is now a thin adapter
+  resolving `merchants.userId` and delegating to `credits/ledger.ts`; merchant
+  balance reads (`GET /v1/merchant/me`, admin merchant views) repointed the
+  same way.
+- Merchant Razorpay purchases (`merchant_payments`, priced by
+  `MERCHANT_PLAN_BILLING`) now credit `user_credits` on both the verify route
+  and the webhook handler; the checkout flow and its pricing are unchanged.
+- Removed `config:system.merchantFreeCredits` and the merchant-onboarding free
+  grant — a user gets exactly one free trial, at signup. Self-serve Android
+  onboarding no longer grants a second one.
+- Dispatcher refunds (`markWidgetFailed`, stuck-job sweeper) unified onto
+  `user_credits`. Found and fixed a real bug along the way: both refund paths,
+  on an unresolvable merchant→user lookup, logged an error but fell through to
+  `transitionJob(FAILED)`/ACK anyway — silently losing the refund while the log
+  line claimed one happened. Changed to throw instead, so the stream message
+  stays pending for the existing XPENDING recovery/sweeper instead of being
+  lost.
+- admin-web: removed the merchant-specific "Tryon credits" grant modal from
+  `UsersPage.tsx` — now that both pools are one, the existing per-user "Adjust
+  credits" action already covers merchants, so there's one balance and one
+  grant path per user instead of a redundant merchant-only second one.
+- Migration 0143 backfilled every merchant's existing `merchant_credits`
+  balance additively into `user_credits` (zero-balance merchants excluded),
+  writing one `MERCHANT_CREDITS_MIGRATION` `credit_ledger` row per merchant for
+  audit continuity. Migration 0144 dropped `merchant_credits` and
+  `merchant_credit_ledger` after production balances were verified against the
+  backfill.
+- Along the way, removed one dead `merchant_credits` seed line from
+  `apps/dispatcher/test/integration/merchant-widget-webp.test.ts` (found by
+  Task 9's pre-drop repo-wide grep gate; unrelated to the plan's own file
+  list, but the table couldn't be dropped with a live reference remaining).
+
+**Failed / Not Done**
+- `pnpm db:generate` remains unusable in this repo — snapshots 0128–0142 are
+  still missing (a pre-existing gap, not caused by this plan), so migrations
+  0143 and 0144 were hand-written against the stale `0127` snapshot instead of
+  generated. Backfilling the missing snapshot chain is still outstanding.
+
+**Open Questions / Decisions**
+- Merchant plan pricing (`MERCHANT_PLAN_BILLING`) and personal plan pricing
+  (`credit_plans`) remain two separate price lists feeding one credit pool.
+  Deliberate for now — different customer segments — but worth revisiting if
+  they drift.
+- `apps/api/test/integration/merchant-kiosk-admin.test.ts` has a pre-existing
+  failure (404 vs. expected 201 on admin kiosk-device creation), reconfirmed
+  unrelated to credits at every task that touched adjacent code (Tasks 2, 3,
+  6, 8) via `git stash` baseline comparison. Still open, still unrelated to
+  this plan.
+
 ## 2026-08-03 — Merchant tryon credits
 
 Unifies android/kiosk merchant tryon billing onto `merchantCredits` at the
