@@ -7,7 +7,9 @@ import { LinkAccountGate } from './components/LinkAccountGate';
 import { ApiError, apiFetch, redirectToShopifyAuth, setShopDomain } from './lib/api';
 import {
   AppBridgeTimeoutError,
+  clearForbiddenRedirectMarker,
   clearRecoveryReloadMarker,
+  shouldAttemptForbiddenRedirect,
   shouldAttemptRecoveryReload,
 } from './lib/appBridge';
 import { runNavGuard } from './lib/navGuard';
@@ -32,6 +34,7 @@ export default function App() {
     apiFetch<ShopifyMe>('/v1/shopify/me')
       .then((res) => {
         clearRecoveryReloadMarker();
+        clearForbiddenRedirectMarker();
         setShopDomain(res.store.shopDomain);
         setMe(res);
         setLoading(false);
@@ -49,10 +52,14 @@ export default function App() {
         // shop has no shopifyStores row yet, so there's no currentShopDomain
         // to key off. This is the path a fresh install (and Shopify's
         // automated app-review install check) takes on first load: begin
-        // OAuth instead of showing an error banner.
+        // OAuth instead of showing an error banner. Gated the same way as the
+        // reload above (one attempt per session): if OAuth completes and we
+        // land back here still FORBIDDEN, redirecting again would loop the
+        // merchant through OAuth forever with no visible error, so fall
+        // through to the error banner instead.
         if (err instanceof ApiError && err.code === 'FORBIDDEN') {
           const shop = new URLSearchParams(window.location.search).get('shop');
-          if (shop) {
+          if (shop && shouldAttemptForbiddenRedirect()) {
             redirectToShopifyAuth(shop);
             return; // Keep the spinner up; top-level navigation is underway.
           }
