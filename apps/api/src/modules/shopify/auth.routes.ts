@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import { encryptToken } from '../../lib/crypto.js';
 import { AppError } from '../../lib/errors.js';
 import { resolveAccountLinkCode } from './customer-auth.js';
@@ -135,27 +135,73 @@ interface ShopDetailsData {
   };
 }
 
-export async function shopifyAuthRoutes(app: FastifyInstance) {
-  // Unauthenticated by necessity: a fresh install has no session yet to check
-  // against. Called from a plain <script> in the SPA's index.html, before
-  // App Bridge/React boot, so a first-time install can be redirected to OAuth
-  // immediately instead of only after a full SPA boot discovers a 403 from
-  // /v1/shopify/me. Shopify's automated review flags exactly that slower path
-  // as "didn't successfully initiate authentication when installing". Leaks
-  // nothing beyond a boolean for a shop domain the caller already supplied.
-  app.get('/v1/shopify/install-status', async (req, reply) => {
-    const shop = (req.query as { shop?: string }).shop;
-    if (!shop || !/^[a-z0-9-]+\.myshopify\.com$/.test(shop)) {
-      throw new AppError('BAD_REQUEST', 400, 'invalid shop');
-    }
-    const [store] = await app.db
-      .select({ uninstalledAt: schema.shopifyStores.uninstalledAt })
-      .from(schema.shopifyStores)
-      .where(eq(schema.shopifyStores.shopDomain, shop))
-      .limit(1);
-    return reply.send({ installed: Boolean(store && !store.uninstalledAt) });
-  });
+/**
+ * Everything that turns a freshly-issued access token into a usable install.
+ *
+ * Shared by the two ways a token can arrive: the authorization-code callback
+ * below, and the managed-installation token exchange in the
+ * `requireShopifySession` plugin. Both need the identical follow-on work, and
+ * an install provisioned by one path must be indistinguishable from the other
+ * — so this lives in one place rather than being mirrored.
+ *
+ * Post-upsert steps are deliberately tolerant: a metafield mirror or webhook
+ * registration that fails must not discard a valid token and leave the store
+ * with no row at all. Postgres stays authoritative; those mirrors reconcile
+ * later.
+ */
+export async function provisionShopifyStore(
+  app: FastifyInstance,
+  shop: string,
+  accessToken: string,
+  scope: string,
+  grant: TokenGrant | undefined,
+  log: FastifyBaseLogger,
+) {
+  const { shop: s } = await shopifyGraphQL<ShopDetailsData>(shop, accessToken, SHOP_DETAILS);
+  const details: ShopDetails = {
+    shopifyShopId: numericIdFromGid(s.id),
+    shopDomain: s.myshopifyDomain,
+    myshopifyDomain: s.myshopifyDomain,
+    primaryDomain: s.primaryDomain?.host ?? undefined,
+    name: s.name,
+    shopOwner: s.shopOwnerName ?? undefined,
+    email: s.email,
+    phone: s.billingAddress?.phone ?? undefined,
+    address: [s.billingAddress?.address1, s.billingAddress?.city, s.billingAddress?.country]
+      .filter(Boolean)
+      .join(', '),
+    ianaTimezone: s.ianaTimezone ?? undefined,
+  };
 
+  const store = await upsertShopifyStore(app, details, accessToken, scope, grant);
+  await writeWidgetKeyMetafield(shop, accessToken, details.shopifyShopId, store.storeKey, log);
+  // Reauthorization can be reached only after a widget-config PATCH has
+  // already committed Postgres and Shopify rejected the old token. Publish
+  // that authoritative row with the newly issued token before returning to
+  // the app; otherwise the reloaded design page looks clean while Liquid is
+  // still rendering the previous metafield value.
+  await markWidgetConfigUnsynced(app, store.id);
+  await publishLatestConfig(app, store.id, log).catch((err) => {
+    // Match widget-key/webhook installation tolerance. A post-install mirror
+    // problem must not consume a valid grant without provisioning the store;
+    // the saved Postgres config remains authoritative.
+    log.error(
+      { err, storeId: store.id, shop },
+      'failed to republish widget config after shopify authorization',
+    );
+    return false;
+  });
+  await app.shopifyRegisterWebhooks?.(shop, accessToken);
+
+  log.info({ storeId: store.id, shop }, 'shopify store installed');
+  return store;
+}
+
+export async function shopifyAuthRoutes(app: FastifyInstance) {
+  // Kept for token recovery (SHOPIFY_REAUTH_REQUIRED), not for installation.
+  // Managed installation means Shopify installs the app itself and the store is
+  // provisioned from the first session token — nothing in the app should route
+  // a fresh install through here.
   app.get('/v1/shopify/auth', async (req, reply) => {
     const shop = (req.query as { shop?: string }).shop;
     if (!shop || !/^[a-z0-9-]+\.myshopify\.com$/.test(shop)) {
@@ -212,51 +258,8 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
     // it has to be captured here — this is the one place Shopify hands it over.
     const grant = toTokenGrant(tokenBody);
 
-    // Shop details
-    const { shop: s } = await shopifyGraphQL<ShopDetailsData>(q.shop, access_token, SHOP_DETAILS);
-    const details: ShopDetails = {
-      shopifyShopId: numericIdFromGid(s.id),
-      shopDomain: s.myshopifyDomain,
-      myshopifyDomain: s.myshopifyDomain,
-      primaryDomain: s.primaryDomain?.host ?? undefined,
-      name: s.name,
-      shopOwner: s.shopOwnerName ?? undefined,
-      email: s.email,
-      phone: s.billingAddress?.phone ?? undefined,
-      address: [s.billingAddress?.address1, s.billingAddress?.city, s.billingAddress?.country]
-        .filter(Boolean)
-        .join(', '),
-      ianaTimezone: s.ianaTimezone ?? undefined,
-    };
+    await provisionShopifyStore(app, q.shop, access_token, scope, grant, req.log);
 
-    const store = await upsertShopifyStore(app, details, access_token, scope, grant);
-    await writeWidgetKeyMetafield(
-      q.shop,
-      access_token,
-      details.shopifyShopId,
-      store.storeKey,
-      req.log,
-    );
-    // Reauthorization can be reached only after a widget-config PATCH has
-    // already committed Postgres and Shopify rejected the old token. Publish
-    // that authoritative row with the newly issued token before returning to
-    // the app; otherwise the reloaded design page looks clean while Liquid is
-    // still rendering the previous metafield value.
-    await markWidgetConfigUnsynced(app, store.id);
-    await publishLatestConfig(app, store.id, req.log).catch((err) => {
-      // Match widget-key/webhook installation tolerance. A post-install mirror
-      // problem must not consume a valid OAuth callback without returning the
-      // merchant to Shopify; the saved Postgres config remains authoritative.
-      req.log.error(
-        { err, storeId: store.id, shop: q.shop },
-        'failed to republish widget config after shopify authorization',
-      );
-      return false;
-    });
-    // Webhook registration is Task 7; call registerWebhooks(app, q.shop, access_token) here once it exists.
-    await app.shopifyRegisterWebhooks?.(q.shop, access_token);
-
-    req.log.info({ storeId: store.id, shop: q.shop }, 'shopify store installed');
     // Not `?? ''`: a missing key would build a silently malformed redirect, which
     // is the exact failure mode this redirect exists to avoid.
     if (!app.env.SHOPIFY_API_KEY) throw new AppError('CONFIG', 500, 'SHOPIFY_API_KEY missing');

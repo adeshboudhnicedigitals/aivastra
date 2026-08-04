@@ -94,34 +94,7 @@ export function clearRecoveryReloadMarker(): void {
   }
 }
 
-// Same one-shot-per-session guard as RECOVERY_RELOAD_MARKER above, for the
-// FORBIDDEN → redirectToShopifyAuth path in App.tsx's load(). requireShopifySession
-// answers FORBIDDEN for "store not installed" (see App.tsx), which is the
-// correct signal on a genuine fresh install — but if OAuth completes and the
-// app is reloaded back into a state that still reads as FORBIDDEN (a stuck
-// install, a race, a misconfigured redirect), redirecting again on every load
-// would silently loop the merchant through OAuth forever with no visible error.
-// A separate key from RECOVERY_RELOAD_MARKER: the two failure modes are
-// unrelated and must not share (or reset) each other's one-shot budget.
-const FORBIDDEN_REDIRECT_MARKER = 'aivastra:forbidden-oauth-redirect';
-
-export function shouldAttemptForbiddenRedirect(): boolean {
-  try {
-    if (sessionStorage.getItem(FORBIDDEN_REDIRECT_MARKER)) return false;
-    sessionStorage.setItem(FORBIDDEN_REDIRECT_MARKER, '1');
-    return true;
-  } catch {
-    // sessionStorage can be unavailable in a partitioned or storage-blocked
-    // iframe. With no way to record the attempt there is no way to bound the
-    // redirects, so don't start a loop we can't stop.
-    return false;
-  }
-}
-
-export function clearForbiddenRedirectMarker(): void {
-  try {
-    sessionStorage.removeItem(FORBIDDEN_REDIRECT_MARKER);
-  } catch {
-    // Best-effort: only affects whether a later FORBIDDEN gets its one auto-redirect.
-  }
-}
+// The FORBIDDEN → OAuth one-shot guard that used to live here is gone with the
+// redirect it guarded. Under managed installation the server provisions a store
+// from the session token on first contact, so "store not installed" is no
+// longer a state the frontend can or should resolve by starting OAuth.
