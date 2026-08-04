@@ -182,64 +182,6 @@ describe('upsertShopifyStore', () => {
   });
 });
 
-describe('GET /v1/shopify/install-status', () => {
-  it('rejects a malformed shop param', async () => {
-    const response = await app.inject({
-      method: 'GET',
-      url: '/v1/shopify/install-status?shop=not-a-shop',
-    });
-    expect(response.statusCode).toBe(400);
-  });
-
-  it('reports installed:false for a shop with no store row', async () => {
-    const response = await app.inject({
-      method: 'GET',
-      url: '/v1/shopify/install-status?shop=never-installed.myshopify.com',
-    });
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ installed: false });
-  });
-
-  it('reports installed:true for an active store', async () => {
-    const activeShop = 'install-status-active.myshopify.com';
-    await upsertShopifyStore(
-      app,
-      { ...shop, shopifyShopId: 99001, shopDomain: activeShop, myshopifyDomain: activeShop },
-      'shpat_active',
-      'read_products',
-    );
-    const response = await app.inject({
-      method: 'GET',
-      url: `/v1/shopify/install-status?shop=${activeShop}`,
-    });
-    expect(response.json()).toEqual({ installed: true });
-  });
-
-  it('reports installed:false for an uninstalled store', async () => {
-    const uninstalledShop = 'install-status-uninstalled.myshopify.com';
-    await upsertShopifyStore(
-      app,
-      {
-        ...shop,
-        shopifyShopId: 99002,
-        shopDomain: uninstalledShop,
-        myshopifyDomain: uninstalledShop,
-      },
-      'shpat_gone',
-      'read_products',
-    );
-    await app.db
-      .update(schema.shopifyStores)
-      .set({ uninstalledAt: new Date() })
-      .where(eq(schema.shopifyStores.shopifyShopId, 99002));
-    const response = await app.inject({
-      method: 'GET',
-      url: `/v1/shopify/install-status?shop=${uninstalledShop}`,
-    });
-    expect(response.json()).toEqual({ installed: false });
-  });
-});
-
 describe('GET /v1/shopify/auth/callback', () => {
   it('republishes the committed widget config after reauthorization', async () => {
     const recoveryShop = 'recovery-demo.myshopify.com';

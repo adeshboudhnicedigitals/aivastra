@@ -5,45 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="shopify-api-key" content="%VITE_SHOPIFY_API_KEY%" />
 <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
-<script>
-(function () {
-  // Fires before App Bridge/React boot so a fresh install redirects to OAuth
-  // immediately, rather than only after a full SPA boot discovers a 403 from
-  // /v1/shopify/me (the slow path Shopify's automated review flags as
-  // "didn't successfully initiate authentication when installing"). No-ops
-  // — and the normal in-app boot path in App.tsx takes over — for anything
-  // but a genuinely uninstalled shop: missing shop param, network failure,
-  // or an already-installed store.
-  var shop = new URLSearchParams(window.location.search).get('shop');
-  if (!shop) return;
-  var breakoutLink;
-  fetch('%VITE_API_BASE_URL%/v1/shopify/install-status?shop=' + encodeURIComponent(shop))
-    .then(function (res) { return res.ok ? res.json() : null; })
-    .then(function (data) {
-      if (data && data.installed === false) {
-        // Assigning window.top.location.href here is a script-driven
-        // navigation with no active user gesture behind it (this runs from a
-        // fetch().then() continuation) — some browsers restrict exactly that
-        // for a cross-origin iframe. Route through a target="_top" anchor's
-        // native click handling instead, which isn't subject to that
-        // restriction. Kept in sync with navigateTopLevel in src/lib/api.ts.
-        breakoutLink = document.createElement('a');
-        breakoutLink.href = '%VITE_API_BASE_URL%/v1/shopify/auth?shop=' + encodeURIComponent(shop);
-        breakoutLink.target = '_top';
-        breakoutLink.rel = 'noopener';
-        // document.body doesn't exist yet — this script runs from <head>,
-        // before <body> is parsed. document.documentElement (<html>) always
-        // does.
-        document.documentElement.appendChild(breakoutLink);
-        breakoutLink.click();
-        breakoutLink.remove();
-      }
-    })
-    .catch(function () {
-      // Swallow — App.tsx's existing FORBIDDEN fallback still handles it.
-    });
-})();
-</script>
+<!--
+  No install/OAuth bootstrap script here on purpose. Under Shopify managed
+  installation (see shopify.app.toml) Shopify installs the app and grants
+  scopes without calling us, then opens this page with a session token. The
+  first authenticated request exchanges that token for an access token and
+  provisions the store server-side, so the app never initiates OAuth itself.
+  An earlier version redirected to /v1/shopify/auth from here, which looped
+  through Shopify's install entry and got shops throttled with 429.
+-->
 <title>AiVastra Try-On</title>
 </head>
 <body>
