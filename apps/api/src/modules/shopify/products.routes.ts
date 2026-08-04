@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 import { assertShopifyCdn } from './products.sync.js';
-import { shopifyAdminFetch } from './service.js';
+import { numericIdFromGid, shopifyGraphQL, toGid } from './service.js';
 import { getValidAccessToken } from './token.js';
 
 const queryBoolean = z
@@ -34,23 +34,34 @@ const PatchProductBody = z
     { message: 'at least one of enabled, excluded, or garmentImageUrl is required' },
   );
 
+const PRODUCT_IMAGES = `
+  query ProductImages($id: ID!) {
+    product(id: $id) {
+      images(first: 250) { nodes { id url } }
+    }
+  }
+`;
+
+interface ProductImagesData {
+  product: { images: { nodes: Array<{ id: string; url: string }> } } | null;
+}
+
 export async function fetchLiveProductImages(
   app: FastifyInstance,
   store: typeof schema.shopifyStores.$inferSelect,
   shopifyProductId: string,
 ): Promise<{ id: number; src: string }[]> {
   const token = await getValidAccessToken(app, store);
-  const res = await shopifyAdminFetch(
-    store.shopDomain,
-    token,
-    `/products/${shopifyProductId}/images.json`,
-  );
-  if (!res.ok) {
+  const data = await shopifyGraphQL<ProductImagesData>(store.shopDomain, token, PRODUCT_IMAGES, {
+    id: toGid('Product', shopifyProductId),
+  });
+  if (!data.product) {
     throw new AppError('SHOPIFY', 502, 'failed to fetch product images');
   }
-  const { images } = (await res.json()) as { images: { id: number; src: string }[] };
-  for (const img of images) assertShopifyCdn(img.src);
-  return images.map((img) => ({ id: img.id, src: img.src }));
+  const images = data.product.images.nodes;
+  // Still guarded before any of these URLs is handed to a downloader.
+  for (const img of images) assertShopifyCdn(img.url);
+  return images.map((img) => ({ id: numericIdFromGid(img.id), src: img.url }));
 }
 
 export async function shopifyProductsRoutes(app: FastifyInstance) {

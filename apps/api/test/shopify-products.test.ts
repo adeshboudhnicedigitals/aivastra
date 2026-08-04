@@ -189,16 +189,28 @@ describe('GET /v1/shopify/products/:id/images', () => {
   it('returns the live image list from Shopify for that product', async () => {
     const originalFetch = global.fetch;
     global.fetch = (async (url: string) => {
-      expect(url).toContain('/products/1/images.json');
-      return {
-        ok: true,
-        json: async () => ({
-          images: [
-            { id: 111, src: 'https://cdn.shopify.com/s/files/1/one.jpg' },
-            { id: 222, src: 'https://cdn.shopify.com/s/files/1/two.jpg' },
-          ],
+      expect(url).toContain('/graphql.json');
+      return new Response(
+        JSON.stringify({
+          data: {
+            product: {
+              images: {
+                nodes: [
+                  {
+                    id: 'gid://shopify/ProductImage/111',
+                    url: 'https://cdn.shopify.com/s/files/1/one.jpg',
+                  },
+                  {
+                    id: 'gid://shopify/ProductImage/222',
+                    url: 'https://cdn.shopify.com/s/files/1/two.jpg',
+                  },
+                ],
+              },
+            },
+          },
         }),
-      } as Response;
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
     }) as typeof fetch;
 
     try {
@@ -224,13 +236,24 @@ describe('PATCH /v1/shopify/products/:id', () => {
   it('rejects a garment image above the admin-configured limit', async () => {
     const originalFetch = global.fetch;
     global.fetch = (async (url: string) => {
-      if (typeof url === 'string' && url.includes('/images.json')) {
-        return {
-          ok: true,
-          json: async () => ({
-            images: [{ id: 1, src: 'https://cdn.shopify.com/oversized.jpg' }],
+      if (typeof url === 'string' && url.includes('/graphql.json')) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              product: {
+                images: {
+                  nodes: [
+                    {
+                      id: 'gid://shopify/ProductImage/1',
+                      url: 'https://cdn.shopify.com/oversized.jpg',
+                    },
+                  ],
+                },
+              },
+            },
           }),
-        } as Response;
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
       }
       return {
         ok: true,
@@ -292,13 +315,32 @@ describe('PATCH /v1/shopify/products/:id', () => {
 
   it("rejects a garmentImageUrl not in the product's real Shopify image list", async () => {
     const originalFetch = global.fetch;
-    global.fetch = (async () =>
-      ({
+    global.fetch = (async (url: string) => {
+      if (typeof url === 'string' && url.includes('/graphql.json')) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              product: {
+                images: {
+                  nodes: [
+                    {
+                      id: 'gid://shopify/ProductImage/1',
+                      url: 'https://cdn.shopify.com/s/files/1/real.jpg',
+                    },
+                  ],
+                },
+              },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return {
         ok: true,
-        json: async () => ({
-          images: [{ id: 1, src: 'https://cdn.shopify.com/s/files/1/real.jpg' }],
-        }),
-      }) as Response) as typeof fetch;
+        arrayBuffer: async () => new ArrayBuffer(4),
+        headers: { get: () => 'image/jpeg' },
+      } as Response;
+    }) as typeof fetch;
 
     try {
       const res = await app.inject({
@@ -317,13 +359,24 @@ describe('PATCH /v1/shopify/products/:id', () => {
     const originalFetch = global.fetch;
     let downloadedFrom: string | undefined;
     global.fetch = (async (url: string) => {
-      if (url.includes('/images.json')) {
-        return {
-          ok: true,
-          json: async () => ({
-            images: [{ id: 1, src: 'https://cdn.shopify.com/s/files/1/new.jpg' }],
+      if (typeof url === 'string' && url.includes('/graphql.json')) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              product: {
+                images: {
+                  nodes: [
+                    {
+                      id: 'gid://shopify/ProductImage/1',
+                      url: 'https://cdn.shopify.com/s/files/1/new.jpg',
+                    },
+                  ],
+                },
+              },
+            },
           }),
-        } as Response;
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
       }
       downloadedFrom = url;
       return {
