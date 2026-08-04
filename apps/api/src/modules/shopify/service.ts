@@ -75,6 +75,120 @@ export async function shopifyAdminFetch(
   return res;
 }
 
+export interface GraphQLUserError {
+  field?: string[] | null;
+  message: string;
+}
+
+export interface ShopifyGraphQLOptions extends ShopifyAdminFetchOptions {
+  /**
+   * Injectable so throttle-retry tests don't spend real seconds sleeping.
+   * Production callers omit it and get the exponential backoff.
+   */
+  sleepImpl?: (ms: number) => Promise<void>;
+}
+
+interface GraphQLBody<T> {
+  data?: T;
+  errors?: Array<{ message: string; extensions?: { code?: string } }>;
+}
+
+const THROTTLE_MAX_ATTEMPTS = 3;
+const THROTTLE_BASE_DELAY_MS = 1000;
+
+const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * Every Admin API call in this module goes through here.
+ *
+ * Layered on shopifyAdminFetch rather than beside it, so the 401
+ * refresh-and-retry and the 401/403 → SHOPIFY_REAUTH_REQUIRED mapping are
+ * inherited rather than duplicated — pass `onUnauthorized` through `options`
+ * and it keeps working exactly as it does for the REST callers.
+ *
+ * Throws on every failure mode, including the one that arrives as HTTP 200:
+ * GraphQL reports a refused query in `body.errors` with a 200 status, so a
+ * caller that only checked `res.ok` would read `undefined` and carry on.
+ */
+export async function shopifyGraphQL<T>(
+  shopDomain: string,
+  accessToken: string,
+  query: string,
+  variables: Record<string, unknown> = {},
+  options: ShopifyGraphQLOptions = {},
+): Promise<T> {
+  const { sleepImpl = defaultSleep, ...fetchOptions } = options;
+  let lastThrottleMessage = 'throttled';
+
+  for (let attempt = 1; attempt <= THROTTLE_MAX_ATTEMPTS; attempt++) {
+    const res = await shopifyAdminFetch(
+      shopDomain,
+      accessToken,
+      '/graphql.json',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, variables }),
+      },
+      fetchOptions,
+    );
+    if (!res.ok) {
+      throw new AppError('SHOPIFY', 502, `Shopify GraphQL request failed: HTTP ${res.status}`);
+    }
+
+    const body = (await res.json()) as GraphQLBody<T>;
+
+    // Throttling arrives as a 200 with an errors entry, not REST's 429.
+    const throttled = body.errors?.find((e) => e.extensions?.code === 'THROTTLED');
+    if (throttled) {
+      lastThrottleMessage = throttled.message;
+      if (attempt < THROTTLE_MAX_ATTEMPTS) {
+        await sleepImpl(THROTTLE_BASE_DELAY_MS * 2 ** (attempt - 1));
+        continue;
+      }
+      break;
+    }
+
+    if (body.errors?.length) {
+      throw new AppError('SHOPIFY', 502, body.errors[0].message);
+    }
+    if (!body.data) {
+      throw new AppError('SHOPIFY', 502, 'Shopify GraphQL response contained no data');
+    }
+    return body.data;
+  }
+
+  throw new AppError('SHOPIFY', 502, `Shopify GraphQL throttled: ${lastThrottleMessage}`);
+}
+
+/** Postgres stores numeric Shopify ids; GraphQL speaks gids. Convert at the boundary. */
+export function toGid(resource: string, id: number | string): string {
+  return `gid://shopify/${resource}/${id}`;
+}
+
+/**
+ * Inverse of toGid. Throws rather than returning NaN: a silently-NaN product id
+ * would be written into a bigint column as a corrupt row.
+ */
+export function numericIdFromGid(gid: string): number {
+  const match = /^gid:\/\/shopify\/[A-Za-z]+\/(\d+)$/.exec(gid);
+  if (!match) throw new AppError('SHOPIFY', 502, `unexpected Shopify global id: ${gid}`);
+  return Number(match[1]);
+}
+
+/**
+ * A GraphQL mutation can answer 200, pass the `errors` check, and still have
+ * refused the write via `userErrors`. Callers that must fail loudly use this;
+ * callers with a log-and-continue contract check the array themselves.
+ */
+export function assertNoUserErrors(
+  errors: GraphQLUserError[] | undefined | null,
+  context: string,
+): void {
+  if (!errors || errors.length === 0) return;
+  throw new AppError('SHOPIFY', 502, `${context}: ${errors[0].message}`);
+}
+
 function safeEq(a: Buffer, b: Buffer): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
