@@ -69,14 +69,6 @@ export const merchantCatalogSubcategories = pgTable(
   (t) => [index('merchant_catalog_subcategories_merchant_idx').on(t.merchantId, t.category)],
 );
 
-export const merchantCredits = pgTable('merchant_credits', {
-  merchantId: uuid('merchant_id')
-    .primaryKey()
-    .references(() => merchants.id, { onDelete: 'cascade' }),
-  balance: integer('balance').notNull().default(0),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
-
 export const merchantPayments = pgTable('merchant_payments', {
   id: uuid('id').primaryKey().defaultRandom(),
   merchantId: uuid('merchant_id')
@@ -93,18 +85,6 @@ export const merchantPayments = pgTable('merchant_payments', {
   status: text('status').notNull().default('created'), // created | paid | failed
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   paidAt: timestamp('paid_at', { withTimezone: true }),
-});
-
-export const merchantCreditLedger = pgTable('merchant_credit_ledger', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  merchantId: uuid('merchant_id')
-    .notNull()
-    .references(() => merchants.id, { onDelete: 'cascade' }),
-  delta: integer('delta').notNull(),
-  reason: text('reason').notNull(),
-  jobId: uuid('job_id'),
-  adminId: uuid('admin_id'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const merchantCatalogItems = pgTable(
