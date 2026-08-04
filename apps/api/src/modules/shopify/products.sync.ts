@@ -2,19 +2,24 @@ import { schema } from '@aivastra/db';
 import { and, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
-import { type SyncTask, shopifyAdminFetch } from './service.js';
+import { numericIdFromGid, type SyncTask, shopifyGraphQL, toGid } from './service.js';
 import { getValidAccessToken } from './token.js';
 
-interface ShopifyProduct {
+/**
+ * Normalized product shape consumed by syncProduct.
+ *
+ * Deliberately not Shopify's wire format: syncProduct is business logic and is
+ * tested directly, so the GraphQL response is mapped into this at the fetch
+ * boundary by toShopifyProduct below.
+ */
+export interface ShopifyProduct {
   id: number;
   title: string;
-  image?: { src?: string } | null;
-  product_type?: string;
-  tags?: string;
-  vendor?: string;
-  /** Collection titles this product belongs to — resolved by the caller (syncOneTask)
-   *  via collects.json, since Shopify's product resource doesn't include collections. */
-  collections?: string[];
+  imageUrl?: string | null;
+  productType?: string | null;
+  tags?: string[] | null;
+  vendor?: string | null;
+  collections?: string[] | null;
 }
 
 /** Minimal shape we need from a fetch Response — lets tests pass a plain object
@@ -42,6 +47,70 @@ export function assertShopifyCdn(url: string): void {
   const u = new URL(url);
   if (u.protocol !== 'https:') throw new Error('image url must be https');
   if (!ALLOWED_HOSTS.test(u.hostname)) throw new Error(`image host not allowed: ${u.hostname}`);
+}
+
+// Shared selection set. Product.collections returns titles inline, which is why
+// there is no longer a collects.json call or a collection-title map here: the
+// REST version needed one extra request per product to learn the same thing.
+//
+// collections(first: 25) caps what REST paginated fully. That is safe because
+// shopify_product_garments.collections is written and never read — activation
+// resolves membership through shopify_collection_products (populated by
+// collections.sync.ts), not this column.
+const PRODUCT_FIELDS = `
+  id
+  title
+  productType
+  tags
+  vendor
+  featuredImage { url }
+  collections(first: 25) { nodes { title } }
+`;
+
+const PRODUCTS_PAGE = `
+  query ProductsPage($cursor: String) {
+    products(first: 25, after: $cursor) {
+      pageInfo { hasNextPage endCursor }
+      nodes { ${PRODUCT_FIELDS} }
+    }
+  }
+`;
+
+const ONE_PRODUCT = `
+  query OneProduct($id: ID!) {
+    product(id: $id) { ${PRODUCT_FIELDS} }
+  }
+`;
+
+interface GraphQLProductNode {
+  id: string;
+  title: string;
+  productType?: string | null;
+  tags?: string[] | null;
+  vendor?: string | null;
+  featuredImage?: { url?: string | null } | null;
+  collections?: { nodes: Array<{ title: string }> } | null;
+}
+
+interface ProductsPageData {
+  products: {
+    pageInfo: { hasNextPage: boolean; endCursor: string | null };
+    nodes: GraphQLProductNode[];
+  };
+}
+
+/** GraphQL wire shape → the normalized shape syncProduct consumes. */
+function toShopifyProduct(node: GraphQLProductNode): ShopifyProduct {
+  return {
+    id: numericIdFromGid(node.id),
+    title: node.title,
+    imageUrl: node.featuredImage?.url ?? null,
+    // Empty string is Shopify's "unset" for these, and the columns are nullable.
+    productType: node.productType || null,
+    tags: node.tags && node.tags.length > 0 ? node.tags : null,
+    vendor: node.vendor || null,
+    collections: node.collections?.nodes.map((c) => c.title) ?? null,
+  };
 }
 
 async function upsertGarment(
@@ -125,16 +194,11 @@ export async function syncProduct(
   fetchFn: FetchLike = fetch as unknown as FetchLike,
 ): Promise<void> {
   const r2Key = `shopify-garments/${storeId}/${product.id}/garment.jpg`;
-  const productType = product.product_type ?? null;
-  const tags = product.tags
-    ? product.tags
-        .split(',')
-        .map((t) => t.trim())
-        .filter(Boolean)
-    : null;
+  const productType = product.productType ?? null;
+  const tags = product.tags ?? null;
   const vendor = product.vendor ?? null;
   const collections = product.collections ?? null;
-  const src = product.image?.src;
+  const src = product.imageUrl;
   if (!src) {
     await upsertGarment(
       app,
@@ -202,54 +266,6 @@ export async function syncProduct(
       (err as Error).message,
     );
   }
-}
-
-export function nextPageUrl(res: { headers: { get(name: string): string | null } }): string | null {
-  const link = res.headers.get('link') ?? '';
-  const next = link.match(/<([^>]+)>;\s*rel="next"/);
-  return next ? next[1] : null;
-}
-
-/** Shopify's product resource has no `collections` field — the id→title map is
- *  fetched once per sync run from custom/smart collections, then joined against
- *  each product's `collects.json` membership. */
-export async function fetchCollectionTitleMap(
-  shop: string,
-  token: string,
-): Promise<Map<number, string>> {
-  const titleById = new Map<number, string>();
-  for (const resource of ['custom_collections', 'smart_collections'] as const) {
-    let url: string | null = `/${resource}.json?limit=250`;
-    while (url) {
-      const res = await shopifyAdminFetch(shop, token, url);
-      if (!res.ok) break;
-      const body = (await res.json()) as Record<string, Array<{ id: number; title: string }>>;
-      for (const c of body[resource] ?? []) titleById.set(c.id, c.title);
-      url = nextPageUrl(res);
-    }
-  }
-  return titleById;
-}
-
-async function fetchProductCollectionTitles(
-  shop: string,
-  token: string,
-  productId: number,
-  titleById: Map<number, string>,
-): Promise<string[]> {
-  const titles: string[] = [];
-  let url: string | null = `/collects.json?product_id=${productId}&limit=250`;
-  while (url) {
-    const res = await shopifyAdminFetch(shop, token, url);
-    if (!res.ok) break;
-    const { collects } = (await res.json()) as { collects: Array<{ collection_id: number }> };
-    for (const c of collects) {
-      const title = titleById.get(c.collection_id);
-      if (title) titles.push(title);
-    }
-    url = nextPageUrl(res);
-  }
-  return titles;
 }
 
 export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise<void> {
@@ -338,51 +354,70 @@ export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise
   }
 
   if (task.mode === 'product' && task.shopifyProductId) {
-    const res = await shopifyAdminFetch(shop, token, `/products/${task.shopifyProductId}.json`);
-    if (res.ok) {
-      const { product } = (await res.json()) as { product: ShopifyProduct };
-      const titleById = await fetchCollectionTitleMap(shop, token);
-      const collections = await fetchProductCollectionTitles(shop, token, product.id, titleById);
-      await syncProduct(app, store.id, { ...product, collections });
+    let node: GraphQLProductNode | null;
+    try {
+      const data = await shopifyGraphQL<{ product: GraphQLProductNode | null }>(
+        shop,
+        token,
+        ONE_PRODUCT,
+        { id: toGid('Product', task.shopifyProductId) },
+        { onUnauthorized },
+      );
+      node = data.product;
+    } catch (err) {
+      // Previously a silent no-op: no row, no log — a persistently-failing
+      // product re-enqueued via customer.routes.ts on every try-on attempt and
+      // never left a trace to debug from.
+      app.log.warn(
+        { err, storeId: store.id, productId: task.shopifyProductId },
+        'shopify product fetch failed during sync',
+      );
+      await upsertGarmentFailure(
+        app,
+        store.id,
+        task.shopifyProductId,
+        `product fetch failed: ${(err as Error).message}`,
+      );
       return;
     }
-    // Previously a silent no-op here: no row, no log — a persistently-failing
-    // product (deleted, wrong scope, deprecated REST resource) re-enqueued via
-    // customer.routes.ts on every try-on attempt and never left a trace to
-    // debug from. Record it the same way syncProduct's own try/catch does.
-    app.log.warn(
-      { storeId: store.id, productId: task.shopifyProductId, status: res.status },
-      'shopify product fetch failed during sync',
-    );
-    await upsertGarmentFailure(
-      app,
-      store.id,
-      task.shopifyProductId,
-      `product fetch HTTP ${res.status}`,
-    );
+
+    if (!node) {
+      app.log.warn(
+        { storeId: store.id, productId: task.shopifyProductId },
+        'shopify product not found during sync',
+      );
+      await upsertGarmentFailure(
+        app,
+        store.id,
+        task.shopifyProductId,
+        'product not found on Shopify',
+      );
+      return;
+    }
+
+    await syncProduct(app, store.id, toShopifyProduct(node));
     return;
   }
 
-  // full sync: paginate (250/page). Respect ~2 req/s. One extra collects.json
-  // call per product (plus one-off collection title map) roughly doubles
-  // outbound REST calls — each round-trip's own latency provides de-facto spacing.
-  const titleById = await fetchCollectionTitleMap(shop, token);
-  let url: string | null = `/products.json?limit=250`;
-  while (url) {
-    const res: Response = await shopifyAdminFetch(shop, token, url, {}, { onUnauthorized });
-    if (!res.ok) {
-      // Previously a silent `break` here: the whole catalog sync would stop
-      // with zero rows written and zero log line — a bad/expired token made
-      // "My Products" look permanently empty with no way to tell why. Throwing
-      // lets sync-consumer.ts's existing catch log it as a failed task.
-      throw new Error(`products.json fetch failed: HTTP ${res.status} (${url})`);
+  // Full sync, 25 products a page. Page size is bounded by Shopify's calculated
+  // query cost (1000 per query): products(25) with a nested collections(25) is
+  // roughly 25 + 25×25 = 650.
+  let cursor: string | null = null;
+  do {
+    // onUnauthorized reassigns the outer `token`: a full sync of a large catalog
+    // outlives the one-hour token, and this runs unattended with no merchant
+    // present to reauthorize.
+    const data: ProductsPageData = await shopifyGraphQL<ProductsPageData>(
+      shop,
+      token,
+      PRODUCTS_PAGE,
+      { cursor },
+      { onUnauthorized },
+    );
+    for (const node of data.products.nodes) {
+      await syncProduct(app, store.id, toShopifyProduct(node));
     }
-    const { products } = (await res.json()) as { products: ShopifyProduct[] };
-    for (const p of products) {
-      const collections = await fetchProductCollectionTitles(shop, token, p.id, titleById);
-      await syncProduct(app, store.id, { ...p, collections });
-    }
-    url = nextPageUrl(res);
-    if (url) await new Promise((r) => setTimeout(r, 500)); // throttle
-  }
+    cursor = data.products.pageInfo.hasNextPage ? data.products.pageInfo.endCursor : null;
+    if (cursor) await new Promise((r) => setTimeout(r, 500)); // throttle
+  } while (cursor);
 }
