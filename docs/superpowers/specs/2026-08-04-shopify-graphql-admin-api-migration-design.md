@@ -301,3 +301,13 @@ Task 1 must land first — every other task depends on the helper. Tasks 2–8 a
 - `pnpm --filter @aivastra/api test:unit` passes (499+ tests).
 - `pnpm typecheck` clean.
 - A full product sync against the dev store produces the same `shopify_product_garments` rows as before the migration.
+
+## Known Deviation: Deprecated GraphQL Fields
+
+Three fields this migration adopted are deprecated by Shopify — still functional today, with non-deprecated successors already available:
+
+- `Product.featuredImage` (successor: `featuredMedia`) — `apps/api/src/modules/shopify/products.sync.ts`
+- `Product.images` (successor: `media`) — `apps/api/src/modules/shopify/products.routes.ts`
+- `Shop.billingAddress` (no listed successor field at time of writing; Shopify's own guidance is to source address data via the REST-free `Shop` fields already in use elsewhere) — `apps/api/src/modules/shopify/auth.routes.ts`
+
+This was a deliberate call: this pass was scoped to eliminating REST Admin API usage (App Store requirement 2.2.4), not to eliminating GraphQL field deprecation, and migrating these three was out of scope. Recommendation: migrate to `featuredMedia`/`media` in a follow-up pass.
