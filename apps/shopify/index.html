@@ -5,6 +5,30 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="shopify-api-key" content="%VITE_SHOPIFY_API_KEY%" />
 <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
+<script>
+(function () {
+  // Fires before App Bridge/React boot so a fresh install redirects to OAuth
+  // immediately, rather than only after a full SPA boot discovers a 403 from
+  // /v1/shopify/me (the slow path Shopify's automated review flags as
+  // "didn't successfully initiate authentication when installing"). No-ops
+  // — and the normal in-app boot path in App.tsx takes over — for anything
+  // but a genuinely uninstalled shop: missing shop param, network failure,
+  // or an already-installed store.
+  var shop = new URLSearchParams(window.location.search).get('shop');
+  if (!shop) return;
+  fetch('%VITE_API_BASE_URL%/v1/shopify/install-status?shop=' + encodeURIComponent(shop))
+    .then(function (res) { return res.ok ? res.json() : null; })
+    .then(function (data) {
+      if (data && data.installed === false) {
+        (window.top || window).location.href =
+          '%VITE_API_BASE_URL%/v1/shopify/auth?shop=' + encodeURIComponent(shop);
+      }
+    })
+    .catch(function () {
+      // Swallow — App.tsx's existing FORBIDDEN fallback still handles it.
+    });
+})();
+</script>
 <title>AiVastra Try-On</title>
 </head>
 <body>

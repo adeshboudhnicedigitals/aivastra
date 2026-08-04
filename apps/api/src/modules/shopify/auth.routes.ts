@@ -136,6 +136,26 @@ interface ShopDetailsData {
 }
 
 export async function shopifyAuthRoutes(app: FastifyInstance) {
+  // Unauthenticated by necessity: a fresh install has no session yet to check
+  // against. Called from a plain <script> in the SPA's index.html, before
+  // App Bridge/React boot, so a first-time install can be redirected to OAuth
+  // immediately instead of only after a full SPA boot discovers a 403 from
+  // /v1/shopify/me. Shopify's automated review flags exactly that slower path
+  // as "didn't successfully initiate authentication when installing". Leaks
+  // nothing beyond a boolean for a shop domain the caller already supplied.
+  app.get('/v1/shopify/install-status', async (req, reply) => {
+    const shop = (req.query as { shop?: string }).shop;
+    if (!shop || !/^[a-z0-9-]+\.myshopify\.com$/.test(shop)) {
+      throw new AppError('BAD_REQUEST', 400, 'invalid shop');
+    }
+    const [store] = await app.db
+      .select({ uninstalledAt: schema.shopifyStores.uninstalledAt })
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.shopDomain, shop))
+      .limit(1);
+    return reply.send({ installed: Boolean(store && !store.uninstalledAt) });
+  });
+
   app.get('/v1/shopify/auth', async (req, reply) => {
     const shop = (req.query as { shop?: string }).shop;
     if (!shop || !/^[a-z0-9-]+\.myshopify\.com$/.test(shop)) {
