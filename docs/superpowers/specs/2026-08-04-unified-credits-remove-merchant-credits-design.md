@@ -144,13 +144,20 @@ branch the same way.
 
 ### 7. admin-web
 
-The Grant button on `UsersPage.tsx` (added on
-`fix/merchant-tryon-credit-grant`) keeps working unchanged — same
-`POST /admin/merchants/:id/credits` endpoint, now crediting `user_credits`.
-But with one pool, a separate "Tryon credits" row directly beneath the
-personal balance shows the same number twice, so the two collapse into a
-single balance row. `UserMerchant.creditBalance` is removed from
-`apps/admin-web/src/types.ts`.
+With one pool, the "Tryon credits" row on `UsersPage.tsx` shows the same
+number as the personal balance directly above it, and the grant modal added
+on `fix/merchant-tryon-credit-grant` duplicates a flow that already exists:
+the "Credit balance" stat card opens an "Adjust credits" modal posting to
+`/admin/credits/grant` and `/admin/credits/deduct`. That existing path is
+strictly better — gated to `SUPER_ADMIN, MODERATOR, ADMIN` rather than
+`SUPER_ADMIN` alone, and it supports deduct.
+
+So the row and the merchant-specific modal are both deleted, reverting that
+branch's UI. This is the intended outcome: that work existed to expose an
+orphaned second pool, and the pool is going away.
+`POST /admin/merchants/:id/credits` remains on the server — still used by
+`MerchantsPage.tsx` and the `initialCredits` path in merchant creation.
+`UserMerchant.creditBalance` is removed from `apps/admin-web/src/types.ts`.
 
 ### 8. Schema
 
