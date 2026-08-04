@@ -144,44 +144,34 @@ async function failAndRefund(
   log: Logger,
 ): Promise<void> {
   await db.transaction(async (tx) => {
-    if (job.merchantId) {
-      const existing = await tx
-        .select()
-        .from(schema.merchantCreditLedger)
-        .where(
-          and(
-            eq(schema.merchantCreditLedger.jobId, job.id),
-            eq(schema.merchantCreditLedger.reason, 'JOB_FAIL_REFUND'),
-          ),
-        );
-      if (existing.length) return;
-      await tx
-        .update(schema.merchantCredits)
-        .set({ balance: sql`${schema.merchantCredits.balance} + ${job.creditsCharged}` })
-        .where(eq(schema.merchantCredits.merchantId, job.merchantId));
-      await tx.insert(schema.merchantCreditLedger).values({
-        merchantId: job.merchantId,
-        delta: job.creditsCharged,
-        reason: 'JOB_FAIL_REFUND',
-        jobId: job.id,
-      });
-    } else if (job.userId) {
-      const existing = await tx
-        .select()
-        .from(schema.creditLedger)
-        .where(eq(schema.creditLedger.jobId, job.id));
-      if (existing.some((e) => e.reason === 'JOB_FAIL_REFUND')) return;
-      await tx
-        .update(schema.userCredits)
-        .set({ balance: sql`${schema.userCredits.balance} + ${job.creditsCharged}` })
-        .where(eq(schema.userCredits.userId, job.userId));
-      await tx.insert(schema.creditLedger).values({
-        userId: job.userId,
-        delta: job.creditsCharged,
-        reason: 'JOB_FAIL_REFUND',
-        jobId: job.id,
-      });
+    // One credit pool per human. A job's billing owner is its user_id when set;
+    // kiosk jobs have user_id = null and are billed to the merchant's owning user.
+    let userId = job.userId;
+    if (!userId && job.merchantId) {
+      const [owner] = await tx
+        .select({ userId: schema.merchants.userId })
+        .from(schema.merchants)
+        .where(eq(schema.merchants.id, job.merchantId))
+        .limit(1);
+      userId = owner?.userId ?? null;
     }
+    if (!userId) return;
+
+    const existing = await tx
+      .select()
+      .from(schema.creditLedger)
+      .where(eq(schema.creditLedger.jobId, job.id));
+    if (existing.some((e) => e.reason === 'JOB_FAIL_REFUND')) return;
+    await tx
+      .update(schema.userCredits)
+      .set({ balance: sql`${schema.userCredits.balance} + ${job.creditsCharged}` })
+      .where(eq(schema.userCredits.userId, userId));
+    await tx.insert(schema.creditLedger).values({
+      userId,
+      delta: job.creditsCharged,
+      reason: 'JOB_FAIL_REFUND',
+      jobId: job.id,
+    });
   });
 
   await transitionJob(db, pub, job.id, job.userId ?? '', 'FAILED', { errorCode }, log);
