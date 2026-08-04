@@ -230,10 +230,12 @@ Supports subdirectory deployment (e.g. `/app`). All internal asset references an
 | `results/` | `/v1/results/:id` public result access |
 | `payments/` | Razorpay order creation + webhook |
 | `merchant/` | Merchant self-serve (API key regen, webhook config, credits) |
-| `widget/` | Widget job creation, cancellation, ledger |
+| `kiosk/` | `/v1/kiosk/auth/*` (claim/refresh/logout), `/v1/kiosk/catalog`, `/v1/kiosk/presign`, `/v1/kiosk/jobs*`, `/v1/kiosk/results/:jobId/*` — kiosk-device-authed customer-facing tryon |
+| `support/` | `/v1/support/presign`, `/v1/support` — customer support contact form |
+| `backgrounds/` | `/v1/backgrounds/mine*` — user-uploaded custom background management |
 | `dev/` | `/v1/dev/tryon`, `/v1/dev/jobs/:id`, `/v1/dev/categories`, `/v1/dev/me` — public developer API, API-key authed |
 | `shopify/` | OAuth install/callback, merchant `/me` + `/settings` + `/shoppers`, catalog generate/publish, widget-config + republish, onboarding, product sync, customer-facing job creation (`/customer/presign`, `/customer/jobs`), GDPR webhooks; `POST /v1/shopify/customer/event` (public ingest), `GET /v1/shopify/analytics` |
-| `admin/` | Full CRUD under `/admin/*` — users, credits, catalog, assets, jobs, workers, config, workflows, widget clients, saree settings |
+| `admin/` | Full CRUD under `/admin/*` — users, credits, catalog, assets, jobs, workers, config, workflows, merchants, kiosk devices, saree settings |
 
 ## Dispatcher Modules (`apps/dispatcher/src/`)
 
