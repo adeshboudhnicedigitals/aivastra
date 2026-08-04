@@ -118,7 +118,10 @@ describe('syncOneTask — collection mode, deleted collection', () => {
 
     const originalFetch = global.fetch;
     global.fetch = (async () =>
-      ({ ok: false, status: 404, json: async () => ({}) }) as Response) as typeof fetch;
+      new Response(JSON.stringify({ data: { collection: null } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch;
 
     try {
       await syncOneTask(app, { storeId: store.id, mode: 'collection', shopifyCollectionId: 700 });
