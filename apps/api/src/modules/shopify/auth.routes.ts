@@ -233,8 +233,6 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
       );
       return false;
     });
-    // Webhook registration is Task 7; call registerWebhooks(app, q.shop, access_token) here once it exists.
-    await app.shopifyRegisterWebhooks?.(q.shop, access_token);
 
     req.log.info({ storeId: store.id, shop: q.shop }, 'shopify store installed');
     // Not `?? ''`: a missing key would build a silently malformed redirect, which
@@ -274,10 +272,4 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
       return { ok: true };
     },
   );
-}
-
-declare module 'fastify' {
-  interface FastifyInstance {
-    shopifyRegisterWebhooks?: (shop: string, accessToken: string) => Promise<void>;
-  }
 }

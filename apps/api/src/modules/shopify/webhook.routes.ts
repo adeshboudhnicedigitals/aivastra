@@ -1,16 +1,9 @@
 import { schema } from '@aivastra/db';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import fp from 'fastify-plugin';
 import { AppError } from '../../lib/errors.js';
 import { collectShopperData, type RedactResult, redactShopperData } from './gdpr.js';
-import { enqueueSync, shopifyAdminFetch, verifyWebhookHmac } from './service.js';
-
-// NOTE: `shopifyRegisterWebhooks` on FastifyInstance is declared once in
-// `auth.routes.ts` (`declare module 'fastify' { interface FastifyInstance { ... } }`).
-// Do not re-declare it here — TypeScript module augmentation is global, so a
-// second declaration site is unnecessary and risks drifting out of sync with
-// the original (e.g. differing parameter names/optionality).
+import { enqueueSync, verifyWebhookHmac } from './service.js';
 
 /**
  * A GDPR redaction that only half-completed must not look like a success.
@@ -166,44 +159,3 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
     });
   }
 }
-
-// Wrapped in fp() (matching every other decorator plugin in this codebase —
-// see plugins/db.ts, plugins/redis.ts, plugins/auth.ts): without it, this would
-// be registered as a plain function and get its own encapsulated child context,
-// so `app.decorate('shopifyRegisterWebhooks', ...)` would only be visible inside
-// that context — NOT to the sibling `shopifyAuthRoutes` context that actually
-// calls `app.shopifyRegisterWebhooks?.()`. Because the call site uses optional
-// chaining, that failure mode is silent (webhook registration just never fires).
-export const registerWebhooksDecorator = fp(async (app: FastifyInstance) => {
-  app.decorate('shopifyRegisterWebhooks', async (shop: string, token: string) => {
-    const base = `${app.env.SHOPIFY_APP_URL}/v1/shopify/webhooks`;
-    // GDPR/compliance topics (customers/data_request, customers/redact, shop/redact)
-    // are NOT registered here — Shopify's webhooks.json API rejects them with a 404
-    // ("Could not find the webhook topic"), confirmed live. Those three are
-    // configured once, app-wide, in Partners → app → Configuration →
-    // "Compliance webhooks" (or shopify.app.toml's webhooks.privacy_compliance
-    // for CLI-managed apps) — they apply automatically to every install, no
-    // per-shop registration call exists for them.
-    const map: Record<string, string> = {
-      'app/uninstalled': `${base}/app_uninstalled`,
-      'app_subscriptions/update': `${base}/app_subscriptions_update`,
-      'products/update': `${base}/products_update`,
-      'products/delete': `${base}/products_delete`,
-    };
-    for (const [topic, address] of Object.entries(map)) {
-      try {
-        const res = await shopifyAdminFetch(shop, token, '/webhooks.json', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ webhook: { topic, address, format: 'json' } }),
-        });
-        if (!res.ok) {
-          const body = await res.text().catch(() => '');
-          app.log.error({ topic, status: res.status, body }, 'webhook registration failed');
-        }
-      } catch (err) {
-        app.log.error({ err, topic }, 'webhook registration failed');
-      }
-    }
-  });
-});
