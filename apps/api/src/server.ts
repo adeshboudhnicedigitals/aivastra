@@ -107,15 +107,19 @@ function loadDevApiDescription(): string {
 }
 
 export async function buildServer(env: Env) {
-  // Behind exactly one nginx reverse proxy on the VPS — without this every
-  // request's req.ip resolves to the proxy's own loopback address, so
-  // @fastify/rate-limit buckets all traffic together as a single client
-  // instead of per real client IP. `1` (not `true`): trust only the single
-  // known hop, so a client can't spoof X-Forwarded-For to pick its own
-  // apparent IP and dodge the per-IP limit.
+  // Behind a reverse proxy on the VPS — without this every request's req.ip
+  // resolves to the proxy's own loopback address, so @fastify/rate-limit
+  // buckets all traffic together as a single client instead of per real
+  // client IP. Not `true`: that would trust the whole X-Forwarded-For chain,
+  // letting a client prepend a value of its choosing and pick its own bucket.
+  //
+  // The count is the number of proxies in front of us. Production is
+  // Cloudflare -> nginx -> here, so req.ip alone still resolves to a
+  // Cloudflare edge address rather than the visitor; the rate limiter's
+  // keyGenerator below prefers CF-Connecting-IP for exactly that reason.
   const app = Fastify({
     loggerInstance: createLogger('api'),
-    trustProxy: 1,
+    trustProxy: env.TRUST_PROXY_HOPS,
   }).withTypeProvider<ZodTypeProvider>();
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
@@ -187,6 +191,17 @@ export async function buildServer(env: Env) {
     // app.redis's bounded maxRetriesPerRequest (see plugins/redis.ts) so a blip
     // fails fast (and therefore open) instead of hanging.
     skipOnError: true,
+    // req.ip resolves to a Cloudflare edge address in production, and Cloudflare
+    // spreads one visitor across many edge IPs while funnelling many visitors
+    // through each. Bucketing on it therefore does both wrong things at once:
+    // unrelated traffic shares a limit, and a single client's requests scatter
+    // across buckets. CF-Connecting-IP is the visitor address Cloudflare
+    // attaches, so prefer it and fall back to req.ip wherever the header is
+    // absent (local dev, direct-to-origin health checks).
+    keyGenerator: (req) => {
+      const cf = req.headers['cf-connecting-ip'];
+      return (typeof cf === 'string' && cf) || req.ip;
+    },
     allowList: (req) =>
       (req.url.startsWith('/admin/') && !req.url.startsWith('/admin/auth/')) ||
       req.url === '/v1/payments/webhook' ||

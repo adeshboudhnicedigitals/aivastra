@@ -32,6 +32,15 @@ const Env = z.object({
         .map((origin) => origin.trim())
         .filter(Boolean),
     ),
+  /**
+   * Number of reverse proxies in front of this process, passed to Fastify's
+   * `trustProxy`. Production is Cloudflare -> nginx -> api, so 2; a bare local
+   * run has none. Wrong-but-too-high is the dangerous direction — it lets a
+   * client prepend its own X-Forwarded-For entry and choose the IP we attribute
+   * the request to — so this is explicit config rather than a guess, and
+   * defaults to 0 (trust nothing).
+   */
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(10).default(0),
   COOKIE_SECRET: z.string().min(32),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
