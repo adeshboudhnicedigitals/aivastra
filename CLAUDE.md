@@ -182,7 +182,7 @@ Supports subdirectory deployment (e.g. `/app`). All internal asset references an
 
 | Table | Purpose |
 |-------|---------|
-| `jobs` | Status, worker, priority, credits charged, attempts, `catalogueId`, `widgetClientId` |
+| `jobs` | Status, worker, priority, credits charged, attempts, `catalogueId` |
 | `job_inputs` | Per-job inputs: garment keys, face/bg/pose IDs, lower/shoe catalogs, `params` JSONB (aspectRatio, resolution, platform) |
 | `job_outputs` | Result image key + thumbnail key |
 | `job_events` | Debug/audit events (COMFY_DISPATCH, status transitions) |
@@ -212,9 +212,9 @@ Supports subdirectory deployment (e.g. `/app`). All internal asset references an
 
 | Table | Purpose |
 |-------|---------|
-| `widget_clients` | Merchant signup records, widget key, allowed origins |
-| `widget_client_credits` | Per-merchant credit balance |
-| `widget_credit_ledger` | Merchant credit delta history |
+| `merchants` | Merchant profile attached to a `users` row (company, kiosk config, catalogue settings, webhook). One per user; login lives on `users`. No credit balance of its own — merchant spend draws from `user_credits` |
+| `merchant_payments` | Merchant-portal Razorpay orders, priced by `MERCHANT_PLAN_BILLING`. Credits land in `user_credits` |
+| `kiosk_devices` | Per-merchant kiosk device registrations |
 | `shopify_widget_events` | Append-only storefront interaction log (clicks, uploads, result views, add-to-carts, shares, and server-written refusals). Advisory only — never read by a credit, limit, or authorization decision. Swept at a fixed 400 days |
 
 ## API Route Modules (`apps/api/src/modules/`)
