@@ -52,34 +52,45 @@ function stubOAuthCallbackFetch(options: {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
       }
-      if (url.endsWith('/shop.json')) {
-        return new Response(
-          JSON.stringify({
-            shop: {
-              id: options.shopifyShopId,
-              myshopify_domain: options.shopDomain,
-              name: 'Recovery Demo',
-              email: 'owner@example.com',
-            },
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        );
-      }
       if (url.endsWith('/graphql.json')) {
         const body = JSON.parse(String(init?.body)) as {
-          variables: { metafields: { value: string }[] };
+          query?: string;
+          variables?: { metafields?: { value: string }[] };
         };
-        published.push({
-          config: JSON.parse(body.variables.metafields[0].value),
-          token: new Headers(init?.headers).get('X-Shopify-Access-Token'),
-        });
-        if (options.configStatus && options.configStatus !== 200) {
-          return new Response('failed', { status: options.configStatus });
+        // Handle SHOP_DETAILS query (new GraphQL flow)
+        if (body.query?.includes('ShopDetails')) {
+          return new Response(
+            JSON.stringify({
+              data: {
+                shop: {
+                  id: `gid://shopify/Shop/${options.shopifyShopId}`,
+                  myshopifyDomain: options.shopDomain,
+                  name: 'Recovery Demo',
+                  email: 'owner@example.com',
+                  primaryDomain: null,
+                  shopOwnerName: null,
+                  billingAddress: null,
+                  ianaTimezone: null,
+                },
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
         }
-        return new Response(JSON.stringify({ data: { metafieldsSet: { userErrors: [] } } }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
+        // Handle metafields mutation
+        if (body.variables?.metafields) {
+          published.push({
+            config: JSON.parse(body.variables.metafields[0].value),
+            token: new Headers(init?.headers).get('X-Shopify-Access-Token'),
+          });
+          if (options.configStatus && options.configStatus !== 200) {
+            return new Response('failed', { status: options.configStatus });
+          }
+          return new Response(JSON.stringify({ data: { metafieldsSet: { userErrors: [] } } }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
       }
       return new Response('{}', {
         status: 200,
