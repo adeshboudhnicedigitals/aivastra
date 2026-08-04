@@ -107,7 +107,16 @@ function loadDevApiDescription(): string {
 }
 
 export async function buildServer(env: Env) {
-  const app = Fastify({ loggerInstance: createLogger('api') }).withTypeProvider<ZodTypeProvider>();
+  // Behind exactly one nginx reverse proxy on the VPS — without this every
+  // request's req.ip resolves to the proxy's own loopback address, so
+  // @fastify/rate-limit buckets all traffic together as a single client
+  // instead of per real client IP. `1` (not `true`): trust only the single
+  // known hop, so a client can't spoof X-Forwarded-For to pick its own
+  // apparent IP and dodge the per-IP limit.
+  const app = Fastify({
+    loggerInstance: createLogger('api'),
+    trustProxy: 1,
+  }).withTypeProvider<ZodTypeProvider>();
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
@@ -180,7 +189,14 @@ export async function buildServer(env: Env) {
     skipOnError: true,
     allowList: (req) =>
       (req.url.startsWith('/admin/') && !req.url.startsWith('/admin/auth/')) ||
-      req.url === '/v1/payments/webhook',
+      req.url === '/v1/payments/webhook' ||
+      // Shopify's own OAuth/webhook traffic — already authenticated per-request
+      // (HMAC, state nonce, or webhook signature) rather than by this bucket, and
+      // a shared-traffic 429 here reads to Shopify as "app failed to install" /
+      // turns into needless webhook redelivery, not just a slower response.
+      req.url.startsWith('/v1/shopify/webhooks/') ||
+      req.url.startsWith('/v1/shopify/auth') ||
+      req.url.startsWith('/v1/shopify/install-status'),
   });
   await app.register(sensible);
   await app.register(multipart, { limits: { fileSize: 2.5 * 1024 * 1024 * 1024 } });
