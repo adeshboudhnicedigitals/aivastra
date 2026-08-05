@@ -93,19 +93,36 @@ function UploadDropzone({
           const file = event.dataTransfer.files?.[0];
           if (file && !uploading) onFile(file);
         }}
-        style={{
-          position: 'relative',
-          aspectRatio: '3 / 4',
-          maxWidth: 220,
-          overflow: 'hidden',
-          border: `2px dashed ${dragOver ? C.pink : C.border}`,
-          borderRadius: 6,
-          background: C.lighter,
-          cursor: uploading ? 'not-allowed' : 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
+        style={
+          previewUrl
+            ? {
+                position: 'relative',
+                aspectRatio: '3 / 4',
+                maxWidth: 220,
+                overflow: 'hidden',
+                border: `2px dashed ${dragOver ? C.pink : C.border}`,
+                borderRadius: 6,
+                background: C.lighter,
+                cursor: uploading ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }
+            : {
+                position: 'relative',
+                width: '100%',
+                minHeight: 260,
+                overflow: 'hidden',
+                border: `2px dashed ${dragOver ? C.pink : C.border}`,
+                borderRadius: 10,
+                background: dragOver ? 'rgba(245,92,122,0.04)' : C.lighter,
+                cursor: uploading ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'background 150ms ease, border-color 150ms ease',
+              }
+        }
       >
         <input
           type="file"
@@ -179,29 +196,30 @@ function UploadDropzone({
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
-              gap: 10,
+              gap: 14,
               padding: 20,
               textAlign: 'center',
             }}
           >
             <div
               style={{
-                width: 44,
-                height: 44,
+                width: 56,
+                height: 56,
                 borderRadius: '50%',
                 background: dragOver ? 'rgba(245,92,122,0.12)' : C.card,
                 border: `1px solid ${dragOver ? C.pink : C.border}`,
                 display: 'grid',
                 placeItems: 'center',
                 color: dragOver ? C.pink : C.mid,
+                transition: 'background 150ms ease, border-color 150ms ease, color 150ms ease',
               }}
             >
-              <Upload size={20} />
+              <Upload size={24} />
             </div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>
               Click or drag an image here
             </div>
-            <div style={{ fontSize: 11, color: C.mid, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 12, color: C.mid, lineHeight: 1.5 }}>
               JPEG, PNG, or WebP · up to 10MB
             </div>
           </div>
