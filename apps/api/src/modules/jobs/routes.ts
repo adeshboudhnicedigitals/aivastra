@@ -400,6 +400,12 @@ export async function jobsRoutes(app: FastifyInstance) {
           eq(schema.jobs.userId, req.userId),
           sql`${schema.jobInputs.params}->>'sourceJobId' is null`,
           sql`${schema.jobInputs.params}->>'kind' is distinct from 'saree_mannequin'`,
+          // Catalog-video jobs always set kind='video' regardless of source
+          // (an existing AI Vastra job vs. a fresh upload) — the sourceJobId-is-null
+          // check above only excludes them by coincidence (today sourceJobId is
+          // always set on these jobs) and stops working once sourceJobId becomes
+          // optional for the upload path. Exclude by kind explicitly instead.
+          sql`${schema.jobInputs.params}->>'kind' is distinct from 'video'`,
         ),
       )
       .orderBy(desc(schema.jobs.createdAt))

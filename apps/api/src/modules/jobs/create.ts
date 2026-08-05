@@ -946,23 +946,41 @@ export async function createCatalogVideoJob(
   body: z.infer<typeof CreateCatalogVideoJobRequest>,
 ) {
   const cost = await getPixverseCreditCost(app);
-  const [source] = await app.db
-    .select({
-      userId: schema.jobs.userId,
-      status: schema.jobs.status,
-      // Tryon-direct results (source='tryon'/'api_tryon') are WebP-encoded, not
-      // PNG (see apps/dispatcher/src/workflow/finalize.ts) — the actual uploaded
-      // key must come from here, not be reconstructed via keys.output(sourceJobId).
-      resultKey: schema.jobOutputs.resultKey,
-    })
-    .from(schema.jobs)
-    .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
-    .where(eq(schema.jobs.id, body.sourceJobId));
-  if (!source) throw new AppError('NOT_FOUND', 404, 'source image not found');
-  if (source.userId !== userId)
-    throw new AppError('FORBIDDEN', 403, 'source image not owned by caller');
-  if (source.status !== 'COMPLETED')
-    throw new AppError('VALIDATION', 400, 'source image is not a completed job');
+
+  // Exactly one of sourceJobId or sourceImageKey is present — enforced by
+  // CreateCatalogVideoJobRequest's XOR refine. sourceImageKey lets the caller
+  // animate any image they own, not required to be an AI Vastra generation;
+  // sourceJobId reuses a completed AI Vastra job's own result.
+  let resolvedSourceImageKey: string;
+  if (body.sourceImageKey) {
+    await assertOwnsUploadKey(app, userId, body.sourceImageKey);
+    resolvedSourceImageKey = body.sourceImageKey;
+  } else if (body.sourceJobId) {
+    const sourceJobId = body.sourceJobId;
+    const [source] = await app.db
+      .select({
+        userId: schema.jobs.userId,
+        status: schema.jobs.status,
+        // Tryon-direct results (source='tryon'/'api_tryon') are WebP-encoded, not
+        // PNG (see apps/dispatcher/src/workflow/finalize.ts) — the actual uploaded
+        // key must come from here, not be reconstructed via keys.output(sourceJobId).
+        resultKey: schema.jobOutputs.resultKey,
+      })
+      .from(schema.jobs)
+      .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
+      .where(eq(schema.jobs.id, sourceJobId));
+    if (!source) throw new AppError('NOT_FOUND', 404, 'source image not found');
+    if (source.userId !== userId)
+      throw new AppError('FORBIDDEN', 403, 'source image not owned by caller');
+    if (source.status !== 'COMPLETED')
+      throw new AppError('VALIDATION', 400, 'source image is not a completed job');
+    resolvedSourceImageKey = source.resultKey ?? keys.output(sourceJobId);
+  } else {
+    // Unreachable: CreateCatalogVideoJobRequest's XOR refine guarantees exactly
+    // one of sourceJobId/sourceImageKey is present.
+    throw new AppError('VALIDATION', 400, 'sourceJobId or sourceImageKey is required');
+  }
+
   const [sample] = await app.db
     .select()
     .from(schema.sampleVideos)
@@ -994,10 +1012,8 @@ export async function createCatalogVideoJob(
       jobId: newJob.id,
       params: {
         kind: 'video',
-        sourceJobId: body.sourceJobId,
-        // Legacy rows (predating job_outputs.resultKey being populated for
-        // every job) fall back to the PNG convention — safe since webp is new.
-        sourceImageKey: source.resultKey ?? keys.output(body.sourceJobId),
+        ...(body.sourceJobId ? { sourceJobId: body.sourceJobId } : {}),
+        sourceImageKey: resolvedSourceImageKey,
         sampleVideoId: body.sampleVideoId,
         prompt: sample.prompt,
       },
