@@ -26,6 +26,17 @@ export async function adminConfigRoutes(app: FastifyInstance) {
     };
   });
 
+  // Public — used by the login/register pages so the advertised signup bonus
+  // never drifts from what PATCH /v1/me actually grants (both read the same
+  // credit_plans row).
+  app.get('/v1/config/free-plan', async () => {
+    const [plan] = await app.db
+      .select({ credits: schema.creditPlans.credits })
+      .from(schema.creditPlans)
+      .where(eq(schema.creditPlans.slug, 'free'));
+    return { credits: plan?.credits ?? 0 };
+  });
+
   app.get(
     '/admin/config',
     { preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']) },
