@@ -22,6 +22,10 @@ export function DesktopLayout(props: TryOnLayoutProps) {
     selectedGarmentJob,
     showGarmentPicker,
     setShowGarmentPicker,
+    showPersonPicker,
+    setShowPersonPicker,
+    loadingPersonHistory,
+    personFileInputRef,
     previewPanelRef,
     isPreviewFullscreen,
     togglePreviewFullscreen,
@@ -31,6 +35,7 @@ export function DesktopLayout(props: TryOnLayoutProps) {
     pickFile,
     handleGenerate,
     handleSelectGarment,
+    handleSelectPersonFromHistory,
     handleDownloadResult,
     handleShareResult,
     canGenerate,
@@ -335,9 +340,11 @@ export function DesktopLayout(props: TryOnLayoutProps) {
                     progress={personProgress}
                     label=""
                     tip=""
-                    disabled={generating}
+                    disabled={generating || loadingPersonHistory}
                     sampleUrl={personSampleUrl}
                     onFile={(f) => pickFile(f, setPersonFile, setPersonPreview)}
+                    onBrowseClick={() => setShowPersonPicker(true)}
+                    fileInputRef={personFileInputRef}
                     icon={
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
                         <circle cx="12" cy="8" r="3.5" stroke="#EC4899" strokeWidth="1.5" />
@@ -681,8 +688,7 @@ export function DesktopLayout(props: TryOnLayoutProps) {
                             style={{
                               width: '100%',
                               height: '100%',
-                              objectFit: 'cover',
-                              objectPosition: 'top center',
+                              objectFit: 'contain',
                             }}
                           />
                         )}
@@ -718,8 +724,7 @@ export function DesktopLayout(props: TryOnLayoutProps) {
                           style={{
                             width: '100%',
                             height: '100%',
-                            objectFit: 'cover',
-                            objectPosition: 'top center',
+                            objectFit: 'contain',
                           }}
                         />
                       </div>
@@ -1051,6 +1056,20 @@ export function DesktopLayout(props: TryOnLayoutProps) {
         <GarmentCatalogModal
           onSelect={handleSelectGarment}
           onClose={() => setShowGarmentPicker(false)}
+        />
+      )}
+
+      {/* Person image history picker modal */}
+      {showPersonPicker && (
+        <GarmentCatalogModal
+          title="Browse Previous Generations"
+          emptyMessage="No previous generations yet — upload a new image to get started."
+          onSelect={handleSelectPersonFromHistory}
+          onClose={() => setShowPersonPicker(false)}
+          onUploadNew={() => {
+            setShowPersonPicker(false);
+            personFileInputRef.current?.click();
+          }}
         />
       )}
     </>

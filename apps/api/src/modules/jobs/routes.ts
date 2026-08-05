@@ -284,6 +284,7 @@ export async function jobsRoutes(app: FastifyInstance) {
         .select({
           jobId: schema.jobs.id,
           thumbnailKey: schema.jobOutputs.thumbnailKey,
+          resultKey: schema.jobOutputs.resultKey,
           garmentTypeName: schema.garmentSubcategories.label,
           tryonCategoryName: schema.tryonCategories.name,
           createdAt: schema.jobs.createdAt,
@@ -320,6 +321,7 @@ export async function jobsRoutes(app: FastifyInstance) {
         .select({
           jobId: schema.jobs.id,
           thumbnailKey: schema.jobOutputs.thumbnailKey,
+          resultKey: schema.jobOutputs.resultKey,
           garmentTypeName: sql<string>`'Saree'`.as('garment_type_name'),
           tryonCategoryName: sql<string>`'Saree Catalogue'`.as('tryon_category_name'),
           createdAt: schema.jobs.createdAt,
@@ -346,17 +348,28 @@ export async function jobsRoutes(app: FastifyInstance) {
     return Promise.all(
       merged.map(async (r) => {
         const thumbKey = r.thumbnailKey ?? keys.output(r.jobId);
+        // Legacy rows (predating job_outputs.resultKey being populated for every job)
+        // fall back to the PNG convention — mirrors createSimpleTryonJob's garmentKey.
+        const fullKey = r.resultKey ?? keys.output(r.jobId);
         let thumbnailUrl: string | null = null;
+        let imageUrl: string | null = null;
         try {
           thumbnailUrl = (await app.storage.presignGet(thumbKey, 3600)).url;
         } catch {
           /* missing object — leave null, client shows placeholder */
         }
+        try {
+          imageUrl = (await app.storage.presignGet(fullKey, 3600)).url;
+        } catch {
+          /* missing object — leave null, client falls back to thumbnailUrl */
+        }
         return {
           jobId: r.jobId,
           thumbnailUrl,
+          imageUrl,
           garmentTypeName: r.garmentTypeName,
           tryonCategoryName: r.tryonCategoryName,
+          createdAt: r.createdAt.toISOString(),
         };
       }),
     );
