@@ -1254,7 +1254,7 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
                               opacity: buying && buying !== plan.slug ? 0.45 : 1,
                             }}
                           >
-                            {buying === plan.slug ? 'Processing…' : 'Upgrade'}
+                            {buying === plan.slug ? 'Processing…' : 'Buy Now'}
                             {buying !== plan.slug && <ArrowRight size={18} />}
                           </button>
                         </Tooltip>

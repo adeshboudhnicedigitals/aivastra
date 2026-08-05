@@ -83,8 +83,22 @@ export async function googleAuthRoutes(app: FastifyInstance) {
     const next = req.cookies.google_next ? decodeURIComponent(req.cookies.google_next) : undefined;
     const src = req.cookies.google_src ? decodeURIComponent(req.cookies.google_src) : undefined;
 
+    // A failed round trip here previously surfaced as a raw JSON error page —
+    // a dead end on mobile, where there's no back button affordance next to
+    // the address bar the way desktop has. Redirect back to login with a
+    // reason code instead so the user always lands somewhere they can retry.
+    const failRedirect = (reason: string) => {
+      reply.clearCookie('google_state', { path: '/v1/auth/google' });
+      if (next) reply.clearCookie('google_next', { path: '/v1/auth/google' });
+      if (src) reply.clearCookie('google_src', { path: '/v1/auth/google' });
+      const url = new URL(`${webUrl}/login`);
+      url.searchParams.set('error', reason);
+      if (next) url.searchParams.set('next', next);
+      return reply.redirect(url.toString(), 302);
+    };
+
     if (!code || !state || !storedState || state !== storedState) {
-      throw new AppError('INVALID_STATE', 400, 'invalid OAuth state');
+      return failRedirect('google_invalid_state');
     }
 
     reply.clearCookie('google_state', { path: '/v1/auth/google' });
@@ -103,16 +117,14 @@ export async function googleAuthRoutes(app: FastifyInstance) {
         grant_type: 'authorization_code',
       }),
     });
-    if (!tokenRes.ok)
-      throw new AppError('GOOGLE_TOKEN_FAILED', 400, 'Google token exchange failed');
+    if (!tokenRes.ok) return failRedirect('google_token_failed');
     const { access_token: googleAccessToken } = (await tokenRes.json()) as { access_token: string };
 
     // Fetch Google user profile
     const userRes = await fetch(GOOGLE_USERINFO_URL, {
       headers: { Authorization: `Bearer ${googleAccessToken}` },
     });
-    if (!userRes.ok)
-      throw new AppError('GOOGLE_USERINFO_FAILED', 400, 'Google userinfo fetch failed');
+    if (!userRes.ok) return failRedirect('google_userinfo_failed');
     const googleUser = (await userRes.json()) as {
       sub: string;
       email: string;

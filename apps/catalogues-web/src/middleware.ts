@@ -22,6 +22,14 @@ const DEV_ONLY_PATHS: string[] = [];
 // sidebar.tsx for the matching nav-item removal.
 const ALWAYS_BLOCKED_PATHS: string[] = ['/sellio'];
 
+// Gartex Expo Delhi campaign (docs/superpowers/specs/2026-08-01-gartex-expo-qr-campaign-design.md)
+// — send /pricing traffic straight to signup with the already-configured
+// gartex2026delhi campaign code instead of a page that requires login.
+// Self-expiring: no follow-up deploy needed to remove it once the window
+// closes. IST bounds, matching the expo's own timezone.
+const GARTEX_REDIRECT_START = new Date('2026-08-05T00:00:00+05:30');
+const GARTEX_REDIRECT_END = new Date('2026-08-09T23:59:59+05:30');
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -34,6 +42,20 @@ export async function middleware(request: NextRequest) {
 
   if (path.startsWith('/api/auth')) return NextResponse.next();
   if (path.startsWith('/api/catalog-app')) return NextResponse.next();
+
+  // Only anonymous visitors get bounced to signup — an already-logged-in user
+  // clicking Pricing from the sidebar must always reach the real pricing page,
+  // never get looped back through registration.
+  const hasSession =
+    !!request.cookies.get('access_token')?.value || !!request.cookies.get('refresh')?.value;
+  if (path === '/pricing' && !hasSession) {
+    const now = new Date();
+    if (now >= GARTEX_REDIRECT_START && now <= GARTEX_REDIRECT_END) {
+      const url = new URL(`${BASE_PATH}/register`, request.url);
+      url.searchParams.set('src', 'gartex2026delhi');
+      return NextResponse.redirect(url);
+    }
+  }
 
   if (
     process.env.NODE_ENV === 'production' &&
