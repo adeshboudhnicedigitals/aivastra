@@ -544,7 +544,7 @@ export default function DevApiPage({ toast }: Props) {
           the internal saree mannequin styles configured in Assets.
         </p>
         <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
-          <div style={{ maxWidth: 400, width: '100%' }}>
+          <div style={{ flex: '1 1 240px', maxWidth: 400, minWidth: 0 }}>
             <SearchableSelect
               options={sareeWorkflows.map((w) => ({
                 id: w.id,
@@ -562,6 +562,8 @@ export default function DevApiPage({ toast }: Props) {
               display: 'inline-flex',
               alignItems: 'center',
               gap: 8,
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
               cursor: savingSareeConfig ? 'not-allowed' : 'pointer',
             }}
           >
@@ -577,10 +579,10 @@ export default function DevApiPage({ toast }: Props) {
                 flexShrink: 0,
               }}
             />
-            <span style={{ fontSize: 13 }}>Active</span>
+            <span style={{ fontSize: 13, fontWeight: 500 }}>Active</span>
           </label>
           {savingSareeConfig && (
-            <span style={{ fontSize: 11, color: 'var(--muted)' }}>Saving…</span>
+            <span style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>Saving…</span>
           )}
         </div>
       </div>

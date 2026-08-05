@@ -1500,7 +1500,7 @@ export default function UsersPage({ onNav, toast }: Props) {
             )}
           </div>
 
-          <div className="table-wrap">
+          <div className="desktop-only table-wrap">
             <table>
               <thead>
                 <tr>
@@ -1655,6 +1655,100 @@ export default function UsersPage({ onNav, toast }: Props) {
                 )}
               </tbody>
             </table>
+          </div>
+
+          <div className="mobile-only" style={{ gap: 12 }}>
+            {sorted.map((u) => (
+              <button
+                type="button"
+                key={u.id}
+                onClick={() => openDetail(u)}
+                className="card"
+                style={{
+                  padding: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 10,
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  opacity: u.isBanned ? 0.6 : 1,
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                  background: 'var(--surface)',
+                  width: '100%',
+                  textAlign: 'left',
+                  color: 'inherit',
+                  fontFamily: 'inherit',
+                  fontSize: 'inherit',
+                }}
+              >
+                <div
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}
+                >
+                  <NameAvatar name={userLabel(u)} email={u.email ?? undefined} size={32} />
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div
+                      className="semi"
+                      style={{
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        fontSize: 14,
+                      }}
+                    >
+                      {userLabel(u)}
+                    </div>
+                    <div
+                      className="sub"
+                      style={{
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        fontSize: 11,
+                        display: 'flex',
+                        gap: 6,
+                        alignItems: 'center',
+                      }}
+                    >
+                      <span style={{ textTransform: 'capitalize' }}>{u.tier}</span>
+                      <span>&middot;</span>
+                      <span className="mono">{u.balance.toLocaleString()} credits</span>
+                    </div>
+                  </div>
+                </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-end',
+                    gap: 4,
+                    flexShrink: 0,
+                  }}
+                >
+                  {u.isBanned ? (
+                    <span className="badge danger dot">Suspended</span>
+                  ) : (
+                    <span className="badge success dot">Active</span>
+                  )}
+                  {u.isAdmin && (
+                    <span className="badge accent" style={{ fontSize: 10 }}>
+                      {u.adminRole === 'SUPER_ADMIN' ? 'Super Admin' : 'Admin'}
+                    </span>
+                  )}
+                  {u.isMerchant && (
+                    <span className="badge success" style={{ fontSize: 10 }}>
+                      Merchant
+                    </span>
+                  )}
+                </div>
+              </button>
+            ))}
+            {sorted.length === 0 && (
+              <div style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}>
+                No users found.
+              </div>
+            )}
           </div>
 
           <Pager

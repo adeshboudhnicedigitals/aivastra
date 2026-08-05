@@ -18,6 +18,8 @@ export function UploadZone({
   onFile,
   disabled,
   sampleUrl,
+  onBrowseClick,
+  fileInputRef,
 }: {
   file: File | null;
   preview: string | null;
@@ -28,9 +30,17 @@ export function UploadZone({
   onFile: (f: File) => void;
   disabled?: boolean;
   sampleUrl?: string | null;
+  // If given, a click on the zone calls this instead of opening the native
+  // file dialog directly (e.g. to show a "browse previous generations" picker
+  // first). Drag-and-drop still accepts the dropped file immediately either way.
+  onBrowseClick?: () => void;
+  // Lets a parent (e.g. that same picker's "Upload new" action) trigger this
+  // zone's hidden file input from outside.
+  fileInputRef?: React.RefObject<HTMLInputElement | null>;
 }) {
   const [showSamples, setShowSamples] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const internalInputRef = useRef<HTMLInputElement>(null);
+  const inputRef = fileInputRef ?? internalInputRef;
   const [dragging, setDragging] = useState(false);
 
   const accept = useCallback(
@@ -57,8 +67,16 @@ export function UploadZone({
       <div
         role="button"
         tabIndex={0}
-        onClick={() => !disabled && inputRef.current?.click()}
-        onKeyDown={(e) => e.key === 'Enter' && !disabled && inputRef.current?.click()}
+        onClick={() => {
+          if (disabled) return;
+          if (onBrowseClick) onBrowseClick();
+          else inputRef.current?.click();
+        }}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' || disabled) return;
+          if (onBrowseClick) onBrowseClick();
+          else inputRef.current?.click();
+        }}
         onDragOver={(e) => {
           e.preventDefault();
           setDragging(true);
@@ -299,9 +317,15 @@ export function UploadZone({
 export function GarmentCatalogModal({
   onSelect,
   onClose,
+  title = 'Browse from Catalog',
+  emptyMessage = 'No eligible catalog images yet — generate one in Studio first.',
+  onUploadNew,
 }: {
   onSelect: (img: GarmentCatalogImage) => void;
   onClose: () => void;
+  title?: string;
+  emptyMessage?: string;
+  onUploadNew?: () => void;
 }) {
   const { data, isLoading } = useQuery<GarmentCatalogImage[]>({
     queryKey: ['tryon-garment-images'],
@@ -366,9 +390,7 @@ export function GarmentCatalogModal({
             >
               <path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" />
             </svg>
-            <span style={{ fontSize: 12, fontWeight: 500, color: C.text }}>
-              Browse from Catalog
-            </span>
+            <span style={{ fontSize: 12, fontWeight: 500, color: C.text }}>{title}</span>
           </div>
           <button
             type="button"
@@ -403,9 +425,9 @@ export function GarmentCatalogModal({
         <div style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
           {isLoading ? (
             <div style={{ textAlign: 'center', color: C.mid, padding: '2rem' }}>Loading…</div>
-          ) : images.length === 0 ? (
+          ) : images.length === 0 && !onUploadNew ? (
             <div style={{ textAlign: 'center', color: C.mid, padding: '2rem', fontSize: 13 }}>
-              No eligible catalog images yet — generate one in Studio first.
+              {emptyMessage}
             </div>
           ) : (
             <div
@@ -415,6 +437,42 @@ export function GarmentCatalogModal({
                 gap: 12,
               }}
             >
+              {onUploadNew && (
+                <button
+                  type="button"
+                  onClick={onUploadNew}
+                  style={{
+                    border: `2px dashed ${C.border}`,
+                    borderRadius: 10,
+                    padding: 0,
+                    aspectRatio: '3/4',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    cursor: 'pointer',
+                    background: 'none',
+                  }}
+                >
+                  <svg
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke={C.mid}
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <line x1="12" y1="5" x2="12" y2="19" />
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                  </svg>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: C.mid }}>
+                    Upload New Image
+                  </span>
+                </button>
+              )}
               {images.map((img) => (
                 <button
                   key={img.jobId}
@@ -428,6 +486,8 @@ export function GarmentCatalogModal({
                     cursor: 'pointer',
                     background: 'none',
                     textAlign: 'left',
+                    display: 'flex',
+                    flexDirection: 'column',
                   }}
                 >
                   {img.thumbnailUrl ? (
@@ -446,6 +506,19 @@ export function GarmentCatalogModal({
                   ) : (
                     <div style={{ width: '100%', aspectRatio: '3/4', background: C.bg }} />
                   )}
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: C.mid,
+                      padding: '6px 8px',
+                      borderTop: `1px solid ${C.border}`,
+                    }}
+                  >
+                    {new Date(img.createdAt).toLocaleString(undefined, {
+                      dateStyle: 'medium',
+                      timeStyle: 'short',
+                    })}
+                  </span>
                 </button>
               ))}
             </div>

@@ -73,6 +73,8 @@ export function GenerationPanel({
   const [downloading, setDownloading] = useState(false);
   const [selectedJobs, setSelectedJobs] = useState<string[]>(() => jobs.map((j) => j.id));
   const [favorites, setFavorites] = useState<string[]>([]);
+  const [zoomUrl, setZoomUrl] = useState<string | null>(null);
+  const [zoomVisible, setZoomVisible] = useState(false);
 
   // Reset local status map + selection whenever a new batch of jobs arrives.
   useEffect(() => {
@@ -200,9 +202,443 @@ export function GenerationPanel({
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, width: '100%' }}>
-      {/* ── Block 1: AI Processing (Studio only — see hideProcessingPreview) ── */}
-      {!hideProcessingPreview && (
+    <>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20, width: '100%' }}>
+        {/* ── Block 1: AI Processing (Studio only — see hideProcessingPreview) ── */}
+        {!hideProcessingPreview && (
+          <div
+            style={{
+              background: C.card,
+              borderRadius: 20,
+              border: `1px solid ${C.border}`,
+              boxShadow: '0 4px 20px rgba(0,0,0,0.05)',
+              padding: 24,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 20,
+              width: '100%',
+              boxSizing: 'border-box',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <h3 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: C.text }}>
+                  AI Processing
+                </h3>
+                <span style={{ fontSize: 13, color: C.mid }}>Our AI is working its magic</span>
+              </div>
+            </div>
+
+            <div
+              style={{
+                background:
+                  'linear-gradient(180deg, rgba(82, 29, 156, 0.04) 0%, rgba(117, 74, 176, 0.01) 100%)',
+                border: `1px solid ${C.border}`,
+                borderRadius: 16,
+                padding: '24px 20px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                width: '100%',
+                boxSizing: 'border-box',
+              }}
+            >
+              {/* Column 1: Input Image */}
+              <div
+                style={{
+                  flex: 1.2,
+                  background: 'transparent',
+                  padding: 0,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 12,
+                  height: 280,
+                  justifyContent: 'space-between',
+                  boxSizing: 'border-box',
+                }}
+              >
+                <div
+                  style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}
+                >
+                  <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Input Image</span>
+                  <span style={{ fontSize: 11, color: C.light }}>Your uploaded garment</span>
+                </div>
+                <div
+                  style={{
+                    width: '100%',
+                    flex: 1,
+                    borderRadius: 8,
+                    overflow: 'hidden',
+                    border: `1px solid ${C.border2}`,
+                    position: 'relative',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: C.lighter,
+                  }}
+                >
+                  {garmentPreviewUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={garmentPreviewUrl}
+                      alt="Garment Preview"
+                      style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                    />
+                  ) : (
+                    <div style={{ color: C.light, fontSize: 12 }}>No image</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Chevron Separator 1 */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  height: 280,
+                  position: 'relative',
+                  flexShrink: 0,
+                }}
+              >
+                <div style={{ width: 1, height: '100%', background: C.border2 }} />
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: '50%',
+                    top: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    width: 24,
+                    height: 24,
+                    borderRadius: '50%',
+                    border: '1px solid rgba(82, 29, 156, 0.2)',
+                    background: C.card,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#521D9C',
+                    boxShadow: '0 2px 6px rgba(82, 29, 156, 0.08)',
+                    fontSize: 12,
+                    fontWeight: 'bold',
+                    zIndex: 2,
+                  }}
+                >
+                  ›
+                </div>
+              </div>
+
+              {/* Column 2: Steps Checklist */}
+              <div
+                style={{
+                  flex: 1.6,
+                  background: 'transparent',
+                  padding: '0 24px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  height: 280,
+                  justifyContent: 'space-between',
+                  boxSizing: 'border-box',
+                }}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span
+                    style={{ fontSize: 13, fontWeight: 600, color: C.text, textAlign: 'center' }}
+                  >
+                    AI Processing
+                  </span>
+                  <span style={{ fontSize: 11, color: C.light, textAlign: 'center' }}>
+                    Generating studio quality images
+                  </span>
+                </div>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                    margin: '10px 0',
+                    paddingLeft: 12,
+                  }}
+                >
+                  {steps.map((step, idx) => {
+                    const isDone = progressPercent >= step.threshold;
+                    const isCurrent =
+                      progressPercent < step.threshold &&
+                      (idx === 0 || progressPercent >= (steps[idx - 1]?.threshold ?? 0));
+
+                    return (
+                      <div
+                        key={step.label}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10 }}
+                      >
+                        {isDone ? (
+                          <div
+                            style={{
+                              width: 16,
+                              height: 16,
+                              borderRadius: '50%',
+                              background: 'linear-gradient(180deg, #521D9C 0%, #754AB0 100%)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: '#fff',
+                              fontSize: 9,
+                              fontWeight: 'bold',
+                            }}
+                          >
+                            ✓
+                          </div>
+                        ) : isCurrent ? (
+                          <SpinnerIcon size={16} />
+                        ) : (
+                          <div
+                            style={{
+                              width: 16,
+                              height: 16,
+                              borderRadius: '50%',
+                              border: `2px solid ${C.border2}`,
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                        )}
+                        <span
+                          style={{
+                            fontSize: 12,
+                            fontWeight: isCurrent ? 600 : 500,
+                            color: isDone ? C.text : isCurrent ? '#521D9C' : C.light,
+                          }}
+                        >
+                          {step.label}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      fontSize: 12,
+                      fontWeight: 500,
+                    }}
+                  >
+                    <span style={{ color: C.mid }}>
+                      {progressPercent === 100
+                        ? 'Rendering Final Output....'
+                        : 'Rendering Final Output....'}
+                    </span>
+                    <span style={{ color: C.text }}>{progressPercent}%</span>
+                  </div>
+                  <div
+                    style={{
+                      width: '100%',
+                      height: 6,
+                      background: C.lighter,
+                      borderRadius: 3,
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: `${progressPercent}%`,
+                        height: '100%',
+                        background: 'linear-gradient(180deg, #521D9C 0%, #754AB0 100%)',
+                        borderRadius: 3,
+                        transition: 'width 0.4s ease-out',
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Chevron Separator 2 */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  height: 280,
+                  position: 'relative',
+                  flexShrink: 0,
+                }}
+              >
+                <div style={{ width: 1, height: '100%', background: C.border2 }} />
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: '50%',
+                    top: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    width: 24,
+                    height: 24,
+                    borderRadius: '50%',
+                    border: '1px solid rgba(82, 29, 156, 0.2)',
+                    background: C.card,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#521D9C',
+                    boxShadow: '0 2px 6px rgba(82, 29, 156, 0.08)',
+                    fontSize: 12,
+                    fontWeight: 'bold',
+                    zIndex: 2,
+                  }}
+                >
+                  ›
+                </div>
+              </div>
+
+              {/* Column 3: Preview Output */}
+              <div
+                style={{
+                  flex: 1.2,
+                  background: 'transparent',
+                  padding: 0,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 12,
+                  height: 280,
+                  justifyContent: 'space-between',
+                  boxSizing: 'border-box',
+                }}
+              >
+                <div
+                  style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}
+                >
+                  <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
+                    Preview Output
+                  </span>
+                  <span style={{ fontSize: 11, color: C.light }}>Studio quality result</span>
+                </div>
+                <div
+                  style={{
+                    width: '100%',
+                    flex: 1,
+                    borderRadius: 8,
+                    overflow: 'hidden',
+                    border: `1px solid ${C.border2}`,
+                    position: 'relative',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: C.lighter,
+                  }}
+                >
+                  {currentCompleted && currentResultUrl ? (
+                    <>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={currentResultUrl}
+                        alt="Preview Output"
+                        style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                      />
+                      <div
+                        style={{
+                          position: 'absolute',
+                          right: 8,
+                          bottom: 8,
+                          display: 'flex',
+                          gap: 6,
+                        }}
+                      >
+                        {onUseImage && current && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onUseImage({
+                                url: currentResultUrl,
+                                jobId: current.id,
+                                poseLabel: current.label,
+                              })
+                            }
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              height: 32,
+                              padding: '0 12px',
+                              borderRadius: 8,
+                              background: 'linear-gradient(135deg, #521D9C 0%, #754AB0 100%)',
+                              color: '#fff',
+                              border: 'none',
+                              fontSize: 12,
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+                            }}
+                          >
+                            Use this image
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setZoomUrl(currentResultUrl);
+                            requestAnimationFrame(() => setZoomVisible(true));
+                          }}
+                          style={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: 8,
+                            background: C.card,
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+                            border: `1px solid ${C.border}`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: C.text,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <FullscreenIcon />
+                        </button>
+                      </div>
+                    </>
+                  ) : current ? (
+                    <>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={garmentPreviewUrl || current.thumbnailUrl}
+                        alt="Loading Preview"
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover',
+                          objectPosition: 'top center',
+                          filter: currentFailed ? 'none' : 'blur(6px)',
+                          opacity: 0.6,
+                        }}
+                      />
+                      <div
+                        style={{
+                          position: 'absolute',
+                          inset: 0,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          background: 'rgba(0,0,0,0.1)',
+                        }}
+                      >
+                        {currentFailed ? (
+                          <XIcon size={24} color={C.pink} />
+                        ) : (
+                          <div style={{ color: C.pink }}>
+                            <SpinnerIcon size={24} />
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ color: C.light, fontSize: 12 }}>Waiting...</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Block 2: Generated Results ── */}
         <div
           style={{
             background: C.card,
@@ -220,642 +656,291 @@ export function GenerationPanel({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <h3 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: C.text }}>
-                AI Processing
+                {allSettled ? 'Generated Results' : 'Generating Results'}
               </h3>
-              <span style={{ fontSize: 13, color: C.mid }}>Our AI is working its magic</span>
+              <span style={{ fontSize: 13, color: C.mid }}>
+                {allSettled
+                  ? `${jobs.length} stunning variations generated for you`
+                  : 'Your studio-quality images are on the way'}
+              </span>
             </div>
-          </div>
-
-          <div
-            style={{
-              background:
-                'linear-gradient(180deg, rgba(82, 29, 156, 0.04) 0%, rgba(117, 74, 176, 0.01) 100%)',
-              border: `1px solid ${C.border}`,
-              borderRadius: 16,
-              padding: '24px 20px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-              width: '100%',
-              boxSizing: 'border-box',
-            }}
-          >
-            {/* Column 1: Input Image */}
-            <div
-              style={{
-                flex: 1.2,
-                background: 'transparent',
-                padding: 0,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 12,
-                height: 280,
-                justifyContent: 'space-between',
-                boxSizing: 'border-box',
-              }}
-            >
-              <div
-                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}
-              >
-                <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Input Image</span>
-                <span style={{ fontSize: 11, color: C.light }}>Your uploaded garment</span>
-              </div>
-              <div
-                style={{
-                  width: '100%',
-                  flex: 1,
-                  borderRadius: 8,
-                  overflow: 'hidden',
-                  border: `1px solid ${C.border2}`,
-                  position: 'relative',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  background: C.lighter,
-                }}
-              >
-                {garmentPreviewUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={garmentPreviewUrl}
-                    alt="Garment Preview"
-                    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                  />
-                ) : (
-                  <div style={{ color: C.light, fontSize: 12 }}>No image</div>
-                )}
-              </div>
-            </div>
-
-            {/* Chevron Separator 1 */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                height: 280,
-                position: 'relative',
-                flexShrink: 0,
-              }}
-            >
-              <div style={{ width: 1, height: '100%', background: C.border2 }} />
-              <div
-                style={{
-                  position: 'absolute',
-                  left: '50%',
-                  top: '50%',
-                  transform: 'translate(-50%, -50%)',
-                  width: 24,
-                  height: 24,
-                  borderRadius: '50%',
-                  border: '1px solid rgba(82, 29, 156, 0.2)',
-                  background: C.card,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#521D9C',
-                  boxShadow: '0 2px 6px rgba(82, 29, 156, 0.08)',
-                  fontSize: 12,
-                  fontWeight: 'bold',
-                  zIndex: 2,
-                }}
-              >
-                ›
-              </div>
-            </div>
-
-            {/* Column 2: Steps Checklist */}
-            <div
-              style={{
-                flex: 1.6,
-                background: 'transparent',
-                padding: '0 24px',
-                display: 'flex',
-                flexDirection: 'column',
-                height: 280,
-                justifyContent: 'space-between',
-                boxSizing: 'border-box',
-              }}
-            >
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: C.text, textAlign: 'center' }}>
-                  AI Processing
-                </span>
-                <span style={{ fontSize: 11, color: C.light, textAlign: 'center' }}>
-                  Generating studio quality images
-                </span>
-              </div>
-
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 6,
-                  margin: '10px 0',
-                  paddingLeft: 12,
-                }}
-              >
-                {steps.map((step, idx) => {
-                  const isDone = progressPercent >= step.threshold;
-                  const isCurrent =
-                    progressPercent < step.threshold &&
-                    (idx === 0 || progressPercent >= (steps[idx - 1]?.threshold ?? 0));
-
-                  return (
-                    <div
-                      key={step.label}
-                      style={{ display: 'flex', alignItems: 'center', gap: 10 }}
-                    >
-                      {isDone ? (
-                        <div
-                          style={{
-                            width: 16,
-                            height: 16,
-                            borderRadius: '50%',
-                            background: 'linear-gradient(180deg, #521D9C 0%, #754AB0 100%)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#fff',
-                            fontSize: 9,
-                            fontWeight: 'bold',
-                          }}
-                        >
-                          ✓
-                        </div>
-                      ) : isCurrent ? (
-                        <SpinnerIcon size={16} />
-                      ) : (
-                        <div
-                          style={{
-                            width: 16,
-                            height: 16,
-                            borderRadius: '50%',
-                            border: `2px solid ${C.border2}`,
-                            boxSizing: 'border-box',
-                          }}
-                        />
-                      )}
-                      <span
-                        style={{
-                          fontSize: 12,
-                          fontWeight: isCurrent ? 600 : 500,
-                          color: isDone ? C.text : isCurrent ? '#521D9C' : C.light,
-                        }}
-                      >
-                        {step.label}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <div
+            {!hideDownload && (
+              <div style={{ display: 'flex', gap: 10 }}>
+                {/* Download All Button */}
+                <button
+                  type="button"
+                  onClick={handleDownloadAll}
+                  disabled={downloading || jobs.every((j) => statuses[j.id] !== 'COMPLETED')}
                   style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    fontSize: 12,
-                    fontWeight: 500,
-                  }}
-                >
-                  <span style={{ color: C.mid }}>
-                    {progressPercent === 100
-                      ? 'Rendering Final Output....'
-                      : 'Rendering Final Output....'}
-                  </span>
-                  <span style={{ color: C.text }}>{progressPercent}%</span>
-                </div>
-                <div
-                  style={{
-                    width: '100%',
-                    height: 6,
-                    background: C.lighter,
-                    borderRadius: 3,
-                    overflow: 'hidden',
-                  }}
-                >
-                  <div
-                    style={{
-                      width: `${progressPercent}%`,
-                      height: '100%',
-                      background: 'linear-gradient(180deg, #521D9C 0%, #754AB0 100%)',
-                      borderRadius: 3,
-                      transition: 'width 0.4s ease-out',
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Chevron Separator 2 */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                height: 280,
-                position: 'relative',
-                flexShrink: 0,
-              }}
-            >
-              <div style={{ width: 1, height: '100%', background: C.border2 }} />
-              <div
-                style={{
-                  position: 'absolute',
-                  left: '50%',
-                  top: '50%',
-                  transform: 'translate(-50%, -50%)',
-                  width: 24,
-                  height: 24,
-                  borderRadius: '50%',
-                  border: '1px solid rgba(82, 29, 156, 0.2)',
-                  background: C.card,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#521D9C',
-                  boxShadow: '0 2px 6px rgba(82, 29, 156, 0.08)',
-                  fontSize: 12,
-                  fontWeight: 'bold',
-                  zIndex: 2,
-                }}
-              >
-                ›
-              </div>
-            </div>
-
-            {/* Column 3: Preview Output */}
-            <div
-              style={{
-                flex: 1.2,
-                background: 'transparent',
-                padding: 0,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 12,
-                height: 280,
-                justifyContent: 'space-between',
-                boxSizing: 'border-box',
-              }}
-            >
-              <div
-                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}
-              >
-                <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Preview Output</span>
-                <span style={{ fontSize: 11, color: C.light }}>Studio quality result</span>
-              </div>
-              <div
-                style={{
-                  width: '100%',
-                  flex: 1,
-                  borderRadius: 8,
-                  overflow: 'hidden',
-                  border: `1px solid ${C.border2}`,
-                  position: 'relative',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  background: C.lighter,
-                }}
-              >
-                {currentCompleted && currentResultUrl ? (
-                  <>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={currentResultUrl}
-                      alt="Preview Output"
-                      style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                    />
-                    <div
-                      style={{ position: 'absolute', right: 8, bottom: 8, display: 'flex', gap: 6 }}
-                    >
-                      {onUseImage && current && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            onUseImage({
-                              url: currentResultUrl,
-                              jobId: current.id,
-                              poseLabel: current.label,
-                            })
-                          }
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            height: 32,
-                            padding: '0 12px',
-                            borderRadius: 8,
-                            background: 'linear-gradient(135deg, #521D9C 0%, #754AB0 100%)',
-                            color: '#fff',
-                            border: 'none',
-                            fontSize: 12,
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
-                          }}
-                        >
-                          Use this image
-                        </button>
-                      )}
-                      <a
-                        href={currentResultUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{
-                          width: 32,
-                          height: 32,
-                          borderRadius: 8,
-                          background: C.card,
-                          boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
-                          border: `1px solid ${C.border}`,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          color: C.text,
-                        }}
-                      >
-                        <FullscreenIcon />
-                      </a>
-                    </div>
-                  </>
-                ) : current ? (
-                  <>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={garmentPreviewUrl || current.thumbnailUrl}
-                      alt="Loading Preview"
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover',
-                        objectPosition: 'top center',
-                        filter: currentFailed ? 'none' : 'blur(6px)',
-                        opacity: 0.6,
-                      }}
-                    />
-                    <div
-                      style={{
-                        position: 'absolute',
-                        inset: 0,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        background: 'rgba(0,0,0,0.1)',
-                      }}
-                    >
-                      {currentFailed ? (
-                        <XIcon size={24} color={C.pink} />
-                      ) : (
-                        <div style={{ color: C.pink }}>
-                          <SpinnerIcon size={24} />
-                        </div>
-                      )}
-                    </div>
-                  </>
-                ) : (
-                  <div style={{ color: C.light, fontSize: 12 }}>Waiting...</div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Block 2: Generated Results ── */}
-      <div
-        style={{
-          background: C.card,
-          borderRadius: 20,
-          border: `1px solid ${C.border}`,
-          boxShadow: '0 4px 20px rgba(0,0,0,0.05)',
-          padding: 24,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 20,
-          width: '100%',
-          boxSizing: 'border-box',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <h3 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: C.text }}>
-              {allSettled ? 'Generated Results' : 'Generating Results'}
-            </h3>
-            <span style={{ fontSize: 13, color: C.mid }}>
-              {allSettled
-                ? `${jobs.length} stunning variations generated for you`
-                : 'Your studio-quality images are on the way'}
-            </span>
-          </div>
-          {!hideDownload && (
-            <div style={{ display: 'flex', gap: 10 }}>
-              {/* Download All Button */}
-              <button
-                type="button"
-                onClick={handleDownloadAll}
-                disabled={downloading || jobs.every((j) => statuses[j.id] !== 'COMPLETED')}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  background: '#141414',
-                  color: '#FEFEFE',
-                  border: 'none',
-                  borderRadius: 8,
-                  padding: '8px 16px',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor:
-                    downloading || jobs.every((j) => statuses[j.id] !== 'COMPLETED')
-                      ? 'not-allowed'
-                      : 'pointer',
-                  opacity:
-                    downloading || jobs.every((j) => statuses[j.id] !== 'COMPLETED') ? 0.5 : 1,
-                }}
-              >
-                <DownloadIcon size={14} /> Download All
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Variations Grid */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
-            gap: 12,
-            width: '100%',
-          }}
-        >
-          {jobs.map((job, idx) => {
-            const status = statuses[job.id] ?? 'QUEUED';
-            const isCompleted = status === 'COMPLETED';
-            const isFailed = status === 'FAILED' || status === 'CANCELLED';
-            const resultUrl = resultQueries[idx]?.data?.url;
-            const isSelected = selected === idx;
-            const isBestMatch = idx === 0;
-
-            return (
-              <div
-                key={job.id}
-                onClick={() => setSelected(idx)}
-                style={{
-                  position: 'relative',
-                  background: isSelected
-                    ? `linear-gradient(${C.card}, ${C.card}) padding-box, linear-gradient(180deg, #521D9C 0%, #754AB0 100%) border-box`
-                    : `linear-gradient(${C.card}, ${C.card}) padding-box, linear-gradient(${C.border}, ${C.border}) border-box`,
-                  border: '1.5px solid transparent',
-                  borderRadius: 12,
-                  padding: 0,
-                  overflow: 'hidden',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  boxShadow: isSelected ? '0 4px 12px rgba(82, 29, 156, 0.12)' : 'none',
-                  transition: 'box-shadow 0.2s, transform 0.2s',
-                  boxSizing: 'border-box',
-                }}
-              >
-                {/* Image section */}
-                <div
-                  style={{
-                    width: '100%',
-                    aspectRatio: '3/4',
-                    position: 'relative',
-                    background: C.lighter,
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'center',
+                    gap: 8,
+                    background: '#141414',
+                    color: '#FEFEFE',
+                    border: 'none',
+                    borderRadius: 8,
+                    padding: '8px 16px',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor:
+                      downloading || jobs.every((j) => statuses[j.id] !== 'COMPLETED')
+                        ? 'not-allowed'
+                        : 'pointer',
+                    opacity:
+                      downloading || jobs.every((j) => statuses[j.id] !== 'COMPLETED') ? 0.5 : 1,
                   }}
                 >
-                  {isCompleted && resultUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={resultUrl}
-                      alt={job.label}
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover',
-                        objectPosition: 'top center',
-                      }}
-                    />
-                  ) : (
-                    <>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <DownloadIcon size={14} /> Download All
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Variations Grid */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: 12,
+              width: '100%',
+            }}
+          >
+            {jobs.map((job, idx) => {
+              const status = statuses[job.id] ?? 'QUEUED';
+              const isCompleted = status === 'COMPLETED';
+              const isFailed = status === 'FAILED' || status === 'CANCELLED';
+              const resultUrl = resultQueries[idx]?.data?.url;
+              const isSelected = selected === idx;
+              const isBestMatch = idx === 0;
+
+              return (
+                <div
+                  key={job.id}
+                  onClick={() => setSelected(idx)}
+                  style={{
+                    position: 'relative',
+                    background: isSelected
+                      ? `linear-gradient(${C.card}, ${C.card}) padding-box, linear-gradient(180deg, #521D9C 0%, #754AB0 100%) border-box`
+                      : `linear-gradient(${C.card}, ${C.card}) padding-box, linear-gradient(${C.border}, ${C.border}) border-box`,
+                    border: '1.5px solid transparent',
+                    borderRadius: 12,
+                    padding: 0,
+                    overflow: 'hidden',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    boxShadow: isSelected ? '0 4px 12px rgba(82, 29, 156, 0.12)' : 'none',
+                    transition: 'box-shadow 0.2s, transform 0.2s',
+                    boxSizing: 'border-box',
+                  }}
+                >
+                  {/* Image section */}
+                  <div
+                    style={{
+                      width: '100%',
+                      aspectRatio: '3/4',
+                      position: 'relative',
+                      background: C.lighter,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    {isCompleted && resultUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
                       <img
-                        src={garmentPreviewUrl || job.thumbnailUrl}
+                        src={resultUrl}
                         alt={job.label}
                         style={{
                           width: '100%',
                           height: '100%',
                           objectFit: 'cover',
                           objectPosition: 'top center',
-                          filter: isFailed ? 'none' : 'blur(4px)',
-                          opacity: isFailed ? 0.5 : 0.7,
                         }}
                       />
-                      {!isFailed && (
-                        <div
+                    ) : (
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={garmentPreviewUrl || job.thumbnailUrl}
+                          alt={job.label}
                           style={{
-                            position: 'absolute',
-                            inset: 0,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            background: 'rgba(0,0,0,0.15)',
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover',
+                            objectPosition: 'top center',
+                            filter: isFailed ? 'none' : 'blur(4px)',
+                            opacity: isFailed ? 0.5 : 0.7,
                           }}
-                        >
-                          <div style={{ color: C.pink }}>
-                            <SpinnerIcon size={24} />
+                        />
+                        {!isFailed && (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              inset: 0,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              background: 'rgba(0,0,0,0.15)',
+                            }}
+                          >
+                            <div style={{ color: C.pink }}>
+                              <SpinnerIcon size={24} />
+                            </div>
                           </div>
-                        </div>
-                      )}
-                    </>
-                  )}
+                        )}
+                      </>
+                    )}
 
-                  {/* Download icon on top right */}
-                  {!hideDownload && (
-                    <button
-                      type="button"
-                      disabled={!isCompleted || !resultUrl}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (resultUrl) downloadImage(resultUrl, job.id);
-                      }}
-                      style={{
-                        position: 'absolute',
-                        top: 8,
-                        right: 8,
-                        background: 'rgba(255, 255, 255, 0.85)',
-                        backdropFilter: 'blur(4px)',
-                        border: 'none',
-                        borderRadius: '50%',
-                        width: 28,
-                        height: 28,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: isCompleted && resultUrl ? 'pointer' : 'not-allowed',
-                        opacity: isCompleted && resultUrl ? 1 : 0.45,
-                        color: '#141414',
-                        boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-                        zIndex: 2,
-                      }}
-                    >
-                      <DownloadIcon size={14} />
-                    </button>
-                  )}
-                  {onUseImage && isCompleted && resultUrl && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onUseImage({ url: resultUrl, jobId: job.id, poseLabel: job.label });
-                      }}
-                      style={{
-                        position: 'absolute',
-                        left: 8,
-                        right: 8,
-                        bottom: 8,
-                        height: 26,
-                        borderRadius: 8,
-                        background: 'linear-gradient(135deg, #521D9C 0%, #754AB0 100%)',
-                        color: '#fff',
-                        border: 'none',
-                        fontSize: 11,
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
-                        zIndex: 2,
-                      }}
-                    >
-                      Use this image
-                    </button>
-                  )}
+                    {/* Download icon on top right */}
+                    {!hideDownload && (
+                      <button
+                        type="button"
+                        disabled={!isCompleted || !resultUrl}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (resultUrl) downloadImage(resultUrl, job.id);
+                        }}
+                        style={{
+                          position: 'absolute',
+                          top: 8,
+                          right: 8,
+                          background: 'rgba(255, 255, 255, 0.85)',
+                          backdropFilter: 'blur(4px)',
+                          border: 'none',
+                          borderRadius: '50%',
+                          width: 28,
+                          height: 28,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: isCompleted && resultUrl ? 'pointer' : 'not-allowed',
+                          opacity: isCompleted && resultUrl ? 1 : 0.45,
+                          color: '#141414',
+                          boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+                          zIndex: 2,
+                        }}
+                      >
+                        <DownloadIcon size={14} />
+                      </button>
+                    )}
+                    {onUseImage && isCompleted && resultUrl && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onUseImage({ url: resultUrl, jobId: job.id, poseLabel: job.label });
+                        }}
+                        style={{
+                          position: 'absolute',
+                          left: 8,
+                          right: 8,
+                          bottom: 8,
+                          height: 26,
+                          borderRadius: 8,
+                          background: 'linear-gradient(135deg, #521D9C 0%, #754AB0 100%)',
+                          color: '#fff',
+                          border: 'none',
+                          fontSize: 11,
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                          zIndex: 2,
+                        }}
+                      >
+                        Use this image
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
+        {!hideCatalogueLink && (
+          <Link
+            href={`/catalogues/${catalogueId}`}
+            style={{
+              fontSize: 14,
+              fontWeight: 600,
+              color: C.pink,
+              textDecoration: 'none',
+              alignSelf: 'flex-start',
+              marginTop: -8,
+            }}
+          >
+            View full catalogue →
+          </Link>
+        )}
       </div>
-      {!hideCatalogueLink && (
-        <Link
-          href={`/catalogues/${catalogueId}`}
+
+      {zoomUrl && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Image preview"
+          onClick={() => {
+            setZoomVisible(false);
+            setTimeout(() => setZoomUrl(null), 300);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              setZoomVisible(false);
+              setTimeout(() => setZoomUrl(null), 300);
+            }
+          }}
           style={{
-            fontSize: 14,
-            fontWeight: 600,
-            color: C.pink,
-            textDecoration: 'none',
-            alignSelf: 'flex-start',
-            marginTop: -8,
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.85)',
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 40,
           }}
         >
-          View full catalogue →
-        </Link>
+          <button
+            type="button"
+            onClick={() => {
+              setZoomVisible(false);
+              setTimeout(() => setZoomUrl(null), 300);
+            }}
+            style={{
+              position: 'absolute',
+              top: 20,
+              right: 20,
+              width: 40,
+              height: 40,
+              borderRadius: '50%',
+              background: 'rgba(255,255,255,0.15)',
+              border: 'none',
+              color: '#fff',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <XIcon size={20} />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={zoomUrl}
+            alt=""
+            style={{
+              maxWidth: '100%',
+              maxHeight: '100%',
+              objectFit: 'contain',
+              borderRadius: 8,
+              transform: zoomVisible ? 'scale(1)' : 'scale(0.95)',
+              opacity: zoomVisible ? 1 : 0,
+              transition: 'transform 300ms ease-out, opacity 300ms ease-out',
+              pointerEvents: 'none',
+            }}
+          />
+        </div>
       )}
-    </div>
+    </>
   );
 }

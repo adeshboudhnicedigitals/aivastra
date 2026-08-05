@@ -103,29 +103,35 @@ export function UserMenu() {
                 boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
               }}
             >
-              <Link
-                href="/settings"
+              <button
+                type="button"
                 className="hover-bg"
                 onClick={(e) => {
                   e.stopPropagation();
                   setPopupOpen(false);
+                  router.push('/settings');
                 }}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: 10,
                   padding: '12px 16px',
-                  textDecoration: 'none',
+                  width: '100%',
+                  background: 'none',
+                  border: 'none',
+                  textAlign: 'left',
+                  cursor: 'pointer',
                   color: C.text,
                   fontSize: 13,
                   fontWeight: 500,
+                  fontFamily: 'inherit',
                 }}
               >
                 <span style={{ opacity: 0.6, display: 'flex' }}>
                   <SettingsIcon />
                 </span>
                 Settings
-              </Link>
+              </button>
               <div style={{ height: 1, background: C.border, margin: '0 16px' }} />
               <button
                 type="button"
