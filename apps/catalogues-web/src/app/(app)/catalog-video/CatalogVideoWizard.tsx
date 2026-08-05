@@ -1,10 +1,10 @@
 'use client';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, ChevronLeft, X } from 'lucide-react';
+import { Check, ChevronLeft, Upload, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
-import { C } from '@/components/tokens';
+import { C, grad } from '@/components/tokens';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { Tooltip } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
@@ -126,9 +126,84 @@ function UploadDropzone({
             alt="Uploaded"
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
           />
+        ) : uploading ? (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 12,
+              padding: 20,
+              width: '100%',
+              boxSizing: 'border-box',
+            }}
+          >
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: '50%',
+                border: `1px solid ${C.border}`,
+                display: 'grid',
+                placeItems: 'center',
+                color: C.pink,
+              }}
+            >
+              <Upload size={20} />
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
+              Uploading… {progress}%
+            </div>
+            <div
+              style={{
+                width: '80%',
+                height: 4,
+                borderRadius: 2,
+                background: C.border,
+                overflow: 'hidden',
+              }}
+            >
+              <div
+                style={{
+                  width: `${progress}%`,
+                  height: '100%',
+                  background: grad,
+                  transition: 'width 150ms ease',
+                }}
+              />
+            </div>
+          </div>
         ) : (
-          <div style={{ textAlign: 'center', padding: 16, color: C.mid, fontSize: 12 }}>
-            {uploading ? `Uploading… ${progress}%` : 'Click or drag an image here'}
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 10,
+              padding: 20,
+              textAlign: 'center',
+            }}
+          >
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: '50%',
+                background: dragOver ? 'rgba(245,92,122,0.12)' : C.card,
+                border: `1px solid ${dragOver ? C.pink : C.border}`,
+                display: 'grid',
+                placeItems: 'center',
+                color: dragOver ? C.pink : C.mid,
+              }}
+            >
+              <Upload size={20} />
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>
+              Click or drag an image here
+            </div>
+            <div style={{ fontSize: 11, color: C.mid, lineHeight: 1.5 }}>
+              JPEG, PNG, or WebP · up to 10MB
+            </div>
           </div>
         )}
       </label>
