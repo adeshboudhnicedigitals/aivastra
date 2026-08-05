@@ -149,7 +149,8 @@ body {
 }
 
 body {
-  min-width: 1024px;
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 button {
@@ -1966,6 +1967,41 @@ p {
   /* Main content takes full width */
   .main {
     width: 100%;
+  }
+
+  /* Sidebar becomes an off-canvas drawer, toggled via App's mobileNavOpen state */
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 260px;
+    max-width: 82vw;
+    z-index: 200;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+  }
+  .sidebar--mobile-open {
+    transform: translateX(0);
+  }
+
+  .sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 199;
+  }
+
+  .topbar-menu-btn {
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--r);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink);
+    cursor: pointer;
+    flex-shrink: 0;
   }
 
   /* Topbar tweaks */

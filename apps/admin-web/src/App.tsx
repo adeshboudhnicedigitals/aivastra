@@ -65,6 +65,7 @@ export default function App() {
   const [theme, setThemeState] = useState<Theme>(readStoredTheme);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const idRef = useRef(0);
   const navigate = useNavigate();
   const location = useLocation();
@@ -84,6 +85,11 @@ export default function App() {
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
   }, [theme]);
+
+  // Close the mobile drawer whenever the route changes
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [location.pathname]);
 
   // Load server preference on login
   useEffect(() => {
@@ -201,13 +207,21 @@ export default function App() {
         role={role ?? ''}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
+        mobileOpen={mobileNavOpen}
+        onCloseMobile={() => setMobileNavOpen(false)}
       />
+      {mobileNavOpen && (
+        // biome-ignore lint/a11y/useKeyWithClickEvents: backdrop closes drawer
+        // biome-ignore lint/a11y/noStaticElementInteractions: backdrop closes drawer
+        <div className="sidebar-backdrop" onClick={() => setMobileNavOpen(false)} />
+      )}
       <div className="main">
         <Topbar
           trail={trail}
           onNavTrail={(i) => i === 0 && navigate('/dashboard')}
           theme={theme}
           onToggleTheme={toggleTheme}
+          onOpenMobileNav={() => setMobileNavOpen(true)}
         />
         <main className="content">
           <Routes>
