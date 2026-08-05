@@ -357,3 +357,15 @@ html.dark .dark-logo-bg {
     transition: none !important;
   }
 }
+
+/* Responsive button text helpers for TopBar and mobile/tablet headers */
+@media (max-width: 1023px) {
+  .hide-mobile-tablet {
+    display: none !important;
+  }
+}
+@media (min-width: 1024px) {
+  .show-mobile-tablet-only {
+    display: none !important;
+  }
+}

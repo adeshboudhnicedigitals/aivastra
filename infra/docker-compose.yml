@@ -70,10 +70,15 @@ services:
     # versions — returns an empty body instead of the XML the older mc client
     # expects ("decoding xml: EOF"), silently no-op'ing every start. The
     # server-wide `api cors_allow_origin` config is what actually serves CORS.
+    # `mc anonymous set download` mirrors the public-read R2 bucket used in
+    # prod — StorageProvider.publicUrl() builds a direct (non-presigned) GET
+    # URL, so a private local bucket 404s/403s every thumbnail in the admin
+    # and catalogues-web UIs.
     entrypoint: >
       /bin/sh -c "
       mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin_dev_pw} &&
       mc mb --ignore-existing local/${R2_BUCKET:-virtual-tryon-dev} &&
+      mc anonymous set download local/${R2_BUCKET:-virtual-tryon-dev} &&
       mc admin config set local api cors_allow_origin='*' &&
       mc admin service restart local &&
       echo 'minio bucket ready: ${R2_BUCKET:-virtual-tryon-dev}'

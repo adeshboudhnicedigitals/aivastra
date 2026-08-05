@@ -122,7 +122,8 @@ export function ScreenHeader(props: ScreenHeaderProps) {
               }}
             >
               <PlusIcon size={12} />
-              {props.action.label}
+              <span className="hide-mobile-tablet">{props.action.label}</span>
+              <span className="show-mobile-tablet-only">Add</span>
             </button>
           )}
         </div>
