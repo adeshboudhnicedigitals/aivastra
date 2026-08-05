@@ -99,8 +99,8 @@ container hostnames in the compose file). Tear down with
 
 Import `infra/observability/dashboards/aivastra-overview.json` in Grafana
 (**Dashboards → New → Import**), selecting your Prometheus data source. Panels: queue depth,
-jobs by outcome, job duration p50/p95, workers healthy, HTTP request rate, HTTP p95 latency,
-ComfyUI duration p95, credits deducted/refunded.
+jobs by outcome, job duration p50/p95, E2E job latency p50/p95, workers healthy, HTTP request rate,
+HTTP p95 latency, ComfyUI round-trip p50/p95.
 
 ## Alerts
 
