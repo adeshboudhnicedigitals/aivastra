@@ -678,7 +678,12 @@ export function DesktopLayout(props: TryOnLayoutProps) {
                           <img
                             src={personPreview}
                             alt="Before"
-                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'cover',
+                              objectPosition: 'top center',
+                            }}
                           />
                         )}
                       </div>
@@ -710,7 +715,12 @@ export function DesktopLayout(props: TryOnLayoutProps) {
                         <img
                           src={resultUrl}
                           alt="After AI"
-                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover',
+                            objectPosition: 'top center',
+                          }}
                         />
                       </div>
                     </>

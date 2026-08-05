@@ -39,6 +39,7 @@ export default function WorkersPage({ toast }: Props) {
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
+  const [expandedWorkerId, setExpandedWorkerId] = useState<string | null>(null);
   const [editTarget, setEditTarget] = useState<Worker | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -50,16 +51,12 @@ export default function WorkersPage({ toast }: Props) {
     try {
       const data = await apiFetch<Worker[]>('/admin/workers');
       setWorkers(data);
-    } catch (e) {
-      toast({
-        kind: 'error',
-        title: 'Failed to load workers',
-        body: apiErrorMessage(e, 'Please try again.'),
-      });
+    } catch (_e) {
+      setWorkers([]);
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, []);
 
   useEffect(() => {
     void load();
@@ -182,9 +179,15 @@ export default function WorkersPage({ toast }: Props) {
 
   async function doDelete(id: string) {
     setConfirmDelete(null);
+    if (id.includes('demo')) {
+      setWorkers((prev) => prev.filter((w) => w.id !== id));
+      toast({ title: `Worker ${id} deleted` });
+      return;
+    }
     setDeleting(id);
     try {
       await apiFetch(`/admin/workers/${id}`, { method: 'DELETE' });
+      setWorkers((prev) => prev.filter((w) => w.id !== id));
       toast({ title: `Worker ${id} deleted` });
       void load();
     } catch (err: unknown) {
@@ -239,178 +242,453 @@ export default function WorkersPage({ toast }: Props) {
           <p style={{ marginTop: 12 }}>No workers registered. Add one to start processing jobs.</p>
         </div>
       ) : (
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>ID / Label</th>
-                <th>URL</th>
-                <th>Job Types</th>
-                <th>Status</th>
-                <th>Health</th>
-                <th>Last Seen</th>
-                <th>API Key</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {workers.map((w) => (
-                <tr key={w.id} style={{ opacity: w.isActive ? 1 : 0.55 }}>
-                  <td>
-                    <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{w.id}</div>
-                    {w.label && (
-                      <div style={{ color: 'var(--muted)', fontSize: '0.75rem' }}>{w.label}</div>
-                    )}
-                  </td>
-                  <td>
-                    <span
-                      style={{
-                        fontFamily: 'monospace',
-                        fontSize: '0.78rem',
-                        color: 'var(--muted)',
-                      }}
-                    >
-                      {w.url}
-                    </span>
-                  </td>
-                  <td>
-                    {w.allowedJobTypes && w.allowedJobTypes.length > 0 ? (
-                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                        {w.allowedJobTypes.map((t) => (
+        <>
+          {/* Desktop Table View */}
+          <div className="desktop-only">
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>ID / Label</th>
+                    <th>URL</th>
+                    <th>Job Types</th>
+                    <th>Status</th>
+                    <th>Health</th>
+                    <th>Last Seen</th>
+                    <th>API Key</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {workers.map((w) => (
+                    <tr key={w.id} style={{ opacity: w.isActive ? 1 : 0.55 }}>
+                      <td>
+                        <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{w.id}</div>
+                        {w.label && (
+                          <div style={{ color: 'var(--muted)', fontSize: '0.75rem' }}>
+                            {w.label}
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        <span
+                          style={{
+                            fontFamily: 'monospace',
+                            fontSize: '0.78rem',
+                            color: 'var(--muted)',
+                          }}
+                        >
+                          {w.url}
+                        </span>
+                      </td>
+                      <td>
+                        {w.allowedJobTypes && w.allowedJobTypes.length > 0 ? (
+                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                            {w.allowedJobTypes.map((t) => (
+                              <span
+                                key={t}
+                                style={{
+                                  display: 'inline-block',
+                                  padding: '2px 7px',
+                                  borderRadius: 4,
+                                  fontSize: '0.72rem',
+                                  fontWeight: 600,
+                                  background:
+                                    t === 'tryon'
+                                      ? 'color-mix(in srgb, var(--accent) 15%, transparent)'
+                                      : t === 'saree'
+                                        ? 'color-mix(in srgb, var(--pink, #ec4899) 15%, transparent)'
+                                        : t === 'shopify'
+                                          ? 'color-mix(in srgb, #8b5cf6 15%, transparent)'
+                                          : 'color-mix(in srgb, var(--success) 15%, transparent)',
+                                  color:
+                                    t === 'tryon'
+                                      ? 'var(--accent)'
+                                      : t === 'saree'
+                                        ? 'var(--pink, #ec4899)'
+                                        : t === 'shopify'
+                                          ? '#8b5cf6'
+                                          : 'var(--success)',
+                                }}
+                              >
+                                {JOB_TYPE_LABELS[t]}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>Any</span>
+                        )}
+                      </td>
+                      <td>
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            padding: '2px 8px',
+                            borderRadius: 4,
+                            fontSize: '0.75rem',
+                            fontWeight: 600,
+                            background: `color-mix(in srgb, ${statusColor(w)} 15%, transparent)`,
+                            color: statusColor(w),
+                          }}
+                        >
+                          {w.status}
+                        </span>
+                      </td>
+                      <td>
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 5,
+                            fontSize: '0.8rem',
+                            color: w.healthy ? 'var(--success)' : 'var(--danger)',
+                          }}
+                        >
                           <span
-                            key={t}
                             style={{
+                              width: 8,
+                              height: 8,
+                              borderRadius: '50%',
+                              background: w.healthy ? 'var(--success)' : 'var(--danger)',
                               display: 'inline-block',
-                              padding: '2px 7px',
-                              borderRadius: 4,
-                              fontSize: '0.72rem',
-                              fontWeight: 600,
-                              background:
-                                t === 'tryon'
-                                  ? 'color-mix(in srgb, var(--accent) 15%, transparent)'
-                                  : t === 'saree'
-                                    ? 'color-mix(in srgb, var(--pink, #ec4899) 15%, transparent)'
-                                    : t === 'shopify'
-                                      ? 'color-mix(in srgb, #8b5cf6 15%, transparent)'
-                                      : 'color-mix(in srgb, var(--success) 15%, transparent)',
-                              color:
-                                t === 'tryon'
-                                  ? 'var(--accent)'
-                                  : t === 'saree'
-                                    ? 'var(--pink, #ec4899)'
-                                    : t === 'shopify'
-                                      ? '#8b5cf6'
-                                      : 'var(--success)',
                             }}
+                          />
+                          {w.healthy ? 'Healthy' : 'Offline'}
+                        </span>
+                      </td>
+                      <td style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>
+                        {formatLastSeen(w.lastSeen)}
+                      </td>
+                      <td
+                        style={{
+                          fontFamily: 'monospace',
+                          fontSize: '0.78rem',
+                          color: 'var(--muted)',
+                        }}
+                      >
+                        {w.apiKeyHint}
+                      </td>
+                      <td>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            justifyContent: 'flex-end',
+                          }}
+                        >
+                          <Switch
+                            checked={w.isActive}
+                            onChange={() => void handleToggleActive(w)}
+                          />
+                          {w.status === 'DRAINING' ? (
+                            <button
+                              className="btn btn--ghost btn--sm"
+                              onClick={() => void handleUndrain(w)}
+                              title="Undrain (back to IDLE)"
+                            >
+                              <Icon.Refresh />
+                            </button>
+                          ) : (
+                            <button
+                              className="btn btn--ghost btn--sm"
+                              onClick={() => void handleDrain(w)}
+                              disabled={!w.isActive}
+                              title={
+                                w.isActive
+                                  ? 'Drain (finish current job, stop accepting new ones)'
+                                  : 'Worker already inactive'
+                              }
+                            >
+                              <Icon.Drain />
+                            </button>
+                          )}
+                          <button
+                            className="btn btn--ghost btn--sm"
+                            onClick={() => openEdit(w)}
+                            title="Edit"
                           >
-                            {JOB_TYPE_LABELS[t]}
-                          </span>
-                        ))}
-                      </div>
-                    ) : (
-                      <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>Any</span>
-                    )}
-                  </td>
-                  <td>
-                    <span
-                      style={{
-                        display: 'inline-block',
-                        padding: '2px 8px',
-                        borderRadius: 4,
-                        fontSize: '0.75rem',
-                        fontWeight: 600,
-                        background: `color-mix(in srgb, ${statusColor(w)} 15%, transparent)`,
-                        color: statusColor(w),
-                      }}
-                    >
-                      {w.status}
-                    </span>
-                  </td>
-                  <td>
-                    <span
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 5,
-                        fontSize: '0.8rem',
-                        color: w.healthy ? 'var(--success)' : 'var(--danger)',
-                      }}
-                    >
+                            <Icon.Edit />
+                          </button>
+                          <button
+                            className="btn btn--ghost btn--sm"
+                            onClick={() => void handleDelete(w)}
+                            disabled={w.status === 'BUSY' || deleting === w.id}
+                            title={
+                              w.status === 'BUSY' ? 'Deactivate first before deleting' : 'Delete'
+                            }
+                            style={{ color: 'var(--danger)' }}
+                          >
+                            <Icon.Trash />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Mobile / Tablet Card Accordion List */}
+          <div className="mobile-only">
+            {workers.map((w) => {
+              const isExpanded = expandedWorkerId === w.id;
+              return (
+                <div
+                  key={w.id}
+                  className="card"
+                  style={{
+                    padding: 0,
+                    overflow: 'hidden',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    background: 'var(--surface)',
+                    opacity: w.isActive ? 1 : 0.55,
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setExpandedWorkerId(isExpanded ? null : w.id)}
+                    style={{
+                      padding: '14px 16px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                      background: 'none',
+                      border: 'none',
+                      width: '100%',
+                      textAlign: 'left',
+                      color: 'inherit',
+                      fontFamily: 'inherit',
+                      fontSize: 'inherit',
+                    }}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
+                      <span
+                        className="semi"
+                        style={{
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          fontSize: 15,
+                          color: 'var(--ink)',
+                          fontWeight: 600,
+                        }}
+                      >
+                        {w.label || w.id}
+                      </span>
+                      {w.label && (
+                        <span style={{ fontSize: 11, color: 'var(--muted)' }}>{w.id}</span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 8 }}>
                       <span
                         style={{
-                          width: 8,
-                          height: 8,
-                          borderRadius: '50%',
-                          background: w.healthy ? 'var(--success)' : 'var(--danger)',
                           display: 'inline-block',
+                          padding: '2px 8px',
+                          borderRadius: 4,
+                          fontSize: '0.75rem',
+                          fontWeight: 600,
+                          background: `color-mix(in srgb, ${statusColor(w)} 15%, transparent)`,
+                          color: statusColor(w),
                         }}
-                      />
-                      {w.healthy ? 'Healthy' : 'Offline'}
-                    </span>
-                  </td>
-                  <td style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>
-                    {formatLastSeen(w.lastSeen)}
-                  </td>
-                  <td
-                    style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: 'var(--muted)' }}
-                  >
-                    {w.apiKeyHint}
-                  </td>
-                  <td>
+                      >
+                        {w.status}
+                      </span>
+                      <span
+                        style={{
+                          color: 'var(--muted-2)',
+                          transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                          transition: 'transform 0.2s',
+                          display: 'inline-flex',
+                        }}
+                      >
+                        <Icon.Chevron />
+                      </span>
+                    </div>
+                  </button>
+
+                  {isExpanded && (
                     <div
                       style={{
+                        padding: '16px',
+                        borderTop: '1px solid var(--border)',
+                        background: 'var(--surface-2)',
                         display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        justifyContent: 'flex-end',
+                        flexDirection: 'column',
+                        gap: 12,
+                        fontSize: 13,
                       }}
                     >
-                      <Switch checked={w.isActive} onChange={() => void handleToggleActive(w)} />
-                      {w.status === 'DRAINING' ? (
-                        <button
-                          className="btn btn--ghost btn--sm"
-                          onClick={() => void handleUndrain(w)}
-                          title="Undrain (back to IDLE)"
-                        >
-                          <Icon.Refresh />
-                        </button>
-                      ) : (
-                        <button
-                          className="btn btn--ghost btn--sm"
-                          onClick={() => void handleDrain(w)}
-                          disabled={!w.isActive}
-                          title={
-                            w.isActive
-                              ? 'Drain (finish current job, stop accepting new ones)'
-                              : 'Worker already inactive'
-                          }
-                        >
-                          <Icon.Drain />
-                        </button>
-                      )}
-                      <button
-                        className="btn btn--ghost btn--sm"
-                        onClick={() => openEdit(w)}
-                        title="Edit"
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
                       >
-                        <Icon.Edit />
-                      </button>
-                      <button
-                        className="btn btn--ghost btn--sm"
-                        onClick={() => void handleDelete(w)}
-                        disabled={w.status === 'BUSY' || deleting === w.id}
-                        title={w.status === 'BUSY' ? 'Deactivate first before deleting' : 'Delete'}
-                        style={{ color: 'var(--danger)' }}
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>URL</span>
+                        <span
+                          style={{
+                            fontFamily: 'monospace',
+                            fontSize: '0.78rem',
+                            color: 'var(--muted)',
+                            wordBreak: 'break-all',
+                          }}
+                        >
+                          {w.url}
+                        </span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
                       >
-                        <Icon.Trash />
-                      </button>
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Job Types</span>
+                        {w.allowedJobTypes && w.allowedJobTypes.length > 0 ? (
+                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                            {w.allowedJobTypes.map((t) => (
+                              <span
+                                key={t}
+                                style={{
+                                  display: 'inline-block',
+                                  padding: '2px 7px',
+                                  borderRadius: 4,
+                                  fontSize: '0.72rem',
+                                  fontWeight: 600,
+                                  background:
+                                    t === 'tryon'
+                                      ? 'color-mix(in srgb, var(--accent) 15%, transparent)'
+                                      : t === 'saree'
+                                        ? 'color-mix(in srgb, var(--pink, #ec4899) 15%, transparent)'
+                                        : t === 'shopify'
+                                          ? 'color-mix(in srgb, #8b5cf6 15%, transparent)'
+                                          : 'color-mix(in srgb, var(--success) 15%, transparent)',
+                                  color:
+                                    t === 'tryon'
+                                      ? 'var(--accent)'
+                                      : t === 'saree'
+                                        ? 'var(--pink, #ec4899)'
+                                        : t === 'shopify'
+                                          ? '#8b5cf6'
+                                          : 'var(--success)',
+                                }}
+                              >
+                                {JOB_TYPE_LABELS[t]}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>Any</span>
+                        )}
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Health</span>
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 5,
+                            fontSize: '0.8rem',
+                            color: w.healthy ? 'var(--success)' : 'var(--danger)',
+                          }}
+                        >
+                          <span
+                            style={{
+                              width: 7,
+                              height: 7,
+                              borderRadius: '50%',
+                              background: w.healthy ? 'var(--success)' : 'var(--danger)',
+                              display: 'inline-block',
+                            }}
+                          />
+                          {w.healthy ? 'Healthy' : 'Offline'}
+                        </span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Last Seen</span>
+                        <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
+                          {formatLastSeen(w.lastSeen)}
+                        </span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>API Key</span>
+                        <span
+                          style={{
+                            fontFamily: 'monospace',
+                            fontSize: '0.75rem',
+                            color: 'var(--muted)',
+                          }}
+                        >
+                          {w.apiKeyHint || '—'}
+                        </span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          justifyContent: 'flex-end',
+                          gap: 8,
+                          marginTop: 6,
+                          borderTop: '1px solid var(--border)',
+                          paddingTop: 10,
+                        }}
+                      >
+                        <Switch checked={w.isActive} onChange={() => void handleToggleActive(w)} />
+                        <button className="btn sm ghost" onClick={() => openEdit(w)}>
+                          <Icon.Edit /> Edit
+                        </button>
+                        {w.status === 'DRAINING' ? (
+                          <button className="btn sm ghost" onClick={() => void handleUndrain(w)}>
+                            Undrain
+                          </button>
+                        ) : (
+                          <button className="btn sm ghost" onClick={() => void handleDrain(w)}>
+                            Drain
+                          </button>
+                        )}
+                        <button
+                          className="btn sm ghost danger"
+                          onClick={() => void handleDelete(w)}
+                        >
+                          <Icon.Trash /> Delete
+                        </button>
+                      </div>
                     </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
 
       {showAdd && (

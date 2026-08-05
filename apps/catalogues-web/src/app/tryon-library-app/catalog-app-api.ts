@@ -1,6 +1,6 @@
+import { getApiUrl } from '@/lib/api';
 import { ApiError, networkError, readResponseBody, responseError } from '@/lib/errors';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
 // Kept in module memory only, isolated from lib/api.ts's own in-memory token —
@@ -70,13 +70,21 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  let res = await fetchApi(`${API_URL}${path}`, { ...options, headers, credentials: 'include' });
+  let res = await fetchApi(`${getApiUrl()}${path}`, {
+    ...options,
+    headers,
+    credentials: 'include',
+  });
 
   if (res.status === 401) {
     const refreshed = await tryRefresh();
     if (refreshed) {
       headers.Authorization = `Bearer ${refreshed}`;
-      res = await fetchApi(`${API_URL}${path}`, { ...options, headers, credentials: 'include' });
+      res = await fetchApi(`${getApiUrl()}${path}`, {
+        ...options,
+        headers,
+        credentials: 'include',
+      });
     } else {
       clearCatalogAppToken();
       throw new CatalogAppSessionExpiredError();

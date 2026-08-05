@@ -36,7 +36,24 @@ function AssetsShell() {
 
   return (
     <>
-      <div style={{ position: 'relative', marginBottom: 20 }}>
+      {/* Desktop horizontal tabs */}
+      <div className="desktop-only">
+        <div className="tabs">
+          {TABS.map((t) => (
+            <button
+              key={t.k}
+              type="button"
+              className={`tab ${activeTab === t.k ? 'active' : ''}`}
+              onClick={() => setActiveTab(t.k)}
+            >
+              {t.l}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Mobile/Tablet vertical accordion bar */}
+      <div className="mobile-only" style={{ position: 'relative', marginBottom: 20 }}>
         {/* Accordion Bar */}
         <button
           type="button"

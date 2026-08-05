@@ -5,6 +5,7 @@
   --bg: oklch(0.985 0.005 80);
   --surface: oklch(0.99 0.005 80);
   --surface-2: oklch(0.97 0.005 80);
+  --bg-2: oklch(0.97 0.005 80);
   --surface-hover: oklch(0.96 0.006 80);
   --border: oklch(0.91 0.006 80);
   --border-strong: oklch(0.85 0.008 80);
@@ -63,6 +64,7 @@
   --bg: oklch(0.16 0.006 55);
   --surface: oklch(0.2 0.006 55);
   --surface-2: oklch(0.23 0.006 55);
+  --bg-2: oklch(0.23 0.006 55);
   --surface-hover: oklch(0.26 0.006 55);
   --border: oklch(0.3 0.006 55);
   --border-strong: oklch(0.4 0.008 55);
@@ -1940,21 +1942,28 @@ p {
 }
 
 /* --- kv grid wrapper (used by pages wrapping KV items) --- */
-.kv-grid {
+.kv-grid,
+.kv-grid-2-col {
   display: grid;
   gap: 8px 18px;
   font-size: 13px;
 }
-.kv-grid dt {
+.kv-grid dt,
+.kv-grid-2-col dt {
   color: var(--muted);
   font-weight: 400;
   margin: 0;
 }
-.kv-grid dd {
+.kv-grid dd,
+.kv-grid-2-col dd {
   margin: 0;
   color: var(--ink);
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
-.kv-grid dd.mono {
+.kv-grid dd.mono,
+.kv-grid-2-col dd.mono {
   font-family: var(--mono);
   font-size: 12.5px;
 }
@@ -2393,16 +2402,18 @@ p {
 }
 
 .mobile-only {
-  display: none;
+  display: none !important;
 }
 .desktop-only {
-  display: block;
+  display: block !important;
 }
-@media (max-width: 767px) {
+@media (max-width: 1023px) {
   .mobile-only {
-    display: block;
+    display: flex !important;
+    flex-direction: column;
+    gap: 12px;
   }
   .desktop-only {
-    display: none;
+    display: none !important;
   }
 }

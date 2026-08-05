@@ -78,7 +78,10 @@ function Field({
   const val = onChange ? (value ?? '') : internal;
   const inputId = `field-${label.toLowerCase().replace(/\s+/g, '-')}`;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minWidth: 280 }}>
+    <div
+      className="settings-field-col"
+      style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minWidth: 280 }}
+    >
       <label htmlFor={inputId} style={{ fontWeight: 500, fontSize: 14, color: C.text }}>
         {label}
       </label>
@@ -175,7 +178,10 @@ function SelectField({
   onChange: (v: string) => void;
 }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minWidth: 280 }}>
+    <div
+      className="settings-field-col"
+      style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minWidth: 280 }}
+    >
       <span style={{ fontWeight: 500, fontSize: 14, color: C.text }}>{label}</span>
       <div
         style={{
@@ -200,7 +206,9 @@ function SelectField({
 }
 
 const Row = ({ children }: { children: React.ReactNode }) => (
-  <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>{children}</div>
+  <div className="settings-row" style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+    {children}
+  </div>
 );
 
 function Section({
@@ -385,6 +393,31 @@ export default function SettingsPage(): React.ReactElement {
 
   return (
     <>
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+            @media (max-width: 1023px) {
+              .settings-page-content {
+                padding: 16px !important;
+              }
+              .settings-tab-bar {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+              }
+              .settings-tab-bar::-webkit-scrollbar {
+                display: none;
+              }
+              .settings-row {
+                flex-direction: column !important;
+                gap: 16px !important;
+              }
+              .settings-field-col {
+                min-width: 100% !important;
+              }
+            }
+          `,
+        }}
+      />
       <TopBar
         title="Account Settings"
         subtitle="Manage your profile, billing, credits, subscriptions, and account activity."
@@ -411,9 +444,15 @@ export default function SettingsPage(): React.ReactElement {
           </button>
         }
       />
-      <div style={{ flex: 1, overflowY: 'auto', padding: '20px 28px' }}>
+      <div
+        className="settings-page-content"
+        style={{ flex: 1, overflowY: 'auto', padding: '20px 28px' }}
+      >
         {/* Tab bar */}
-        <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, marginBottom: 20 }}>
+        <div
+          className="settings-tab-bar"
+          style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, marginBottom: 20 }}
+        >
           {TABS.map((t) => {
             const isActive = tab === t;
             return (

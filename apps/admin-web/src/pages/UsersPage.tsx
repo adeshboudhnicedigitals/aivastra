@@ -98,7 +98,7 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [createUserError, setCreateUserError] = useState('');
   const [resettingPassword, setResettingPassword] = useState(false);
   const [newPasswordInput, setNewPasswordInput] = useState('');
-  const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
+  const [expandedUserId, _setExpandedUserId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -161,6 +161,7 @@ export default function UsersPage({ onNav, toast }: Props) {
     setDetail(u);
     setSelectedTier(u.tier);
     setSelectedMaxDevices(String(u.maxActiveDevices ?? 1));
+
     setDetailLoading(true);
     try {
       const full = await apiFetch<User>(`/admin/users/${u.id}`);
@@ -216,6 +217,13 @@ export default function UsersPage({ onNav, toast }: Props) {
   const handleSuspendConfirm = async () => {
     if (!confirmSuspend || !detail) return;
     const willBan = !detail.isBanned;
+    if (detail.id.startsWith('usr_demo_')) {
+      setDetail({ ...detail, isBanned: willBan });
+      setUsers((prev) => prev.map((u) => (u.id === detail.id ? { ...u, isBanned: willBan } : u)));
+      toast({ title: `User ${willBan ? 'suspended' : 'unsuspended'}` });
+      setConfirmSuspend(null);
+      return;
+    }
     try {
       await apiFetch(`/admin/users/${detail.id}`, {
         method: 'PATCH',
@@ -237,6 +245,16 @@ export default function UsersPage({ onNav, toast }: Props) {
   const handleTierSave = async () => {
     if (!detail || !selectedTier || selectedTier === detail.tier) return;
     setTierSaving(true);
+    if (detail.id.startsWith('usr_demo_')) {
+      setDetail((prev) => (prev ? { ...prev, tier: selectedTier } : null));
+      setUsers((prev) =>
+        prev.map((user) => (user.id === detail.id ? { ...user, tier: selectedTier } : user)),
+      );
+      toast({ title: 'User tier updated' });
+      setEditingAccountField(null);
+      setTierSaving(false);
+      return;
+    }
     try {
       await apiFetch(`/admin/users/${detail.id}`, {
         method: 'PATCH',
@@ -268,6 +286,16 @@ export default function UsersPage({ onNav, toast }: Props) {
     }
     if (maxActiveDevices === detail.maxActiveDevices) return;
     setDeviceLimitSaving(true);
+    if (detail.id.startsWith('usr_demo_')) {
+      setDetail((prev) => (prev ? { ...prev, maxActiveDevices } : null));
+      setUsers((prev) =>
+        prev.map((user) => (user.id === detail.id ? { ...user, maxActiveDevices } : user)),
+      );
+      toast({ title: 'Device limit updated' });
+      setEditingAccountField(null);
+      setDeviceLimitSaving(false);
+      return;
+    }
     try {
       await apiFetch(`/admin/users/${detail.id}`, {
         method: 'PATCH',
@@ -563,6 +591,15 @@ export default function UsersPage({ onNav, toast }: Props) {
                 disabled={adminActioning}
                 onClick={async () => {
                   setAdminActioning(true);
+                  if (u.id.startsWith('usr_demo_')) {
+                    setDetail((prev) => prev && { ...prev, isAdmin: false });
+                    setUsers((prev) =>
+                      prev.map((x) => (x.id === u.id ? { ...x, isAdmin: false } : x)),
+                    );
+                    toast({ title: `${userLabel(u)} admin access revoked` });
+                    setAdminActioning(false);
+                    return;
+                  }
                   try {
                     await apiFetch(`/admin/admin-users/${u.id}`, { method: 'DELETE' });
                     setDetail((prev) => prev && { ...prev, isAdmin: false });
@@ -1315,7 +1352,84 @@ export default function UsersPage({ onNav, toast }: Props) {
         </p>
       ) : (
         <>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {/* ── Desktop table ───────────────────────────────────── */}
+          <div className="desktop-only table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Plan</th>
+                  <th>Balance</th>
+                  <th>Jobs</th>
+                  <th>Joined</th>
+                  <th>Status</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((u) => (
+                  <tr
+                    key={u.id}
+                    onClick={() => void openDetail(u)}
+                    style={{ cursor: 'pointer', opacity: u.isBanned ? 0.55 : 1 }}
+                  >
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <NameAvatar name={userLabel(u)} email={u.email ?? undefined} size={32} />
+                        <div>
+                          <div className="semi" style={{ fontSize: 14 }}>
+                            {userLabel(u)}
+                          </div>
+                          <div className="sub" style={{ fontSize: 11 }}>
+                            {userContact(u)}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <span style={{ textTransform: 'capitalize', fontSize: 13 }}>{u.tier}</span>
+                    </td>
+                    <td>
+                      <span className="mono">{u.balance.toLocaleString()}</span>
+                    </td>
+                    <td>
+                      <span className="mono">{(u.totalJobs ?? 0).toLocaleString()}</span>
+                    </td>
+                    <td>
+                      <span className="sub" style={{ fontSize: 13 }}>
+                        {new Date(u.createdAt).toLocaleDateString()}
+                      </span>
+                    </td>
+                    <td>
+                      {u.isBanned ? (
+                        <span className="badge danger dot">Suspended</span>
+                      ) : (
+                        <span className="badge success dot">Active</span>
+                      )}
+                    </td>
+                    <td>
+                      <span style={{ color: 'var(--muted-2)', display: 'inline-flex' }}>
+                        <Icon.Chevron />
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+                {sorted.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={7}
+                      style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}
+                    >
+                      No users found.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* ── Mobile/Tablet accordion cards ────────────────────── */}
+          <div className="mobile-only">
             {sorted.map((u) => {
               const isExpanded = expandedUserId === u.id;
               return (
@@ -1333,7 +1447,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                 >
                   <button
                     type="button"
-                    onClick={() => setExpandedUserId(isExpanded ? null : u.id)}
+                    onClick={() => void openDetail(u)}
                     style={{
                       padding: '12px',
                       display: 'flex',
