@@ -1,3 +1,13 @@
+## 2026-08-05 — Admin web: restored mobile/tablet responsiveness
+
+**Done**
+- `UsersPage.tsx` / `WorkersPage.tsx`: an earlier session had scoped the desktop tables to `.desktop-only` but never added the matching `.mobile-only` card view, so both pages rendered blank below 1024px. Rebuilt the missing card views, matching the pattern already used on the other admin pages (AssetsPage, JobsPage, WorkflowsPage), preserving current desktop features untouched (bulk-select/PII actions and sorting on Users; job-type badges and drain/undrain on Workers).
+- `tokens.css`: `body { min-width: 1024px }` was still forcing a wide canvas even with the mobile CSS in place, making the mobile view reachable only via horizontal scroll. Changed to `min-width: 0; overflow-x: hidden`.
+- Found and fixed the actual root cause of the site being unusable on mobile: the sidebar had no collapse/drawer behavior at all — `.app` correctly went single-column below 1024px, but the sidebar had no off-canvas treatment, so it rendered at full viewport width with no way to reach the page content. Added a hamburger toggle (`Icon.Menu`, `Topbar.tsx`), a `mobileNavOpen` state + backdrop in `App.tsx`, and off-canvas slide-in CSS (`.sidebar--mobile-open`, `.sidebar-backdrop`) driven by `Sidebar.tsx`.
+- Deleted `recover.js`, `temp_users.tsx`, `temp_workers.tsx` — leftovers from an earlier, incomplete attempt at this same fix (the recovery script's output was UTF-16-corrupted and was never actually merged back into the real page files).
+- Root cause of "still not responsive" on a real device even after the above: `apps/admin-web/index.html`'s viewport meta tag was `width=1280` (the value the admin-dashboard-refresh revert restored it to) instead of `width=device-width`. A hardcoded pixel width there makes mobile browsers lay the page out at 1280px and zoom-scale it to fit the screen, so the `max-width: 1023px` media queries never fire regardless of how correct the CSS/JS is — this is why resizing a desktop browser window during verification looked fine (desktop Chrome ignores meta viewport) while a real phone stayed broken. Restored `width=device-width, initial-scale=1.0`.
+- Verified via `tsc --noEmit` + `biome check` (clean) and live in-browser: sidebar off-canvas by default, hamburger opens/closes it correctly, mobile cards render real data with no horizontal scroll, on both Users and Workers.
+
 ### 2026-07-31 - Completely Removed UI Demo Data
 
 **Done**
