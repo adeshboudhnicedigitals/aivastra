@@ -132,16 +132,21 @@
       ]
     },
     {
-      "title": "ComfyUI round-trip (p95)",
+      "title": "ComfyUI round-trip (p50 / p95)",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
       "fieldConfig": { "defaults": { "unit": "s" } },
       "targets": [
         {
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(comfy_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
           "expr": "histogram_quantile(0.95, sum by (le) (rate(comfy_request_duration_seconds_bucket[5m])))",
           "legendFormat": "p95",
-          "refId": "A"
+          "refId": "B"
         }
       ]
     },
@@ -171,16 +176,6 @@
           "legendFormat": "{{route}}",
           "refId": "A"
         }
-      ]
-    },
-    {
-      "title": "Credits deducted / refunded (rate 5m)",
-      "type": "timeseries",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 36 },
-      "targets": [
-        { "expr": "rate(credits_deducted_total[5m])", "legendFormat": "deducted", "refId": "A" },
-        { "expr": "rate(credits_refunded_total[5m])", "legendFormat": "refunded", "refId": "B" }
       ]
     }
   ]
