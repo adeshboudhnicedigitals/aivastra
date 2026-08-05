@@ -96,6 +96,10 @@ function LoginFormInner() {
   const searchParams = useSearchParams();
   const nextPath = searchParams.get('next') ?? '/studio';
   const resetSuccess = searchParams.get('reset') === '1';
+  const googleErrorCode = searchParams.get('error');
+  const googleErrorMessage = googleErrorCode
+    ? "Google sign-in didn't go through — please try again."
+    : '';
   const [error, setError] = useState('');
   const [showPwd, setShowPwd] = useState(false);
 
@@ -183,6 +187,21 @@ function LoginFormInner() {
               }}
             >
               Password reset successfully. Please log in.
+            </div>
+          )}
+
+          {googleErrorMessage && (
+            <div
+              style={{
+                padding: '10px 14px',
+                borderRadius: 8,
+                background: 'rgba(220,38,38,0.06)',
+                border: '1px solid rgba(220,38,38,0.25)',
+                fontSize: 13,
+                color: C.pink,
+              }}
+            >
+              {googleErrorMessage}
             </div>
           )}
 

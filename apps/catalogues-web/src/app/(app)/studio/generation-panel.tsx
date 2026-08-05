@@ -1,5 +1,5 @@
 'use client';
-import { useQueries, useQueryClient } from '@tanstack/react-query';
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { DownloadIcon, FullscreenIcon, SpinnerIcon, XIcon } from '@/components/icons';
@@ -115,6 +115,41 @@ export function GenerationPanel({
       });
     }
   });
+
+  // SSE is the primary channel, but a dropped/missed event (reconnect window,
+  // tab backgrounded, etc.) can leave a job stuck at a non-terminal status here
+  // forever even though it actually finished server-side. Poll as a fallback —
+  // same pattern as the catalogue detail page — so this panel can never drift
+  // from what /catalogues/:id already shows.
+  const { data: polledCatalogue } = useQuery<{ jobs: { id: string; status: string }[] }>({
+    queryKey: ['catalogue', catalogueId],
+    queryFn: () => api.get(`/v1/catalogues/${catalogueId}`),
+    enabled: !!catalogueId,
+    refetchInterval: (query) => {
+      const d = query.state.data as { jobs: { id: string; status: string }[] } | undefined;
+      if (!d) return 5_000;
+      const hasActive = d.jobs.some(
+        (j) => jobIds.includes(j.id) && !TERMINAL_STATUSES.has(j.status),
+      );
+      return hasActive ? 5_000 : false;
+    },
+  });
+
+  useEffect(() => {
+    if (!polledCatalogue) return;
+    setStatuses((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const j of polledCatalogue.jobs) {
+        if (jobIds.includes(j.id) && next[j.id] !== j.status) {
+          next[j.id] = j.status;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [polledCatalogue]);
 
   const allSettled =
     jobs.length > 0 && jobs.every((j) => TERMINAL_STATUSES.has(statuses[j.id] ?? 'QUEUED'));
