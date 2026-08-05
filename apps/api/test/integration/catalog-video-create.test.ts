@@ -41,6 +41,9 @@ describe('POST /v1/jobs/catalog-video', () => {
       .values({ userId, balance })
       .onConflictDoUpdate({ target: schema.userCredits.userId, set: { balance } });
   }
+  async function bindUploadKey(userId: string, key: string) {
+    await app.redis.set(`upload:owner:${key}`, userId, 'EX', 3600);
+  }
   async function sourceJob(userId: string, resultKey?: string) {
     const [job] = await app.db
       .insert(schema.jobs)
@@ -213,5 +216,88 @@ describe('POST /v1/jobs/catalog-video', () => {
     } finally {
       app.redis.xadd = realXadd;
     }
+  });
+  it('creates a job from an uploaded sourceImageKey, with no sourceJobId', async () => {
+    const { token, userId } = await registerUser('cv-upload-happy@x.com');
+    await grantCredits(userId, 200);
+    const sourceImageKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, sourceImageKey);
+    await app.storage.putObject(sourceImageKey, Buffer.from('uploaded-bytes'), 'image/jpeg');
+    const sampleVideoId = await activeSample();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/catalog-video',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { sourceImageKey, sampleVideoId },
+    });
+    expect(res.statusCode).toBe(201);
+    const { jobId } = res.json();
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, jobId));
+    const params = inputs.params as Record<string, unknown>;
+    expect(params.sourceImageKey).toBe(sourceImageKey);
+    expect(params).not.toHaveProperty('sourceJobId');
+    expect(params.kind).toBe('video');
+  });
+  it('rejects with FORBIDDEN when sourceImageKey was never issued to this user', async () => {
+    const { token, userId } = await registerUser('cv-upload-notowned@x.com');
+    await grantCredits(userId, 100);
+    const sourceImageKey = `inputs/${userId}/garment.jpg`;
+    // deliberately not bound via bindUploadKey
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/catalog-video',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { sourceImageKey, sampleVideoId: await activeSample() },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+  it('rejects with BAD_UPLOAD when the sourceImageKey object does not exist in R2', async () => {
+    const { token, userId } = await registerUser('cv-upload-missing@x.com');
+    await grantCredits(userId, 100);
+    const sourceImageKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, sourceImageKey);
+    // deliberately not put to R2
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/catalog-video',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { sourceImageKey, sampleVideoId: await activeSample() },
+    });
+    expect(res.statusCode).toBe(400);
+    // Asserting the error code (not just the status) matters here: before the
+    // schema change, this same payload also 400s — but for a different reason
+    // (sourceJobId missing → zod VALIDATION), not the object-missing check
+    // this test is actually targeting. BAD_UPLOAD only appears once the schema
+    // accepts sourceImageKey and assertGarmentObjectValid's headObject fails.
+    expect(res.json().error.code).toBe('BAD_UPLOAD');
+  });
+  it('rejects with 400 when both sourceJobId and sourceImageKey are provided', async () => {
+    const { token, userId } = await registerUser('cv-both@x.com');
+    await grantCredits(userId, 100);
+    const sourceJobId = await sourceJob(userId);
+    const sourceImageKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, sourceImageKey);
+    await app.storage.putObject(sourceImageKey, Buffer.from('x'), 'image/jpeg');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/catalog-video',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { sourceJobId, sourceImageKey, sampleVideoId: await activeSample() },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+  it('rejects with 400 when neither sourceJobId nor sourceImageKey are provided', async () => {
+    const { token, userId } = await registerUser('cv-neither@x.com');
+    await grantCredits(userId, 100);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/catalog-video',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { sampleVideoId: await activeSample() },
+    });
+    expect(res.statusCode).toBe(400);
   });
 });
