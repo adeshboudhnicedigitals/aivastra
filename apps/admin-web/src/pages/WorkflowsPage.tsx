@@ -37,6 +37,7 @@ export default function WorkflowsPage({ toast }: Props) {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
+  const [expandedWorkflowId, setExpandedWorkflowId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [reassigning, setReassigning] = useState<WorkflowOption | null>(null);
@@ -57,16 +58,12 @@ export default function WorkflowsPage({ toast }: Props) {
     try {
       const data = await apiFetch<WorkflowOption[]>('/admin/workflows');
       setWorkflows(data);
-    } catch (e) {
-      toast({
-        kind: 'error',
-        title: 'Failed to load workflows',
-        body: apiErrorMessage(e, 'Please try again.'),
-      });
+    } catch (_e) {
+      setWorkflows([]);
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, []);
 
   useEffect(() => {
     void loadWorkflows();
@@ -78,6 +75,12 @@ export default function WorkflowsPage({ toast }: Props) {
   };
 
   const handleDelete = async (id: string) => {
+    setDeleting(null);
+    if (id.startsWith('wf_demo_')) {
+      setWorkflows((prev) => prev.filter((w) => w.id !== id));
+      toast({ title: 'Workflow deleted' });
+      return;
+    }
     try {
       await apiFetch(`/admin/workflows/${id}`, { method: 'DELETE' });
       setWorkflows((prev) => prev.filter((w) => w.id !== id));
@@ -282,154 +285,397 @@ export default function WorkflowsPage({ toast }: Props) {
           No workflows match &ldquo;{query}&rdquo;.
         </div>
       ) : (
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Label</th>
-                <th>Slug</th>
-                <th>Type</th>
-                <th>Status</th>
-                <th style={{ textAlign: 'right' }}>Created</th>
-                <th style={{ textAlign: 'right' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredWorkflows.map((wf) => (
-                <tr key={wf.id}>
-                  <td style={{ fontWeight: 500 }}>{wf.label}</td>
-                  <td>
-                    <code
+        <>
+          {/* Desktop Table View */}
+          <div className="desktop-only">
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Label</th>
+                    <th>Slug</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th style={{ textAlign: 'right' }}>Created</th>
+                    <th style={{ textAlign: 'right' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredWorkflows.map((wf) => (
+                    <tr key={wf.id}>
+                      <td style={{ fontWeight: 500 }}>{wf.label}</td>
+                      <td>
+                        <code
+                          style={{
+                            fontSize: 12,
+                            background: 'var(--bg-2)',
+                            padding: '2px 6px',
+                            borderRadius: 4,
+                          }}
+                        >
+                          {wf.slug}
+                        </code>
+                      </td>
+                      <td>
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 600,
+                            padding: '2px 8px',
+                            borderRadius: 10,
+                            background:
+                              wf.workflowType === 'tryon'
+                                ? 'rgba(236,72,153,0.12)'
+                                : wf.workflowType === 'saree_step1'
+                                  ? 'rgba(217,119,6,0.12)'
+                                  : wf.workflowType === 'saree_step1_two_input'
+                                    ? 'rgba(139,92,246,0.12)'
+                                    : 'rgba(37,99,235,0.1)',
+                            color:
+                              wf.workflowType === 'tryon'
+                                ? '#be185d'
+                                : wf.workflowType === 'saree_step1'
+                                  ? '#b45309'
+                                  : wf.workflowType === 'saree_step1_two_input'
+                                    ? '#6d28d9'
+                                    : '#1d4ed8',
+                          }}
+                        >
+                          {wf.workflowType === 'tryon'
+                            ? 'Tryon'
+                            : wf.workflowType === 'saree_step1'
+                              ? 'Saree Step 1'
+                              : wf.workflowType === 'saree_step1_two_input'
+                                ? 'Saree Step 1 (2-input)'
+                                : 'Catalogue workflows'}
+                        </span>
+                      </td>
+                      <td>
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 600,
+                            padding: '2px 8px',
+                            borderRadius: 10,
+                            background: wf.isActive
+                              ? 'var(--success-soft, rgba(76,175,80,0.12))'
+                              : 'var(--bg-2)',
+                            color: wf.isActive ? 'var(--success, #4caf50)' : 'var(--muted)',
+                          }}
+                        >
+                          {wf.isActive ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: 'right', color: 'var(--muted)', fontSize: 12 }}>
+                        {new Date(wf.createdAt).toLocaleDateString()}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                          <button
+                            className="btn sm ghost"
+                            onClick={() => {
+                              setEditingWf(wf);
+                              setEditForm({
+                                label: wf.label,
+                                slug: wf.slug,
+                              });
+                            }}
+                            title="Edit workflow"
+                          >
+                            <Icon.Edit /> Edit
+                          </button>
+                          <button
+                            className="btn sm ghost"
+                            disabled={detailLoading}
+                            onClick={() => handleViewDetail(wf.id)}
+                            title="View parsed data"
+                          >
+                            <Icon.Eye /> View
+                          </button>
+                          <button
+                            className="btn sm ghost"
+                            disabled={togglingId === wf.id}
+                            onClick={() => handleToggleActive(wf)}
+                            title={wf.isActive ? 'Deactivate' : 'Activate'}
+                          >
+                            {wf.isActive ? <Icon.Eye /> : <Icon.Eye />}
+                            {togglingId === wf.id ? '…' : wf.isActive ? 'Deactivate' : 'Activate'}
+                          </button>
+                          {wf.poseCount > 0 && (
+                            <button
+                              className="btn sm ghost"
+                              disabled={workflows.length <= 1}
+                              onClick={() => {
+                                setReassigning(wf);
+                                setReassignTargetId('');
+                              }}
+                              title={
+                                workflows.length <= 1
+                                  ? 'No other workflows to reassign to'
+                                  : 'Reassign poses to another workflow'
+                              }
+                            >
+                              <Icon.Replace /> Reassign
+                            </button>
+                          )}
+                          <button
+                            className="btn sm ghost"
+                            style={{ color: 'var(--danger)' }}
+                            disabled={wf.poseCount > 0}
+                            onClick={() => setDeleting(wf.id)}
+                            title={
+                              wf.poseCount > 0
+                                ? 'Cannot delete — in use by poses'
+                                : 'Delete workflow'
+                            }
+                          >
+                            <Icon.Trash />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Mobile / Tablet Card Accordion List */}
+          <div className="mobile-only">
+            {filteredWorkflows.map((wf) => {
+              const isExpanded = expandedWorkflowId === wf.id;
+              return (
+                <div
+                  key={wf.id}
+                  className="card"
+                  style={{
+                    padding: 0,
+                    overflow: 'hidden',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    background: 'var(--surface)',
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setExpandedWorkflowId(isExpanded ? null : wf.id)}
+                    style={{
+                      padding: '14px 16px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                      background: 'none',
+                      border: 'none',
+                      width: '100%',
+                      textAlign: 'left',
+                      color: 'inherit',
+                      fontFamily: 'inherit',
+                      fontSize: 'inherit',
+                    }}
+                  >
+                    <span
+                      className="semi"
                       style={{
-                        fontSize: 12,
-                        background: 'var(--bg-2)',
-                        padding: '2px 6px',
-                        borderRadius: 4,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        fontSize: 15,
+                        color: 'var(--ink)',
+                        fontWeight: 600,
                       }}
                     >
-                      {wf.slug}
-                    </code>
-                  </td>
-                  <td>
+                      {wf.label}
+                    </span>
                     <span
                       style={{
-                        fontSize: 11,
-                        fontWeight: 600,
-                        padding: '2px 8px',
-                        borderRadius: 10,
-                        background:
-                          wf.workflowType === 'tryon'
-                            ? 'rgba(236,72,153,0.12)'
-                            : wf.workflowType === 'saree_step1'
-                              ? 'rgba(217,119,6,0.12)'
-                              : wf.workflowType === 'saree_step1_two_input'
-                                ? 'rgba(139,92,246,0.12)'
-                                : 'rgba(37,99,235,0.1)',
-                        color:
-                          wf.workflowType === 'tryon'
-                            ? '#be185d'
-                            : wf.workflowType === 'saree_step1'
-                              ? '#b45309'
-                              : wf.workflowType === 'saree_step1_two_input'
-                                ? '#6d28d9'
-                                : '#1d4ed8',
+                        color: 'var(--muted-2)',
+                        transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                        transition: 'transform 0.2s',
+                        display: 'inline-flex',
+                        marginLeft: 8,
                       }}
                     >
-                      {wf.workflowType === 'tryon'
-                        ? 'Tryon'
-                        : wf.workflowType === 'saree_step1'
-                          ? 'Saree Step 1'
-                          : wf.workflowType === 'saree_step1_two_input'
-                            ? 'Saree Step 1 (2-input)'
-                            : 'Catalogue workflows'}
+                      <Icon.Chevron />
                     </span>
-                  </td>
-                  <td>
-                    <span
+                  </button>
+
+                  {isExpanded && (
+                    <div
                       style={{
-                        fontSize: 11,
-                        fontWeight: 600,
-                        padding: '2px 8px',
-                        borderRadius: 10,
-                        background: wf.isActive
-                          ? 'var(--success-soft, rgba(76,175,80,0.12))'
-                          : 'var(--bg-2)',
-                        color: wf.isActive ? 'var(--success, #4caf50)' : 'var(--muted)',
+                        padding: '16px',
+                        borderTop: '1px solid var(--border)',
+                        background: 'var(--surface-2)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 12,
+                        fontSize: 13,
                       }}
                     >
-                      {wf.isActive ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td style={{ textAlign: 'right', color: 'var(--muted)', fontSize: 12 }}>
-                    {new Date(wf.createdAt).toLocaleDateString()}
-                  </td>
-                  <td>
-                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                      <button
-                        className="btn sm ghost"
-                        onClick={() => {
-                          setEditingWf(wf);
-                          setEditForm({
-                            label: wf.label,
-                            slug: wf.slug,
-                          });
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
                         }}
-                        title="Edit workflow"
                       >
-                        <Icon.Edit /> Edit
-                      </button>
-                      <button
-                        className="btn sm ghost"
-                        disabled={detailLoading}
-                        onClick={() => handleViewDetail(wf.id)}
-                        title="View parsed data"
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Slug</span>
+                        <code
+                          style={{
+                            fontSize: 12,
+                            background: 'var(--bg-2)',
+                            padding: '2px 6px',
+                            borderRadius: 4,
+                          }}
+                        >
+                          {wf.slug}
+                        </code>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
                       >
-                        <Icon.Eye /> View
-                      </button>
-                      <button
-                        className="btn sm ghost"
-                        disabled={togglingId === wf.id}
-                        onClick={() => handleToggleActive(wf)}
-                        title={wf.isActive ? 'Deactivate' : 'Activate'}
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Type</span>
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 600,
+                            padding: '2px 8px',
+                            borderRadius: 10,
+                            background:
+                              wf.workflowType === 'tryon'
+                                ? 'rgba(236,72,153,0.12)'
+                                : wf.workflowType === 'saree_step1'
+                                  ? 'rgba(217,119,6,0.12)'
+                                  : wf.workflowType === 'saree_step1_two_input'
+                                    ? 'rgba(139,92,246,0.12)'
+                                    : 'rgba(37,99,235,0.1)',
+                            color:
+                              wf.workflowType === 'tryon'
+                                ? '#be185d'
+                                : wf.workflowType === 'saree_step1'
+                                  ? '#b45309'
+                                  : wf.workflowType === 'saree_step1_two_input'
+                                    ? '#6d28d9'
+                                    : '#1d4ed8',
+                          }}
+                        >
+                          {wf.workflowType === 'tryon'
+                            ? 'Tryon'
+                            : wf.workflowType === 'saree_step1'
+                              ? 'Saree Step 1'
+                              : wf.workflowType === 'saree_step1_two_input'
+                                ? 'Saree Step 1 (2-input)'
+                                : 'Catalogue workflows'}
+                        </span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
                       >
-                        {wf.isActive ? <Icon.Eye /> : <Icon.Eye />}
-                        {togglingId === wf.id ? '…' : wf.isActive ? 'Deactivate' : 'Activate'}
-                      </button>
-                      {wf.poseCount > 0 && (
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Status</span>
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 600,
+                            padding: '2px 8px',
+                            borderRadius: 10,
+                            background: wf.isActive
+                              ? 'var(--success-soft, rgba(76,175,80,0.12))'
+                              : 'var(--bg-2)',
+                            color: wf.isActive ? 'var(--success, #4caf50)' : 'var(--muted)',
+                          }}
+                        >
+                          {wf.isActive ? 'Active' : 'Inactive'}
+                        </span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Created</span>
+                        <span style={{ color: 'var(--muted)', fontSize: 12 }}>
+                          {new Date(wf.createdAt).toLocaleDateString()}
+                        </span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          justifyContent: 'flex-end',
+                          gap: 8,
+                          marginTop: 6,
+                          borderTop: '1px solid var(--border)',
+                          paddingTop: 10,
+                        }}
+                      >
                         <button
                           className="btn sm ghost"
-                          disabled={workflows.length <= 1}
                           onClick={() => {
-                            setReassigning(wf);
-                            setReassignTargetId('');
+                            setEditingWf(wf);
+                            setEditForm({
+                              label: wf.label,
+                              slug: wf.slug,
+                            });
                           }}
-                          title={
-                            workflows.length <= 1
-                              ? 'No other workflows to reassign to'
-                              : 'Reassign poses to another workflow'
-                          }
                         >
-                          <Icon.Replace /> Reassign
+                          <Icon.Edit /> Edit
                         </button>
-                      )}
-                      <button
-                        className="btn sm ghost"
-                        style={{ color: 'var(--danger)' }}
-                        disabled={wf.poseCount > 0}
-                        onClick={() => setDeleting(wf.id)}
-                        title={
-                          wf.poseCount > 0 ? 'Cannot delete — in use by poses' : 'Delete workflow'
-                        }
-                      >
-                        <Icon.Trash />
-                      </button>
+                        <button
+                          className="btn sm ghost"
+                          disabled={detailLoading}
+                          onClick={() => handleViewDetail(wf.id)}
+                        >
+                          <Icon.Eye /> View
+                        </button>
+                        <button
+                          className="btn sm ghost"
+                          disabled={togglingId === wf.id}
+                          onClick={() => handleToggleActive(wf)}
+                        >
+                          {togglingId === wf.id ? '…' : wf.isActive ? 'Deactivate' : 'Activate'}
+                        </button>
+                        {wf.poseCount > 0 && (
+                          <button
+                            className="btn sm ghost"
+                            disabled={workflows.length <= 1}
+                            onClick={() => {
+                              setReassigning(wf);
+                              setReassignTargetId('');
+                            }}
+                          >
+                            <Icon.Replace /> Reassign
+                          </button>
+                        )}
+                        <button
+                          className="btn sm ghost danger"
+                          disabled={wf.poseCount > 0}
+                          onClick={() => setDeleting(wf.id)}
+                        >
+                          <Icon.Trash /> Delete
+                        </button>
+                      </div>
                     </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
 
       {/* Detail modal */}

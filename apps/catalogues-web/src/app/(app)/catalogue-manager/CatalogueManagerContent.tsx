@@ -9,7 +9,7 @@ import type {
 } from '@aivastra/types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { ArrowLeft, GarmentIcon, TrashIcon } from '@/components/icons';
+import { ArrowLeft, GarmentIcon, PlusIcon, TrashIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -676,7 +676,13 @@ export function CatalogueManagerContent() {
           <TopBar
             title="Try On Library"
             subtitle="Organize your products by category and garment type."
-            right={<GradBtn onClick={openAddSubcategory}>Add Subcategory</GradBtn>}
+            right={
+              <GradBtn onClick={openAddSubcategory}>
+                <PlusIcon size={14} />
+                <span className="hide-mobile-tablet">Add Subcategory</span>
+                <span className="show-mobile-tablet-only">Add</span>
+              </GradBtn>
+            }
           />
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {renderCategoryTabs()}
@@ -748,7 +754,11 @@ export function CatalogueManagerContent() {
                 >
                   Bulk Upload
                 </button>
-                <GradBtn onClick={openAddProduct}>Add Product</GradBtn>
+                <GradBtn onClick={openAddProduct}>
+                  <PlusIcon size={14} />
+                  <span className="hide-mobile-tablet">Add Product</span>
+                  <span className="show-mobile-tablet-only">Add</span>
+                </GradBtn>
               </div>
             }
           />

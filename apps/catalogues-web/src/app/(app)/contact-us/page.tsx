@@ -1,15 +1,63 @@
 'use client';
-import { Mail, MapPinned, Phone } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Loader2, Mail, MapPinned, Phone } from 'lucide-react';
 import { useState } from 'react';
 import { FaFacebookF, FaInstagram, FaLinkedin, FaYoutube } from 'react-icons/fa';
 import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
+import { api } from '@/lib/api';
 
 export default function ContactUsPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [message, setMessage] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) {
+      setError('Please enter your full name.');
+      return;
+    }
+    if (!email.trim() || !email.includes('@')) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+    if (!phone.trim() || phone.length < 10) {
+      setError('Please enter a valid 10-digit phone number.');
+      return;
+    }
+
+    setError(null);
+    setSubmitting(true);
+    try {
+      await api.post('/v1/contact', {
+        name: name.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        source: 'contact-us',
+        message: message.trim() || undefined,
+      });
+      setSubmitted(true);
+      setName('');
+      setEmail('');
+      setPhone('');
+      setMessage('');
+    } catch (err: unknown) {
+      console.error('Failed to submit contact message:', err);
+      const msg =
+        err && typeof err === 'object' && 'error' in err
+          ? (err as { error?: { message?: string } }).error?.message
+          : err instanceof Error
+            ? err.message
+            : undefined;
+      setError(msg || 'Failed to send message. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div
@@ -367,133 +415,211 @@ export default function ContactUsPage() {
           </div>
 
           {/* Right - Contact Form */}
-          <div className="contact-form-card">
-            <div>
-              <div className="contact-card-title">Send Us a Message</div>
-              <div className="contact-card-subtitle">
-                Share few details, and we&apos;ll contact you soon.
+          {submitted ? (
+            <div
+              className="contact-form-card"
+              style={{
+                justifyContent: 'center',
+                alignItems: 'center',
+                textAlign: 'center',
+                padding: '48px 32px',
+              }}
+            >
+              <div
+                style={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: '50%',
+                  background: '#DEF7EC',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: 16,
+                }}
+              >
+                <CheckCircle2 size={32} color="#0E9F6E" />
               </div>
+              <div className="contact-card-title" style={{ fontSize: 22, marginBottom: 8 }}>
+                Message Sent Successfully!
+              </div>
+              <div className="contact-card-subtitle" style={{ maxWidth: 340, marginBottom: 24 }}>
+                Thank you for reaching out. We&apos;ve received your message and will get back to
+                you shortly.
+              </div>
+              <button
+                type="button"
+                className="contact-submit-btn"
+                onClick={() => setSubmitted(false)}
+                style={{ width: 'auto', padding: '0 24px' }}
+              >
+                Send Another Message
+              </button>
             </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16, width: '100%' }}>
-              {/* Full Name */}
+          ) : (
+            <form onSubmit={handleSubmit} className="contact-form-card">
               <div>
-                <label htmlFor="contact-name" className="contact-form-label">
-                  Full Name<span style={{ color: '#DC2626' }}>*</span>
-                </label>
-                <input
-                  id="contact-name"
-                  className="contact-input"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Matt Borris"
+                <div className="contact-card-title">Send Us a Message</div>
+                <div className="contact-card-subtitle">
+                  Share few details, and we&apos;ll contact you soon.
+                </div>
+              </div>
+
+              {error && (
+                <div
                   style={{
                     width: '100%',
                     boxSizing: 'border-box',
-                    height: 42,
-                    border: '1px solid #D1D5DB',
+                    padding: '10px 14px',
                     borderRadius: 8,
-                    padding: '0 12px',
+                    background: '#FDE8E8',
+                    border: '1px solid #F8B4B4',
+                    color: '#9B1C1C',
                     fontSize: 13,
-                    color: C.text,
-                    background: '#FEFEFE',
-                    outline: 'none',
-                    fontFamily: 'inherit',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
                   }}
-                />
+                >
+                  <AlertCircle size={16} style={{ flexShrink: 0 }} />
+                  <span>{error}</span>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16, width: '100%' }}>
+                {/* Full Name */}
+                <div>
+                  <label htmlFor="contact-name" className="contact-form-label">
+                    Full Name<span style={{ color: '#DC2626' }}>*</span>
+                  </label>
+                  <input
+                    id="contact-name"
+                    className="contact-input"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Matt Borris"
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      height: 42,
+                      border: '1px solid #D1D5DB',
+                      borderRadius: 8,
+                      padding: '0 12px',
+                      fontSize: 13,
+                      color: C.text,
+                      background: '#FEFEFE',
+                      outline: 'none',
+                      fontFamily: 'inherit',
+                    }}
+                  />
+                </div>
+
+                {/* Email */}
+                <div>
+                  <label htmlFor="contact-email" className="contact-form-label">
+                    Email<span style={{ color: '#DC2626' }}>*</span>
+                  </label>
+                  <input
+                    id="contact-email"
+                    className="contact-input"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="mattborris@email.com"
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      height: 42,
+                      border: '1px solid #D1D5DB',
+                      borderRadius: 8,
+                      padding: '0 12px',
+                      fontSize: 13,
+                      color: C.text,
+                      background: '#FEFEFE',
+                      outline: 'none',
+                      fontFamily: 'inherit',
+                    }}
+                  />
+                </div>
+
+                {/* Phone */}
+                <div>
+                  <label htmlFor="contact-phone" className="contact-form-label">
+                    Phone Number<span style={{ color: '#DC2626' }}>*</span>
+                  </label>
+                  <input
+                    id="contact-phone"
+                    className="contact-input"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    placeholder="9874563210"
+                    inputMode="numeric"
+                    maxLength={10}
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      height: 42,
+                      border: '1px solid #D1D5DB',
+                      borderRadius: 8,
+                      padding: '0 12px',
+                      fontSize: 13,
+                      color: C.text,
+                      background: '#FEFEFE',
+                      outline: 'none',
+                      fontFamily: 'inherit',
+                    }}
+                  />
+                </div>
+
+                {/* Message */}
+                <div>
+                  <label htmlFor="contact-message" className="contact-form-label">
+                    Your Message
+                  </label>
+                  <textarea
+                    id="contact-message"
+                    className="contact-input"
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    placeholder="Tell us about your requirements, business, or any questions you have..."
+                    rows={3}
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      border: '1px solid #D1D5DB',
+                      borderRadius: 8,
+                      padding: '10px 12px',
+                      fontSize: 13,
+                      color: C.text,
+                      background: '#FEFEFE',
+                      resize: 'vertical',
+                      outline: 'none',
+                      fontFamily: 'inherit',
+                      lineHeight: 1.5,
+                    }}
+                  />
+                </div>
               </div>
 
-              {/* Email */}
-              <div>
-                <label htmlFor="contact-email" className="contact-form-label">
-                  Email<span style={{ color: '#DC2626' }}>*</span>
-                </label>
-                <input
-                  id="contact-email"
-                  className="contact-input"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="mattborris@email.com"
-                  style={{
-                    width: '100%',
-                    boxSizing: 'border-box',
-                    height: 42,
-                    border: '1px solid #D1D5DB',
-                    borderRadius: 8,
-                    padding: '0 12px',
-                    fontSize: 13,
-                    color: C.text,
-                    background: '#FEFEFE',
-                    outline: 'none',
-                    fontFamily: 'inherit',
-                  }}
-                />
-              </div>
-
-              {/* Phone */}
-              <div>
-                <label htmlFor="contact-phone" className="contact-form-label">
-                  Phone Number<span style={{ color: '#DC2626' }}>*</span>
-                </label>
-                <input
-                  id="contact-phone"
-                  className="contact-input"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                  placeholder="9874563210"
-                  inputMode="numeric"
-                  maxLength={10}
-                  style={{
-                    width: '100%',
-                    boxSizing: 'border-box',
-                    height: 42,
-                    border: '1px solid #D1D5DB',
-                    borderRadius: 8,
-                    padding: '0 12px',
-                    fontSize: 13,
-                    color: C.text,
-                    background: '#FEFEFE',
-                    outline: 'none',
-                    fontFamily: 'inherit',
-                  }}
-                />
-              </div>
-
-              {/* Message */}
-              <div>
-                <label htmlFor="contact-message" className="contact-form-label">
-                  Your Message
-                </label>
-                <textarea
-                  id="contact-message"
-                  className="contact-input"
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  placeholder="Tell us about your requirements, business, or any questions you have..."
-                  rows={3}
-                  style={{
-                    width: '100%',
-                    boxSizing: 'border-box',
-                    border: '1px solid #D1D5DB',
-                    borderRadius: 8,
-                    padding: '10px 12px',
-                    fontSize: 13,
-                    color: C.text,
-                    background: '#FEFEFE',
-                    resize: 'vertical',
-                    outline: 'none',
-                    fontFamily: 'inherit',
-                    lineHeight: 1.5,
-                  }}
-                />
-              </div>
-            </div>
-
-            {/* Submit */}
-            <button type="button" className="contact-submit-btn">
-              Submit Message
-            </button>
-          </div>
+              {/* Submit */}
+              <button
+                type="submit"
+                disabled={submitting}
+                className="contact-submit-btn"
+                style={{
+                  opacity: submitting ? 0.7 : 1,
+                  cursor: submitting ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {submitting ? (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <Loader2 size={16} className="av-spin" />
+                    Sending...
+                  </span>
+                ) : (
+                  'Submit Message'
+                )}
+              </button>
+            </form>
+          )}
         </div>
       </div>
     </div>
