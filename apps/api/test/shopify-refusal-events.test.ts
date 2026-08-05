@@ -36,12 +36,13 @@ describe('refusals are recorded as server-written events', () => {
     return user;
   }
 
+  let shopIdCounter = 0;
   async function seedStore(ownerUserId: string | null) {
     const [store] = await app.db
       .insert(schema.shopifyStores)
       .values({
         shopDomain: `test-${Date.now()}-${Math.random()}.myshopify.com`,
-        shopifyShopId: Date.now() + Math.floor(Math.random() * 1000),
+        shopifyShopId: Date.now() * 1000 + shopIdCounter++,
         accessToken: 'enc',
         scope: 'read_products',
         ownerUserId,

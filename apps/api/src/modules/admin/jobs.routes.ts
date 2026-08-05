@@ -149,6 +149,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
           jobType: jobTypeSql(),
           userHint: schema.jobInputs.userHint,
           outputKey: schema.jobOutputs.resultKey,
+          customerPhotoKey: schema.jobs.customerPhotoKey,
           // ComfyUI-actual inputs — mirrors dispatcher's key resolution exactly
           // faceSideKey lives on model_faces, bgComfyKey lives on model_backgrounds
           faceSideKey: schema.modelFaces.faceSideR2Key,
@@ -215,8 +216,12 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       const isAmazon = params.platform === 'Amazon';
       const bgKey = isAmazon ? row.bgFallbackKey : (row.bgComfyKey ?? row.bgFallbackKey);
 
-      // For tryon-direct jobs, person image is stored in params.personKey
-      const personKey = typeof params.personKey === 'string' ? params.personKey : undefined;
+      // For tryon-direct jobs, person image is stored in params.personKey.
+      // Merchant/Shopify tryon jobs instead store it on jobs.customerPhotoKey.
+      const personKey =
+        (typeof params.personKey === 'string' ? params.personKey : undefined) ??
+        row.customerPhotoKey ??
+        undefined;
 
       // For tryon-direct jobs the workflow comes from params.workflowTemplateId, not pose join
       let workflowLabel = row.overrideWorkflowLabel ?? row.defaultWorkflowLabel ?? null;
@@ -242,6 +247,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         lowerCatalogKey: undefined,
         shoeCatalogKey: undefined,
         jobParams: undefined,
+        customerPhotoKey: undefined,
         workflowLabel,
         defaultWorkflowLabel: undefined,
         overrideWorkflowLabel: undefined,
