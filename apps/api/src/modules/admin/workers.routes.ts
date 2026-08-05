@@ -1,6 +1,6 @@
 import { schema } from '@aivastra/db';
 import { WORKER_POOL, workerPoolSchema } from '@aivastra/types';
-import { eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { requireAdmin } from './guard.js';
@@ -54,7 +54,10 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
     '/admin/workers',
     { preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']) },
     async () => {
-      const dbWorkers = await app.db.select().from(schema.workers);
+      const dbWorkers = await app.db
+        .select()
+        .from(schema.workers)
+        .orderBy(asc(schema.workers.createdAt));
       const results = await Promise.all(
         dbWorkers.map(async (w) => {
           const raw = await app.redis.hget(REGISTRY_KEY, w.id);
