@@ -115,8 +115,11 @@ export async function downloadOutputImage(
   workerUrl: string,
   apiKey: string,
   filename: string,
+  subfolder = '',
 ): Promise<Uint8Array> {
-  const url = `${workerUrl.replace(/\/$/, '')}/view?filename=${encodeURIComponent(filename)}&type=output`;
+  const url =
+    `${workerUrl.replace(/\/$/, '')}/view?filename=${encodeURIComponent(filename)}` +
+    `&type=output&subfolder=${encodeURIComponent(subfolder)}`;
   const res = await fetch(url, {
     headers: { 'X-Api-Key': apiKey },
     signal: AbortSignal.timeout(120_000),
