@@ -34,6 +34,7 @@ interface Props {
 
 export default function WorkflowsPage({ toast }: Props) {
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
+  const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
   const [expandedWorkflowId, setExpandedWorkflowId] = useState<string | null>(null);
@@ -205,6 +206,11 @@ export default function WorkflowsPage({ toast }: Props) {
 
   const deletingWorkflow = deleting ? workflows.find((w) => w.id === deleting) : null;
 
+  const q = query.trim().toLowerCase();
+  const filteredWorkflows = q
+    ? workflows.filter((w) => w.label.toLowerCase().includes(q) || w.slug.toLowerCase().includes(q))
+    : workflows;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Header */}
@@ -217,10 +223,22 @@ export default function WorkflowsPage({ toast }: Props) {
             ComfyUI workflow templates used for try-on generation. Each pose selects one workflow.
           </p>
         </div>
-        <button className="btn primary" onClick={() => setShowUpload(true)}>
-          <Icon.Plus />
-          Add workflow
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {workflows.length > 0 && (
+            <div className="search">
+              <Icon.Search />
+              <input
+                placeholder="Search workflows…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </div>
+          )}
+          <button className="btn primary" onClick={() => setShowUpload(true)}>
+            <Icon.Plus />
+            Add workflow
+          </button>
+        </div>
       </div>
 
       {/* Table */}
@@ -253,6 +271,19 @@ export default function WorkflowsPage({ toast }: Props) {
             <Icon.Plus /> Add workflow
           </button>
         </div>
+      ) : filteredWorkflows.length === 0 ? (
+        <div
+          style={{
+            border: '1px dashed var(--border)',
+            borderRadius: 8,
+            padding: '48px 24px',
+            textAlign: 'center',
+            color: 'var(--muted)',
+            fontSize: 13,
+          }}
+        >
+          No workflows match &ldquo;{query}&rdquo;.
+        </div>
       ) : (
         <>
           {/* Desktop Table View */}
@@ -270,7 +301,7 @@ export default function WorkflowsPage({ toast }: Props) {
                   </tr>
                 </thead>
                 <tbody>
-                  {workflows.map((wf) => (
+                  {filteredWorkflows.map((wf) => (
                     <tr key={wf.id}>
                       <td style={{ fontWeight: 500 }}>{wf.label}</td>
                       <td>
@@ -411,7 +442,7 @@ export default function WorkflowsPage({ toast }: Props) {
 
           {/* Mobile / Tablet Card Accordion List */}
           <div className="mobile-only">
-            {workflows.map((wf) => {
+            {filteredWorkflows.map((wf) => {
               const isExpanded = expandedWorkflowId === wf.id;
               return (
                 <div
@@ -875,19 +906,39 @@ export default function WorkflowsPage({ toast }: Props) {
                     >
                       Workflow JSON ({Object.keys(viewingDetail.jsonContent).length} nodes)
                     </div>
-                    <button
-                      className="btn sm ghost"
-                      style={{ fontSize: 11 }}
-                      onClick={() => {
-                        void navigator.clipboard.writeText(
-                          JSON.stringify(viewingDetail.jsonContent, null, 2),
-                        );
-                        setJsonCopied(true);
-                        setTimeout(() => setJsonCopied(false), 1500);
-                      }}
-                    >
-                      {jsonCopied ? '✓ Copied' : 'Copy JSON'}
-                    </button>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button
+                        className="btn sm ghost"
+                        style={{ fontSize: 11 }}
+                        onClick={() => {
+                          const blob = new Blob(
+                            [JSON.stringify(viewingDetail.jsonContent, null, 2)],
+                            { type: 'application/json' },
+                          );
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `${viewingDetail.slug || viewingDetail.id}.json`;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                        }}
+                      >
+                        Download JSON
+                      </button>
+                      <button
+                        className="btn sm ghost"
+                        style={{ fontSize: 11 }}
+                        onClick={() => {
+                          void navigator.clipboard.writeText(
+                            JSON.stringify(viewingDetail.jsonContent, null, 2),
+                          );
+                          setJsonCopied(true);
+                          setTimeout(() => setJsonCopied(false), 1500);
+                        }}
+                      >
+                        {jsonCopied ? '✓ Copied' : 'Copy JSON'}
+                      </button>
+                    </div>
                   </div>
                   <pre
                     style={{
