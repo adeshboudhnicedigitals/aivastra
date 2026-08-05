@@ -7,6 +7,7 @@ import { Pager } from '../components/Pager';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { StatusBadge } from '../components/StatusBadge';
 import type { SortDir } from '../components/Th';
+import { Th } from '../components/Th';
 import { useAuth } from '../context/AuthContext';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 import type { CreditPlan, User } from '../types';
@@ -63,6 +64,7 @@ export default function UsersPage({ onNav, toast }: Props) {
   const isSuperAdmin = myRole === 'SUPER_ADMIN';
   const [query, setQuery] = useState('');
   const [merchantsOnly, setMerchantsOnly] = useState(false);
+  const [showBanned, setShowBanned] = useState(false);
   const [page, setPage] = useState(0);
   const [sortKey, setSortKey] = useState<keyof User>('createdAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -72,6 +74,11 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [detail, setDetail] = useState<User | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [confirmSuspend, setConfirmSuspend] = useState<string | null>(null);
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [deletingUser, setDeletingUser] = useState(false);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [grantUserId, setGrantUserId] = useState<string | null>(null);
   const [grantMode, setGrantMode] = useState<'grant' | 'deduct'>('grant');
   const [grantAmount, setGrantAmount] = useState('');
@@ -92,13 +99,13 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [savingMerchantEdit, setSavingMerchantEdit] = useState(false);
   const [togglingMerchant, setTogglingMerchant] = useState(false);
+  const [togglingDemoData, setTogglingDemoData] = useState(false);
   const [showCreateUser, setShowCreateUser] = useState(false);
   const [createUserForm, setCreateUserForm] = useState(EMPTY_CREATE_USER_FORM);
   const [creatingUser, setCreatingUser] = useState(false);
   const [createUserError, setCreateUserError] = useState('');
   const [resettingPassword, setResettingPassword] = useState(false);
   const [newPasswordInput, setNewPasswordInput] = useState('');
-  const [expandedUserId, _setExpandedUserId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -106,6 +113,7 @@ export default function UsersPage({ onNav, toast }: Props) {
       const params = new URLSearchParams({ page: String(page + 1), pageSize: String(PAGE_SIZE) });
       if (query) params.set('search', query);
       if (merchantsOnly) params.set('merchant', 'true');
+      if (showBanned) params.set('showBanned', 'true');
       const data = await apiFetch<{ items: User[]; total: number }>(`/admin/users?${params}`);
       setUsers(data.items);
       setTotal(data.total);
@@ -118,7 +126,7 @@ export default function UsersPage({ onNav, toast }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [page, query, merchantsOnly, toast]);
+  }, [page, query, merchantsOnly, showBanned, toast]);
 
   useEffect(() => {
     load();
@@ -135,10 +143,6 @@ export default function UsersPage({ onNav, toast }: Props) {
         }),
       );
   }, [toast]);
-
-  useEffect(() => {
-    if (detail) window.scrollTo(0, 0);
-  }, [detail]);
 
   const handleSearch = (q: string) => {
     setQuery(q);
@@ -157,11 +161,18 @@ export default function UsersPage({ onNav, toast }: Props) {
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
+  const handleSort = (k: keyof User) => {
+    if (k === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else {
+      setSortKey(k);
+      setSortDir('asc');
+    }
+  };
+
   const openDetail = async (u: User) => {
     setDetail(u);
     setSelectedTier(u.tier);
     setSelectedMaxDevices(String(u.maxActiveDevices ?? 1));
-
     setDetailLoading(true);
     try {
       const full = await apiFetch<User>(`/admin/users/${u.id}`);
@@ -217,13 +228,6 @@ export default function UsersPage({ onNav, toast }: Props) {
   const handleSuspendConfirm = async () => {
     if (!confirmSuspend || !detail) return;
     const willBan = !detail.isBanned;
-    if (detail.id.startsWith('usr_demo_')) {
-      setDetail({ ...detail, isBanned: willBan });
-      setUsers((prev) => prev.map((u) => (u.id === detail.id ? { ...u, isBanned: willBan } : u)));
-      toast({ title: `User ${willBan ? 'suspended' : 'unsuspended'}` });
-      setConfirmSuspend(null);
-      return;
-    }
     try {
       await apiFetch(`/admin/users/${detail.id}`, {
         method: 'PATCH',
@@ -242,19 +246,69 @@ export default function UsersPage({ onNav, toast }: Props) {
     setConfirmSuspend(null);
   };
 
+  const handleDeleteConfirm = async () => {
+    if (!confirmDelete) return;
+    const targetId = confirmDelete;
+    setDeletingUser(true);
+    try {
+      await apiFetch(`/admin/users/${targetId}`, { method: 'DELETE' });
+      if (detail?.id === targetId) setDetail(null);
+      toast({ title: 'User data erased' });
+      await load();
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Action failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setDeletingUser(false);
+      setConfirmDelete(null);
+    }
+  };
+
+  const handleBulkDeleteConfirm = async () => {
+    if (selectedUserIds.length === 0) return;
+    setBulkDeleting(true);
+    try {
+      const res = await apiFetch<{
+        succeeded: string[];
+        skipped: { id: string; reason: string }[];
+      }>('/admin/users/bulk-delete', {
+        method: 'POST',
+        body: JSON.stringify({ ids: selectedUserIds }),
+      });
+      const succLen = res.succeeded.length;
+      const skipLen = res.skipped.length;
+      toast({
+        title: `Erased ${succLen}, skipped ${skipLen}`,
+        body:
+          skipLen > 0
+            ? res.skipped
+                .map((s) => {
+                  const u = users.find((x) => x.id === s.id);
+                  return `${u ? (u.email ?? userLabel(u)) : s.id}: ${s.reason}`;
+                })
+                .join(', ')
+            : undefined,
+      });
+      setSelectedUserIds([]);
+      await load();
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Bulk delete failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setBulkDeleting(false);
+      setShowBulkDeleteConfirm(false);
+    }
+  };
+
   const handleTierSave = async () => {
     if (!detail || !selectedTier || selectedTier === detail.tier) return;
     setTierSaving(true);
-    if (detail.id.startsWith('usr_demo_')) {
-      setDetail((prev) => (prev ? { ...prev, tier: selectedTier } : null));
-      setUsers((prev) =>
-        prev.map((user) => (user.id === detail.id ? { ...user, tier: selectedTier } : user)),
-      );
-      toast({ title: 'User tier updated' });
-      setEditingAccountField(null);
-      setTierSaving(false);
-      return;
-    }
     try {
       await apiFetch(`/admin/users/${detail.id}`, {
         method: 'PATCH',
@@ -286,16 +340,6 @@ export default function UsersPage({ onNav, toast }: Props) {
     }
     if (maxActiveDevices === detail.maxActiveDevices) return;
     setDeviceLimitSaving(true);
-    if (detail.id.startsWith('usr_demo_')) {
-      setDetail((prev) => (prev ? { ...prev, maxActiveDevices } : null));
-      setUsers((prev) =>
-        prev.map((user) => (user.id === detail.id ? { ...user, maxActiveDevices } : user)),
-      );
-      toast({ title: 'Device limit updated' });
-      setEditingAccountField(null);
-      setDeviceLimitSaving(false);
-      return;
-    }
     try {
       await apiFetch(`/admin/users/${detail.id}`, {
         method: 'PATCH',
@@ -462,6 +506,26 @@ export default function UsersPage({ onNav, toast }: Props) {
       setTogglingMerchant(false);
     }
   }
+
+  async function handleToggleMerchantDemoData() {
+    if (!detail?.merchant) return;
+    setTogglingDemoData(true);
+    try {
+      await apiFetch(`/admin/merchants/${detail.merchant.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ demoData: !detail.merchant.demoData }),
+      });
+      toast({
+        title: `Demo data ${detail.merchant.demoData ? 'disabled' : 'enabled'}`,
+      });
+      await openDetail(detail);
+    } catch (err) {
+      toast({ kind: 'error', title: apiErrorMessage(err, 'Failed to update demo data access') });
+    } finally {
+      setTogglingDemoData(false);
+    }
+  }
+
   function openCreateUser() {
     setCreateUserForm(EMPTY_CREATE_USER_FORM);
     setCreateUserError('');
@@ -591,15 +655,6 @@ export default function UsersPage({ onNav, toast }: Props) {
                 disabled={adminActioning}
                 onClick={async () => {
                   setAdminActioning(true);
-                  if (u.id.startsWith('usr_demo_')) {
-                    setDetail((prev) => prev && { ...prev, isAdmin: false });
-                    setUsers((prev) =>
-                      prev.map((x) => (x.id === u.id ? { ...x, isAdmin: false } : x)),
-                    );
-                    toast({ title: `${userLabel(u)} admin access revoked` });
-                    setAdminActioning(false);
-                    return;
-                  }
                   try {
                     await apiFetch(`/admin/admin-users/${u.id}`, { method: 'DELETE' });
                     setDetail((prev) => prev && { ...prev, isAdmin: false });
@@ -626,6 +681,11 @@ export default function UsersPage({ onNav, toast }: Props) {
                 <Icon.Ban /> {u.isBanned ? 'Unsuspend' : 'Suspend'}
               </button>
             )}
+            {isSuperAdmin && !u.isAdmin && (
+              <button className="btn danger" onClick={() => setConfirmDelete(u.id)}>
+                <Icon.Trash /> Delete
+              </button>
+            )}
           </div>
         </div>
 
@@ -635,7 +695,7 @@ export default function UsersPage({ onNav, toast }: Props) {
           </p>
         ) : (
           <>
-            <div className="stat-grid">
+            <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
               <button className="stat" onClick={openPlanEditor} title="Change credit plan">
                 <div className="lbl">
                   <Icon.Credit /> Current plan
@@ -686,7 +746,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                 <h3>Account details</h3>
               </div>
               <div className="card-body">
-                <div className="kv-grid">
+                <div className="kv-grid" style={{ gridTemplateColumns: '112px 1fr' }}>
                   <KV k="Phone" v={u.phone ? `+91 ${u.phone}` : 'Not provided'} />
                   <KV
                     k="Authentication"
@@ -757,7 +817,10 @@ export default function UsersPage({ onNav, toast }: Props) {
                     </button>
                   </div>
                 ) : (
-                  <div className="kv-grid">
+                  <div
+                    className="kv-grid"
+                    style={{ gridTemplateColumns: 'auto 1fr auto 1fr auto 1fr', columnGap: 28 }}
+                  >
                     <KV
                       k="Status"
                       v={<StatusBadge status={u.merchant.isActive ? 'active' : 'inactive'} />}
@@ -774,9 +837,25 @@ export default function UsersPage({ onNav, toast }: Props) {
                       }
                     />
                     <KV
-                      k="Catalogue credits"
-                      v={(u.merchant.creditBalance ?? 0).toLocaleString()}
-                      mono
+                      k="Demo data"
+                      v={
+                        <label
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            cursor: isSuperAdmin && !togglingDemoData ? 'pointer' : 'not-allowed',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={u.merchant.demoData}
+                            disabled={!isSuperAdmin || togglingDemoData}
+                            onChange={() => void handleToggleMerchantDemoData()}
+                          />
+                          <span>{u.merchant.demoData ? 'Enabled' : 'Disabled'}</span>
+                        </label>
+                      }
                     />
                   </div>
                 )}
@@ -925,6 +1004,49 @@ export default function UsersPage({ onNav, toast }: Props) {
                 </button>
                 <button className="btn danger" onClick={handleSuspendConfirm}>
                   Confirm
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {confirmDelete && (
+          <div className="modal-overlay" onClick={() => setConfirmDelete(null)}>
+            <div className="modal confirm" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <h3>Delete user</h3>
+              </div>
+              <div className="modal-body">
+                <p>
+                  Permanently erase personal data for{' '}
+                  <strong>
+                    {(() => {
+                      const u = confirmDelete
+                        ? detail?.id === confirmDelete
+                          ? detail
+                          : users.find((x) => x.id === confirmDelete)
+                        : null;
+                      return u ? (u.email ?? userLabel(u)) : 'this user';
+                    })()}
+                  </strong>
+                  ? This cannot be undone. Their job and payment history will be retained but
+                  anonymized.
+                </p>
+              </div>
+              <div className="modal-foot">
+                <button
+                  className="btn ghost"
+                  onClick={() => setConfirmDelete(null)}
+                  disabled={deletingUser}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn danger"
+                  onClick={handleDeleteConfirm}
+                  disabled={deletingUser}
+                >
+                  {deletingUser ? 'Erasing…' : 'Confirm'}
                 </button>
               </div>
             </div>
@@ -1282,43 +1404,6 @@ export default function UsersPage({ onNav, toast }: Props) {
               onChange={(e) => handleSearch(e.target.value)}
             />
           </div>
-
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <span
-              className="sub"
-              style={{ fontSize: 13, whiteSpace: 'nowrap', color: 'var(--muted)' }}
-            >
-              Sort by:
-            </span>
-            <select
-              value={`${sortKey}-${sortDir}`}
-              onChange={(e) => {
-                const [key, dir] = e.target.value.split('-');
-                setSortKey(key as keyof User);
-                setSortDir(dir as SortDir);
-              }}
-              style={{
-                padding: '6px 12px',
-                borderRadius: 6,
-                border: '1px solid var(--border)',
-                background: 'var(--surface)',
-                color: 'var(--ink)',
-                fontSize: 13,
-                cursor: 'pointer',
-                outline: 'none',
-              }}
-            >
-              <option value="createdAt-desc">Newest Joined</option>
-              <option value="createdAt-asc">Oldest Joined</option>
-              <option value="displayName-asc">Name (A-Z)</option>
-              <option value="displayName-desc">Name (Z-A)</option>
-              <option value="balance-desc">Highest Credits</option>
-              <option value="balance-asc">Lowest Credits</option>
-              <option value="totalJobs-desc">Most Jobs</option>
-              <option value="lastJobAt-desc">Recent Activity</option>
-            </select>
-          </div>
-
           <button className="btn" onClick={openCreateUser}>
             <Icon.Plus /> Create User
           </button>
@@ -1352,53 +1437,197 @@ export default function UsersPage({ onNav, toast }: Props) {
         </p>
       ) : (
         <>
-          {/* ── Desktop table ───────────────────────────────────── */}
-          <div className="desktop-only table-wrap">
+          <div
+            style={{
+              display: 'flex',
+              gap: 8,
+              alignItems: 'center',
+              padding: '10px 0',
+              marginBottom: 4,
+              flexWrap: 'wrap',
+            }}
+          >
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 13,
+                color: 'var(--muted)',
+                cursor: 'pointer',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={showBanned}
+                onChange={(e) => {
+                  setShowBanned(e.target.checked);
+                  setPage(0);
+                }}
+              />
+              Show suspended/deleted
+            </label>
+            {(() => {
+              const pagedUserIds = sorted.map((u) => u.id);
+              const pageSelected =
+                pagedUserIds.length > 0 && pagedUserIds.every((id) => selectedUserIds.includes(id));
+              return (
+                <button
+                  className="btn sm ghost"
+                  onClick={() => {
+                    setSelectedUserIds((prev) =>
+                      pageSelected
+                        ? prev.filter((id) => !pagedUserIds.includes(id))
+                        : [...new Set([...prev, ...pagedUserIds])],
+                    );
+                  }}
+                >
+                  {pageSelected ? 'Deselect page' : 'Select page'}
+                </button>
+              );
+            })()}
+            {selectedUserIds.length > 0 && (
+              <>
+                <span style={{ fontSize: 13, color: 'var(--muted)' }}>
+                  {selectedUserIds.length} selected
+                </span>
+                {isSuperAdmin && (
+                  <button className="btn sm danger" onClick={() => setShowBulkDeleteConfirm(true)}>
+                    Delete selected ({selectedUserIds.length})
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+
+          <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>User</th>
-                  <th>Plan</th>
-                  <th>Balance</th>
-                  <th>Jobs</th>
-                  <th>Joined</th>
-                  <th>Status</th>
-                  <th />
+                  <th style={{ width: 36 }} />
+                  <Th k="displayName" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                    User
+                  </Th>
+                  <Th k="tier" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                    Plan
+                  </Th>
+                  <th>Access</th>
+                  <th>Signup</th>
+                  <Th k="balance" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                    Credits
+                  </Th>
+                  <Th k="totalJobs" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                    Jobs
+                  </Th>
+                  <Th k="lastJobAt" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                    Last activity
+                  </Th>
+                  <Th k="createdAt" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                    Joined
+                  </Th>
+                  <Th k="isBanned" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                    Status
+                  </Th>
+                  <th aria-label="Open user"></th>
                 </tr>
               </thead>
               <tbody>
                 {sorted.map((u) => (
                   <tr
                     key={u.id}
-                    onClick={() => void openDetail(u)}
-                    style={{ cursor: 'pointer', opacity: u.isBanned ? 0.55 : 1 }}
+                    onClick={() => openDetail(u)}
+                    style={{ cursor: 'pointer', opacity: u.isBanned ? 0.6 : 1 }}
                   >
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedUserIds.includes(u.id)}
+                        onChange={(e) =>
+                          setSelectedUserIds((prev) =>
+                            e.target.checked ? [...prev, u.id] : prev.filter((x) => x !== u.id),
+                          )
+                        }
+                      />
+                    </td>
                     <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 220 }}
+                      >
                         <NameAvatar name={userLabel(u)} email={u.email ?? undefined} size={32} />
-                        <div>
-                          <div className="semi" style={{ fontSize: 14 }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div
+                            className="semi"
+                            style={{
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
                             {userLabel(u)}
                           </div>
-                          <div className="sub" style={{ fontSize: 11 }}>
-                            {userContact(u)}
-                          </div>
+                          {u.displayName && (
+                            <div
+                              className="sub"
+                              style={{
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {userContact(u)}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </td>
                     <td>
-                      <span style={{ textTransform: 'capitalize', fontSize: 13 }}>{u.tier}</span>
-                    </td>
-                    <td>
-                      <span className="mono">{u.balance.toLocaleString()}</span>
-                    </td>
-                    <td>
-                      <span className="mono">{(u.totalJobs ?? 0).toLocaleString()}</span>
-                    </td>
-                    <td>
-                      <span className="sub" style={{ fontSize: 13 }}>
-                        {new Date(u.createdAt).toLocaleDateString()}
+                      <span className="badge" style={{ textTransform: 'capitalize' }}>
+                        {u.tier}
                       </span>
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {u.isAdmin && (
+                          <span className="badge accent">
+                            {u.adminRole === 'SUPER_ADMIN' ? 'Super Admin' : 'Admin'}
+                          </span>
+                        )}
+                        {u.isMerchant && <span className="badge success">Merchant</span>}
+                        {u.hasShopifyStore && <span className="badge success">Shopify</span>}
+                        {!u.hasPassword && <span className="badge info">Google</span>}
+                        {!u.isAdmin && !u.isMerchant && u.hasPassword && (
+                          <span className="sub">Standard</span>
+                        )}
+                      </div>
+                    </td>
+                    <td>
+                      {u.isMerchant ? (
+                        u.signupSource === 'android_google' ? (
+                          <span className="badge warn">Self-signup</span>
+                        ) : (
+                          <span className="badge">Admin</span>
+                        )
+                      ) : (
+                        <span className="sub">&mdash;</span>
+                      )}
+                    </td>
+                    <td>
+                      <span className="mono" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                        {u.balance.toLocaleString()}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="mono" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                        {(u.totalJobs ?? 0).toLocaleString()}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="sub">
+                        {u.lastJobAt ? new Date(u.lastJobAt).toLocaleDateString() : 'No activity'}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="sub">{new Date(u.createdAt).toLocaleDateString()}</span>
                     </td>
                     <td>
                       {u.isBanned ? (
@@ -1408,7 +1637,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                       )}
                     </td>
                     <td>
-                      <span style={{ color: 'var(--muted-2)', display: 'inline-flex' }}>
+                      <span style={{ color: 'var(--muted-2)' }} aria-hidden="true">
                         <Icon.Chevron />
                       </span>
                     </td>
@@ -1417,8 +1646,8 @@ export default function UsersPage({ onNav, toast }: Props) {
                 {sorted.length === 0 && (
                   <tr>
                     <td
-                      colSpan={7}
-                      style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}
+                      colSpan={11}
+                      style={{ textAlign: 'center', color: 'var(--muted)', padding: '2.5rem' }}
                     >
                       No users found.
                     </td>
@@ -1426,240 +1655,6 @@ export default function UsersPage({ onNav, toast }: Props) {
                 )}
               </tbody>
             </table>
-          </div>
-
-          {/* ── Mobile/Tablet accordion cards ────────────────────── */}
-          <div className="mobile-only">
-            {sorted.map((u) => {
-              const isExpanded = expandedUserId === u.id;
-              return (
-                <div
-                  key={u.id}
-                  className="card"
-                  style={{
-                    padding: 0,
-                    overflow: 'hidden',
-                    opacity: u.isBanned ? 0.6 : 1,
-                    border: '1px solid var(--border)',
-                    borderRadius: 8,
-                    background: 'var(--surface)',
-                  }}
-                >
-                  <button
-                    type="button"
-                    onClick={() => void openDetail(u)}
-                    style={{
-                      padding: '12px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      cursor: 'pointer',
-                      userSelect: 'none',
-                      background: 'none',
-                      border: 'none',
-                      width: '100%',
-                      textAlign: 'left',
-                      color: 'inherit',
-                      fontFamily: 'inherit',
-                      fontSize: 'inherit',
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 10,
-                        minWidth: 0,
-                        flex: 1,
-                      }}
-                    >
-                      <NameAvatar name={userLabel(u)} email={u.email ?? undefined} size={32} />
-                      <div style={{ minWidth: 0, flex: 1 }}>
-                        <div
-                          className="semi"
-                          style={{
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            fontSize: 14,
-                          }}
-                        >
-                          {userLabel(u)}
-                        </div>
-                        {u.displayName && (
-                          <div
-                            className="sub"
-                            style={{
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                              fontSize: 11,
-                              color: 'var(--muted)',
-                            }}
-                          >
-                            {userContact(u)}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 8 }}>
-                      {u.isBanned ? (
-                        <span className="badge danger dot">Suspended</span>
-                      ) : (
-                        <span className="badge success dot">Active</span>
-                      )}
-                      <span
-                        style={{
-                          color: 'var(--muted-2)',
-                          transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                          transition: 'transform 0.2s',
-                          display: 'inline-flex',
-                        }}
-                      >
-                        <Icon.Chevron />
-                      </span>
-                    </div>
-                  </button>
-
-                  {isExpanded && (
-                    <div
-                      style={{
-                        padding: '12px',
-                        borderTop: '1px solid var(--border)',
-                        background: 'var(--bg-2, #fafafa)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 10,
-                        fontSize: 13,
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                        }}
-                      >
-                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Plan</span>
-                        <span className="badge" style={{ textTransform: 'capitalize' }}>
-                          {u.tier}
-                        </span>
-                      </div>
-
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                        }}
-                      >
-                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Access</span>
-                        <div
-                          style={{
-                            display: 'flex',
-                            gap: 4,
-                            flexWrap: 'wrap',
-                            justifyContent: 'flex-end',
-                          }}
-                        >
-                          {u.isAdmin && (
-                            <span className="badge accent">
-                              {u.adminRole === 'SUPER_ADMIN' ? 'Super Admin' : 'Admin'}
-                            </span>
-                          )}
-                          {u.isMerchant && <span className="badge success">Merchant</span>}
-                          {u.hasShopifyStore && <span className="badge success">Shopify</span>}
-                          {!u.hasPassword && <span className="badge info">Google</span>}
-                          {!u.isAdmin && !u.isMerchant && u.hasPassword && (
-                            <span className="sub" style={{ fontSize: 11 }}>
-                              Standard
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                        }}
-                      >
-                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Credits</span>
-                        <span
-                          className="mono"
-                          style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}
-                        >
-                          {u.balance.toLocaleString()}
-                        </span>
-                      </div>
-
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                        }}
-                      >
-                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Jobs</span>
-                        <span className="mono" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                          {(u.totalJobs ?? 0).toLocaleString()}
-                        </span>
-                      </div>
-
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                        }}
-                      >
-                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>
-                          Last activity
-                        </span>
-                        <span className="sub">
-                          {u.lastJobAt ? new Date(u.lastJobAt).toLocaleDateString() : 'No activity'}
-                        </span>
-                      </div>
-
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                        }}
-                      >
-                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Joined</span>
-                        <span className="sub">{new Date(u.createdAt).toLocaleDateString()}</span>
-                      </div>
-
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
-                        <button
-                          className="btn sm primary"
-                          onClick={() => openDetail(u)}
-                          style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                        >
-                          <Icon.User /> Manage Account
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-            {sorted.length === 0 && (
-              <div
-                style={{
-                  textAlign: 'center',
-                  color: 'var(--muted)',
-                  padding: '2.5rem',
-                  border: '1.5px dashed var(--border)',
-                  borderRadius: 8,
-                }}
-              >
-                No users found.
-              </div>
-            )}
           </div>
 
           <Pager
@@ -1753,6 +1748,63 @@ export default function UsersPage({ onNav, toast }: Props) {
                 disabled={creatingUser}
               >
                 {creatingUser ? 'Creating…' : 'Create User'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showBulkDeleteConfirm && (
+        <div className="modal-overlay" onClick={() => setShowBulkDeleteConfirm(false)}>
+          <div className="modal confirm" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Delete selected users</h3>
+            </div>
+            <div className="modal-body">
+              <p>
+                Permanently erase personal data for {selectedUserIds.length} selected user
+                {selectedUserIds.length > 1 ? 's' : ''}? This cannot be undone. Their job and
+                payment history will be retained but anonymized.
+              </p>
+              <ul
+                style={{
+                  maxHeight: 180,
+                  overflowY: 'auto',
+                  margin: '8px 0',
+                  paddingLeft: 20,
+                  fontSize: 13,
+                }}
+              >
+                {selectedUserIds.slice(0, 10).map((id) => {
+                  const uObj = users.find((x) => x.id === id);
+                  const label = uObj ? (uObj.email ?? userLabel(uObj)) : id;
+                  return (
+                    <li key={id}>
+                      <strong>{label}</strong>
+                    </li>
+                  );
+                })}
+                {selectedUserIds.length > 10 && (
+                  <li style={{ fontStyle: 'italic', color: 'var(--muted)' }}>
+                    and {selectedUserIds.length - 10} more
+                  </li>
+                )}
+              </ul>
+            </div>
+            <div className="modal-foot">
+              <button
+                className="btn ghost"
+                onClick={() => setShowBulkDeleteConfirm(false)}
+                disabled={bulkDeleting}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn danger"
+                onClick={handleBulkDeleteConfirm}
+                disabled={bulkDeleting}
+              >
+                {bulkDeleting ? 'Erasing…' : 'Confirm'}
               </button>
             </div>
           </div>

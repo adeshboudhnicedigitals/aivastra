@@ -1,9 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
+import { JOB_SOURCE } from '@aivastra/types';
 import type { FastifyInstance } from 'fastify';
 import { atomicMerchantDeduct } from '../merchant/ledger.js';
-
-export const KIOSK_JOB_COST = 10;
 
 interface CreateKioskJobInput {
   merchantId: string;
@@ -30,7 +29,7 @@ export async function createKioskJob(
       customerPhotoKey: input.customerPhotoKey,
       status: 'QUEUED',
       creditsCharged: input.cost,
-      source: 'kiosk',
+      source: JOB_SOURCE.KIOSK,
     });
 
     // biome-ignore lint/suspicious/noExplicitAny: same - face/bg/pose are nullable in SQL but Drizzle types them non-null.

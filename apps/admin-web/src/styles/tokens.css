@@ -149,8 +149,7 @@ body {
 }
 
 body {
-  min-width: 0;
-  overflow-x: hidden;
+  min-width: 1024px;
 }
 
 button {
@@ -485,28 +484,6 @@ svg {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.topbar-hamburger {
-  width: 34px;
-  height: 34px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
-  border-radius: var(--r);
-  color: var(--ink);
-  flex-shrink: 0;
-  cursor: pointer;
-}
-.topbar-hamburger svg {
-  width: 16px;
-  height: 16px;
-}
-.topbar-hamburger:hover {
-  background: var(--surface-hover);
-  border-color: var(--border-strong);
 }
 .kbar {
   display: flex;

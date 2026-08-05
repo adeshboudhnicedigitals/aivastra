@@ -41,7 +41,7 @@ describe('POST /v1/jobs/catalog-video', () => {
       .values({ userId, balance })
       .onConflictDoUpdate({ target: schema.userCredits.userId, set: { balance } });
   }
-  async function sourceJob(userId: string) {
+  async function sourceJob(userId: string, resultKey?: string) {
     const [job] = await app.db
       .insert(schema.jobs)
       .values({ userId, status: 'COMPLETED', creditsCharged: 25 })
@@ -49,7 +49,7 @@ describe('POST /v1/jobs/catalog-video', () => {
     await app.db.insert(schema.jobInputs).values({ jobId: job.id });
     await app.db
       .insert(schema.jobOutputs)
-      .values({ jobId: job.id, resultKey: keys.output(job.id) });
+      .values({ jobId: job.id, resultKey: resultKey ?? keys.output(job.id) });
     return job.id;
   }
   async function activeSample() {
@@ -104,6 +104,33 @@ describe('POST /v1/jobs/catalog-video', () => {
     });
     expect(await app.redis.xlen('jobs:video')).toBeGreaterThanOrEqual(1);
     expect(await app.redis.xlen('jobs:normal')).toBe(0);
+  });
+  // Tryon-direct results (source='tryon'/'api_tryon') are stored WebP-encoded
+  // (see apps/dispatcher/src/workflow/finalize.ts) — sourceImageKey must come
+  // from the source job's actual job_outputs.resultKey, not a reconstructed
+  // keys.output(sourceJobId), or PixVerse would be pointed at a .png key that
+  // was never uploaded.
+  it('uses the source job stored resultKey as sourceImageKey — not a reconstructed .png key', async () => {
+    const { token, userId } = await registerUser('cv-webp-source@x.com');
+    await grantCredits(userId, 200);
+    const webpResultKey = 'outputs/some-prior-tryon-job/result.webp';
+    const sourceJobId = await sourceJob(userId, webpResultKey);
+    const sampleVideoId = await activeSample();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/catalog-video',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { sourceJobId, sampleVideoId },
+    });
+    expect(res.statusCode).toBe(201);
+    const { jobId } = res.json();
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, jobId));
+    const params = inputs.params as Record<string, unknown>;
+    expect(params.sourceImageKey).toBe(webpResultKey);
+    expect(params.sourceImageKey).not.toBe(keys.output(sourceJobId));
   });
   it('rejects with FORBIDDEN when sourceJobId belongs to another user', async () => {
     const { userId: owner } = await registerUser('cv-owner@x.com');

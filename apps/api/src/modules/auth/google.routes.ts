@@ -1,9 +1,11 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import { and, eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { resolveCampaignId } from './campaign.js';
+import { resolveFreeCredits, upsertGoogleUser } from './google-upsert.js';
 import { createSessionTokens } from './tokens.js';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -29,7 +31,7 @@ export async function googleAuthRoutes(app: FastifyInstance) {
     // the merchant/shopper account-link flow, which relies on the popup
     // posting back to window.opener after this OAuth round trip completes.
     reply.header('Cross-Origin-Opener-Policy', 'unsafe-none');
-    const { next } = req.query as { next?: string };
+    const { next, src } = req.query as { next?: string; src?: string };
     const state = randomBytes(32).toString('base64url');
     reply.setCookie('google_state', state, {
       httpOnly: true,
@@ -52,6 +54,18 @@ export async function googleAuthRoutes(app: FastifyInstance) {
         signed: false,
       });
     }
+    if (src) {
+      reply.setCookie('google_src', encodeURIComponent(src), {
+        httpOnly: true,
+        secure: app.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/v1/auth/google',
+        maxAge: 300,
+        signed: false,
+      });
+    } else {
+      reply.clearCookie('google_src', { path: '/v1/auth/google' });
+    }
     const url = new URL(GOOGLE_AUTH_URL);
     url.searchParams.set('client_id', clientId);
     url.searchParams.set('redirect_uri', callbackUrl);
@@ -67,6 +81,7 @@ export async function googleAuthRoutes(app: FastifyInstance) {
     const { code, state } = req.query as { code?: string; state?: string };
     const storedState = req.cookies.google_state;
     const next = req.cookies.google_next ? decodeURIComponent(req.cookies.google_next) : undefined;
+    const src = req.cookies.google_src ? decodeURIComponent(req.cookies.google_src) : undefined;
 
     if (!code || !state || !storedState || state !== storedState) {
       throw new AppError('INVALID_STATE', 400, 'invalid OAuth state');
@@ -74,6 +89,7 @@ export async function googleAuthRoutes(app: FastifyInstance) {
 
     reply.clearCookie('google_state', { path: '/v1/auth/google' });
     if (next) reply.clearCookie('google_next', { path: '/v1/auth/google' });
+    if (src) reply.clearCookie('google_src', { path: '/v1/auth/google' });
 
     // Exchange code for Google access token
     const tokenRes = await fetch(GOOGLE_TOKEN_URL, {
@@ -104,117 +120,21 @@ export async function googleAuthRoutes(app: FastifyInstance) {
       picture?: string;
     };
 
-    const [freePlan] = await app.db
-      .select({ credits: schema.creditPlans.credits })
-      .from(schema.creditPlans)
-      .where(and(eq(schema.creditPlans.slug, 'free'), eq(schema.creditPlans.isActive, true)));
-    const freeCredits = freePlan?.credits ?? 0;
-
-    // Upsert user in a transaction
     const userId = await app.db.transaction(async (tx) => {
-      // 1. Find existing OAuth link
-      const [existing] = await tx
-        .select({ userId: schema.oauthAccounts.userId })
-        .from(schema.oauthAccounts)
-        .where(
-          and(
-            eq(schema.oauthAccounts.provider, 'google'),
-            eq(schema.oauthAccounts.providerId, googleUser.sub),
-          ),
-        );
-
-      if (existing) {
-        await tx
-          .update(schema.oauthAccounts)
-          .set({ displayName: googleUser.name, avatarUrl: googleUser.picture })
-          .where(
-            and(
-              eq(schema.oauthAccounts.provider, 'google'),
-              eq(schema.oauthAccounts.providerId, googleUser.sub),
-            ),
-          );
-        const [user] = await tx
-          .select({ isBanned: schema.users.isBanned })
-          .from(schema.users)
-          .where(eq(schema.users.id, existing.userId));
-        if (user?.isBanned) throw new AppError('BANNED', 403, 'account banned');
-        // Ensure emailVerified on every Google login (handles pre-existing unverified accounts)
-        await tx
-          .update(schema.users)
-          .set({ emailVerified: true })
-          .where(eq(schema.users.id, existing.userId));
-        return existing.userId;
-      }
-
-      // 2. Find user by email (link Google to existing account)
-      let uid: string;
-      const [byEmail] = await tx
-        .select({ id: schema.users.id, isBanned: schema.users.isBanned })
-        .from(schema.users)
-        .where(eq(schema.users.email, googleUser.email));
-
-      if (byEmail) {
-        if (byEmail.isBanned) throw new AppError('BANNED', 403, 'account banned');
-        uid = byEmail.id;
-        // Mark email as verified — Google confirmed ownership
-        await tx.update(schema.users).set({ emailVerified: true }).where(eq(schema.users.id, uid));
-      } else {
-        // 3. Create new user — Google accounts are pre-verified
-        const [newUser] = await tx
-          .insert(schema.users)
-          .values({
-            email: googleUser.email,
-            passwordHash: null,
-            displayName: googleUser.name ?? null,
-            companyName: null,
-            emailVerified: true,
-            tier: 'free',
-          })
-          .returning({ id: schema.users.id });
-        uid = newUser?.id;
-        await tx.insert(schema.userCredits).values({ userId: uid, balance: 0 });
-        if (freeCredits > 0) {
-          await tx
-            .update(schema.userCredits)
-            .set({
-              balance: sql`${schema.userCredits.balance} + ${freeCredits}`,
-              updatedAt: new Date(),
-            })
-            .where(eq(schema.userCredits.userId, uid));
-          await tx
-            .insert(schema.creditLedger)
-            .values({ userId: uid, delta: freeCredits, reason: 'FREE_TRIAL' });
-        }
-      }
-
-      // 4. Create OAuth link (onConflictDoNothing guards against concurrent inserts)
-      await tx
-        .insert(schema.oauthAccounts)
-        .values({
-          userId: uid,
-          provider: 'google',
-          providerId: googleUser.sub,
-          email: googleUser.email,
-          displayName: googleUser.name ?? null,
-          avatarUrl: googleUser.picture ?? null,
-        })
-        .onConflictDoNothing();
-
-      // Re-fetch the actual linked userId — handles the rare case where a concurrent
-      // request already inserted the same (provider, providerId) pair.
-      const [linked] = await tx
-        .select({ userId: schema.oauthAccounts.userId })
-        .from(schema.oauthAccounts)
-        .where(
-          and(
-            eq(schema.oauthAccounts.provider, 'google'),
-            eq(schema.oauthAccounts.providerId, googleUser.sub),
-          ),
-        );
-
-      return linked?.userId;
+      const campaignId = await resolveCampaignId(tx, src);
+      const freeCredits = await resolveFreeCredits(tx, campaignId);
+      return upsertGoogleUser(
+        tx,
+        {
+          sub: googleUser.sub,
+          email: googleUser.email.toLowerCase(),
+          name: googleUser.name,
+          picture: googleUser.picture,
+        },
+        freeCredits,
+        campaignId,
+      );
     });
-
     // Issue one-time OTP for web handoff
     const otp = randomUUID();
     await app.redis.set(`oauth:otp:${otp}`, userId, 'EX', 60);

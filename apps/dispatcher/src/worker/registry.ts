@@ -1,3 +1,4 @@
+import type { WorkerPool } from '@aivastra/types';
 import type { Redis } from 'ioredis';
 
 export type WorkerStatus = 'IDLE' | 'BUSY' | 'DRAINING';
@@ -7,7 +8,7 @@ export interface WorkerEntry {
   apiKey: string;
   status: WorkerStatus;
   lastSeen: number; // unix ms
-  allowedJobTypes: string[]; // empty = accept all
+  allowedJobTypes: WorkerPool[]; // empty = accept all
 }
 
 export const REGISTRY_KEY = 'worker:registry';
@@ -44,7 +45,7 @@ export async function setWorkerStatus(
 
 export async function registerWorkers(
   redis: Redis,
-  workers: Array<{ id: string; url: string; apiKey: string; allowedJobTypes?: string[] }>,
+  workers: Array<{ id: string; url: string; apiKey: string; allowedJobTypes?: WorkerPool[] }>,
 ): Promise<void> {
   // Remove stale entries: any worker in Redis but not in the DB list is deleted.
   // This prevents old env-var workers from lingering after being removed from the DB.

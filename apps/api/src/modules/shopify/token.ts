@@ -160,6 +160,74 @@ export async function refreshAccessToken(
 }
 
 /**
+ * Trade an App Bridge session token for an offline access token.
+ *
+ * This is the managed-installation counterpart to the authorization-code grant
+ * in `/v1/shopify/auth/callback`. Under managed installation Shopify performs
+ * the install and the scope grant itself, without calling the app at all — so
+ * there is no `code` to redeem and no OAuth redirect to run. The first
+ * authenticated request from the embedded app arrives carrying a session token,
+ * and that token is the proof of install we exchange for real API credentials.
+ *
+ * Offline (not online) because every consumer here outlives the merchant's
+ * browser session: background product syncs, webhook handlers, the storefront
+ * widget. `expiring: 1` matches the callback path — Shopify rejects
+ * non-expiring offline tokens as of API 2026-07 — so the response carries the
+ * refresh half that `refreshAccessToken` later depends on.
+ */
+export async function exchangeSessionToken(
+  app: FastifyInstance,
+  shopDomain: string,
+  sessionToken: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ grant: TokenGrant; scope: string }> {
+  const attempts = 3;
+  let lastStatus = 0;
+
+  for (let i = 0; i < attempts; i++) {
+    let res: Response;
+    try {
+      res = await fetchImpl(`https://${shopDomain}/admin/oauth/access_token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_id: app.env.SHOPIFY_API_KEY,
+          client_secret: app.env.SHOPIFY_API_SECRET,
+          grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+          subject_token: sessionToken,
+          subject_token_type: 'urn:ietf:params:oauth:token-type:id_token',
+          requested_token_type: 'urn:shopify:params:oauth:token-type:offline-access-token',
+          expiring: 1,
+        }),
+      });
+    } catch (err) {
+      if (i === attempts - 1) throw err;
+      await sleep(REFRESH_LOCK_WAIT_MS * (i + 1));
+      continue;
+    }
+
+    if (res.ok) {
+      const body = (await res.json()) as TokenResponse;
+      return { grant: toTokenGrant(body), scope: body.scope ?? '' };
+    }
+
+    lastStatus = res.status;
+    // Shopify answers 400 when the session token is expired or otherwise
+    // invalid. That is a client-side problem the frontend fixes by asking App
+    // Bridge for a fresh token, not something a retry here can resolve.
+    if (res.status < 500) break;
+    if (i < attempts - 1) await sleep(REFRESH_LOCK_WAIT_MS * (i + 1));
+  }
+
+  app.log.error({ shopDomain, status: lastStatus }, 'shopify token exchange failed');
+  throw new AppError(
+    'SHOPIFY_REAUTH_REQUIRED',
+    403,
+    'This store needs to reauthorize AiVastra to grant updated permissions',
+  );
+}
+
+/**
  * Decrypted access token for `store`, refreshed first if it is at or near
  * expiry.
  *

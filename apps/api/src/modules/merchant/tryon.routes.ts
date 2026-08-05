@@ -7,6 +7,8 @@ import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 import { createMerchantTryonJob } from './create-tryon-job.js';
+import { merchantRefund } from './ledger.js';
+import { resolveTryonGarment } from './resolve-tryon-garment.js';
 
 async function loadOwnedJob(app: FastifyInstance, merchantId: string, id: string) {
   const [job] = await app.db
@@ -124,53 +126,8 @@ export async function merchantTryonRoutes(app: FastifyInstance) {
         typeof MerchantTryonJobCreateBody
       >;
 
-      const [item] = await app.db
-        .select({
-          id: schema.merchantCatalogItems.id,
-          merchantId: schema.merchantCatalogItems.merchantId,
-          r2Key: schema.merchantCatalogItems.r2Key,
-          isActive: schema.merchantCatalogItems.isActive,
-          moderationStatus: schema.merchantCatalogItems.moderationStatus,
-          workflowTemplateId: schema.tryonCategories.workflowTemplateId,
-          tryonCategoryIsActive: schema.tryonCategories.isActive,
-          workflowTemplateIsActive: schema.workflowTemplates.isActive,
-        })
-        .from(schema.merchantCatalogItems)
-        .innerJoin(
-          schema.merchantCatalogSubcategories,
-          eq(schema.merchantCatalogSubcategories.id, schema.merchantCatalogItems.subcategoryId),
-        )
-        .leftJoin(
-          schema.garmentSubcategories,
-          eq(
-            schema.garmentSubcategories.id,
-            schema.merchantCatalogSubcategories.garmentSubcategoryId,
-          ),
-        )
-        .leftJoin(
-          schema.tryonCategories,
-          eq(schema.tryonCategories.id, schema.garmentSubcategories.tryonCategoryId),
-        )
-        .leftJoin(
-          schema.workflowTemplates,
-          eq(schema.workflowTemplates.id, schema.tryonCategories.workflowTemplateId),
-        )
-        .where(eq(schema.merchantCatalogItems.id, merchantCatalogItemId))
-        .limit(1);
+      const garment = await resolveTryonGarment(app, merchantId, merchantCatalogItemId);
 
-      if (!item || item.merchantId !== merchantId) {
-        throw new AppError('NOT_FOUND', 404, 'catalog item not found');
-      }
-      if (!item.isActive || item.moderationStatus !== 'approved') {
-        throw new AppError('FORBIDDEN', 403, 'catalog item is not available');
-      }
-      if (
-        !item.workflowTemplateId ||
-        !item.tryonCategoryIsActive ||
-        !item.workflowTemplateIsActive
-      ) {
-        throw new AppError('VALIDATION', 400, 'garment type has no tryon category configured');
-      }
       if (!customerPhotoKey.startsWith(`merchant-inputs/${merchantId}/`)) {
         throw new AppError('FORBIDDEN', 403, 'customer photo key does not belong to this merchant');
       }
@@ -205,9 +162,9 @@ export async function merchantTryonRoutes(app: FastifyInstance) {
       const jobId = await createMerchantTryonJob(app, {
         merchantId,
         merchantUserId: merchant.userId,
-        upperGarmentKey: item.r2Key,
+        upperGarmentKey: garment.r2Key,
         customerPhotoKey,
-        workflowTemplateId: item.workflowTemplateId,
+        workflowTemplateId: garment.workflowTemplateId,
       });
 
       reply.code(201);
@@ -241,7 +198,11 @@ export async function merchantTryonRoutes(app: FastifyInstance) {
         throw new AppError('NOT_CANCELLABLE', 409, 'job is already being processed');
       }
 
-      await app.db.update(schema.jobs).set({ status: 'CANCELLED' }).where(eq(schema.jobs.id, id));
+      await app.db.transaction(async (tx) => {
+        await tx.update(schema.jobs).set({ status: 'CANCELLED' }).where(eq(schema.jobs.id, id));
+        // biome-ignore lint/suspicious/noExplicitAny: tx type narrowing loses custom methods in the widget ledger helper.
+        await merchantRefund(tx as any, merchantId, job.creditsCharged, id, 'REFUND_CANCELLED');
+      });
 
       const evt = JSON.stringify({ type: 'STATUS', jobId: id, status: 'CANCELLED' });
       await app.redis.publish(`sse:events:widget:${merchantId}`, evt);

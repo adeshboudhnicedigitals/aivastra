@@ -94,4 +94,88 @@ describe('admin shopify funnel templates CRUD', () => {
     expect(res.statusCode).toBe(409);
     expect(res.json().error.message).toContain('dup-slug');
   });
+
+  it('promotes a template to default and demotes the previous one atomically', async () => {
+    const first = await app.inject({
+      method: 'POST',
+      url: '/admin/shopify/funnel-templates',
+      headers: adminHeaders,
+      payload: { slug: 'default-a', label: 'A', workflowTemplateId, sortOrder: 0, isDefault: true },
+    });
+    expect(first.statusCode).toBe(200);
+    expect(first.json().isDefault).toBe(true);
+
+    const second = await app.inject({
+      method: 'POST',
+      url: '/admin/shopify/funnel-templates',
+      headers: adminHeaders,
+      payload: { slug: 'default-b', label: 'B', workflowTemplateId, sortOrder: 1, isDefault: true },
+    });
+    expect(second.statusCode).toBe(200);
+
+    const rows = await app.db
+      .select()
+      .from(schema.shopifyFunnelTemplates)
+      .where(eq(schema.shopifyFunnelTemplates.isDefault, true));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].id).toBe(second.json().id);
+  });
+
+  it('refuses to clear the last default', async () => {
+    const [current] = await app.db
+      .select()
+      .from(schema.shopifyFunnelTemplates)
+      .where(eq(schema.shopifyFunnelTemplates.isDefault, true));
+    expect(current).toBeDefined();
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/admin/shopify/funnel-templates/${current.id}`,
+      headers: adminHeaders,
+      payload: { isDefault: false },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.message).toContain('default');
+
+    const [still] = await app.db
+      .select()
+      .from(schema.shopifyFunnelTemplates)
+      .where(eq(schema.shopifyFunnelTemplates.id, current.id));
+    expect(still.isDefault).toBe(true);
+  });
+
+  it('refuses to deactivate the current default', async () => {
+    const [current] = await app.db
+      .select()
+      .from(schema.shopifyFunnelTemplates)
+      .where(eq(schema.shopifyFunnelTemplates.isDefault, true));
+    expect(current).toBeDefined();
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/admin/shopify/funnel-templates/${current.id}`,
+      headers: adminHeaders,
+      payload: { isActive: false },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.message).toContain('default');
+    expect(res.json().error.message).toContain('active');
+
+    const [still] = await app.db
+      .select()
+      .from(schema.shopifyFunnelTemplates)
+      .where(eq(schema.shopifyFunnelTemplates.id, current.id));
+    expect(still.isDefault).toBe(true);
+    expect(still.isActive).toBe(true);
+  });
+
+  it('reports whether a default exists so admin can surface it', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/shopify/funnel-templates',
+      headers: adminHeaders,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().hasDefault).toBe(true);
+  });
 });

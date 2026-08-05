@@ -200,11 +200,11 @@ export interface UserMerchant {
   phone: string;
   businessAddress: string;
   isActive: boolean;
+  demoData: boolean;
   kioskEnabled: boolean;
   maxKioskDevices: number;
   logoKey: string | null;
   logoUrl: string | null;
-  creditBalance: number | null;
 }
 
 export interface User {
@@ -222,6 +222,8 @@ export interface User {
   hasPassword: boolean;
   hasShopifyStore: boolean;
   isMerchant?: boolean;
+  signupSource?: 'admin' | 'android_google' | null;
+  demoData?: boolean | null;
   balance: number;
   totalJobs: number;
   lastJobAt: string | null;
@@ -238,18 +240,6 @@ export interface User {
   }[];
   merchant?: UserMerchant | null;
 }
-
-export type JobType =
-  | 'catalog'
-  | 'tryon'
-  | 'saree'
-  | 'saree_mannequin'
-  | 'shopify'
-  | 'merchant_tryon'
-  | 'kiosk'
-  | 'merchant_catalog'
-  | 'merchant_catalog_saree_mannequin'
-  | 'api';
 
 export type JobStatus =
   | 'QUEUED'
@@ -332,6 +322,18 @@ export interface CreditPlan {
   sortOrder: number;
   queueStream: 'priority' | 'normal' | 'low';
   watermark: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SignupCampaign {
+  id: string;
+  code: string;
+  name: string;
+  bonusPercent: number;
+  startAt: string;
+  endAt: string;
+  isActive: boolean;
   createdAt: string;
   updatedAt: string;
 }

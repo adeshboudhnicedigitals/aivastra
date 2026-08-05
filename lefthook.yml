@@ -20,7 +20,7 @@ pre-push:
       run: pnpm biome check . --diagnostic-level=error
 
     - name: typecheck
-      run: pnpm --filter @aivastra/types build && pnpm --filter @aivastra/db build && pnpm -r --filter "!@aivastra/admin-mobile" run typecheck
+      run: pnpm -r --filter "!@aivastra/admin-mobile" run typecheck
 
     - name: test-api
       run: pnpm --filter @aivastra/api test:unit

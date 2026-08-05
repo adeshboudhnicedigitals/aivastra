@@ -1,5 +1,10 @@
 import { schema } from '@aivastra/db';
-import { CreateUserBody, ResetPasswordBody, UpdateUserBody } from '@aivastra/types';
+import {
+  BulkDeleteUsersBody,
+  CreateUserBody,
+  ResetPasswordBody,
+  UpdateUserBody,
+} from '@aivastra/types';
 import { and, count, desc, eq, exists, ilike, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -13,6 +18,7 @@ const PaginatedSearch = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   search: z.string().optional(),
   merchant: z.coerce.boolean().optional(),
+  showBanned: z.coerce.boolean().optional(),
 });
 
 export async function adminUsersRoutes(app: FastifyInstance) {
@@ -23,7 +29,9 @@ export async function adminUsersRoutes(app: FastifyInstance) {
     '/admin/users',
     { preHandler: ALL, schema: { querystring: PaginatedSearch } },
     async (req) => {
-      const { page, pageSize, search, merchant } = req.query as z.infer<typeof PaginatedSearch>;
+      const { page, pageSize, search, merchant, showBanned } = req.query as z.infer<
+        typeof PaginatedSearch
+      >;
 
       const searchWhere = search
         ? or(
@@ -32,8 +40,12 @@ export async function adminUsersRoutes(app: FastifyInstance) {
             ilike(schema.users.username, `%${search}%`),
           )
         : undefined;
-      const where =
-        merchant === true ? and(searchWhere, isNotNull(schema.merchants.id)) : searchWhere;
+      const bannedWhere = showBanned === true ? undefined : eq(schema.users.isBanned, false);
+      const where = and(
+        searchWhere,
+        bannedWhere,
+        merchant === true ? isNotNull(schema.merchants.id) : undefined,
+      );
 
       const [{ total }] = await app.db
         .select({ total: count() })
@@ -72,6 +84,8 @@ export async function adminUsersRoutes(app: FastifyInstance) {
               ),
           ),
           isMerchant: isNotNull(schema.merchants.id),
+          signupSource: schema.merchants.signupSource,
+          demoData: schema.merchants.demoData,
         })
         .from(schema.users)
         .leftJoin(schema.userCredits, eq(schema.userCredits.userId, schema.users.id))
@@ -144,17 +158,13 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           phone: schema.merchants.phone,
           businessAddress: schema.merchants.businessAddress,
           isActive: schema.merchants.isActive,
+          demoData: schema.merchants.demoData,
           kioskEnabled: schema.merchants.kioskEnabled,
           maxKioskDevices: schema.merchants.maxKioskDevices,
           logoKey: schema.merchants.logoKey,
           logoUpdatedAt: schema.merchants.updatedAt,
-          creditBalance: schema.merchantCredits.balance,
         })
         .from(schema.merchants)
-        .leftJoin(
-          schema.merchantCredits,
-          eq(schema.merchantCredits.merchantId, schema.merchants.id),
-        )
         .where(eq(schema.merchants.userId, id));
       const [[jobsCount], jobs] = await Promise.all([
         app.db.select({ total: count() }).from(schema.jobs).where(eq(schema.jobs.userId, id)),
@@ -321,6 +331,51 @@ export async function adminUsersRoutes(app: FastifyInstance) {
     },
   );
 
+  async function eraseUser(
+    id: string,
+    adminUserId?: string,
+  ): Promise<{ ok: true } | { ok: false; reason: string }> {
+    const [adminRow] = await app.db
+      .select({ id: schema.adminUsers.id })
+      .from(schema.adminUsers)
+      .where(eq(schema.adminUsers.userId, id));
+    if (adminRow) return { ok: false, reason: 'cannot delete an admin user' };
+
+    const [merchantRow] = await app.db
+      .select({ id: schema.merchants.id })
+      .from(schema.merchants)
+      .where(eq(schema.merchants.userId, id));
+    if (merchantRow) return { ok: false, reason: 'cannot erase a merchant account owner' };
+
+    await app.db
+      .update(schema.users)
+      .set({
+        email: sql`'deleted+' || ${id} || '@example.invalid'`,
+        displayName: 'Deleted User',
+        phone: null,
+        companyName: null,
+        username: null,
+        isBanned: true,
+        banReason: 'admin erasure (GDPR)',
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.users.id, id));
+
+    await app.db.delete(schema.oauthAccounts).where(eq(schema.oauthAccounts.userId, id));
+
+    await app.db
+      .update(schema.refreshTokens)
+      .set({ revokedAt: new Date() })
+      .where(eq(schema.refreshTokens.userId, id));
+
+    app.log.warn(
+      { adminUserId, targetUserId: id, action: 'USER_ERASURE' },
+      'admin erased user PII',
+    );
+
+    return { ok: true };
+  }
+
   app.delete(
     '/admin/users/:id',
     {
@@ -329,26 +384,33 @@ export async function adminUsersRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { id } = req.params as { id: string };
-      const [adminRow] = await app.db
-        .select({ id: schema.adminUsers.id })
-        .from(schema.adminUsers)
-        .where(eq(schema.adminUsers.userId, id));
-      if (adminRow) throw new AppError('FORBIDDEN', 403, 'cannot delete an admin user');
-
-      await app.db
-        .update(schema.users)
-        .set({
-          email: sql`'deleted+' || ${id} || '@example.invalid'`,
-          isBanned: true,
-          banReason: 'admin soft-delete',
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.users.id, id));
-      await app.db
-        .update(schema.refreshTokens)
-        .set({ revokedAt: new Date() })
-        .where(eq(schema.refreshTokens.userId, id));
+      const res = await eraseUser(id, req.userId);
+      if (!res.ok) throw new AppError('FORBIDDEN', 403, res.reason);
       return { ok: true };
+    },
+  );
+
+  app.post(
+    '/admin/users/bulk-delete',
+    {
+      preHandler: requireAdmin(['SUPER_ADMIN']),
+      schema: { body: BulkDeleteUsersBody },
+    },
+    async (req) => {
+      const { ids } = req.body as z.infer<typeof BulkDeleteUsersBody>;
+      const succeeded: string[] = [];
+      const skipped: { id: string; reason: string }[] = [];
+
+      for (const id of ids) {
+        const res = await eraseUser(id, req.userId);
+        if (res.ok) {
+          succeeded.push(id);
+        } else {
+          skipped.push({ id, reason: res.reason });
+        }
+      }
+
+      return { succeeded, skipped };
     },
   );
 

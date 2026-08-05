@@ -29,6 +29,16 @@ export interface R2Config {
   presignBaseUrl?: string;
 }
 
+// Default NodeHttpHandler timeouts are 0 (disabled) — a stalled R2/MinIO connection would
+// otherwise hang GetObject/PutObject calls forever with no error. Bound them so callers
+// (e.g. the dispatcher's job pipeline) get a thrown error instead of an indefinite hang.
+const R2_REQUEST_HANDLER = {
+  connectionTimeout: 10_000,
+  requestTimeout: 60_000,
+  throwOnRequestTimeout: true,
+  socketTimeout: 60_000,
+} as const;
+
 export function createR2Provider(cfg: R2Config): StorageProvider {
   const s3 = new S3Client({
     endpoint: cfg.endpoint,
@@ -37,6 +47,7 @@ export function createR2Provider(cfg: R2Config): StorageProvider {
     forcePathStyle: cfg.forcePathStyle,
     requestChecksumCalculation: 'WHEN_REQUIRED',
     responseChecksumValidation: 'WHEN_REQUIRED',
+    requestHandler: R2_REQUEST_HANDLER,
   });
   // Separate client for presigning when behind a reverse proxy:
   // signs the Host header with the public domain so it matches what Nginx forwards.
@@ -48,6 +59,7 @@ export function createR2Provider(cfg: R2Config): StorageProvider {
         forcePathStyle: cfg.forcePathStyle,
         requestChecksumCalculation: 'WHEN_REQUIRED',
         responseChecksumValidation: 'WHEN_REQUIRED',
+        requestHandler: R2_REQUEST_HANDLER,
       })
     : s3;
   const sign = async (

@@ -1,4 +1,5 @@
 import { schema } from '@aivastra/db';
+import { JOB_SOURCE } from '@aivastra/types';
 import { aliasedTable, and, count, desc, eq, ilike, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -13,6 +14,7 @@ const JobsQuery = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
   status: z
     .enum([
+      'HELD',
       'QUEUED',
       'PREPROCESSING',
       'GENERATING',
@@ -30,6 +32,8 @@ const JobsQuery = z.object({
 export async function adminJobsRoutes(app: FastifyInstance) {
   const R = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']);
   const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
+
+  app.get('/admin/jobs/sources', { preHandler: R }, async () => Object.values(JOB_SOURCE));
 
   app.get('/admin/jobs', { preHandler: R, schema: { querystring: JobsQuery } }, async (req) => {
     // biome-ignore lint/suspicious/noExplicitAny: Fastify typed-provider workaround

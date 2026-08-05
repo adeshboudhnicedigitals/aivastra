@@ -68,6 +68,7 @@ describe('simple tryon (garment from catalog)', () => {
       categoryActive?: boolean;
       workflowActive?: boolean;
       studioFlow?: boolean;
+      resultKey?: string;
     },
   ) {
     const [workflow] = await app.db
@@ -137,7 +138,7 @@ describe('simple tryon (garment from catalog)', () => {
 
     await app.db.insert(schema.jobOutputs).values({
       jobId: job.id,
-      resultKey: keys.output(job.id),
+      resultKey: opts?.resultKey ?? keys.output(job.id),
       thumbnailKey: opts?.withThumbnail === false ? null : keys.outputThumb(job.id),
     });
 
@@ -189,6 +190,39 @@ describe('simple tryon (garment from catalog)', () => {
 
     const len = await app.redis.xlen('jobs:normal');
     expect(len).toBeGreaterThanOrEqual(1);
+  });
+
+  // Tryon-direct results (source='tryon'/'api_tryon') are stored WebP-encoded
+  // (see apps/dispatcher/src/workflow/finalize.ts), so a chained job's garment
+  // key must come from the source job's actual stored job_outputs.resultKey —
+  // reconstructing via keys.output(sourceJobId) would point at a .png key that
+  // was never uploaded, silently breaking the "try again with a different
+  // garment" flow.
+  it('uses the source job stored resultKey as the garment — not a reconstructed .png key', async () => {
+    const { token, userId } = await registerUser('tryon-webp-chain@x.com');
+    await grantCredits(userId, 100);
+    const webpResultKey = 'outputs/some-prior-tryon-job/result.webp';
+    const { jobId: sourceJobId } = await seedEligibleSourceJob(userId, {
+      resultKey: webpResultKey,
+    });
+    const personKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, personKey);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/simple-tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { personKey, sourceJobId },
+    });
+    expect(res.statusCode).toBe(201);
+    const { jobId } = res.json();
+
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, jobId));
+    expect(inputs.upperGarmentKey).toBe(webpResultKey);
+    expect(inputs.upperGarmentKey).not.toBe(keys.output(sourceJobId));
   });
 
   it('rejects with FORBIDDEN when sourceJobId belongs to another user', async () => {
