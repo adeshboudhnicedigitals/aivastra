@@ -59,15 +59,19 @@ function JobThumbnail({ jobId, alt }: { jobId: string; alt: string }): React.Rea
 
 // Click-to-browse or drag-and-drop upload, mirroring Studio's garment upload
 // (handleGarmentUpload in apps/(app)/studio/page.tsx): magic-byte validation,
-// 10MB soft cap, local blob-URL preview before the network round trip.
+// 10MB soft cap, local blob-URL preview before the network round trip. Fixed
+// aspect ratio across every state (idle/uploading/filled) so picking a file
+// doesn't reflow the layout next to it.
 function UploadDropzone({
   onFile,
+  onRemove,
   uploading,
   progress,
   error,
   previewUrl,
 }: {
   onFile: (file: File) => void;
+  onRemove: () => void;
   uploading: boolean;
   progress: number;
   error: string | null;
@@ -76,7 +80,7 @@ function UploadDropzone({
   const [dragOver, setDragOver] = useState(false);
 
   return (
-    <div>
+    <div style={{ width: '100%', maxWidth: 300 }}>
       {/* A <label> wrapping the file input is natively keyboard-accessible
           (click or Enter/Space on the label activates the input) — same
           pattern as Studio's garment upload zones. No custom onClick/onKeyDown
@@ -93,36 +97,21 @@ function UploadDropzone({
           const file = event.dataTransfer.files?.[0];
           if (file && !uploading) onFile(file);
         }}
-        style={
-          previewUrl
-            ? {
-                position: 'relative',
-                aspectRatio: '3 / 4',
-                maxWidth: 220,
-                overflow: 'hidden',
-                border: `2px dashed ${dragOver ? C.pink : C.border}`,
-                borderRadius: 6,
-                background: C.lighter,
-                cursor: uploading ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }
-            : {
-                position: 'relative',
-                width: '100%',
-                minHeight: 260,
-                overflow: 'hidden',
-                border: `2px dashed ${dragOver ? C.pink : C.border}`,
-                borderRadius: 10,
-                background: dragOver ? 'rgba(245,92,122,0.04)' : C.lighter,
-                cursor: uploading ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'background 150ms ease, border-color 150ms ease',
-              }
-        }
+        style={{
+          position: 'relative',
+          aspectRatio: '3 / 4',
+          overflow: 'hidden',
+          border: previewUrl
+            ? `1px solid ${C.border}`
+            : `2px dashed ${dragOver ? C.pink : C.border}`,
+          borderRadius: 12,
+          background: previewUrl ? C.lighter : dragOver ? 'rgba(245,92,122,0.04)' : C.lighter,
+          cursor: uploading ? 'not-allowed' : 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          transition: 'background 150ms ease, border-color 150ms ease',
+        }}
       >
         <input
           type="file"
@@ -136,13 +125,40 @@ function UploadDropzone({
           }}
         />
         {previewUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          // biome-ignore lint/performance/noImgElement: local blob URL preview
-          <img
-            src={previewUrl}
-            alt="Uploaded"
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-          />
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {/* biome-ignore lint/performance/noImgElement: local blob URL preview */}
+            <img
+              src={previewUrl}
+              alt="Uploaded"
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            />
+            <button
+              type="button"
+              aria-label="Remove uploaded image"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onRemove();
+              }}
+              style={{
+                position: 'absolute',
+                top: 10,
+                right: 10,
+                width: 28,
+                height: 28,
+                borderRadius: '50%',
+                background: 'rgba(0,0,0,0.55)',
+                border: 'none',
+                color: C.white,
+                cursor: 'pointer',
+                display: 'grid',
+                placeItems: 'center',
+              }}
+            >
+              <X size={14} />
+            </button>
+          </>
         ) : uploading ? (
           <div
             style={{
@@ -225,7 +241,80 @@ function UploadDropzone({
           </div>
         )}
       </label>
+      {previewUrl && !error && (
+        <p style={{ margin: '8px 0 0', color: C.mid, fontSize: 12 }}>
+          Looks good — click the × to choose a different photo.
+        </p>
+      )}
       {error && <p style={{ margin: '8px 0 0', color: '#D63B4C', fontSize: 12 }}>{error}</p>}
+    </div>
+  );
+}
+
+// Fills the space next to the dropzone with guidance instead of empty
+// background — the kind of source-photo tips premium photo-upload flows
+// (ID verification, e-commerce listings) show rather than leaving the panel
+// sparse next to the catalogue-image grid tab.
+const UPLOAD_TIPS: Array<{ title: string; body: string }> = [
+  {
+    title: 'Clear, well-lit photo',
+    body: 'Natural or bright indoor light works best — avoid harsh shadows or backlighting.',
+  },
+  { title: 'Full outfit in frame', body: "Make sure the garment isn't cropped out of the shot." },
+  {
+    title: 'One person, simple background',
+    body: 'Avoid group photos or busy, cluttered backgrounds.',
+  },
+  {
+    title: 'Minimal filters or edits',
+    body: 'Unedited or lightly edited photos animate more naturally.',
+  },
+];
+
+function UploadTips(): React.ReactElement {
+  return (
+    <div
+      style={{
+        flex: '1 1 260px',
+        border: `1px solid ${C.border}`,
+        borderRadius: 12,
+        background: C.card,
+        padding: '18px 20px',
+        boxSizing: 'border-box',
+      }}
+    >
+      <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 14 }}>
+        For the best results
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {UPLOAD_TIPS.map((tip) => (
+          <div key={tip.title} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+            <span
+              style={{
+                flexShrink: 0,
+                width: 18,
+                height: 18,
+                borderRadius: '50%',
+                background: 'rgba(245,92,122,0.12)',
+                color: C.pink,
+                display: 'grid',
+                placeItems: 'center',
+                marginTop: 1,
+              }}
+            >
+              <Check size={11} />
+            </span>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.text, lineHeight: 1.4 }}>
+                {tip.title}
+              </div>
+              <div style={{ fontSize: 12, color: C.mid, lineHeight: 1.5, marginTop: 2 }}>
+                {tip.body}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -586,13 +675,17 @@ export function CatalogVideoWizard({
                     <p style={{ margin: '0 0 16px', color: C.mid, fontSize: 13 }}>
                       Upload any photo you own — it doesn't need to be an AI Vastra generation.
                     </p>
-                    <UploadDropzone
-                      onFile={handleUpload}
-                      uploading={uploading}
-                      progress={uploadProgress}
-                      error={uploadError}
-                      previewUrl={source?.kind === 'upload' ? source.previewUrl : null}
-                    />
+                    <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                      <UploadDropzone
+                        onFile={handleUpload}
+                        onRemove={() => setSource(null)}
+                        uploading={uploading}
+                        progress={uploadProgress}
+                        error={uploadError}
+                        previewUrl={source?.kind === 'upload' ? source.previewUrl : null}
+                      />
+                      <UploadTips />
+                    </div>
                   </>
                 )}
               </>
