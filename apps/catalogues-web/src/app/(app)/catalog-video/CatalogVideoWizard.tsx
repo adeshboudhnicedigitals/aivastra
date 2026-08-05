@@ -80,7 +80,7 @@ function UploadDropzone({
   const [dragOver, setDragOver] = useState(false);
 
   return (
-    <div style={{ width: '100%', maxWidth: 300 }}>
+    <div style={{ flex: '0 1 300px', minWidth: 220 }}>
       {/* A <label> wrapping the file input is natively keyboard-accessible
           (click or Enter/Space on the label activates the input) — same
           pattern as Studio's garment upload zones. No custom onClick/onKeyDown
@@ -276,24 +276,42 @@ function UploadTips(): React.ReactElement {
     <div
       style={{
         flex: '1 1 260px',
+        display: 'flex',
+        flexDirection: 'column',
         border: `1px solid ${C.border}`,
         borderRadius: 12,
         background: C.card,
-        padding: '18px 20px',
+        padding: '24px 26px',
         boxSizing: 'border-box',
       }}
     >
-      <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 14 }}>
-        For the best results
+      <div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>For the best results</div>
+        <div style={{ fontSize: 12, color: C.mid, marginTop: 4, lineHeight: 1.5 }}>
+          A few pointers that make the animation look its best.
+        </div>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* Distributes the tip rows through the full remaining height instead of
+          leaving them glued to the top with dead space below — the card's
+          height already matches the dropzone via flex stretch, so this makes
+          the two panels feel like one deliberate layout. */}
+      <div
+        style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-evenly',
+          gap: 20,
+          marginTop: 8,
+        }}
+      >
         {UPLOAD_TIPS.map((tip) => (
-          <div key={tip.title} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+          <div key={tip.title} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
             <span
               style={{
                 flexShrink: 0,
-                width: 18,
-                height: 18,
+                width: 22,
+                height: 22,
                 borderRadius: '50%',
                 background: 'rgba(245,92,122,0.12)',
                 color: C.pink,
@@ -302,13 +320,13 @@ function UploadTips(): React.ReactElement {
                 marginTop: 1,
               }}
             >
-              <Check size={11} />
+              <Check size={13} />
             </span>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: C.text, lineHeight: 1.4 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: C.text, lineHeight: 1.4 }}>
                 {tip.title}
               </div>
-              <div style={{ fontSize: 12, color: C.mid, lineHeight: 1.5, marginTop: 2 }}>
+              <div style={{ fontSize: 13, color: C.mid, lineHeight: 1.55, marginTop: 3 }}>
                 {tip.body}
               </div>
             </div>
