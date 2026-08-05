@@ -5,6 +5,7 @@ import { SupportModal } from '@/components/SupportModal';
 import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { Tooltip } from '@/components/ui/tooltip';
+import { CouponModal } from '../CouponModal';
 import { PaymentResultModal } from '../PaymentResultModal';
 import { COUNTRIES, FLAGS, PLAN_FEATURES, PLAN_META } from '../use-pricing-data';
 import type { PricingLayoutProps } from './types';
@@ -30,7 +31,19 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
     firstPurchaseBonusPercent,
     resolutions,
     displayBase,
-    buy,
+    displayTax,
+    displayTotal,
+    startBuy,
+    couponModalPlan,
+    couponCode,
+    setCouponCode,
+    couponApplying,
+    couponError,
+    couponApplied,
+    couponBonusPercent,
+    applyCoupon,
+    closeCouponModal,
+    continueFromCouponModal,
     banner,
   } = props;
 
@@ -1234,7 +1247,7 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
                             className={
                               highlighted ? 'upgrade-plan-btn highlighted' : 'upgrade-plan-btn'
                             }
-                            onClick={() => void buy(plan)}
+                            onClick={() => startBuy(plan)}
                             disabled={!!buying}
                             style={{
                               width: '100%',
@@ -1361,6 +1374,24 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
 
       {paymentResult && (
         <PaymentResultModal result={paymentResult} onClose={() => setPaymentResult(null)} />
+      )}
+
+      {couponModalPlan && (
+        <CouponModal
+          plan={couponModalPlan}
+          couponCode={couponCode}
+          setCouponCode={setCouponCode}
+          couponApplying={couponApplying}
+          couponError={couponError}
+          couponApplied={couponApplied}
+          couponBonusPercent={couponBonusPercent}
+          displayBase={displayBase}
+          displayTax={displayTax}
+          displayTotal={displayTotal}
+          onApply={() => void applyCoupon()}
+          onClose={closeCouponModal}
+          onContinue={continueFromCouponModal}
+        />
       )}
     </div>
   );
