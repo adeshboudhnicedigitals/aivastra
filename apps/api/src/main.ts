@@ -30,7 +30,9 @@ if (env.ADMIN_BOOTSTRAP_EMAIL && env.ADMIN_BOOTSTRAP_PASSWORD) {
         emailVerified: true,
       })
       .returning();
-    await app.db.insert(schema.adminUsers).values({ userId: user.id, role: 'SUPER_ADMIN' });
+    await app.db
+      .insert(schema.adminUsers)
+      .values({ userId: user.id, role: 'SUPER_ADMIN', passwordHash });
     app.log.info({ email: env.ADMIN_BOOTSTRAP_EMAIL }, 'bootstrap admin created');
   } else {
     const [adminRow] = await app.db
