@@ -64,6 +64,14 @@ export const jobAttemptsTotal = new Counter({
   registers: [register],
 });
 
+export const jobE2eDuration = new Histogram({
+  name: 'job_e2e_duration_seconds',
+  help: 'Wall-clock time from job creation to terminal status (includes queue wait)',
+  labelNames: ['outcome'] as const, // completed | failed | cancelled
+  buckets: [5, 10, 30, 60, 120, 300, 600, 1200, 1800, 3600],
+  registers: [register],
+});
+
 export const comfyRequestDuration = new Histogram({
   name: 'comfy_request_duration_seconds',
   help: 'Duration of the ComfyUI /prompt round-trip',
