@@ -1,5 +1,6 @@
 import { type DB, schema } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
+import { jobE2eDuration } from '@aivastra/observability';
 import { eq } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 
@@ -43,10 +44,19 @@ export async function transitionJob(
   if (status === 'COMPLETED' || status === 'FAILED' || status === 'CANCELLED')
     patch.completedAt = now;
 
-  await db
+  const updated = await db
     .update(schema.jobs)
     .set(patch as Parameters<ReturnType<typeof db.update>['set']>[0])
-    .where(eq(schema.jobs.id, jobId));
+    .where(eq(schema.jobs.id, jobId))
+    .returning({ createdAt: schema.jobs.createdAt });
+
+  if (status === 'COMPLETED' || status === 'FAILED' || status === 'CANCELLED') {
+    const createdAt = updated[0]?.createdAt;
+    if (createdAt) {
+      const outcome = status.toLowerCase();
+      jobE2eDuration.observe({ outcome }, (now.getTime() - createdAt.getTime()) / 1000);
+    }
+  }
 
   if (opts.resultKey && status === 'COMPLETED' && !opts.skipOutputInsert) {
     await db

@@ -25,7 +25,8 @@ error capture are Milestone 2.
 | `jobs_created_total` | counter | api | label `priority` (priority\|normal) |
 | `credits_deducted_total` / `credits_refunded_total` | counter | api | from the credit ledger |
 | `jobs_processed_total` | counter | dispatcher | label `outcome` (success\|failed\|retried) |
-| `job_processing_duration_seconds` | histogram | dispatcher | label `outcome` |
+| `job_processing_duration_seconds` | histogram | dispatcher | label `outcome`; dispatcher-only — timed from when the dispatcher claims the job off Redis, so it excludes queue wait |
+| `job_e2e_duration_seconds` | histogram | dispatcher | label `outcome` (completed\|failed\|cancelled); true click-to-result time, `completedAt - createdAt`, includes queue wait. The gap between this and `job_processing_duration_seconds` is queue wait time |
 | `job_attempts_total` | counter | dispatcher | one per real processing attempt |
 | `comfy_request_duration_seconds` | histogram | dispatcher | submit → completion round-trip |
 | `queue_depth` | gauge | dispatcher | label `stream`; sampled every 15s (XLEN) |
@@ -112,6 +113,7 @@ Create these in Grafana Cloud (**Alerting → Alert rules**), wired to an email/
 | Job failure rate high | `sum(rate(jobs_processed_total{outcome="failed"}[10m])) / sum(rate(jobs_processed_total[10m])) > 0.2` |
 | API 5xx rate high | `sum(rate(http_request_duration_seconds_count{status=~"5.."}[5m])) > 0.5` |
 | API p95 latency high | `histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m]))) > 2` |
+| E2E latency high | `histogram_quantile(0.95, sum by (le) (rate(job_e2e_duration_seconds_bucket[10m]))) > 120` |
 
 ## Security: keep `/metrics` off the public internet
 
