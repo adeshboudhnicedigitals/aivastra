@@ -1,3 +1,18 @@
+## 2026-08-05 — Studio status drift, Google OAuth dead-end, admin bootstrap login, pricing
+
+**Done**
+- `apps/catalogues-web/src/app/(app)/studio/generation-panel.tsx`: the in-Studio generation panel tracked job status only from the live SSE stream, with no reconciliation against the server. A missed SSE event (reconnect gap, backgrounded tab) left it stuck showing "Generating…" indefinitely even after the job actually completed, while `/catalogues/:id` (which also polls `/v1/catalogues/:id` every 5s as a fallback) always showed the correct state. Added the same 5s polling fallback here, reconciled into local status state.
+- `apps/api/src/modules/auth/google.routes.ts` + `apps/catalogues-web/src/app/(auth)/login/page.tsx`: any Google OAuth failure (`INVALID_STATE`, token exchange, userinfo fetch) previously returned raw JSON straight to the browser — a dead end on mobile with no back-button affordance. Now redirects to `/login?error=<reason>` with a friendly retry banner instead. Root cause of the original `INVALID_STATE` report was not conclusively identified (isolated to one device); this only fixes the UX dead-end.
+- `apps/api/src/main.ts`: the bootstrap-admin insert set `users.passwordHash` but never `admin_users.passwordHash` — the separate field `/admin/auth/login` actually checks. Bootstrap admin could log into neither the web app (blocked by design — super-admins must use the admin panel) nor the admin panel itself (null password hash). Now sets both at creation. Backfilled the existing local dev row directly (dev DB only).
+- `apps/catalogues-web/src/app/(app)/pricing/layouts/{Desktop,Tablet,Mobile}.tsx`: plan purchase button text changed from "Upgrade" to "Buy Now" (the separate "Upgrade Plan" banner CTA that switches tabs was left as-is — different button).
+- `apps/catalogues-web/src/middleware.ts`: added a self-expiring redirect, `/pricing` → `/register?src=gartex2026delhi`, active 2026-08-05T00:00–2026-08-09T23:59 IST, for the already-configured Gartex Expo Delhi campaign (`docs/superpowers/specs/2026-08-01-gartex-expo-qr-campaign-design.md`). Initially fired unconditionally, which looped already-logged-in users back through registration when they clicked Pricing from the sidebar — fixed to skip anyone with an `access_token` or `refresh` cookie present, so only anonymous/QR traffic gets redirected.
+
+**Failed / Not Done**
+- The original mobile Google OAuth `INVALID_STATE` report was device-isolated and not reproduced/root-caused; only the dead-end UX around it was fixed.
+
+**Open Questions / Decisions**
+- None.
+
 ## 2026-08-05 — Admin web: restored mobile/tablet responsiveness
 
 **Done**
