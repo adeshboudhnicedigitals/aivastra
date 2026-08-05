@@ -60,8 +60,8 @@ async function seedMerchant(app: TestApp, email: string, balance = 100) {
     })
     .returning();
 
-  await app.db.insert(schema.merchantCredits).values({
-    merchantId: client.id,
+  await app.db.insert(schema.userCredits).values({
+    userId: merchantUser.id,
     balance,
   });
 
@@ -241,16 +241,16 @@ describe('kiosk jobs', () => {
 
     const [credits] = await app.db
       .select()
-      .from(schema.merchantCredits)
-      .where(eq(schema.merchantCredits.merchantId, merchant.id));
-    expect(credits.balance).toBe(90);
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, merchant.userId));
+    expect(credits.balance).toBe(95);
 
     const ledgerRows = await app.db
       .select()
-      .from(schema.merchantCreditLedger)
-      .where(eq(schema.merchantCreditLedger.jobId, jobId));
+      .from(schema.creditLedger)
+      .where(eq(schema.creditLedger.jobId, jobId));
     expect(ledgerRows).toHaveLength(1);
-    expect(ledgerRows[0]?.delta).toBe(-10);
+    expect(ledgerRows[0]?.delta).toBe(-5);
     expect(ledgerRows[0]?.reason).toBe('JOB_DISPATCH');
 
     const resultBytes = Buffer.from('completed-kiosk-result');
@@ -427,7 +427,7 @@ describe('kiosk jobs', () => {
   });
 
   it('fails atomically when merchant credits are insufficient', async () => {
-    const merchant = await seedMerchant(app, 'merchant-low-balance@example.com', 5);
+    const merchant = await seedMerchant(app, 'merchant-low-balance@example.com', 4);
     const device = await claimDevice(app, merchant.id, 'Balance Tablet', 'android-balance');
     const item = await seedCatalogItem(app, merchant.id);
     const customerPhotoKey = await uploadCustomerPhoto(
@@ -460,14 +460,14 @@ describe('kiosk jobs', () => {
 
     const [credits] = await app.db
       .select()
-      .from(schema.merchantCredits)
-      .where(eq(schema.merchantCredits.merchantId, merchant.id));
-    expect(credits.balance).toBe(5);
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, merchant.userId));
+    expect(credits.balance).toBe(4);
 
     const ledger = await app.db
       .select()
-      .from(schema.merchantCreditLedger)
-      .where(eq(schema.merchantCreditLedger.merchantId, merchant.id));
+      .from(schema.creditLedger)
+      .where(eq(schema.creditLedger.userId, merchant.userId));
     expect(ledger).toHaveLength(0);
   });
 });

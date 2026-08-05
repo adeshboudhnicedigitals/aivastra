@@ -18,6 +18,9 @@ export const UpdateUserBody = z.object({
   banReason: z.string().max(500).nullable().optional(),
   forceLogout: z.boolean().optional(),
 });
+export const BulkDeleteUsersBody = z.object({
+  ids: z.array(z.string().uuid()).min(1),
+});
 export const CreateUserBody = z.object({
   username: z
     .string()
@@ -258,6 +261,10 @@ export const PatchSampleVideoBody = z.object({
   prompt: z.string().min(1).max(5000).optional(),
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
+});
+
+export const PresignAppVideoBody = z.object({
+  contentType: z.literal('video/mp4'),
 });
 
 // ── Workflow template schemas ─────────────────────────────────────────────
@@ -573,3 +580,22 @@ export const PutCatalogueTemplateLooksBody = z.object({
 export const PresignCatalogueTemplateThumbnailBody = z.object({
   contentType: AssetContentType,
 });
+
+export const AdminHeldJobsResponse = z.object({
+  total: z.number().int(),
+  byUser: z.array(
+    z.object({
+      userId: z.string().uuid().nullable(),
+      email: z.string().nullable(),
+      count: z.number().int(),
+      oldestCreatedAt: z.string(),
+    }),
+  ),
+});
+export type AdminHeldJobsResponse = z.infer<typeof AdminHeldJobsResponse>;
+
+export const AdminHeldJobsReleaseResponse = z.object({
+  released: z.number().int(),
+  remaining: z.number().int(),
+});
+export type AdminHeldJobsReleaseResponse = z.infer<typeof AdminHeldJobsReleaseResponse>;

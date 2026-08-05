@@ -932,6 +932,90 @@
       "when": 1785360000000,
       "tag": "0132_dev_public_catalog_slugs",
       "breakpoints": true
+    },
+    {
+      "idx": 133,
+      "version": "7",
+      "when": 1785436236849,
+      "tag": "0133_backfill_api_source_split",
+      "breakpoints": true
+    },
+    {
+      "idx": 134,
+      "version": "7",
+      "when": 1785423935683,
+      "tag": "0134_merchant_signup_source",
+      "breakpoints": true
+    },
+    {
+      "idx": 135,
+      "version": "7",
+      "when": 1785428990667,
+      "tag": "0135_demo_catalog",
+      "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "7",
+      "when": 1785451200000,
+      "tag": "0136_merchant_demo_data",
+      "breakpoints": true
+    },
+    {
+      "idx": 137,
+      "version": "7",
+      "when": 1785451200001,
+      "tag": "0137_shopify_funnel_default",
+      "breakpoints": true
+    },
+    {
+      "idx": 138,
+      "version": "7",
+      "when": 1785451200002,
+      "tag": "0138_shopify_shoppers",
+      "breakpoints": true
+    },
+    {
+      "idx": 139,
+      "version": "7",
+      "when": 1785451200003,
+      "tag": "0139_shopify_widget_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "7",
+      "when": 1785451200004,
+      "tag": "0140_shopify_activation_model",
+      "breakpoints": true
+    },
+    {
+      "idx": 141,
+      "version": "7",
+      "when": 1785558312302,
+      "tag": "0141_signup_campaigns",
+      "breakpoints": true
+    },
+    {
+      "idx": 142,
+      "version": "7",
+      "when": 1785537600000,
+      "tag": "0142_jobs_queued_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 143,
+      "version": "7",
+      "when": 1785624000000,
+      "tag": "0143_merchant_credits_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "7",
+      "when": 1785710400000,
+      "tag": "0144_drop_merchant_credits",
+      "breakpoints": true
     }
   ]
 }

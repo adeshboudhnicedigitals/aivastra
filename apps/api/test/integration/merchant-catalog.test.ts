@@ -36,11 +36,6 @@ async function createMerchant(
     })
     .returning();
 
-  await app.db.insert(schema.merchantCredits).values({
-    merchantId: merchant.id,
-    balance: 0,
-  });
-
   return merchant;
 }
 

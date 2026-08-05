@@ -94,22 +94,123 @@ describe('GET /v1/shopify/products', () => {
     expect(body.items).toHaveLength(1);
     expect(body.total).toBe(2);
   });
+
+  it('filters by enabled', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/products?enabled=true',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.items.every((p: { enabled: boolean }) => p.enabled)).toBe(true);
+  });
+
+  it('filters by enabled=false, not treating the literal string "false" as truthy', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/products?enabled=false',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.items.length).toBeGreaterThan(0);
+    expect(body.items.every((p: { enabled: boolean }) => p.enabled === false)).toBe(true);
+  });
+
+  it('filters by excluded=false, not treating the literal string "false" as truthy', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/products?excluded=false',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.items.length).toBeGreaterThan(0);
+    expect(body.items.every((p: { excluded: boolean }) => p.excluded === false)).toBe(true);
+  });
+
+  it('filters by status', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/products?status=processing',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0].title).toBe('Blue Shirt');
+  });
+
+  it('filters by search query, case-insensitive', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/products?q=red',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0].title).toBe('Red Shirt');
+  });
+
+  it('filters by excluded', async () => {
+    // Excludes product 2, asserts the filter, then reverts — this file's
+    // fixture rows are shared across the whole describe block and later
+    // tests assume product 2 starts un-excluded.
+    await app.inject({
+      method: 'PATCH',
+      url: '/v1/shopify/products/2',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      payload: { excluded: true },
+    });
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/shopify/products?excluded=true',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.items).toHaveLength(1);
+      expect(body.items[0].title).toBe('Blue Shirt');
+    } finally {
+      await app.inject({
+        method: 'PATCH',
+        url: '/v1/shopify/products/2',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        payload: { excluded: false },
+      });
+    }
+  });
 });
 
 describe('GET /v1/shopify/products/:id/images', () => {
   it('returns the live image list from Shopify for that product', async () => {
     const originalFetch = global.fetch;
     global.fetch = (async (url: string) => {
-      expect(url).toContain('/products/1/images.json');
-      return {
-        ok: true,
-        json: async () => ({
-          images: [
-            { id: 111, src: 'https://cdn.shopify.com/s/files/1/one.jpg' },
-            { id: 222, src: 'https://cdn.shopify.com/s/files/1/two.jpg' },
-          ],
+      expect(url).toContain('/graphql.json');
+      return new Response(
+        JSON.stringify({
+          data: {
+            product: {
+              images: {
+                nodes: [
+                  {
+                    id: 'gid://shopify/ProductImage/111',
+                    url: 'https://cdn.shopify.com/s/files/1/one.jpg',
+                  },
+                  {
+                    id: 'gid://shopify/ProductImage/222',
+                    url: 'https://cdn.shopify.com/s/files/1/two.jpg',
+                  },
+                ],
+              },
+            },
+          },
         }),
-      } as Response;
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
     }) as typeof fetch;
 
     try {
@@ -135,13 +236,24 @@ describe('PATCH /v1/shopify/products/:id', () => {
   it('rejects a garment image above the admin-configured limit', async () => {
     const originalFetch = global.fetch;
     global.fetch = (async (url: string) => {
-      if (typeof url === 'string' && url.includes('/images.json')) {
-        return {
-          ok: true,
-          json: async () => ({
-            images: [{ id: 1, src: 'https://cdn.shopify.com/oversized.jpg' }],
+      if (typeof url === 'string' && url.includes('/graphql.json')) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              product: {
+                images: {
+                  nodes: [
+                    {
+                      id: 'gid://shopify/ProductImage/1',
+                      url: 'https://cdn.shopify.com/oversized.jpg',
+                    },
+                  ],
+                },
+              },
+            },
           }),
-        } as Response;
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
       }
       return {
         ok: true,
@@ -203,13 +315,32 @@ describe('PATCH /v1/shopify/products/:id', () => {
 
   it("rejects a garmentImageUrl not in the product's real Shopify image list", async () => {
     const originalFetch = global.fetch;
-    global.fetch = (async () =>
-      ({
+    global.fetch = (async (url: string) => {
+      if (typeof url === 'string' && url.includes('/graphql.json')) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              product: {
+                images: {
+                  nodes: [
+                    {
+                      id: 'gid://shopify/ProductImage/1',
+                      url: 'https://cdn.shopify.com/s/files/1/real.jpg',
+                    },
+                  ],
+                },
+              },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return {
         ok: true,
-        json: async () => ({
-          images: [{ id: 1, src: 'https://cdn.shopify.com/s/files/1/real.jpg' }],
-        }),
-      }) as Response) as typeof fetch;
+        arrayBuffer: async () => new ArrayBuffer(4),
+        headers: { get: () => 'image/jpeg' },
+      } as Response;
+    }) as typeof fetch;
 
     try {
       const res = await app.inject({
@@ -228,13 +359,24 @@ describe('PATCH /v1/shopify/products/:id', () => {
     const originalFetch = global.fetch;
     let downloadedFrom: string | undefined;
     global.fetch = (async (url: string) => {
-      if (url.includes('/images.json')) {
-        return {
-          ok: true,
-          json: async () => ({
-            images: [{ id: 1, src: 'https://cdn.shopify.com/s/files/1/new.jpg' }],
+      if (typeof url === 'string' && url.includes('/graphql.json')) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              product: {
+                images: {
+                  nodes: [
+                    {
+                      id: 'gid://shopify/ProductImage/1',
+                      url: 'https://cdn.shopify.com/s/files/1/new.jpg',
+                    },
+                  ],
+                },
+              },
+            },
           }),
-        } as Response;
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
       }
       downloadedFrom = url;
       return {
@@ -263,5 +405,29 @@ describe('PATCH /v1/shopify/products/:id', () => {
     } finally {
       global.fetch = originalFetch;
     }
+  });
+});
+
+describe('PATCH /v1/shopify/products/:id — excluded', () => {
+  it('excludes a product regardless of status', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/v1/shopify/products/2',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      payload: { excluded: true },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().excluded).toBe(true);
+  });
+
+  it('un-excludes a product', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/v1/shopify/products/2',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      payload: { excluded: false },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().excluded).toBe(false);
   });
 });

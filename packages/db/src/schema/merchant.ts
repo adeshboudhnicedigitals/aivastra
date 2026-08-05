@@ -20,6 +20,7 @@ export const merchants = pgTable('merchants', {
   phone: text('phone').notNull(),
   businessAddress: text('business_address').notNull(),
   isActive: boolean('is_active').notNull().default(false),
+  demoData: boolean('demo_data').notNull().default(true),
   kioskEnabled: boolean('kiosk_enabled').notNull().default(false),
   maxKioskDevices: integer('max_kiosk_devices').notNull().default(5),
   webhookUrl: text('webhook_url'),
@@ -29,6 +30,16 @@ export const merchants = pgTable('merchants', {
   // Aivastra default. Null means "no merchant logo, app uses its own default" --
   // see /v1/auth/device-login's logoUrl field in apps/api/src/modules/auth/routes.ts.
   logoKey: text('logo_key'),
+  // 'admin'          -- created through POST /admin/merchants (an admin IS the approval)
+  // 'android_google' -- self-serve Google signup from the Android app via
+  //                    POST /v1/merchant/onboarding. No separate free-credit
+  //                    grant: the user already received their signup free trial,
+  //                    and merchant spend draws from that same user_credits
+  //                    balance, so watch for accounts burning through it via
+  //                    GPU abuse.
+  signupSource: text('signup_source', { enum: ['admin', 'android_google'] })
+    .notNull()
+    .default('admin'),
   // Login credentials live on `users` — a merchant IS a user with a merchants
   // profile attached (same pattern as admin_users). One merchant account per user.
   userId: uuid('user_id')
@@ -58,14 +69,6 @@ export const merchantCatalogSubcategories = pgTable(
   (t) => [index('merchant_catalog_subcategories_merchant_idx').on(t.merchantId, t.category)],
 );
 
-export const merchantCredits = pgTable('merchant_credits', {
-  merchantId: uuid('merchant_id')
-    .primaryKey()
-    .references(() => merchants.id, { onDelete: 'cascade' }),
-  balance: integer('balance').notNull().default(0),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
-
 export const merchantPayments = pgTable('merchant_payments', {
   id: uuid('id').primaryKey().defaultRandom(),
   merchantId: uuid('merchant_id')
@@ -82,18 +85,6 @@ export const merchantPayments = pgTable('merchant_payments', {
   status: text('status').notNull().default('created'), // created | paid | failed
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   paidAt: timestamp('paid_at', { withTimezone: true }),
-});
-
-export const merchantCreditLedger = pgTable('merchant_credit_ledger', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  merchantId: uuid('merchant_id')
-    .notNull()
-    .references(() => merchants.id, { onDelete: 'cascade' }),
-  delta: integer('delta').notNull(),
-  reason: text('reason').notNull(),
-  jobId: uuid('job_id'),
-  adminId: uuid('admin_id'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const merchantCatalogItems = pgTable(

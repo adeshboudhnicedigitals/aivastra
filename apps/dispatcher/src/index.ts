@@ -12,6 +12,7 @@ if (process.env.NODE_ENV !== 'production' && process.env.NODE_TLS_REJECT_UNAUTHO
 }
 
 import { schema } from '@aivastra/db';
+import type { WorkerPool } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
 import { loadEnv } from './env.js';
 import { startHealthServer } from './health/server.js';
@@ -19,6 +20,7 @@ import { promoteSareeStep2Jobs } from './job/saree-step2-promoter.js';
 import { makeDb } from './lib/db.js';
 import { makeRedis } from './lib/redis.js';
 import { makeStorage } from './lib/storage.js';
+import { runShopifyRetention } from './shopify/retention.js';
 import { runConsumer } from './stream/consumer.js';
 import { recoverPendingJobs } from './stream/recovery.js';
 import { runSweeper } from './stream/sweeper.js';
@@ -72,6 +74,16 @@ async function main(): Promise<void> {
       secretAccessKey: env.R2_SECRET_ACCESS_KEY,
     },
     forcePathStyle: env.R2_FORCE_PATH_STYLE,
+    // Default NodeHttpHandler timeouts are 0 (disabled) — a stalled R2 connection would
+    // otherwise hang r2Download() forever, parking the job in PREPROCESSING with no error
+    // and no retry until the 15-min sweeper SLA. Mirror the bounded timeouts already used
+    // for every ComfyUI HTTP call (comfyui/client.ts).
+    requestHandler: {
+      connectionTimeout: 10_000,
+      requestTimeout: 60_000,
+      throwOnRequestTimeout: true,
+      socketTimeout: 60_000,
+    },
   });
 
   // Load workers from DB (source of truth — managed via admin panel)
@@ -80,7 +92,13 @@ async function main(): Promise<void> {
     id: w.id,
     url: w.url,
     apiKey: w.apiKey,
-    allowedJobTypes: w.allowedJobTypes ?? [],
+    // schema.workers.allowedJobTypes is a raw `text[]` column (Drizzle types it as
+    // string[]); values are only constrained to WorkerPool by workerPoolSchema at
+    // the admin API write boundary (apps/api/src/modules/admin/workers.routes.ts),
+    // not by the DB/schema layer itself. Cast here, at the one place a DB read
+    // crosses into the precisely-typed dispatcher registry, rather than widening
+    // WorkerEntry/registerWorkers back to string[].
+    allowedJobTypes: (w.allowedJobTypes ?? []) as WorkerPool[],
   }));
   if (workers.length === 0) {
     log.warn('No active workers found in DB — add workers via admin panel');
@@ -150,6 +168,15 @@ async function main(): Promise<void> {
     void promoteSareeStep2Jobs(processorCfg);
   }, 5_000);
 
+  // Hourly: retention is a slow-moving daily-granularity policy, so a tighter
+  // cadence would just re-scan stores with nothing to do.
+  const shopifyRetentionInterval = setInterval(
+    () => {
+      void runShopifyRetention(db, storage, log);
+    },
+    60 * 60 * 1000,
+  );
+
   log.info('dispatcher ready');
 
   async function shutdown(signal: string): Promise<void> {
@@ -157,6 +184,7 @@ async function main(): Promise<void> {
     clearInterval(sweeperInterval);
     clearInterval(recoveryInterval);
     clearInterval(sareeStep2Interval);
+    clearInterval(shopifyRetentionInterval);
     stopConsumer();
     stopVideoConsumer();
     stopWebhooks();

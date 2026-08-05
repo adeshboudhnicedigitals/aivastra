@@ -10,8 +10,10 @@ import {
   DevSareeMannequinJsonBody,
   DevTryonJsonBody,
   DevTryonResponse,
+  JOB_SOURCE,
+  LEGACY_JOB_SOURCE,
 } from '@aivastra/types';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
@@ -394,7 +396,17 @@ export async function devRoutes(app: FastifyInstance) {
         .from(schema.jobs)
         .innerJoin(schema.apiKeys, eq(schema.apiKeys.id, schema.jobs.apiKeyId))
         .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
-        .where(and(eq(schema.jobs.id, id), eq(schema.jobs.source, 'api')))
+        .where(
+          and(
+            eq(schema.jobs.id, id),
+            inArray(schema.jobs.source, [
+              JOB_SOURCE.API_TRYON,
+              JOB_SOURCE.API_SAREE_MANNEQUIN,
+              JOB_SOURCE.API_CATALOG,
+              LEGACY_JOB_SOURCE.API,
+            ]),
+          ),
+        )
         .limit(1);
 
       // Scoped by merchant (via the owning API key), not by key itself: a merchant

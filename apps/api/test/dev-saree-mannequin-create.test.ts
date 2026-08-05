@@ -1,4 +1,5 @@
 import { schema } from '@aivastra/db';
+import { JOB_SOURCE } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { buildTestApp, type TestApp } from './helpers/api.js';
@@ -79,7 +80,7 @@ describe('POST /v1/dev/saree-mannequin', () => {
     expect(body.status).toBe('QUEUED');
 
     const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, body.jobId));
-    expect(job?.source).toBe('api');
+    expect(job?.source).toBe(JOB_SOURCE.API_SAREE_MANNEQUIN);
     expect(job?.apiKeyId).toBeTruthy();
     expect(job?.watermark).toBe(false);
     expect(await balance()).toBe(before - job!.creditsCharged);

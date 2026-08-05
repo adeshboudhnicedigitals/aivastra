@@ -48,35 +48,6 @@ export async function pollGenerateJob(
   }
 }
 
-/**
- * Polls a batch of Path B generate jobs via the single-request batch status
- * endpoint until every job reaches a terminal status, reporting each tick so
- * the caller can update per-item UI (and import each job as soon as it's done
- * rather than waiting for the whole batch).
- */
-export async function pollGenerateBatch(
-  jobIds: string[],
-  onTick: (items: MerchantCatalogGenerateStatus[]) => void,
-  opts: { intervalMs?: number; timeoutMs?: number } = {},
-): Promise<void> {
-  const intervalMs = opts.intervalMs ?? 2500;
-  const timeoutMs = opts.timeoutMs ?? 300_000;
-  const startedAt = Date.now();
-  let pending = jobIds;
-  while (pending.length > 0) {
-    const { items } = await api.get<{ items: MerchantCatalogGenerateStatus[] }>(
-      `/v1/merchant/catalog/generate/status?jobIds=${pending.join(',')}`,
-    );
-    onTick(items);
-    pending = items.filter((i) => !TERMINAL_STATUSES.has(i.status)).map((i) => i.jobId);
-    if (pending.length === 0) return;
-    if (Date.now() - startedAt > timeoutMs) {
-      throw new Error('Timed out waiting for the catalogue images to generate.');
-    }
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
-  }
-}
-
 /** Copies a completed job's output into a merchant_catalog_items row (Path A import, also used to finalize Path B generates). */
 export function finalizeGeneratedProduct(
   jobId: string,
@@ -88,4 +59,30 @@ export function finalizeGeneratedProduct(
 /** Best-effort cleanup of an orphaned $0 product (e.g. user closes the modal after generating but before saving). */
 export function deleteProduct(id: string): Promise<void> {
   return api.del<void>(`/v1/merchant/catalog/${id}`).catch(() => undefined);
+}
+
+/**
+ * Materializes any bulk-flat batches that finished while the merchant was away.
+ * Held batches run whenever an admin releases them, so there is no in-modal poll
+ * to finalize them — the catalogue view calls this on mount instead. Rows come
+ * back inactive until the merchant fills in SKU and prices.
+ *
+ * `failed` distinguishes two very different situations for the caller:
+ *  - a non-negative number is the server's own count of rows it could not
+ *    finalize (a genuine partial failure, already logged server-side);
+ *  - `-1` means the request itself never reached/completed against the server
+ *    (network error, 5xx, session expiry) — reconciliation state is unknown,
+ *    not "zero rows failed." Flattening this to 0 would silently hide a
+ *    systemic failure behind an identical "nothing new yet" UI.
+ */
+export function reconcileHeldProducts(): Promise<{
+  created: MerchantCatalogItem[];
+  failed: number;
+}> {
+  return api
+    .post<{ created: MerchantCatalogItem[]; failed: number }>(
+      '/v1/merchant/catalog/reconcile-held',
+      {},
+    )
+    .catch(() => ({ created: [], failed: -1 }));
 }

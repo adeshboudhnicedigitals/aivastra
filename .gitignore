@@ -41,8 +41,10 @@ graphify-out/*
 assets/*
 
 .superpowers/*
+.worktrees/
 .opencode/*
 .codeboarding/
+.agents/
 
 # /legacy_ecosystem/
 /apps/admin-mobile/

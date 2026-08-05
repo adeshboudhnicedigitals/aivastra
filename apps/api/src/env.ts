@@ -32,10 +32,23 @@ const Env = z.object({
         .map((origin) => origin.trim())
         .filter(Boolean),
     ),
+  /**
+   * Number of reverse proxies in front of this process, passed to Fastify's
+   * `trustProxy`. Production is Cloudflare -> nginx -> api, so 2; a bare local
+   * run has none. Wrong-but-too-high is the dangerous direction — it lets a
+   * client prepend its own X-Forwarded-For entry and choose the IP we attribute
+   * the request to — so this is explicit config rather than a guess, and
+   * defaults to 0 (trust nothing).
+   */
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(10).default(0),
   COOKIE_SECRET: z.string().min(32),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_CALLBACK_URL: z.string().url().optional(),
+  // Extra accepted `aud` values for POST /v1/auth/device-login/google, comma-separated.
+  // Normally unset: the Android ID token's aud is GOOGLE_CLIENT_ID (the Web client ID
+  // passed to Credential Manager as serverClientId).
+  GOOGLE_DEVICE_AUDIENCES: z.string().optional(),
   WEB_URL: z.string().url().default('http://localhost:3000'),
   RESEND_API_KEY: z.string().min(1),
   EMAIL_FROM: z.string().min(1).default('noreply@aivastra.com'),

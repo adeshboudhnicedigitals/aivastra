@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { DB } from '@aivastra/db';
 import { schema } from '@aivastra/db';
 import { jobsCreatedTotal } from '@aivastra/observability';
-import type { CreateSareeJobRequest } from '@aivastra/types';
+import { type CreateSareeJobRequest, JOB_SOURCE } from '@aivastra/types';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
@@ -75,7 +75,7 @@ export async function createSareeJob(
         queueStream,
         watermark,
         creditsCharged: COST,
-        source: 'saree',
+        source: JOB_SOURCE.SAREE,
       })
       .returning();
     await atomicDeduct(tx as unknown as DB, userId, COST, newJob.id);
@@ -95,7 +95,7 @@ export async function createSareeJob(
   const stream = `jobs:${queueStream}`;
   try {
     await app.redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', job.id, 'userId', userId);
-    jobsCreatedTotal.inc({ priority: queueStream, kind: 'saree' });
+    jobsCreatedTotal.inc({ priority: queueStream, kind: JOB_SOURCE.SAREE });
   } catch (err) {
     app.log.error({ err, jobId: job.id }, 'redis xadd failed — saree job will be refunded');
     await refund(app.db, userId, COST, job.id, 'REFUND_ENQUEUE_FAIL');

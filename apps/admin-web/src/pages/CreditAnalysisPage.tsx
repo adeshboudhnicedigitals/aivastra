@@ -224,7 +224,10 @@ export default function CreditAnalysisPage({ toast }: Props) {
           <p style={{ color: 'var(--muted)', fontSize: 13 }}>Loading&hellip;</p>
         ) : (
           <>
-            <div className="grid-3-col" style={{ marginBottom: 20 }}>
+            <div
+              className="kv-grid"
+              style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 20 }}
+            >
               <div className="kv">
                 <span className="k">Balance</span>
                 <span className="v">{detail.balance.toLocaleString()}</span>

@@ -6,6 +6,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { createKioskDevice, generatePairingCode, hashPairingCode } from '../kiosk/provisioning.js';
+import { assignMerchantToActiveDemoSets } from '../merchant/demo-catalog-read.js';
 import { merchantAdminGrant } from '../merchant/ledger.js';
 import { findOrCreateUserForMerchant } from '../merchant/user-link.js';
 import { requireAdmin } from './guard.js';
@@ -118,24 +119,23 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
       const clients = await app.db
         .select({
           id: schema.merchants.id,
+          signupSource: schema.merchants.signupSource,
           companyName: schema.merchants.companyName,
           contactName: schema.merchants.contactName,
           email: schema.users.email,
           phone: schema.merchants.phone,
           businessAddress: schema.merchants.businessAddress,
           isActive: schema.merchants.isActive,
+          demoData: schema.merchants.demoData,
           kioskEnabled: schema.merchants.kioskEnabled,
           maxKioskDevices: schema.merchants.maxKioskDevices,
           createdAt: schema.merchants.createdAt,
           updatedAt: schema.merchants.updatedAt,
-          creditBalance: schema.merchantCredits.balance,
+          creditBalance: schema.userCredits.balance,
         })
         .from(schema.merchants)
         .innerJoin(schema.users, eq(schema.merchants.userId, schema.users.id))
-        .leftJoin(
-          schema.merchantCredits,
-          eq(schema.merchants.id, schema.merchantCredits.merchantId),
-        )
+        .leftJoin(schema.userCredits, eq(schema.merchants.userId, schema.userCredits.userId))
         // biome-ignore lint/suspicious/noExplicitAny: drizzle where-clause union type
         .where(where as any)
         .orderBy(desc(schema.merchants.createdAt))
@@ -201,16 +201,14 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
             // an admin creating this record here IS the approval — no separate
             // activation step needed.
             isActive: true,
+            demoData: true,
           })
           .returning();
 
-        await tx.insert(schema.merchantCredits).values({
-          merchantId: created.id,
-          balance: 0,
-        });
-
         return created;
       });
+
+      await assignMerchantToActiveDemoSets(app.db, client.id, req.userId);
 
       if (body.initialCredits && body.initialCredits > 0) {
         await merchantAdminGrant(
@@ -242,6 +240,7 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
           phone: schema.merchants.phone,
           businessAddress: schema.merchants.businessAddress,
           isActive: schema.merchants.isActive,
+          demoData: schema.merchants.demoData,
           kioskEnabled: schema.merchants.kioskEnabled,
           maxKioskDevices: schema.merchants.maxKioskDevices,
           userId: schema.merchants.userId,
@@ -249,16 +248,13 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
           webhookSecret: schema.merchants.webhookSecret,
           createdAt: schema.merchants.createdAt,
           updatedAt: schema.merchants.updatedAt,
-          creditBalance: schema.merchantCredits.balance,
+          creditBalance: schema.userCredits.balance,
           emailVerified: schema.users.emailVerified,
           displayName: schema.users.displayName,
         })
         .from(schema.merchants)
         .innerJoin(schema.users, eq(schema.merchants.userId, schema.users.id))
-        .leftJoin(
-          schema.merchantCredits,
-          eq(schema.merchants.id, schema.merchantCredits.merchantId),
-        )
+        .leftJoin(schema.userCredits, eq(schema.merchants.userId, schema.userCredits.userId))
         .where(eq(schema.merchants.id, id))
         .limit(1);
 
@@ -266,9 +262,9 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
 
       const ledger = await app.db
         .select()
-        .from(schema.merchantCreditLedger)
-        .where(eq(schema.merchantCreditLedger.merchantId, id))
-        .orderBy(desc(schema.merchantCreditLedger.createdAt))
+        .from(schema.creditLedger)
+        .where(eq(schema.creditLedger.userId, client.userId))
+        .orderBy(desc(schema.creditLedger.createdAt))
         .limit(20);
 
       const recentJobs = await app.db
@@ -320,6 +316,7 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
 
       const updates: Record<string, unknown> = { updatedAt: new Date() };
       if (body.isActive !== undefined) updates.isActive = body.isActive;
+      if (body.demoData !== undefined) updates.demoData = body.demoData;
       if (body.companyName !== undefined) updates.companyName = body.companyName;
       if (body.contactName !== undefined) updates.contactName = body.contactName;
       if (body.phone !== undefined) updates.phone = body.phone;
@@ -344,6 +341,11 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
         .returning();
 
       if (!updated) throw new AppError('NOT_FOUND', 404, 'Merchant not found');
+
+      if (body.demoData === true) {
+        await assignMerchantToActiveDemoSets(app.db, id, req.userId);
+      }
+
       return updated;
     },
   );
@@ -383,9 +385,10 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
       );
 
       const [credits] = await app.db
-        .select({ balance: schema.merchantCredits.balance })
-        .from(schema.merchantCredits)
-        .where(eq(schema.merchantCredits.merchantId, id))
+        .select({ balance: schema.userCredits.balance })
+        .from(schema.merchants)
+        .innerJoin(schema.userCredits, eq(schema.userCredits.userId, schema.merchants.userId))
+        .where(eq(schema.merchants.id, id))
         .limit(1);
 
       return { newBalance: credits?.balance ?? amount };

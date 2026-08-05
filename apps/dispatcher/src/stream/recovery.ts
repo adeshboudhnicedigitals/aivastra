@@ -58,7 +58,15 @@ export async function recoverPendingJobs(
           continue;
         }
         log.info({ jobId: fieldMap.jobId }, 'reprocessing claimed pending job');
-        await processJob(cfg, fieldMap.jobId, fieldMap.userId, stream, messageId);
+        const retryCount = Number.parseInt(fieldMap.retryCount ?? '0', 10);
+        await processJob(
+          cfg,
+          fieldMap.jobId,
+          fieldMap.userId,
+          stream,
+          messageId,
+          Number.isFinite(retryCount) ? retryCount : 0,
+        );
       }
 
       const lastId = pending[pending.length - 1]?.[0];
