@@ -127,7 +127,12 @@ export async function runMannequinPhase(
     comfyRequestDuration.observe((Date.now() - comfyStartedAt) / 1000);
     const [firstImage] = await fetchHistory(w.url, w.apiKey, promptId, jobLog, outputNodeId);
     if (!firstImage) throw new Error('ComfyUI returned no output images for mannequin phase');
-    const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
+    const imageBytes = await downloadOutputImage(
+      w.url,
+      w.apiKey,
+      firstImage.filename,
+      firstImage.subfolder,
+    );
     const intermediateKey = keys.mannequinIntermediate(jobId);
     await s3.send(
       new PutObjectCommand({

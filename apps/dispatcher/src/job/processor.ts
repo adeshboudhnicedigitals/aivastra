@@ -681,7 +681,12 @@ export async function processJob(
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images');
 
-    const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
+    const imageBytes = await downloadOutputImage(
+      w.url,
+      w.apiKey,
+      firstImage.filename,
+      firstImage.subfolder,
+    );
 
     // 9. Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
     await finalizeOutput({
@@ -1002,7 +1007,12 @@ async function processTryonDirectJob(
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images for tryon direct job');
 
-    const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
+    const imageBytes = await downloadOutputImage(
+      w.url,
+      w.apiKey,
+      firstImage.filename,
+      firstImage.subfolder,
+    );
 
     // Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
     // outputFormat: 'webp' — tryon-direct is the only job kind (source='tryon' /
@@ -1341,7 +1351,12 @@ async function processSareeMannequinJob(
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images for mannequin job');
 
-    const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
+    const imageBytes = await downloadOutputImage(
+      w.url,
+      w.apiKey,
+      firstImage.filename,
+      firstImage.subfolder,
+    );
 
     // Mannequin images are never delivered to the user — no watermark applies.
     await finalizeOutput({
@@ -1563,7 +1578,12 @@ async function processSareeJob(
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images for saree job');
 
-    const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
+    const imageBytes = await downloadOutputImage(
+      w.url,
+      w.apiKey,
+      firstImage.filename,
+      firstImage.subfolder,
+    );
 
     // Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
     await finalizeOutput({
@@ -1859,7 +1879,12 @@ async function processWidgetJob(
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images for merchant widget job');
 
-    const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
+    const imageBytes = await downloadOutputImage(
+      w.url,
+      w.apiKey,
+      firstImage.filename,
+      firstImage.subfolder,
+    );
 
     // Upload result to R2 as WebP (q90) — smaller payload for the merchant/kiosk clients.
     const resultKey = `widget-outputs/${jobId}/result.webp`;
@@ -2133,7 +2158,12 @@ async function processShopifyJob(
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images for shopify job');
 
-    const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
+    const imageBytes = await downloadOutputImage(
+      w.url,
+      w.apiKey,
+      firstImage.filename,
+      firstImage.subfolder,
+    );
 
     const { resultKey } = await finalizeOutput({
       imageBytes,
