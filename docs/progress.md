@@ -18,6 +18,42 @@
 **Failed / Not Done**
 - No failures in this task.
 
+## 2026-08-05 — Sync with origin/main + local migration snapshot cleanup
+
+**Done**
+- Pulled 64 commits from `origin/main` (fast-forward, `71ae30f4` → `bb0d9ed7`,
+  the unified-credits merge documented below).
+- Found the local working tree had corrupted the Drizzle snapshot DAG:
+  uncommitted edits to `0122_snapshot.json` and `0125_snapshot.json` had their
+  `prevId` fields scrambled (`0125`'s `prevId` pointed at `0121`'s `id` instead
+  of `0124`'s), breaking the snapshot chain. `pnpm db:generate` had walked back
+  to a stale baseline off that broken chain and produced
+  `0143_narrow_lockjaw.sql` — a ~300-line migration re-declaring tables/columns
+  already created by already-committed migrations `0135`–`0142`
+  (`signup_campaigns`, `demo_catalog_*`, `shopify_shoppers`,
+  `shopify_widget_events`, etc.). `packages/db/src/schema/*.ts` had zero
+  uncommitted changes, confirming there was no real schema delta behind it.
+- Discarded the corrupted snapshot edits and the spurious
+  `0143_narrow_lockjaw.sql` (+ its meta snapshot) before pulling — none of it
+  was ever committed or pushed.
+- `origin/main` had independently used index `0143`
+  (`0143_merchant_credits_backfill.sql`) and `0144`
+  (`0144_drop_merchant_credits.sql`) for real, already-reviewed work — see the
+  unified-credits entry immediately below. No renumbering was needed since the
+  local `0143` was dropped rather than kept.
+
+**Failed / Not Done**
+- None.
+
+**Follow-up (same day)**
+- Ran `docker compose down -v` + fresh `up -d` (equivalent to `docker:reset` +
+  `docker:up`) to clear the stray `0143_narrow_lockjaw` tables/orphaned
+  migration record, then applied all 145 migrations from scratch —
+  `Done: 145 applied, 0 reconciled`, no errors. Verified `merchant_credits` /
+  `merchant_credit_ledger` are dropped and `drizzle.__drizzle_migrations` has
+  exactly 145 rows with no leftover orphaned hash. Local dev DB now matches
+  migration history exactly.
+
 **Open Questions / Decisions**
 - None.
 
