@@ -122,6 +122,12 @@ Modal copy, accent color, and result-step actions come from the
 Postgres (`shopify_stores.settings.widget`) is authoritative; the metafield is a
 cache, and a failed mirror surfaces as `synced: false`.
 
+## Staging Environment
+
+Staging runs from the `dev` branch on the same VPS as production under the `aivastra-staging` Compose project. All host ports are production + 100 (web 3100, admin 3101, shopify-admin 3103, api 4100, chatbot 4300, minio 9100, minio console 9101). Data is an unscrubbed production snapshot, refreshed on-demand via `scripts/staging/sync-from-prod.sh`.
+
+Before any deploy, `.env.staging` must pass `scripts/staging/check-staging-env.sh`, or the build aborts. See `docs/staging-runbook.md` for the complete VPS provisioning guide (DNS, CloudPanel vhosts, first boot, sync cadence).
+
 ## Web App Architecture (apps/catalogues-web)
 
 ### Auth Flow
