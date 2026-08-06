@@ -1,3 +1,16 @@
+## 2026-08-06 — Staging environment
+
+### Done
+- Created `docs/staging-runbook.md` documenting the complete VPS provisioning guide (11 steps: reclaim cache, capacity baseline, clone repo, env file setup, GitHub secrets, DNS/CloudPanel vhost configuration with nginx WebSocket settings for chatbot, GPU worker deferral, Grafana Cloud setup, first boot sequence, initial sync, and re-sync cadence).
+- Added `## Staging Environment` section to `CLAUDE.md` after the "Adding a GPU worker" section, explaining that staging runs from `dev` on the same VPS under `aivastra-staging` project, ports are prod+100, data is an unscrubbed production snapshot, and `.env.staging` must pass validation before deploy.
+- Verified all bound ports in the staging compose file match the vhost routing table in the runbook (3100, 3101, 3103, 4100, 4300, 9100, 9101).
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- **PixVerse:** Staging shares the production API key, so `VIDEO_CONCURRENCY=0` keeps the video lane closed until a second key exists or the spend is accepted.
+
 ## 2026-08-03 - Virtual Try-On Android cache synchronization desync fix
 
 ### Done
