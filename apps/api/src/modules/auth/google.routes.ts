@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { resolveCampaignId } from './campaign.js';
 import { resolveFreeCredits, upsertGoogleUser } from './google-upsert.js';
 import { createSessionTokens } from './tokens.js';
 
@@ -30,7 +31,7 @@ export async function googleAuthRoutes(app: FastifyInstance) {
     // the merchant/shopper account-link flow, which relies on the popup
     // posting back to window.opener after this OAuth round trip completes.
     reply.header('Cross-Origin-Opener-Policy', 'unsafe-none');
-    const { next } = req.query as { next?: string };
+    const { next, src } = req.query as { next?: string; src?: string };
     const state = randomBytes(32).toString('base64url');
     reply.setCookie('google_state', state, {
       httpOnly: true,
@@ -53,6 +54,18 @@ export async function googleAuthRoutes(app: FastifyInstance) {
         signed: false,
       });
     }
+    if (src) {
+      reply.setCookie('google_src', encodeURIComponent(src), {
+        httpOnly: true,
+        secure: app.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/v1/auth/google',
+        maxAge: 300,
+        signed: false,
+      });
+    } else {
+      reply.clearCookie('google_src', { path: '/v1/auth/google' });
+    }
     const url = new URL(GOOGLE_AUTH_URL);
     url.searchParams.set('client_id', clientId);
     url.searchParams.set('redirect_uri', callbackUrl);
@@ -68,13 +81,29 @@ export async function googleAuthRoutes(app: FastifyInstance) {
     const { code, state } = req.query as { code?: string; state?: string };
     const storedState = req.cookies.google_state;
     const next = req.cookies.google_next ? decodeURIComponent(req.cookies.google_next) : undefined;
+    const src = req.cookies.google_src ? decodeURIComponent(req.cookies.google_src) : undefined;
+
+    // A failed round trip here previously surfaced as a raw JSON error page —
+    // a dead end on mobile, where there's no back button affordance next to
+    // the address bar the way desktop has. Redirect back to login with a
+    // reason code instead so the user always lands somewhere they can retry.
+    const failRedirect = (reason: string) => {
+      reply.clearCookie('google_state', { path: '/v1/auth/google' });
+      if (next) reply.clearCookie('google_next', { path: '/v1/auth/google' });
+      if (src) reply.clearCookie('google_src', { path: '/v1/auth/google' });
+      const url = new URL(`${webUrl}/login`);
+      url.searchParams.set('error', reason);
+      if (next) url.searchParams.set('next', next);
+      return reply.redirect(url.toString(), 302);
+    };
 
     if (!code || !state || !storedState || state !== storedState) {
-      throw new AppError('INVALID_STATE', 400, 'invalid OAuth state');
+      return failRedirect('google_invalid_state');
     }
 
     reply.clearCookie('google_state', { path: '/v1/auth/google' });
     if (next) reply.clearCookie('google_next', { path: '/v1/auth/google' });
+    if (src) reply.clearCookie('google_src', { path: '/v1/auth/google' });
 
     // Exchange code for Google access token
     const tokenRes = await fetch(GOOGLE_TOKEN_URL, {
@@ -88,16 +117,14 @@ export async function googleAuthRoutes(app: FastifyInstance) {
         grant_type: 'authorization_code',
       }),
     });
-    if (!tokenRes.ok)
-      throw new AppError('GOOGLE_TOKEN_FAILED', 400, 'Google token exchange failed');
+    if (!tokenRes.ok) return failRedirect('google_token_failed');
     const { access_token: googleAccessToken } = (await tokenRes.json()) as { access_token: string };
 
     // Fetch Google user profile
     const userRes = await fetch(GOOGLE_USERINFO_URL, {
       headers: { Authorization: `Bearer ${googleAccessToken}` },
     });
-    if (!userRes.ok)
-      throw new AppError('GOOGLE_USERINFO_FAILED', 400, 'Google userinfo fetch failed');
+    if (!userRes.ok) return failRedirect('google_userinfo_failed');
     const googleUser = (await userRes.json()) as {
       sub: string;
       email: string;
@@ -105,9 +132,10 @@ export async function googleAuthRoutes(app: FastifyInstance) {
       picture?: string;
     };
 
-    const freeCredits = await resolveFreeCredits(app);
-    const userId = await app.db.transaction((tx) =>
-      upsertGoogleUser(
+    const userId = await app.db.transaction(async (tx) => {
+      const campaignId = await resolveCampaignId(tx, src);
+      const freeCredits = await resolveFreeCredits(tx, campaignId);
+      return upsertGoogleUser(
         tx,
         {
           sub: googleUser.sub,
@@ -116,8 +144,9 @@ export async function googleAuthRoutes(app: FastifyInstance) {
           picture: googleUser.picture,
         },
         freeCredits,
-      ),
-    );
+        campaignId,
+      );
+    });
     // Issue one-time OTP for web handoff
     const otp = randomUUID();
     await app.redis.set(`oauth:otp:${otp}`, userId, 'EX', 60);

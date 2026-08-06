@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icons';
-import { useAuth } from '../context/AuthContext';
+
 import { apiErrorMessage, apiFetch } from '../lib/data';
 import type { ContactRequest } from '../types';
 
@@ -42,7 +42,6 @@ interface Props {
 }
 
 export default function ContactRequestsPage({ toast }: Props) {
-  const { storagePublicUrl } = useAuth();
   const [rows, setRows] = useState<ContactRequest[]>([]);
   const [total, setTotal] = useState(0);
   const [statusFilter, setStatusFilter] = useState<'all' | 'new' | 'read' | 'done'>('all');
@@ -55,7 +54,7 @@ export default function ContactRequestsPage({ toast }: Props) {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<ContactRequest | null>(null);
-  const [copied, setCopied] = useState<string | null>(null);
+
   const notifPermRef = useRef(false);
   const prevNewCountRef = useRef<number | null>(null);
 
@@ -167,13 +166,6 @@ export default function ContactRequestsPage({ toast }: Props) {
         body: apiErrorMessage(e, 'Please try again.'),
       });
     }
-  };
-
-  const copy = (text: string, key: string) => {
-    void navigator.clipboard.writeText(text).then(() => {
-      setCopied(key);
-      setTimeout(() => setCopied(null), 1500);
-    });
   };
 
   const statusFilters: Array<'all' | 'new' | 'read' | 'done'> = ['all', 'new', 'read', 'done'];
@@ -360,306 +352,174 @@ export default function ContactRequestsPage({ toast }: Props) {
             : 'No contact requests matching the selected filters.'}
         </div>
       ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th style={{ width: 72 }}>Status</th>
-                <th style={{ width: 160 }}>Name</th>
-                <th>Message</th>
-                <th style={{ width: 120 }}>Source</th>
-                <th style={{ width: 130 }}>Received</th>
-                <th style={{ width: 80 }} />
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((r) => (
-                <tr
-                  key={r.id}
-                  style={{
-                    cursor: 'pointer',
-                    background:
-                      selected?.id === r.id
-                        ? 'var(--accent-soft)'
-                        : r.status === 'new'
-                          ? 'var(--danger-soft)'
-                          : undefined,
-                  }}
-                  onClick={() => setSelected(r)}
-                >
-                  <td onClick={(e) => e.stopPropagation()}>
-                    <span className={STATUS_BADGE[r.status] ?? 'badge'}>
-                      {STATUS_LABEL[r.status]}
-                    </span>
-                  </td>
-                  <td>
-                    <div style={{ fontWeight: r.status === 'new' ? 600 : 400, fontSize: 13 }}>
-                      {r.name}
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
-                      {r.phone || '—'}
-                    </div>
-                  </td>
-                  <td>
-                    {r.message ? (
-                      <span
-                        style={{
-                          fontSize: 12.5,
-                          color: 'var(--ink-2)',
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                          lineHeight: 1.5,
-                        }}
-                      >
-                        {r.message}
-                      </span>
-                    ) : (
-                      <span style={{ fontSize: 12, color: 'var(--muted-2)', fontStyle: 'italic' }}>
-                        No message
-                      </span>
-                    )}
-                  </td>
-                  <td>
-                    <span className={sourceBadgeClass(r.source)}>
-                      {SOURCE_LABELS[sourceKey(r.source)] ?? r.source ?? 'General'}
-                    </span>
-                  </td>
-                  <td style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                    {new Date(r.createdAt).toLocaleDateString('en-IN', {
-                      day: 'numeric',
-                      month: 'short',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </td>
-                  <td onClick={(e) => e.stopPropagation()}>
-                    <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-                      {r.status === 'new' && (
-                        <button
-                          className="btn sm ghost"
-                          onClick={() => void setStatus(r.id, 'read')}
-                          title="Mark read"
-                        >
-                          <Icon.Eye />
-                        </button>
-                      )}
-                      {r.status !== 'done' && (
-                        <button
-                          className="btn sm ghost"
-                          onClick={() => void setStatus(r.id, 'done')}
-                          title="Mark done"
-                        >
-                          <Icon.Check />
-                        </button>
-                      )}
-                      {r.status === 'done' && (
-                        <button
-                          className="btn sm ghost"
-                          onClick={() => void setStatus(r.id, 'new')}
-                          title="Reopen"
-                        >
-                          <Icon.Refresh />
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* ── Detail drawer ─────────────────────────────────────────── */}
-      {selected && (
-        <>
-          <div className="scrim" onClick={() => setSelected(null)} />
-          <div className="drawer">
-            {/* Head */}
-            <div className="drawer-head">
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: 15 }}>{selected.name}</div>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                  {new Date(selected.createdAt).toLocaleString('en-IN', {
-                    day: 'numeric',
-                    month: 'long',
-                    year: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </div>
-              </div>
-              <span className={STATUS_BADGE[selected.status] ?? 'badge'}>
-                {STATUS_LABEL[selected.status]}
-              </span>
-              <button className="iconbtn" onClick={() => setSelected(null)} title="Close (Esc)">
-                <Icon.Close />
-              </button>
-            </div>
-
-            {/* Body */}
-            <div
-              className="drawer-body"
-              style={{ display: 'flex', flexDirection: 'column', gap: 20 }}
-            >
-              {/* Contact info */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {filtered.map((r) => {
+            const isSelected = selected?.id === r.id;
+            return (
               <div
+                key={r.id}
                 style={{
-                  background: 'var(--surface-2)',
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border)',
                   borderRadius: 'var(--r-lg)',
-                  padding: '14px 16px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 10,
+                  overflow: 'hidden',
+                  boxShadow: isSelected ? '0 0 0 2px var(--accent-soft)' : undefined,
+                  borderColor: isSelected ? 'var(--accent)' : undefined,
                 }}
               >
-                {/* Email row */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 11, color: 'var(--muted)', width: 50, flexShrink: 0 }}>
-                    Email
-                  </span>
-                  <a
-                    href={`mailto:${selected.email}?subject=Re: Your enquiry via Aivastra`}
-                    style={{
-                      fontFamily: 'var(--mono)',
-                      fontSize: 12.5,
-                      color: 'var(--accent)',
-                      flex: 1,
-                      minWidth: 0,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {selected.email}
-                  </a>
-                  <button
-                    className="iconbtn"
-                    onClick={() => copy(selected.email, 'email')}
-                    title="Copy email"
-                  >
-                    {copied === 'email' ? <Icon.Check /> : <Icon.Copy />}
-                  </button>
-                </div>
-
-                {/* Phone row */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 11, color: 'var(--muted)', width: 50, flexShrink: 0 }}>
-                    Phone
-                  </span>
-                  <a
-                    href={`tel:${selected.phone}`}
-                    style={{ fontFamily: 'var(--mono)', fontSize: 12.5, flex: 1 }}
-                  >
-                    {selected.phone}
-                  </a>
-                  <button
-                    className="iconbtn"
-                    onClick={() => copy(selected.phone, 'phone')}
-                    title="Copy phone"
-                  >
-                    {copied === 'phone' ? <Icon.Check /> : <Icon.Copy />}
-                  </button>
-                </div>
-
-                {/* Source row */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 11, color: 'var(--muted)', width: 50, flexShrink: 0 }}>
-                    Source
-                  </span>
-                  <span className={sourceBadgeClass(selected.source)}>
-                    {SOURCE_LABELS[sourceKey(selected.source)] ?? selected.source ?? 'General'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Message */}
-              {selected.message ? (
-                <div>
-                  <div
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 500,
-                      letterSpacing: '0.08em',
-                      textTransform: 'uppercase',
-                      color: 'var(--muted)',
-                      marginBottom: 8,
-                    }}
-                  >
-                    Message
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 13.5,
-                      lineHeight: 1.7,
-                      color: 'var(--ink)',
-                      whiteSpace: 'pre-wrap',
-                      background: 'var(--surface-2)',
-                      borderRadius: 'var(--r)',
-                      padding: '12px 14px',
-                      borderLeft: '3px solid var(--accent)',
-                    }}
-                  >
-                    {selected.message}
-                  </div>
-                </div>
-              ) : (
                 <div
+                  onClick={() => setSelected(isSelected ? null : r)}
                   style={{
-                    fontSize: 13,
-                    color: 'var(--muted)',
-                    fontStyle: 'italic',
-                    textAlign: 'center',
-                    padding: '16px 0',
+                    padding: '16px 20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    cursor: 'pointer',
+                    background: r.status === 'new' ? 'var(--danger-soft)' : 'transparent',
                   }}
                 >
-                  No message included
+                  <div style={{ fontWeight: r.status === 'new' ? 600 : 500, fontSize: 15 }}>
+                    {r.name}
+                  </div>
+                  <div
+                    style={{
+                      transform: isSelected ? 'rotate(90deg)' : 'rotate(0deg)',
+                      transition: 'transform 0.2s',
+                      display: 'flex',
+                      color: 'var(--muted)',
+                    }}
+                  >
+                    <Icon.Chevron />
+                  </div>
                 </div>
-              )}
 
-              {/* Attachment */}
-              {selected.attachmentKey && storagePublicUrl && (
-                <a
-                  href={`${storagePublicUrl}/${selected.attachmentKey}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn ghost"
-                  style={{ alignSelf: 'flex-start' }}
-                >
-                  <Icon.Eye /> View attachment
-                </a>
-              )}
-            </div>
+                {isSelected && (
+                  <div style={{ padding: '20px', borderTop: '1px solid var(--border)' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24 }}>
+                        <div>
+                          <div
+                            style={{
+                              fontSize: 11,
+                              color: 'var(--muted)',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.05em',
+                              marginBottom: 6,
+                            }}
+                          >
+                            Status
+                          </div>
+                          <span className={STATUS_BADGE[r.status] ?? 'badge'}>
+                            {STATUS_LABEL[r.status]}
+                          </span>
+                        </div>
+                        <div>
+                          <div
+                            style={{
+                              fontSize: 11,
+                              color: 'var(--muted)',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.05em',
+                              marginBottom: 6,
+                            }}
+                          >
+                            Source
+                          </div>
+                          <span className={sourceBadgeClass(r.source)}>
+                            {SOURCE_LABELS[sourceKey(r.source)] ?? r.source ?? 'General'}
+                          </span>
+                        </div>
+                        <div>
+                          <div
+                            style={{
+                              fontSize: 11,
+                              color: 'var(--muted)',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.05em',
+                              marginBottom: 6,
+                            }}
+                          >
+                            Received
+                          </div>
+                          <div style={{ fontSize: 14 }}>
+                            {new Date(r.createdAt).toLocaleString('en-IN', {
+                              day: 'numeric',
+                              month: 'long',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </div>
+                        </div>
+                      </div>
 
-            {/* Footer — actions */}
-            <div className="drawer-foot" style={{ gap: 8, flexWrap: 'wrap' }}>
-              <a
-                href={`mailto:${selected.email}?subject=Re: Your enquiry via Aivastra`}
-                className="btn accent"
-                style={{ marginRight: 'auto' }}
-              >
-                <Icon.ExternalLink /> Reply by email
-              </a>
-              {selected.status === 'new' && (
-                <button className="btn" onClick={() => void setStatus(selected.id, 'read')}>
-                  <Icon.Eye /> Mark read
-                </button>
-              )}
-              {selected.status !== 'done' && (
-                <button className="btn primary" onClick={() => void setStatus(selected.id, 'done')}>
-                  <Icon.Check /> Mark done
-                </button>
-              )}
-              {selected.status === 'done' && (
-                <button className="btn" onClick={() => void setStatus(selected.id, 'new')}>
-                  <Icon.Refresh /> Reopen
-                </button>
-              )}
-            </div>
-          </div>
-        </>
+                      <div>
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: 'var(--muted)',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.05em',
+                            marginBottom: 6,
+                          }}
+                        >
+                          Message
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 14,
+                            lineHeight: 1.6,
+                            whiteSpace: 'pre-wrap',
+                            color: 'var(--ink)',
+                          }}
+                        >
+                          {r.message || (
+                            <span style={{ fontStyle: 'italic', color: 'var(--muted-2)' }}>
+                              No message included
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+                        {r.status === 'new' && (
+                          <button
+                            type="button"
+                            className="btn"
+                            onClick={() => void setStatus(r.id, 'read')}
+                            title="Mark read"
+                          >
+                            <Icon.Eye /> View
+                          </button>
+                        )}
+                        {r.status !== 'done' && (
+                          <button
+                            type="button"
+                            className="btn primary"
+                            onClick={() => void setStatus(r.id, 'done')}
+                            title="Mark done"
+                          >
+                            <Icon.Check /> Ok
+                          </button>
+                        )}
+                        {r.status === 'done' && (
+                          <button
+                            type="button"
+                            className="btn"
+                            onClick={() => void setStatus(r.id, 'new')}
+                            title="Reopen"
+                          >
+                            <Icon.Refresh /> Reopen
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );

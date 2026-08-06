@@ -10,6 +10,8 @@ interface SidebarProps {
   role: string;
   collapsed: boolean;
   onToggleCollapse: () => void;
+  mobileOpen: boolean;
+  onCloseMobile: () => void;
 }
 
 interface NavItem {
@@ -106,6 +108,12 @@ const groups: NavGroup[] = [
         roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN'],
       },
       {
+        k: 'held-batches',
+        label: 'Held Batches',
+        icon: Icon.Jobs,
+        roles: ['SUPER_ADMIN', 'ADMIN'],
+      },
+      {
         k: 'workers',
         label: 'Workers',
         icon: Icon.Server,
@@ -150,7 +158,15 @@ const groups: NavGroup[] = [
   },
 ];
 
-export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: SidebarProps) {
+export function Sidebar({
+  page,
+  onNav,
+  role,
+  collapsed,
+  onToggleCollapse,
+  mobileOpen,
+  onCloseMobile,
+}: SidebarProps) {
   const { token } = useAuth();
   const [contactBadge, setContactBadge] = useState(0);
 
@@ -176,7 +192,7 @@ export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: Side
   if (collapsed) {
     return (
       <aside
-        className="sidebar sidebar--collapsed"
+        className={`sidebar sidebar--collapsed${mobileOpen ? ' sidebar--mobile-open' : ''}`}
         onClick={onToggleCollapse}
         style={{ cursor: 'pointer' }}
       >
@@ -215,6 +231,7 @@ export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: Side
                 onClick={(e) => {
                   e.stopPropagation();
                   onNav(item.k);
+                  onCloseMobile();
                 }}
                 title={item.label}
               >
@@ -231,6 +248,7 @@ export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: Side
             onClick={(e) => {
               e.stopPropagation();
               onNav('settings');
+              onCloseMobile();
             }}
             title="Settings"
           >
@@ -242,7 +260,7 @@ export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: Side
   }
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar${mobileOpen ? ' sidebar--mobile-open' : ''}`}>
       <div className="brand">
         <span className="brand-mark brand-mark--logo">
           {/* biome-ignore lint/performance/noImgElement: admin panel */}
@@ -277,7 +295,10 @@ export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: Side
                 <button
                   key={item.k}
                   className={`nav-item ${item.alert || (item.k === 'contacts' && contactBadge > 0) ? 'alert' : ''} ${page === item.k ? 'active' : ''}`}
-                  onClick={() => onNav(item.k)}
+                  onClick={() => {
+                    onNav(item.k);
+                    onCloseMobile();
+                  }}
                 >
                   <item.icon />
                   <span>{item.label}</span>
@@ -292,7 +313,10 @@ export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: Side
       {showSettings && (
         <button
           className={`nav-item ${page === 'settings' ? 'active' : ''}`}
-          onClick={() => onNav('settings')}
+          onClick={() => {
+            onNav('settings');
+            onCloseMobile();
+          }}
         >
           <Icon.Settings />
           <span>Settings</span>

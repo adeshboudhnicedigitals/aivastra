@@ -137,6 +137,7 @@ export async function processJob(
       creditsCharged: schema.jobs.creditsCharged,
       attempts: schema.jobs.attempts,
       createdAt: schema.jobs.createdAt,
+      queuedAt: schema.jobs.queuedAt,
       watermark: schema.jobs.watermark,
     })
     .from(schema.jobs)
@@ -488,7 +489,14 @@ export async function processJob(
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
   const worker = await selectWorker(redis, WORKER_POOL.CATALOGUE);
   if (!worker) {
-    if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
+    // Released held jobs (queuedAt set) can legitimately wait far longer than
+    // MAX_QUEUE_WAIT_MS measured from createdAt would allow — createdAt is
+    // days old by the time an admin releases a batch. Mirror the sweeper's own
+    // queuedAt-first fallback (apps/dispatcher/src/stream/sweeper.ts) so this
+    // budget is measured from when the job actually entered the queue, not
+    // when it was originally created.
+    const queueWaitBaseline = (job.queuedAt ?? job.createdAt).getTime();
+    if (Date.now() - queueWaitBaseline > MAX_QUEUE_WAIT_MS) {
       jobLog.warn('no idle worker — job exceeded max queue wait, terminating with refund');
       await terminateJob(
         cfg,
@@ -673,7 +681,12 @@ export async function processJob(
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images');
 
-    const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
+    const imageBytes = await downloadOutputImage(
+      w.url,
+      w.apiKey,
+      firstImage.filename,
+      firstImage.subfolder,
+    );
 
     // 9. Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
     await finalizeOutput({
@@ -994,7 +1007,12 @@ async function processTryonDirectJob(
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images for tryon direct job');
 
-    const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
+    const imageBytes = await downloadOutputImage(
+      w.url,
+      w.apiKey,
+      firstImage.filename,
+      firstImage.subfolder,
+    );
 
     // Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
     // outputFormat: 'webp' — tryon-direct is the only job kind (source='tryon' /
@@ -1333,7 +1351,12 @@ async function processSareeMannequinJob(
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images for mannequin job');
 
-    const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
+    const imageBytes = await downloadOutputImage(
+      w.url,
+      w.apiKey,
+      firstImage.filename,
+      firstImage.subfolder,
+    );
 
     // Mannequin images are never delivered to the user — no watermark applies.
     await finalizeOutput({
@@ -1555,7 +1578,12 @@ async function processSareeJob(
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images for saree job');
 
-    const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
+    const imageBytes = await downloadOutputImage(
+      w.url,
+      w.apiKey,
+      firstImage.filename,
+      firstImage.subfolder,
+    );
 
     // Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
     await finalizeOutput({
@@ -1851,7 +1879,12 @@ async function processWidgetJob(
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images for merchant widget job');
 
-    const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
+    const imageBytes = await downloadOutputImage(
+      w.url,
+      w.apiKey,
+      firstImage.filename,
+      firstImage.subfolder,
+    );
 
     // Upload result to R2 as WebP (q90) — smaller payload for the merchant/kiosk clients.
     const resultKey = `widget-outputs/${jobId}/result.webp`;
@@ -1943,25 +1976,11 @@ async function processShopifyJob(
   const garmentKey = inputs.upperGarmentKey;
   const customerPhotoKey = job.customerPhotoKey;
 
-  const [garmentRow] = await db
-    .select({
-      funnelTemplateId: schema.shopifyProductGarments.funnelTemplateId,
-    })
-    .from(schema.shopifyProductGarments)
-    .where(eq(schema.shopifyProductGarments.r2Key, garmentKey ?? ''))
-    .limit(1);
-
-  let workflowTemplateId: string | undefined;
-  if (garmentRow?.funnelTemplateId) {
-    const [funnelTemplate] = await db
-      .select({ workflowTemplateId: schema.shopifyFunnelTemplates.workflowTemplateId })
-      .from(schema.shopifyFunnelTemplates)
-      .where(eq(schema.shopifyFunnelTemplates.id, garmentRow.funnelTemplateId));
-    workflowTemplateId = funnelTemplate?.workflowTemplateId;
-  }
-  if (!workflowTemplateId) {
-    workflowTemplateId = params.workflowTemplateId as string | undefined;
-  }
+  // The API resolves the workflow at creation and pins it onto params. Looking it
+  // up again here would reintroduce the split-brain the funnel removal closed: a
+  // default promoted after this job was charged would silently run a different
+  // workflow than the one the merchant was billed for.
+  const workflowTemplateId = params.workflowTemplateId as string | undefined;
 
   if (!workflowTemplateId || !garmentKey || !customerPhotoKey) {
     await markShopifyFailed(
@@ -2139,7 +2158,12 @@ async function processShopifyJob(
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images for shopify job');
 
-    const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
+    const imageBytes = await downloadOutputImage(
+      w.url,
+      w.apiKey,
+      firstImage.filename,
+      firstImage.subfolder,
+    );
 
     const { resultKey } = await finalizeOutput({
       imageBytes,
@@ -2189,25 +2213,40 @@ async function markWidgetFailed(
 ): Promise<void> {
   const { db, redis, pub } = cfg;
 
-  // Refund widget credits (idempotent)
+  // Refund to the merchant's owning user — one credit pool per human. Kiosk jobs
+  // carry jobs.user_id = null (the shopper is anonymous), so the billing owner is
+  // resolved through the merchants row rather than read off the job.
   await db.transaction(async (tx) => {
+    const [owner] = await tx
+      .select({ userId: schema.merchants.userId })
+      .from(schema.merchants)
+      .where(eq(schema.merchants.id, merchantId))
+      .limit(1);
+    if (!owner?.userId) {
+      // Throwing aborts the transaction AND this function before the caller
+      // transitions the job to FAILED or ACKs the stream message — a job that
+      // silently loses its refund is worse than one that stays pending for
+      // recovery/XPENDING redelivery. merchants.userId is NOT NULL in the
+      // schema, so this only fires on a genuine data-integrity anomaly.
+      throw new Error(`markWidgetFailed: merchant ${merchantId} has no owning user (job ${jobId})`);
+    }
     const existing = await tx
       .select()
-      .from(schema.merchantCreditLedger)
+      .from(schema.creditLedger)
       .where(
         and(
-          eq(schema.merchantCreditLedger.jobId, jobId),
-          eq(schema.merchantCreditLedger.reason, 'JOB_FAIL_REFUND'),
+          eq(schema.creditLedger.jobId, jobId),
+          eq(schema.creditLedger.reason, 'JOB_FAIL_REFUND'),
         ),
       );
     if (existing.length) return;
     await tx
-      .update(schema.merchantCredits)
-      .set({ balance: sql`${schema.merchantCredits.balance} + ${creditsCharged}` })
-      .where(eq(schema.merchantCredits.merchantId, merchantId));
+      .update(schema.userCredits)
+      .set({ balance: sql`${schema.userCredits.balance} + ${creditsCharged}` })
+      .where(eq(schema.userCredits.userId, owner.userId));
     await tx
-      .insert(schema.merchantCreditLedger)
-      .values({ merchantId, delta: creditsCharged, reason: 'JOB_FAIL_REFUND', jobId });
+      .insert(schema.creditLedger)
+      .values({ userId: owner.userId, delta: creditsCharged, reason: 'JOB_FAIL_REFUND', jobId });
   });
 
   await transitionJob(db, pub, jobId, '', 'FAILED', { errorCode }, log);
@@ -2232,7 +2271,7 @@ async function markWidgetFailed(
   );
   await redis.xack(stream, 'dispatcher-cg', messageId);
   recordJobOutcome('failed', startedAt);
-  log.warn({ jobId, errorCode }, 'widget job FAILED — widget credits refunded');
+  log.warn({ jobId, errorCode }, 'widget job FAILED — credits refunded');
 }
 
 async function markShopifyFailed(

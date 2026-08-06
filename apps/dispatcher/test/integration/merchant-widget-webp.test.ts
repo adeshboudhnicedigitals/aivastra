@@ -76,8 +76,6 @@ describe('merchant widget job — result uploaded as WebP q90', () => {
       .returning();
     if (!merchant) throw new Error('failed to seed merchant');
 
-    await env.db.insert(schema.merchantCredits).values({ merchantId: merchant.id, balance: 10 });
-
     const [template] = await env.db
       .insert(schema.workflowTemplates)
       .values({

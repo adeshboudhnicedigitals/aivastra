@@ -1,7 +1,7 @@
 import { type DB, schema } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
 import { JOB_SOURCE } from '@aivastra/types';
-import { and, eq, inArray, lte, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 import { transitionJob } from '../job/state.js';
 
@@ -14,6 +14,15 @@ const QUEUED_SLA_MS = 10 * 60 * 1000;
 // would refund healthy work that was about to run.
 const VIDEO_QUEUED_SLA_MS = 30 * 60 * 1000;
 const VIDEO_SOURCE = JOB_SOURCE.CATALOG_VIDEO;
+// Released bulk-flat batches can vastly exceed the GPU worker count in one
+// release — the in-flight cap is the worker-registry size, not the batch size,
+// so most released jobs sit legitimately QUEUED for a long time waiting for a
+// free worker, not orphaned. queued_at is stamped only at release (never at
+// normal QUEUED-on-creation), so it's the exact signal distinguishing "released,
+// waiting for capacity" from "just created, orphaned." Sized to processor.ts's
+// own MAX_QUEUE_WAIT_MS (3h) retry budget, so the sweeper never kills a job the
+// processor itself still considers worth retrying.
+const HELD_RELEASE_QUEUED_SLA_MS = 3 * 60 * 60 * 1000;
 // In-flight jobs whose work started (or, for PREPROCESSING, were created) longer ago than
 // this are stuck — a normal try-on completes in ~30-60s, so 15m means the dispatcher died
 // mid-flight. Longer than the QUEUED SLA because these are legitimately mid-processing.
@@ -38,6 +47,7 @@ export async function runSweeper(db: DB, pub: Redis, log: Logger): Promise<void>
   const now = Date.now();
   const queuedThreshold = new Date(now - QUEUED_SLA_MS);
   const videoQueuedThreshold = new Date(now - VIDEO_QUEUED_SLA_MS);
+  const heldReleaseThreshold = new Date(now - HELD_RELEASE_QUEUED_SLA_MS);
   // COALESCE(started_at, created_at): started_at is only set at GENERATING, so a job stuck
   // in PREPROCESSING falls back to created_at.
   const inFlightThreshold = new Date(now - IN_FLIGHT_SLA_MS);
@@ -62,7 +72,10 @@ export async function runSweeper(db: DB, pub: Redis, log: Logger): Promise<void>
       .where(eq(schema.jobEvents.eventType, 'PREPROCESSING'))
       .groupBy(schema.jobEvents.jobId)
       .as('last_attempt');
-    const staleness = sql`coalesce(${lastAttempt.lastAttemptAt}, ${schema.jobs.createdAt})`;
+    // queued_at is set only when a HELD job is released into the stream long
+    // after creation; without it a batch released after days of holding would
+    // look orphaned on the very next tick and be refunded out from under itself.
+    const staleness = sql`coalesce(${lastAttempt.lastAttemptAt}, ${schema.jobs.queuedAt}, ${schema.jobs.createdAt})`;
 
     // Pass 1 — orphaned QUEUED jobs that were never dispatched (or never re-touched).
     const orphaned = await db
@@ -78,11 +91,17 @@ export async function runSweeper(db: DB, pub: Redis, log: Logger): Promise<void>
             // silently stop sweeping them.
             and(
               sql`coalesce(${schema.jobs.source}, '') <> ${VIDEO_SOURCE}`,
+              isNull(schema.jobs.queuedAt),
               lte(staleness, sql`${queuedThreshold.toISOString()}`),
             ),
             and(
               eq(schema.jobs.source, VIDEO_SOURCE),
               lte(staleness, sql`${videoQueuedThreshold.toISOString()}`),
+            ),
+            and(
+              sql`coalesce(${schema.jobs.source}, '') <> ${VIDEO_SOURCE}`,
+              isNotNull(schema.jobs.queuedAt),
+              lte(staleness, sql`${heldReleaseThreshold.toISOString()}`),
             ),
           ),
         ),
@@ -125,44 +144,45 @@ async function failAndRefund(
   log: Logger,
 ): Promise<void> {
   await db.transaction(async (tx) => {
-    if (job.merchantId) {
-      const existing = await tx
-        .select()
-        .from(schema.merchantCreditLedger)
-        .where(
-          and(
-            eq(schema.merchantCreditLedger.jobId, job.id),
-            eq(schema.merchantCreditLedger.reason, 'JOB_FAIL_REFUND'),
-          ),
+    // One credit pool per human. A job's billing owner is its user_id when set;
+    // kiosk jobs have user_id = null and are billed to the merchant's owning user.
+    let userId = job.userId;
+    if (!userId && job.merchantId) {
+      const [owner] = await tx
+        .select({ userId: schema.merchants.userId })
+        .from(schema.merchants)
+        .where(eq(schema.merchants.id, job.merchantId))
+        .limit(1);
+      if (!owner?.userId) {
+        // merchantId was set but resolves to no owning user — a genuine
+        // data-integrity anomaly, not "this job has nothing to refund".
+        // Throw (aborting before transitionJob/XACK below) rather than
+        // silently marking the job FAILED with no refund issued.
+        // merchants.userId is NOT NULL in the schema, so this should not
+        // happen in normal operation.
+        throw new Error(
+          `failAndRefund: merchant ${job.merchantId} has no owning user (job ${job.id})`,
         );
-      if (existing.length) return;
-      await tx
-        .update(schema.merchantCredits)
-        .set({ balance: sql`${schema.merchantCredits.balance} + ${job.creditsCharged}` })
-        .where(eq(schema.merchantCredits.merchantId, job.merchantId));
-      await tx.insert(schema.merchantCreditLedger).values({
-        merchantId: job.merchantId,
-        delta: job.creditsCharged,
-        reason: 'JOB_FAIL_REFUND',
-        jobId: job.id,
-      });
-    } else if (job.userId) {
-      const existing = await tx
-        .select()
-        .from(schema.creditLedger)
-        .where(eq(schema.creditLedger.jobId, job.id));
-      if (existing.some((e) => e.reason === 'JOB_FAIL_REFUND')) return;
-      await tx
-        .update(schema.userCredits)
-        .set({ balance: sql`${schema.userCredits.balance} + ${job.creditsCharged}` })
-        .where(eq(schema.userCredits.userId, job.userId));
-      await tx.insert(schema.creditLedger).values({
-        userId: job.userId,
-        delta: job.creditsCharged,
-        reason: 'JOB_FAIL_REFUND',
-        jobId: job.id,
-      });
+      }
+      userId = owner.userId;
     }
+    if (!userId) return; // job genuinely has no billing owner (userId and merchantId both unset) — nothing to refund, pre-existing behavior unchanged
+
+    const existing = await tx
+      .select()
+      .from(schema.creditLedger)
+      .where(eq(schema.creditLedger.jobId, job.id));
+    if (existing.some((e) => e.reason === 'JOB_FAIL_REFUND')) return;
+    await tx
+      .update(schema.userCredits)
+      .set({ balance: sql`${schema.userCredits.balance} + ${job.creditsCharged}` })
+      .where(eq(schema.userCredits.userId, userId));
+    await tx.insert(schema.creditLedger).values({
+      userId,
+      delta: job.creditsCharged,
+      reason: 'JOB_FAIL_REFUND',
+      jobId: job.id,
+    });
   });
 
   await transitionJob(db, pub, job.id, job.userId ?? '', 'FAILED', { errorCode }, log);

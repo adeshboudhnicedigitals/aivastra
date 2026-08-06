@@ -205,7 +205,6 @@ export interface UserMerchant {
   maxKioskDevices: number;
   logoKey: string | null;
   logoUrl: string | null;
-  creditBalance: number | null;
 }
 
 export interface User {
@@ -323,6 +322,18 @@ export interface CreditPlan {
   sortOrder: number;
   queueStream: 'priority' | 'normal' | 'low';
   watermark: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SignupCampaign {
+  id: string;
+  code: string;
+  name: string;
+  bonusPercent: number;
+  startAt: string;
+  endAt: string;
+  isActive: boolean;
   createdAt: string;
   updatedAt: string;
 }

@@ -9,6 +9,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { signupCampaigns } from './campaigns.js';
 import { kioskDevices } from './kiosk.js';
 import { merchants } from './merchant.js';
 
@@ -42,6 +43,11 @@ export const users = pgTable(
     // two different rows. Do not loosen this charset without re-checking that
     // invariant.
     username: text('username').unique(),
+    // Set once at signup (email/password register or Google OAuth new-account
+    // branch), never updated afterward â€” see docs/superpowers/specs/2026-08-01-gartex-expo-qr-campaign-design.md Â§3.1.
+    signupCampaignId: uuid('signup_campaign_id').references(() => signupCampaigns.id, {
+      onDelete: 'set null',
+    }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

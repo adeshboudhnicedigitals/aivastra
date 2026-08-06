@@ -14,8 +14,10 @@ export type TryonCategoriesResponse = {
 export type GarmentCatalogImage = {
   jobId: string;
   thumbnailUrl: string | null;
+  imageUrl: string | null;
   garmentTypeName: string;
   tryonCategoryName: string;
+  createdAt: string;
 };
 
 const DEFAULT_CREDITS_COST = 5;
@@ -41,6 +43,9 @@ export function useTryOnData() {
     garmentTypeName: string;
   } | null>(null);
   const [showGarmentPicker, setShowGarmentPicker] = useState(false);
+  const [showPersonPicker, setShowPersonPicker] = useState(false);
+  const [loadingPersonHistory, setLoadingPersonHistory] = useState(false);
+  const personFileInputRef = useRef<HTMLInputElement>(null);
   const previewPanelRef = useRef<HTMLDivElement>(null);
   const [isPreviewFullscreen, setIsPreviewFullscreen] = useState(false);
 
@@ -212,6 +217,31 @@ export function useTryOnData() {
     setResultActionFeedback(null);
   };
 
+  // Reuses a previous generation as the person image: fetches the full-resolution
+  // output client-side and feeds it through the same pickFile path a fresh upload
+  // takes, so handleGenerate's upload-to-R2 flow needs no changes.
+  const handleSelectPersonFromHistory = async (img: GarmentCatalogImage) => {
+    const src = img.imageUrl ?? img.thumbnailUrl;
+    if (!src) return;
+    setShowPersonPicker(false);
+    setLoadingPersonHistory(true);
+    try {
+      const response = await fetch(src);
+      if (!response.ok) throw new Error();
+      const blob = await response.blob();
+      const extension =
+        blob.type === 'image/png' ? 'png' : blob.type === 'image/webp' ? 'webp' : 'jpg';
+      const file = new File([blob], `previous-generation-${img.jobId}.${extension}`, {
+        type: blob.type || 'image/jpeg',
+      });
+      pickFile(file, setPersonFile, setPersonPreview);
+    } catch {
+      setError('Could not load that previous image. Please try again or upload a new one.');
+    } finally {
+      setLoadingPersonHistory(false);
+    }
+  };
+
   const fetchResultBlob = async () => {
     if (!resultUrl) throw new Error('Generate a Try On result first.');
     const response = await fetch(resultUrl);
@@ -334,6 +364,10 @@ export function useTryOnData() {
     selectedGarmentJob,
     showGarmentPicker,
     setShowGarmentPicker,
+    showPersonPicker,
+    setShowPersonPicker,
+    loadingPersonHistory,
+    personFileInputRef,
     previewPanelRef,
     isPreviewFullscreen,
     showContact,
@@ -359,6 +393,7 @@ export function useTryOnData() {
     pickFile,
     handleGenerate,
     handleSelectGarment,
+    handleSelectPersonFromHistory,
     handleDownloadResult,
     handleShareResult,
     canGenerate,

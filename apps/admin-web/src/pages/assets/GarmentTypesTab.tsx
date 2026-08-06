@@ -105,6 +105,7 @@ export function GarmentTypesTab() {
   const [savingDefaultPose, setSavingDefaultPose] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<ConfirmDeleteGT | null>(null);
   const [tryonCategories, setTryonCategories] = useState<TryonCategory[]>([]);
+  const [expandedGarmentTypeId, setExpandedGarmentTypeId] = useState<string | null>(null);
 
   // Suggested "append at the end" position for a new garment type of this
   // gender - just a starting point shown in the field; picking a lower number
@@ -302,6 +303,13 @@ export function GarmentTypesTab() {
     if (!confirmDelete) return;
     const { id, label } = confirmDelete;
     setConfirmDelete(null);
+
+    if (id.startsWith('gt_demo_')) {
+      setGarmentTypes((prev) => prev.filter((s) => s.id !== id));
+      toast({ title: `${label} deleted` });
+      return;
+    }
+
     try {
       await apiFetch(`/admin/assets/garment-types/${id}`, { method: 'DELETE' });
       setGarmentTypes((prev) => prev.filter((s) => s.id !== id));
@@ -420,7 +428,7 @@ export function GarmentTypesTab() {
               </button>
             ))}
           </div>
-          <div className="table-wrap">
+          <div className="desktop-only table-wrap">
             <table>
               <thead>
                 <tr>
@@ -596,6 +604,235 @@ export function GarmentTypesTab() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile/Tablet Card List */}
+          <div className="mobile-only">
+            {filteredGarmentTypes.map((sub) => {
+              const isExpanded = expandedGarmentTypeId === sub.id;
+              const lowerItem = catalogItems.find((c) => c.id === sub.defaultLowerCatalogId);
+              const shoeItem = catalogItems.find((c) => c.id === sub.defaultShoeCatalogId);
+              const cat = tryonCategories.find((c) => c.id === sub.tryonCategoryId);
+
+              return (
+                <div
+                  key={sub.id}
+                  className="card"
+                  style={{
+                    padding: 0,
+                    overflow: 'hidden',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    background: 'var(--surface)',
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setExpandedGarmentTypeId(isExpanded ? null : sub.id)}
+                    style={{
+                      padding: '14px 16px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                      background: 'none',
+                      border: 'none',
+                      width: '100%',
+                      textAlign: 'left',
+                      color: 'inherit',
+                      fontFamily: 'inherit',
+                      fontSize: 'inherit',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        minWidth: 0,
+                        flex: 1,
+                      }}
+                    >
+                      <AssetThumb
+                        thumbnailKey={sub.thumbnailKey ?? undefined}
+                        label={sub.label}
+                        w={32}
+                        h={32}
+                        storageBase={storagePublicUrl}
+                      />
+                      <span
+                        className="semi"
+                        style={{
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          fontSize: 15,
+                          color: 'var(--ink)',
+                          fontWeight: 600,
+                        }}
+                      >
+                        {sub.label}
+                      </span>
+                    </div>
+                    <span
+                      style={{
+                        color: 'var(--muted-2)',
+                        transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                        transition: 'transform 0.2s',
+                        display: 'inline-flex',
+                        marginLeft: 8,
+                      }}
+                    >
+                      <Icon.Chevron />
+                    </span>
+                  </button>
+
+                  {isExpanded && (
+                    <div
+                      style={{
+                        padding: '16px',
+                        borderTop: '1px solid var(--border)',
+                        background: 'var(--surface-2)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 12,
+                        fontSize: 13,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Gender</span>
+                        <span className="badge dot accent">{sub.genderSlug}</span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>
+                          Tryon Category
+                        </span>
+                        <span className="sub">{cat ? cat.name : '—'}</span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>
+                          Default Lower
+                        </span>
+                        <span className="sub">{lowerItem ? lowerItem.label : '—'}</span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Default Shoe</span>
+                        <span className="sub">{shoeItem ? shoeItem.label : '—'}</span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Active</span>
+                        <Switch
+                          checked={sub.isActive}
+                          onChange={async () => {
+                            const next = !sub.isActive;
+                            setGarmentTypes((prev) =>
+                              prev.map((s) => (s.id === sub.id ? { ...s, isActive: next } : s)),
+                            );
+                            try {
+                              await apiFetch(`/admin/assets/garment-types/${sub.id}`, {
+                                method: 'PATCH',
+                                body: JSON.stringify({ isActive: next }),
+                              });
+                              toast({
+                                title: `${sub.label} ${sub.isActive ? 'deactivated' : 'activated'}`,
+                              });
+                            } catch (e) {
+                              setGarmentTypes((prev) =>
+                                prev.map((s) =>
+                                  s.id === sub.id ? { ...s, isActive: sub.isActive } : s,
+                                ),
+                              );
+                              toast({
+                                kind: 'error',
+                                title: 'Failed to update garment type',
+                                body: apiErrorMessage(e, 'Please try again.'),
+                              });
+                            }
+                          }}
+                        />
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'flex-end',
+                          gap: 8,
+                          marginTop: 6,
+                          borderTop: '1px solid var(--border)',
+                          paddingTop: 10,
+                        }}
+                      >
+                        <button
+                          className="btn sm ghost"
+                          onClick={() => setSubView({ kind: 'configs', sub })}
+                        >
+                          Setup Poses
+                        </button>
+                        <button className="btn sm ghost" onClick={() => setEditingSubcat(sub)}>
+                          <Icon.Edit /> Edit
+                        </button>
+                        <button
+                          className="btn sm ghost danger"
+                          onClick={() =>
+                            setConfirmDelete({ type: 'garment-type', id: sub.id, label: sub.label })
+                          }
+                        >
+                          <Icon.Trash /> Delete
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {filteredGarmentTypes.length === 0 && (
+              <div
+                style={{
+                  textAlign: 'center',
+                  color: 'var(--muted)',
+                  padding: '2.5rem',
+                  border: '1.5px dashed var(--border)',
+                  borderRadius: 8,
+                }}
+              >
+                No garment types found.
+              </div>
+            )}
           </div>
         </>
       )}

@@ -1,7 +1,28 @@
 import type { DB } from '@aivastra/db';
 import { schema } from '@aivastra/db';
-import { and, eq, gte, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { AppError } from '../../lib/errors.js';
+import { adminGrant, atomicDeduct, refund } from '../credits/ledger.js';
+
+/**
+ * A merchant is a tag on a user, not a separate financial entity: there is one
+ * credit pool per human, keyed by `users.id`. These helpers keep their
+ * merchantId-shaped signatures so call sites (kiosk + android tryon job
+ * creation, cancellation refunds, admin grants) stay unchanged, and resolve
+ * the owning user here — the single place that mapping lives.
+ */
+export async function resolveMerchantUserId(db: DB, merchantId: string): Promise<string> {
+  const [row] = await db
+    .select({ userId: schema.merchants.userId })
+    .from(schema.merchants)
+    .where(eq(schema.merchants.id, merchantId))
+    .limit(1);
+  // merchants.user_id is NOT NULL, so a missing userId means a missing merchant.
+  // Throw rather than no-op: a charge that cannot be attributed must fail the
+  // enclosing transaction, not silently succeed for free.
+  if (!row?.userId) throw new AppError('NOT_FOUND', 404, 'merchant not found');
+  return row.userId;
+}
 
 export async function atomicMerchantDeduct(
   db: DB,
@@ -9,30 +30,8 @@ export async function atomicMerchantDeduct(
   amount: number,
   jobId: string,
 ) {
-  const balance = await db.transaction(async (tx) => {
-    const res = await tx
-      .update(schema.merchantCredits)
-      .set({
-        balance: sql`${schema.merchantCredits.balance} - ${amount}`,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(schema.merchantCredits.merchantId, merchantId),
-          gte(schema.merchantCredits.balance, amount),
-        ),
-      )
-      .returning({ balance: schema.merchantCredits.balance });
-    if (!res.length) throw new AppError('INSUFFICIENT_CREDITS', 402, 'insufficient credits');
-    await tx.insert(schema.merchantCreditLedger).values({
-      merchantId,
-      delta: -amount,
-      reason: 'JOB_DISPATCH',
-      jobId,
-    });
-    return res[0]?.balance;
-  });
-  return balance;
+  const userId = await resolveMerchantUserId(db, merchantId);
+  return atomicDeduct(db, userId, amount, jobId);
 }
 
 export async function merchantRefund(
@@ -42,28 +41,8 @@ export async function merchantRefund(
   jobId: string,
   reason = 'REFUND',
 ) {
-  await db.transaction(async (tx) => {
-    const existing = await tx
-      .select()
-      .from(schema.merchantCreditLedger)
-      .where(
-        and(
-          eq(schema.merchantCreditLedger.jobId, jobId),
-          eq(schema.merchantCreditLedger.reason, reason),
-        ),
-      );
-    if (existing.length) return;
-    await tx
-      .update(schema.merchantCredits)
-      .set({
-        balance: sql`${schema.merchantCredits.balance} + ${amount}`,
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.merchantCredits.merchantId, merchantId));
-    await tx
-      .insert(schema.merchantCreditLedger)
-      .values({ merchantId, delta: amount, reason, jobId });
-  });
+  const userId = await resolveMerchantUserId(db, merchantId);
+  await refund(db, userId, amount, jobId, reason);
 }
 
 export async function merchantAdminGrant(
@@ -73,19 +52,6 @@ export async function merchantAdminGrant(
   reason: string,
   adminId: string,
 ) {
-  await db.transaction(async (tx) => {
-    await tx
-      .insert(schema.merchantCredits)
-      .values({ merchantId, balance: amount })
-      .onConflictDoUpdate({
-        target: schema.merchantCredits.merchantId,
-        set: {
-          balance: sql`${schema.merchantCredits.balance} + ${amount}`,
-          updatedAt: new Date(),
-        },
-      });
-    await tx
-      .insert(schema.merchantCreditLedger)
-      .values({ merchantId, delta: amount, reason, adminId });
-  });
+  const userId = await resolveMerchantUserId(db, merchantId);
+  await adminGrant(db, userId, amount, reason, adminId);
 }

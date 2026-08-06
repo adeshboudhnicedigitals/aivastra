@@ -72,6 +72,7 @@ export function ProductCard({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
+            position: 'relative',
           }}
         >
           {product.thumbnailUrl || product.imageUrl ? (
@@ -89,6 +90,24 @@ export function ProductCard({
             />
           ) : (
             <GarmentIcon size={40} />
+          )}
+          {!product.isActive && product.actualPrice === 0 && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 6,
+                left: 6,
+                background: C.pink,
+                color: C.white,
+                fontSize: 10,
+                fontWeight: 700,
+                padding: '2px 6px',
+                borderRadius: 4,
+                textTransform: 'uppercase',
+              }}
+            >
+              Needs details
+            </div>
           )}
         </div>
         <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>

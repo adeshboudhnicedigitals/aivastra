@@ -393,4 +393,76 @@ describe('dispatcher shopify job routing', () => {
       await redis.setex(`worker:health:${WORKER_ID}`, 30, '1');
     }
   });
+
+  it('is a safe no-op when a job the API already compensated is (re)delivered to the dispatcher', async () => {
+    // Residual-risk guard for the Shopify shopper-limits fix round 1, finding
+    // #5: XADD can succeed on the Redis server side while the client's
+    // response is lost, so apps/api may treat the enqueue as failed and
+    // compensate (refund + mark FAILED) a job that is actually visible to
+    // this dispatcher and will still be delivered. Simulates exactly that:
+    // a job already refunded and marked FAILED by the API's compensation
+    // path, then handed to processJob as if the ambiguous XADD had in fact
+    // landed. Must not re-refund, re-process, or crash.
+    const { jobId, userId } = await seedLinkedShopifyJob({ withFunnel: false });
+
+    // Mirror what apps/api's refundAndMarkFailed does post-commit: one
+    // ledger row, balance restored, job terminally FAILED.
+    await env.db.transaction(async (tx) => {
+      await tx.insert(schema.creditLedger).values({
+        userId,
+        delta: 5,
+        reason: 'REFUND_ENQUEUE_FAIL',
+        jobId,
+      });
+      await tx
+        .update(schema.userCredits)
+        .set({ balance: sql`${schema.userCredits.balance} + 5` })
+        .where(eq(schema.userCredits.userId, userId));
+      await tx
+        .update(schema.jobs)
+        .set({ status: 'FAILED', errorCode: 'ENQUEUE_FAIL' })
+        .where(eq(schema.jobs.id, jobId));
+    });
+
+    const cfg = {
+      db: env.db,
+      redis,
+      pub,
+      storage: env.storage,
+      s3: env.s3,
+      r2Bucket: env.r2Bucket,
+      log: createLogger('test'),
+    } as Parameters<typeof processJob>[0];
+
+    // Does not throw — a real dispatcher would otherwise crash processing
+    // this stream message.
+    await expect(
+      processJob(cfg, jobId, userId, 'jobs:normal', `${Date.now()}-0`),
+    ).resolves.toBeUndefined();
+
+    const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+    expect(job?.status).toBe('FAILED');
+    expect(job?.errorCode).toBe('ENQUEUE_FAIL');
+
+    const [credits] = await env.db
+      .select()
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, userId));
+    expect(credits?.balance).toBe(STARTING_BALANCE);
+
+    const refundRows = await env.db
+      .select()
+      .from(schema.creditLedger)
+      .where(eq(schema.creditLedger.jobId, jobId));
+    expect(refundRows).toHaveLength(1);
+
+    // No processing happened at all — the top-of-processJob status guard
+    // (job.status !== 'QUEUED') short-circuits before any COMFY_DISPATCH
+    // event would be written.
+    const events = await env.db
+      .select()
+      .from(schema.jobEvents)
+      .where(eq(schema.jobEvents.jobId, jobId));
+    expect(events.some((e) => e.eventType === 'COMFY_DISPATCH')).toBe(false);
+  });
 });

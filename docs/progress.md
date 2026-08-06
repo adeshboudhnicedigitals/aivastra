@@ -52,6 +52,981 @@
 ### Open Questions / Decisions
 - None.
 
+## 2026-08-06 — Duplicate pose images, catalog-video thumbnail bug, upload-your-own-image source
+
+**Done**
+- `apps/dispatcher/src/comfyui/client.ts`: `downloadOutputImage()` fetched ComfyUI's `/view` endpoint with only `filename`, silently dropping `subfolder` even though `/history` returns it per output image and `/view` accepts it. ComfyUI's `SaveImage` counter resets per subfolder, so two different jobs on the same worker can get the same numbered filename in different subfolders — omitting `subfolder` risked downloading the wrong physical file, which then gets uploaded under the *correct* job's R2 key (the bug reported as "5 generated poses, some show as duplicates"). Threaded `subfolder` through `downloadOutputImage()` and all 7 call sites (`processor.ts` ×6, `mannequin-phase.ts` ×1); added `apps/dispatcher/src/comfyui/client.test.ts` and diagnostic `{filename, subfolder}` logging in `fetchHistory` for production verification. Root cause found via code audit (the type explicitly carries `subfolder`, callers dropped it), not confirmed via a production log trace — flagged to the user as the residual uncertainty.
+- Separately found and fixed the actual cause of the duplicate thumbnails the user was seeing in the "New Catalog Video" picker: `GET /v1/catalogues` returns one `coverThumbUrl` per catalogue (correct for the catalogues grid), but `CatalogVideoWizard.tsx`'s step-1 picker was reusing that single cover URL for every completed job in a catalogue, so a 6-pose catalogue showed the same photo 6 times even though the underlying jobs (and images) were distinct. Fixed by fetching each job's own thumbnail via the existing `/v1/jobs/:id/thumbnail` endpoint, same pattern the catalogue detail page's `ImageCard` already uses.
+- Added an "Upload New" tab to the catalog-video wizard alongside the existing catalogue-image picker, letting a user animate any photo they own — not required to be an AI Vastra generation. `packages/types/src/jobs.ts`: `CreateCatalogVideoJobRequest` now accepts `sourceImageKey` (a raw presigned upload) as an XOR alternative to `sourceJobId`. `apps/api/src/modules/jobs/create.ts`: `createCatalogVideoJob` branches on which is present, reusing `assertOwnsUploadKey` for the upload path (unchanged for the existing-job path). Also fixed `GET /v1/catalogues`'s job-listing filter, which excluded catalog-video jobs from the catalogues grid only because `sourceJobId` was previously always set on them — added an explicit `kind != 'video'` exclusion so upload-sourced video jobs don't leak into the catalogues list. `apps/catalogues-web`: extracted Studio's `isSupportedImageBytes` into a shared `lib/image-validation.ts`, added a `<label>`-wrapped (natively keyboard-accessible) upload dropzone mirroring Studio's garment-upload UX. Spec: `docs/superpowers/specs/2026-08-06-catalog-video-upload-source-design.md`; plan: `docs/superpowers/plans/2026-08-06-catalog-video-upload-source.md`.
+- Verified via `tsc --noEmit` (api, types, web) and `biome check` — all clean. New/extended API integration tests: `apps/dispatcher/src/comfyui/client.test.ts` (2 tests), `apps/api/test/integration/catalog-video-create.test.ts` (+5 tests), `apps/api/test/integration/catalogues-exclude-mannequin.test.ts` (+1 test) — 14/14 passing for the catalog-video suite.
+
+**Failed / Not Done**
+- Manual in-browser verification of the upload tab (drag-and-drop, abort-on-close, session-expiry error copy) was not completed — the Claude-in-Chrome extension was not connected in this session. `docs/superpowers/plans/2026-08-06-catalog-video-upload-source.md` Task 4 has the exact checklist to run before considering this shipped.
+- The ComfyUI `subfolder` fix's root cause was not confirmed against production logs/Grafana — only verified as a genuine code defect via static analysis. Diagnostic logging was added specifically to close this gap on the next production batch.
+- Images already generated before the `subfolder` fix deployed are not retroactively repaired — any already-duplicated R2 objects stay wrong until the affected job is manually regenerated.
+
+**Open Questions / Decisions**
+- Whether to build a backfill/duplicate-detection script for pre-fix catalogue jobs was raised but not decided — offered to the user, not requested.
+
+## 2026-08-05 — Studio status drift, Google OAuth dead-end, admin bootstrap login, pricing
+
+**Done**
+- `apps/catalogues-web/src/app/(app)/studio/generation-panel.tsx`: the in-Studio generation panel tracked job status only from the live SSE stream, with no reconciliation against the server. A missed SSE event (reconnect gap, backgrounded tab) left it stuck showing "Generating…" indefinitely even after the job actually completed, while `/catalogues/:id` (which also polls `/v1/catalogues/:id` every 5s as a fallback) always showed the correct state. Added the same 5s polling fallback here, reconciled into local status state.
+- `apps/api/src/modules/auth/google.routes.ts` + `apps/catalogues-web/src/app/(auth)/login/page.tsx`: any Google OAuth failure (`INVALID_STATE`, token exchange, userinfo fetch) previously returned raw JSON straight to the browser — a dead end on mobile with no back-button affordance. Now redirects to `/login?error=<reason>` with a friendly retry banner instead. Root cause of the original `INVALID_STATE` report was not conclusively identified (isolated to one device); this only fixes the UX dead-end.
+- `apps/api/src/main.ts`: the bootstrap-admin insert set `users.passwordHash` but never `admin_users.passwordHash` — the separate field `/admin/auth/login` actually checks. Bootstrap admin could log into neither the web app (blocked by design — super-admins must use the admin panel) nor the admin panel itself (null password hash). Now sets both at creation. Backfilled the existing local dev row directly (dev DB only).
+- `apps/catalogues-web/src/app/(app)/pricing/layouts/{Desktop,Tablet,Mobile}.tsx`: plan purchase button text changed from "Upgrade" to "Buy Now" (the separate "Upgrade Plan" banner CTA that switches tabs was left as-is — different button).
+- `apps/catalogues-web/src/middleware.ts`: added a self-expiring redirect, `/pricing` → `/register?src=gartex2026delhi`, active 2026-08-05T00:00–2026-08-09T23:59 IST, for the already-configured Gartex Expo Delhi campaign (`docs/superpowers/specs/2026-08-01-gartex-expo-qr-campaign-design.md`). Initially fired unconditionally, which looped already-logged-in users back through registration when they clicked Pricing from the sidebar — fixed to skip anyone with an `access_token` or `refresh` cookie present, so only anonymous/QR traffic gets redirected.
+
+**Failed / Not Done**
+- The original mobile Google OAuth `INVALID_STATE` report was device-isolated and not reproduced/root-caused; only the dead-end UX around it was fixed.
+
+**Open Questions / Decisions**
+- None.
+
+## 2026-08-05 — Admin web: restored mobile/tablet responsiveness
+
+**Done**
+- `UsersPage.tsx` / `WorkersPage.tsx`: an earlier session had scoped the desktop tables to `.desktop-only` but never added the matching `.mobile-only` card view, so both pages rendered blank below 1024px. Rebuilt the missing card views, matching the pattern already used on the other admin pages (AssetsPage, JobsPage, WorkflowsPage), preserving current desktop features untouched (bulk-select/PII actions and sorting on Users; job-type badges and drain/undrain on Workers).
+- `tokens.css`: `body { min-width: 1024px }` was still forcing a wide canvas even with the mobile CSS in place, making the mobile view reachable only via horizontal scroll. Changed to `min-width: 0; overflow-x: hidden`.
+- Found and fixed the actual root cause of the site being unusable on mobile: the sidebar had no collapse/drawer behavior at all — `.app` correctly went single-column below 1024px, but the sidebar had no off-canvas treatment, so it rendered at full viewport width with no way to reach the page content. Added a hamburger toggle (`Icon.Menu`, `Topbar.tsx`), a `mobileNavOpen` state + backdrop in `App.tsx`, and off-canvas slide-in CSS (`.sidebar--mobile-open`, `.sidebar-backdrop`) driven by `Sidebar.tsx`.
+- Deleted `recover.js`, `temp_users.tsx`, `temp_workers.tsx` — leftovers from an earlier, incomplete attempt at this same fix (the recovery script's output was UTF-16-corrupted and was never actually merged back into the real page files).
+- Root cause of "still not responsive" on a real device even after the above: `apps/admin-web/index.html`'s viewport meta tag was `width=1280` (the value the admin-dashboard-refresh revert restored it to) instead of `width=device-width`. A hardcoded pixel width there makes mobile browsers lay the page out at 1280px and zoom-scale it to fit the screen, so the `max-width: 1023px` media queries never fire regardless of how correct the CSS/JS is — this is why resizing a desktop browser window during verification looked fine (desktop Chrome ignores meta viewport) while a real phone stayed broken. Restored `width=device-width, initial-scale=1.0`.
+- Verified via `tsc --noEmit` + `biome check` (clean) and live in-browser: sidebar off-canvas by default, hamburger opens/closes it correctly, mobile cards render real data with no horizontal scroll, on both Users and Workers.
+
+### 2026-07-31 - Completely Removed UI Demo Data
+
+**Done**
+- Removed all inline SAMPLE_DEMO_ constants and bypass handlers from AssetsContext.tsx, CreditAnalysisPage.tsx, JobsPage.tsx, UsersPage.tsx, WorkersPage.tsx, and WorkflowsPage.tsx.
+- The admin dashboard now solely relies on the API for data, and demo items will no longer be artificially inserted into the UI upon page load.
+- Validated via pnpm run build in pps/admin-web to ensure no unused references were left behind.
+
+**Failed / Not Done**
+- No failures in this task.
+
+## 2026-08-05 — Sync with origin/main + local migration snapshot cleanup
+
+**Done**
+- Pulled 64 commits from `origin/main` (fast-forward, `71ae30f4` → `bb0d9ed7`,
+  the unified-credits merge documented below).
+- Found the local working tree had corrupted the Drizzle snapshot DAG:
+  uncommitted edits to `0122_snapshot.json` and `0125_snapshot.json` had their
+  `prevId` fields scrambled (`0125`'s `prevId` pointed at `0121`'s `id` instead
+  of `0124`'s), breaking the snapshot chain. `pnpm db:generate` had walked back
+  to a stale baseline off that broken chain and produced
+  `0143_narrow_lockjaw.sql` — a ~300-line migration re-declaring tables/columns
+  already created by already-committed migrations `0135`–`0142`
+  (`signup_campaigns`, `demo_catalog_*`, `shopify_shoppers`,
+  `shopify_widget_events`, etc.). `packages/db/src/schema/*.ts` had zero
+  uncommitted changes, confirming there was no real schema delta behind it.
+- Discarded the corrupted snapshot edits and the spurious
+  `0143_narrow_lockjaw.sql` (+ its meta snapshot) before pulling — none of it
+  was ever committed or pushed.
+- `origin/main` had independently used index `0143`
+  (`0143_merchant_credits_backfill.sql`) and `0144`
+  (`0144_drop_merchant_credits.sql`) for real, already-reviewed work — see the
+  unified-credits entry immediately below. No renumbering was needed since the
+  local `0143` was dropped rather than kept.
+
+**Failed / Not Done**
+- None.
+
+**Follow-up (same day)**
+- Ran `docker compose down -v` + fresh `up -d` (equivalent to `docker:reset` +
+  `docker:up`) to clear the stray `0143_narrow_lockjaw` tables/orphaned
+  migration record, then applied all 145 migrations from scratch —
+  `Done: 145 applied, 0 reconciled`, no errors. Verified `merchant_credits` /
+  `merchant_credit_ledger` are dropped and `drizzle.__drizzle_migrations` has
+  exactly 145 rows with no leftover orphaned hash. Local dev DB now matches
+  migration history exactly.
+
+**Open Questions / Decisions**
+- None.
+
+### 2026-07-31 - Fix Demo Data Updates on Users, Workers, Workflows
+
+**Done**
+- Intercepted the backend API calls in UsersPage.tsx, WorkersPage.tsx, and WorkflowsPage.tsx so that modifying or deleting "demo" items (e.g. usr_demo_777, wf_demo_tryon_v2) successfully updates the UI without triggering "invalid uuid" backend errors.
+- Handled mock suspend/unsuspend, tier updates, device limits, and admin role revokes for demo users.
+- Because these handlers drive the UI logic universally, the fix automatically applies identically across all viewport breakpoints (laptop, desktop, tablet, and mobile views).
+- Validated via pnpm run build in pps/admin-web.
+
+**Failed / Not Done**
+- No failures in this task.
+
+**Open Questions / Decisions**
+- None.
+
+### 2026-07-31 - Fix Demo Data Deletion
+
+**Done**
+- Fixed an issue where deleting "demo data" in the admin site (gt_demo_*, ace_demo_*, g_demo_*) threw an "invalid uuid" error from the backend. The UI now short-circuits the API call for demo items and simply removes them from the local state, preventing the error while preserving the "don't change any other thing" requirement.
+- Modified GarmentTypesTab.tsx, FacesTab.tsx, and BackgroundsTab.tsx to handle demo data deletions gracefully.
+- Verified the build succeeds (pnpm run build).
+
+**Failed / Not Done**
+- No failures in this task.
+
+**Open Questions / Decisions**
+- None.
+
+## 2026-07-31 — Admin Dashboard: Responsive Cards & Dev Proxy Config
+
+### Done
+- Improved Admin Dashboard mobile responsiveness and card layouts across `apps/admin-web/`:
+  - `GarmentTypesTab.tsx`: Added expandable card view on mobile viewports for garment subcategories with active toggle switches and quick action buttons (Setup Poses, Edit, Delete).
+  - `AssetsPage.tsx`, `WorkersPage.tsx`, `WorkflowsPage.tsx`: Enhanced card containers and empty state displays for responsive mobile viewports.
+  - `vite.config.ts`: Added `/v1` and `/admin` proxy configuration pointing to local API (`http://127.0.0.1:4000`) for seamless local development.
+- Fixed overlapping user and job details layout in `JobsPage.tsx`:
+  - Switched from local custom `KV` wrapper (which returned `<div className="kv">` inside `.kv-grid-2-col`) to shared `components/KV.tsx` (which returns `<dt>` and `<dd>`), ensuring proper 4-column key-value grid alignment without text squeezing or overlapping.
+  - Added `min-width: 0`, `word-break: break-word`, and `overflow-wrap: anywhere` to `.kv-grid dd` and `.kv-grid-2-col dd` in `tokens.css`.
+- Added mobile and tablet expandable card accordion views for `WorkflowsPage.tsx` and `WorkersPage.tsx`:
+  - Enclosed the original full table views inside `<div className="desktop-only">`, ensuring 100% byte-for-byte zero changes on laptop/desktop viewports (≥1024px).
+  - Added expandable card views inside `<div className="mobile-only">` (<1024px viewports), showing only item labels/titles initially and expanding detailed properties one-by-one upon tap.
+- Fixed dual view rendering bug on `UsersPage.tsx` and `CreditAnalysisPage.tsx`:
+  - Removed inline `style={{ display: 'flex' }}` from `<div className="mobile-only">` elements which was overriding the CSS `.mobile-only { display: none }` rule on desktop viewports.
+  - Reinforced `.mobile-only` and `.desktop-only` CSS specificity in `tokens.css`.
+- Fixed overlapping layout in `DevApiPage.tsx` (Saree Mannequin card):
+  - Updated dropdown wrapper to `flex: '1 1 240px'`, `maxWidth: 400`, `minWidth: 0` and added `whiteSpace: 'nowrap'`, `flexShrink: 0` to the Active checkbox label, preventing text squeezing and element overlap across screen sizes.
+- Fixed mobile and tablet navigation button collision on Catalogue Try On Library page (`apps/catalogues-web`):
+  - Added `.hide-mobile-tablet` and `.show-mobile-tablet-only` responsive utilities to `globals.css`.
+  - Rendered compact "+ Add" action buttons on mobile/tablet (<1024px) while preserving full "+ Add Subcategory" / "+ Add Product" buttons on laptop/desktop (≥1024px).
+- Enabled LAN access (`host: true`) across `apps/admin-web` and `apps/shopify` Vite configs so dev servers are directly accessible over local Wi-Fi / LAN IP (`http://192.168.0.141:3000`, `http://192.168.0.141:5173`).
+- Fixed mobile browser "Connection lost — reconnecting to live updates" SSE error:
+  - Added dynamic `getApiUrl()` helper in `lib/api.ts`, `lib/sse.ts`, and `catalog-app-api.ts`.
+  - When accessing the catalogue app from a mobile browser over LAN IP (`http://192.168.0.141:3000`), client-side fetch and SSE connections dynamically target `http://192.168.0.141:4000` instead of trying to connect to `localhost:4000` on the mobile device itself.
+- Fixed non-functional "Submit Message" button on Contact Us page (`apps/catalogues-web/src/app/(app)/contact-us/page.tsx`):
+  - Wrapped static form elements in a proper `<form onSubmit={handleSubmit}>` tag.
+  - Connected submission handler to `/v1/contact` backend API endpoint with client-side field validation (name, valid email, 10-digit phone).
+  - Added interactive UI feedback states: loading spinner during submission, inline error banners on failure, and a success confirmation screen upon successful message dispatch.
+- Fixed mobile Settings page access and layout issues:
+  - Repaired the User Menu popup's "Settings" link in `components/user-menu.tsx` which was incorrectly unmounting the Next.js `<Link>` on click before navigating; replaced with a `<button>` firing `router.push()`.
+  - Added a `<style>` block to `apps/catalogues-web/src/app/(app)/settings/page.tsx` introducing `@media (max-width: 1023px)` styles for mobile/tablet.
+  - Reduced main padding, stacked fields horizontally (`flex-direction: column`), and gave the Settings tab bar horizontal scrolling capabilities (`overflow-x: auto`) without breaking the desktop experience.
+- Implemented an accordion-style layout for the Admin Contact Requests page (`apps/admin-web/src/pages/ContactRequestsPage.tsx`):
+  - Removed the bulky data table and slide-out detail drawer.
+  - Replaced with a clean list where only the contact name is visible initially.
+  - Clicking a name seamlessly expands the row to display Status, Source, Received time, Contact info, full Message, and actionable toggle buttons (View/Ok/Reopen).
+- Verified cleanly via `tsc --noEmit`, `biome check`, and production `@aivastra/web` typecheck.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- None.
+
+## 2026-08-04 — Unified credit system
+
+Collapses the parallel merchant credit pool into `user_credits`/`credit_ledger` —
+a merchant is a tag on a user, not a separate financial entity. Design doc:
+`docs/superpowers/specs/2026-08-04-unified-credits-remove-merchant-credits-design.md`.
+Plan: `docs/superpowers/plans/2026-08-04-unified-credits-remove-merchant-credits.md`.
+Built via Subagent-Driven Development across 10 implementation tasks, every
+task reviewed clean, plus a final whole-branch review.
+
+**Not yet deployed.** As of this entry, `main` has not moved — none of this
+work has merged or reached production. Split into two branches for a
+two-release rollout (the plan called for this explicitly; the split had to be
+corrected after the fact, see Open Questions below):
+
+- `refactor/unified-credits-release1` — Tasks 1–8 plus fixes from the final
+  review. Repoints every merchant credit write/read/refund/free-trial path
+  onto `user_credits`, and additively backfills existing `merchant_credits`
+  balances (migration `0143`). **This is what should be reviewed and merged
+  first.** Both credit tables stay in the schema, unread and unwritten, so the
+  backfill can be reconciled against real data after deploy.
+- `refactor/unified-credits` — everything in Release 1 plus Task 9 (drops
+  `merchant_credits`/`merchant_credit_ledger`, migration `0144`) and Task 10
+  (this doc, `CLAUDE.md` fix). **Must not merge or deploy until Release 1 has
+  shipped and production balances have been verified** against the backfill —
+  per the design, the two largest known balances (Rahul Goolla ≈ 99,860; Nice
+  Interactive = 100,000) should land additively on top of existing personal
+  balances, each with a `MERCHANT_CREDITS_MIGRATION` ledger row, before `0144`
+  ever runs anywhere.
+
+**Done**
+- Collapsed `merchant_credits` / `merchant_credit_ledger` into `user_credits` /
+  `credit_ledger`. `merchant/ledger.ts` (spend + refund) is now a thin adapter
+  resolving `merchants.userId` and delegating to `credits/ledger.ts`; merchant
+  balance reads (`GET /v1/merchant/me`, admin merchant views) repointed the
+  same way.
+- Merchant Razorpay purchases (`merchant_payments`, priced by
+  `MERCHANT_PLAN_BILLING`) now credit `user_credits` on both the verify route
+  and the webhook handler; the checkout flow and its pricing are unchanged.
+- Removed `config:system.merchantFreeCredits` and the merchant-onboarding free
+  grant — a user gets exactly one free trial, at signup. Self-serve Android
+  onboarding no longer grants a second one.
+- Dispatcher refunds (`markWidgetFailed`, stuck-job sweeper) unified onto
+  `user_credits`. Found and fixed a real Critical bug along the way: both
+  refund paths, on an unresolvable merchant→user lookup, logged an error but
+  fell through to `transitionJob(FAILED)`/ACK anyway — silently losing the
+  refund while the log line claimed one happened. Changed to throw instead, so
+  the stream message stays pending for the existing XPENDING recovery/sweeper
+  instead of being lost. Caught by task review, independently re-verified
+  closed by re-review.
+- admin-web: removed the merchant-specific "Tryon credits" grant modal from
+  `UsersPage.tsx` — now that both pools are one, the existing per-user "Adjust
+  credits" action already covers merchants, so there's one balance and one
+  grant path per user instead of a redundant merchant-only second one.
+- Migration `0143` backfills every merchant's existing `merchant_credits`
+  balance additively into `user_credits` (zero-balance merchants excluded),
+  writing one `MERCHANT_CREDITS_MIGRATION` `credit_ledger` row per merchant for
+  audit continuity. Verified additive and idempotent by independent replay
+  against a temp-table harness during task review, and by a live read-only
+  check against the actual dev DB after `0144` ran there. Migration `0144`
+  drops `merchant_credits` and `merchant_credit_ledger` — written and reviewed,
+  but gated behind the Release 1 → production-verification → Release 2
+  sequence above.
+- Along the way, removed one dead `merchant_credits` seed line from
+  `apps/dispatcher/test/integration/merchant-widget-webp.test.ts` (found by
+  Task 9's pre-drop repo-wide grep gate; unrelated to the plan's own file
+  list, but the table couldn't be dropped with a live reference remaining).
+- Final whole-branch review closed out remaining gaps: added dispatcher and
+  merchant-payments integration test coverage that didn't exist before this
+  plan, seeded a `user_credits` row in the one user-creation path
+  (`findOrCreateUserForMerchant`) that was missing one, and fixed a second,
+  independent stale-schema reference in `CLAUDE.md`'s API Route Modules table
+  (a `widget/` module that no longer exists, several real modules never
+  listed).
+
+**Failed / Not Done**
+- `pnpm db:generate` remains unusable in this repo — snapshots 0128–0142 are
+  still missing (a pre-existing gap, not caused by this plan), so migrations
+  0143 and 0144 were hand-written against the stale `0127` snapshot instead of
+  generated. Backfilling the missing snapshot chain is still outstanding.
+- Neither migration has been deployed anywhere yet — see the rollout section
+  above.
+
+**Open Questions / Decisions**
+- **Process note, worth remembering:** partway through execution, Task 9 (the
+  table drop) was authorized and completed after an explicit "production
+  balances verified" confirmation — but `main` had not moved and migration
+  `0143` had never left this local work. The confirmation was given based on a
+  misunderstanding, not a real check. Caught by the final whole-branch review
+  (`git branch -a --contains` showed the backfill commit reachable only from
+  this branch), corrected by splitting the branch as described above before
+  anything shipped. No data was at risk — nothing had deployed — but the near-
+  miss is worth remembering: "has production been verified" should be answered
+  by checking `main`/deploy state, not by asking the person who requested the
+  work whether they've verified it, when the two can silently diverge.
+- Merchant plan pricing (`MERCHANT_PLAN_BILLING`) and personal plan pricing
+  (`credit_plans`) remain two separate price lists feeding one credit pool.
+  Deliberate for now — different customer segments — but worth revisiting if
+  they drift.
+- `apps/api/test/integration/merchant-kiosk-admin.test.ts` has a pre-existing
+  failure (404 vs. expected 201 on admin kiosk-device creation), reconfirmed
+  unrelated to credits at every task that touched adjacent code (Tasks 2, 3,
+  6, 8, 9) via `git stash` baseline comparison. Still open, still unrelated to
+  this plan.
+
+## 2026-08-03 — Merchant tryon credits
+
+Unifies android/kiosk merchant tryon billing onto `merchantCredits` at the
+admin-configured Virtual Try-On Pricing rate, and adds an admin-configurable
+free-credit grant on merchant self-serve signup. Design doc:
+`docs/superpowers/specs/2026-08-03-merchant-tryon-credits-design.md`. Plan:
+`docs/superpowers/plans/2026-08-03-merchant-tryon-credits.md`. Built via
+Subagent-Driven Development, in place on `feat/merchant-tryon-credits`.
+
+**Done**
+- New admin-configurable `config:system.merchantFreeCredits` field
+  (`getMerchantFreeCredits()` reader, same pattern as `getTryonCreditCost()`),
+  exposed in Settings → System tab next to Virtual Try-On Pricing.
+- Self-serve android onboarding (`POST /v1/merchant/onboarding`) now grants
+  the configured free-credit amount into `merchantCredits.balance` plus a
+  `FREE_TRIAL` `merchantCreditLedger` row, instead of always inserting a
+  zero balance. Admin-created merchants (`POST /admin/merchants`) are
+  unchanged — still `balance: 0`, admin already has manual grant.
+- Android merchant tryon (`POST /v1/merchant/tryon/jobs` →
+  `createMerchantTryonJob`) now charges `getTryonCreditCost(app)` via
+  `atomicMerchantDeduct` inside its existing transaction — was previously
+  hardcoded to charge 0 credits.
+- Kiosk job creation (`createKioskJob`) now uses `getTryonCreditCost(app)`
+  instead of a stale hardcoded `KIOSK_JOB_COST = 10`; the constant is
+  deleted.
+- Merchant dashboard (`GET /v1/merchant/me`) balance now reads
+  `merchantCredits` (joined on `merchantId`) instead of `userCredits`,
+  matching what tryon jobs actually bill against.
+- Merchant catalogue-manager flows (`createMerchantCatalogJob`,
+  `createMerchantSareeMannequinJob`) and Shopify store-owner billing were
+  left untouched on `userCredits`, per design scope.
+- Full unit suite (`pnpm --filter @aivastra/api test`): 499/499 passing.
+  Every integration test file this plan touches
+  (`admin-config`, `merchant-me`, `merchant-tryon`, `kiosk-jobs`,
+  `merchant-onboarding`) passes cleanly, individually and run together.
+- Caught and fixed a regression outside the plan's own file list during
+  final verification: `apps/api/test/demo-catalog-tryon.test.ts` seeded
+  merchants with a $0 `merchantCredits` balance (the shared
+  `createTestMerchant` helper's new default), so its tryon-job tests started
+  402ing once billing went live. Fixed by seeding a balance in the two
+  affected tests and updating a stale `creditsCharged: 0` assertion/comment
+  that assumed try-ons were free.
+
+**Failed / Not Done**
+- None for this plan's own scope.
+
+**Open Questions / Decisions**
+- `apps/api/test/integration/merchant-kiosk-admin.test.ts` has a
+  pre-existing failure (404 vs expected 201 on admin kiosk-device creation)
+  confirmed present both before and after every change in this plan (via
+  `git stash` comparison during Task 5's review) — unrelated to merchant
+  credits, left as an open item for separate investigation.
+- Running the full `test/integration/**` suite as one single vitest process
+  (77 files) is not a supported operation in this repo — CI itself only
+  runs `test:unit`. Doing so trips the global `@fastify/rate-limit` (200
+  req/min) across unrelated describe blocks and produces a different,
+  non-deterministic set of spurious 429 failures on every attempt (31, then
+  49, then 74 failures across three tries, all in files this plan never
+  touched). Verification for this plan instead ran the full unit suite plus
+  every integration file this plan's tasks actually modified, individually
+  and together — both clean.
+- Post-plan follow-ups intentionally out of scope: auto free-credit grant on
+  admin-created merchants, making `MERCHANT_PLAN_BILLING` admin-configurable,
+  Shopify store-owner billing changes.
+
+## 2026-08-03 - Admin users list: hide suspended/deleted by default
+
+### Done
+- `GET /admin/users` (`apps/api/src/modules/admin/users.routes.ts`) now defaults to `WHERE is_banned = false`; added `showBanned` querystring flag to bring suspended/erased accounts back into view. Fixes the erasure feature below shipping with no way to hide its own output from the default list.
+- Added a "Show suspended/deleted" checkbox toggle to `apps/admin-web/src/pages/UsersPage.tsx`'s list toolbar, wired to the new query param.
+- Added integration test asserting a suspended user is excluded by default and included with `showBanned=true`.
+- Verified: `admin-users.test.ts` (8/8), `tsc --noEmit` on `@aivastra/api`, `@aivastra/admin` build, biome lint on all touched files.
+
+### Failed / Not Done
+- None. Not committed to git per push/commit policy.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-08-03 - Admin panel full user PII erasure (single + bulk)
+
+### Done
+- Extended backend `DELETE /admin/users/:id` in `apps/api/src/modules/admin/users.routes.ts` to perform a full GDPR-style PII scrub (anonymizing `email` to `deleted+<id>@example.invalid`, `displayName` to `'Deleted User'`, setting `phone`, `companyName`, `username` to `null`, `isBanned: true`, `banReason: 'admin erasure (GDPR)'`), hard-deleting `oauth_accounts` rows, revoking `refresh_tokens`, and preserving financial/job history rows intact.
+- Added merchant account owner guard (`403` with `'cannot erase a merchant account owner'`) in addition to the existing admin-row guard (`403` with `'cannot delete an admin user'`).
+- Extracted per-id erasure into a shared `eraseUser` function and added `POST /admin/users/bulk-delete` (body validated via `BulkDeleteUsersBody` in `packages/types/src/admin.ts`), returning `{ succeeded: string[], skipped: { id, reason }[] }`.
+- Added structured warn log audit lines (`action: 'USER_ERASURE'`, `adminUserId`, `targetUserId`) for every successful erasure.
+- Added single delete action and confirmation modal to `apps/admin-web/src/pages/UsersPage.tsx`.
+- Added multi-select bulk selection (page toggle + per-row checkboxes + "Delete selected" confirmation modal with email preview list and summary toast) to `UsersPage.tsx`.
+- Added comprehensive integration tests in `apps/api/test/integration/admin-users.test.ts` covering single delete PII anonymization, admin/merchant guards, non-super-admin 403, and bulk delete independent batch execution with succeeded/skipped splits.
+- Verified test suite (`50 passed, 418 passed`), typechecks, build (`@aivastra/admin`), and biome lint checks.
+
+### Failed / Not Done
+- None. Changes kept uncommitted locally per repo git policy.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-08-03 - Pricing Page breakdown modal for payments
+
+### Done
+- Replaced the single-line 1.5s auto-redirecting payment toast on `/pricing` with a premium centered breakdown modal (`PaymentResultModal.tsx`).
+- Built `PaymentResultModal.tsx` matching `SupportModal.tsx` chrome (backdrop, centered card, focus trap, Escape key handling, close button, `C`/`grad` design tokens).
+- Handled Success state: displays plan price, GST (18%), total paid, plan credits, bonus credits (if QR campaign attributed), total credited, and explicit "Continue" button navigating to `/catalogues`.
+- Handled Error state: displays error message with a tinted red `!` badge, "Close" button, and "Try Again" retry action.
+- Replaced `toast: string` state in `use-pricing-data.ts` with `PaymentResult` discriminated union and updated all 3 buy flow call sites.
+- Cleaned up duplicated toast rendering across `Desktop.tsx`, `Mobile.tsx`, and `Tablet.tsx` in favor of `{paymentResult && <PaymentResultModal ... />}`.
+- Verified TypeScript compilation (`tsc --noEmit`), Biome lint checks, and full API test suite (`50 passed, 413 passed`).
+
+### Failed / Not Done
+- None. Not committed to git per push/commit policy.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-08-01 - Gartex expo QR signup campaign (25% bonus credits)
+
+### Done
+- Added `signup_campaigns` table (code, name, bonusPercent, date window, isActive) and `users.signupCampaignId` FK, set once at signup.
+- Email/password register (`?src=` query param -> `RegisterBody.signupSource`) and Google OAuth (`google_src` cookie, mirroring `google_next`) both attribute brand-new signups to a matching active, in-window campaign.
+- `FREE_TRIAL` grant (both the `PATCH /v1/me` profile-completion path and the Google new-account path) is boosted by the campaign's `bonusPercent` when attributed.
+- First plan purchase for a campaign-attributed user grants an extra `CAMPAIGN_BONUS` ledger entry (bonusPercent of the plan's credits), applied once via a shared `grantPurchaseCredits` helper used by both `/v1/payments/verify` and the Razorpay webhook.
+- Admin CRUD (`/admin/signup-campaigns`) + a new "Signup Campaigns" tab in the admin Settings page (`apps/admin-web/src/pages/SettingsPage.tsx`).
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- The actual `gartex2026` campaign row still needs to be created via the admin UI in production, with the real expo dates, before the QR code is printed (see `docs/superpowers/specs/2026-08-01-gartex-expo-qr-campaign-design.md` §3.6) — this is an operational step, not a code task.
+
+## 2026-08-02 — Shopify activation model
+
+Replaces the old per-product Manage page (enable/disable one product at a
+time) with a full activation model: a global "enable on all products (except
+exclusions)" toggle, per-collection enable/exclude, and the invariant that
+exclusion always wins — over individual enablement, collection membership,
+and even global mode. Design doc:
+`docs/superpowers/specs/2026-08-02-shopify-activation-model-design.md`. Plan:
+`docs/superpowers/plans/2026-08-02-shopify-activation-model.md`. Built via
+Subagent-Driven Development, in place on `feat/shopify-app-refactor`.
+
+**Done**
+- Schema: `shopifyProductGarments.excluded`, plus `shopifyCollections`,
+  `shopifyCollectionProducts`, `shopifyEnabledCollections`,
+  `shopifyExcludedCollections`, and an `activation` block on
+  `ShopifyStoreSettings` (migration 0136).
+- `computeEffectiveEnabled` — a single pure function encoding the one
+  precedence rule (exclusion checked first in every branch, including under
+  global mode), plus `resolveEffectiveEnabled` as the DB-backed wrapper.
+  Wired into the one place that gates a customer try-on
+  (`customer.routes.ts`), replacing the old raw `garment.enabled` check.
+- `GET /v1/shopify/products` extended with `enabled`/`excluded`/`status`/`q`
+  filters; `PATCH /v1/shopify/products/:id` gained an `excluded` field —
+  reused rather than building new `/activation/products` endpoints.
+- Bounded collection membership sync: `syncCollectionMembership` only pulls
+  membership for collections a merchant has actually selected (enabled or
+  excluded), via paginated `collects.json`, replace-syncing the cached
+  membership inside one transaction. An hourly scheduler
+  (`collections-resync-scheduler.ts`) re-enqueues a `collection`-mode
+  `SyncTask` for every currently-selected collection across all stores —
+  cost stays bounded regardless of total catalog size, since Shopify doesn't
+  reliably fire webhooks for smart-collection auto-add. A confirmed
+  double-404 (`CollectionNotFoundError`) cleans up the selection and cached
+  membership; any other failure (429/5xx/network) just logs and lets the
+  next hourly tick retry.
+- Activation routes (`activation.routes.ts`): mode get/set, summary counts
+  (including a catalog-wide "failed to sync" count independent of
+  `enabled`, so a product turned on only via a collection or global mode
+  still has failure visibility), and CRUD + live search for both the
+  enabled- and excluded-collections sets.
+- Manage page full rebuild: global toggle, 5 summary cards, 3 tabs
+  (Collections / Individual Products / Exclusion). Collections and
+  Individual Products go read-only under global mode (data and status
+  badges stay visible, only Add/Remove disable) via a small
+  `isTabEditable` helper; Exclusion stays editable in every mode. Product
+  and collection pickers are a custom Polaris `Modal` build, not Shopify's
+  native App Bridge resource picker — `apps/shopify` has no
+  `@shopify/app-bridge-react` dependency. This rebuild also closes a
+  pre-existing pagination bug: the old page never requested page 2 of the
+  product list; the new `IndividualProductsPanel` uses the API's real
+  `total` field.
+- Dropped "Product Advanced AI Image Settings" from scope entirely — no
+  backend logic exists for it, and none was added by this plan.
+
+**Failed / Not Done**
+- Task 9's manual dev-store browser walkthrough (toggling global mode,
+  adding/excluding a collection, confirming exclusion wins on the
+  storefront, pagination across a real page 2) was not runnable in this
+  session — no live API server or Shopify tunnel was up. Typecheck, lint,
+  and the full automated suite all passed; the manual click-through is
+  still outstanding before this should be considered merchant-verified.
+
+**Open Questions / Decisions**
+- None outstanding — every design-time question (complete replace vs.
+  additive, automatic collection sync, exclusion-always-wins precedence)
+  was settled during brainstorming before the plan was written.
+
+## 2026-08-02 — Shopify Analytics final review fix wave
+
+Fixes for 5 findings from the whole-branch final review of the Shopify
+Analytics plan (`docs/superpowers/plans/2026-07-31-shopify-analytics.md`),
+merged through `e4cde221`.
+
+**⚠️ Ops note for prod deploy:** Migration `0135_shopify_widget_events.sql`
+builds `jobs_shopify_store_created_idx` with a plain (non-concurrent)
+`CREATE INDEX`, which takes a lock blocking all `jobs` inserts for the build
+duration. Apply this migration to production during a low-traffic window, or
+build the index manually with `CREATE INDEX CONCURRENTLY` ahead of the deploy
+and let the migration's `IF NOT EXISTS` no-op over it. (Finding 6 — resolved
+as a runbook note, not a migration rewrite; rewriting an already-applied
+local migration was out of scope for this fix wave.)
+
+**Done**
+- Finding 1 — `AnalyticsPage.tsx`: picking a custom date range now sets
+  `preset` to a new `'custom'` state value, and the button label/preset
+  highlight reflect it instead of silently staying on the last-selected
+  preset.
+- Finding 2 — `retention.ts`: the events-sweep pass now loops select+delete
+  until a pass returns fewer than `BATCH` (500) rows, draining the full
+  backlog past the 400-day horizon in one `runShopifyRetention` call instead
+  of one 500-row bite per hourly run. Capped at `MAX_SWEEP_ITERATIONS` (200,
+  up to 100k rows/hour) with a warning log if the cap is hit.
+- Finding 3 — `analytics.ts`'s `analyticsProducts`: `titleRows` is now scoped
+  to the product IDs present in `jobRows` (via `inArray`) instead of reading
+  every garment row for the store, and short-circuits entirely when
+  `jobRows` is empty.
+- Finding 4 — `tryon-widget.js`: the `upload` funnel event now fires from
+  `showReady`, the single convergence point for both a freshly-picked file
+  and a remembered reuse photo, instead of only from `handlePickedFile` —
+  returning shoppers on the reuse path were previously invisible at this
+  funnel step.
+- Finding 5 — `refused_email_gate` no longer counts toward
+  `turnedAway.total` (it's a soft gate; most shoppers submit their email and
+  get the try-on anyway). It's still reported as its own field
+  (`turnedAway.emailGate`) and the Analytics page now shows it as a separate
+  "Asked for an email" stat tile next to "Emails captured", with the
+  turned-away breakdown card no longer listing it as a badge.
+
+**Failed / Not Done**
+- Nothing skipped from the 5 findings; Finding 6 was deliberately resolved as
+  a docs-only ops note per the human-approved resolution, see above.
+
+**Open Questions / Decisions**
+- Finding 4's fix point (`showReady`) fires `upload` when the photo becomes
+  ready for confirmation, not only when the shopper actually confirms
+  generation — this matches the pre-existing semantics for the fresh-upload
+  path (which fired on file pick, before confirm) rather than tightening it
+  to fire only on `proceedWithPhoto`. Reviewer should confirm this reading of
+  "convergence point" is the intended one.
+
+## 2026-07-31 — Shopify Analytics
+
+**Done**
+- `shopify_widget_events` (migration 0135) plus the missing
+  `jobs (shopify_store_id, created_at)` index. `bigserial` PK, deliberately not
+  uuid — highest-write-rate table in the system, and random uuids fragment the
+  index.
+- `POST /v1/shopify/customer/event`, public and store-key authed, 600/min per
+  store. Over-budget events are dropped with a 204, never a 429 — analytics must
+  not break a shopper's try-on.
+- Refusal events written at the three 202 sites in `customer.routes.ts`. NOT in
+  `limits.ts` as the design doc said: `checkShopperLimits` runs twice per
+  request and the transactional call rolls back on refusal.
+- `analytics.ts` — cards, store-local daily series with zero-fill, funnel by
+  distinct shopper, per-product aggregation. `GET /v1/shopify/analytics` with a
+  400-day range ceiling.
+- Retention sweeps events past a fixed 400 days, outside the per-store loop so a
+  store with no retention settings is still swept.
+- Widget instrumentation: five fire points, fire-and-forget, `keepalive` on so
+  navigating to /cart cannot cancel the add-to-cart event.
+- Analytics page: presets + custom date picker, six stat tiles, hand-rolled SVG
+  bar charts on Polaris tokens, table views, product table.
+
+**Failed / Not Done**
+- Revenue, order counts and purchase conversion remain out of scope — they need
+  `read_orders`, which requires Shopify app review, brings protected-customer-
+  data obligations, and forces every merchant to re-consent. Its own spec.
+- Widget instrumentation has no automated test; the theme extension has no test
+  runner. Verified against a dev store per the plan's checklist.
+
+**Open Questions / Decisions**
+- The rate metric is named "Add-to-cart rate" everywhere, never "Conversion
+  rate" — it measures a click in a modal, not a sale. When `read_orders` lands,
+  that metric earns the word.
+- The funnel is never clamped monotonic. Client-side steps are lossy and hiding
+  that would hide that they under-report.
+- Live queries, no rollup table. Revisit only when a real store is measurably
+  slow; the endpoint's response shape would not change.
+
+## 2026-08-01 — Shopify widget OAuth config recovery
+
+**Done**
+- Republish the authoritative `shopify_stores.settings.widget` config with the
+  newly issued access token during the Shopify OAuth callback. A widget save
+  that committed before `SHOPIFY_REAUTH_REQUIRED` can no longer return from
+  reauthorization with Liquid still reading the stale metafield.
+- Persist `settings.widgetConfigSynced` across reloads. Publication marks the
+  config unsynced before the outbound call and clears the marker only when the
+  exact published widget snapshot is still current; failed or raced writes
+  therefore keep the Widget Design retry banner visible.
+- Preserved the Shopify-admin post-install redirect and the existing tolerant
+  handling for non-critical post-install metafield/webhook failures.
+- Added a route-level red-green regression covering the real OAuth callback,
+  stored config payload, fresh-token metafield publication, failed-publication
+  drift persistence, and final redirect.
+- Verification: focused Shopify API tests passed (30/30), Shopify Admin tests
+  passed (35/35), API/Admin typechecks and production builds passed,
+  touched-file Biome checks and `git diff --check` passed.
+
+**Failed / Not Done**
+- No migrations were needed, and no push was performed.
+
+**Open Questions / Decisions**
+- None.
+
+## 2026-08-01 — Shopify widget final timeout and state fixes
+
+**Done**
+- Gave only `PATCH /v1/shopify/widget-config` a 45-second SPA deadline, covering
+  the server's bounded publication-lock wait plus Shopify request while keeping
+  the generic API timeout at 12 seconds. A committed save can now reach the UI
+  as `200 { synced: false }` instead of being reported as a failed request.
+- Canonicalized absent `behavior.addToCart` and `behavior.share` as their
+  storefront-default `true` values during dirty comparison, so disabling and
+  re-enabling either control clears the save bar.
+- Disabled the editable Widget Design form while `/v1/shopify/me` initializes
+  its config snapshot, preventing a slow response from overwriting early input.
+- Added focused red-green regressions for the long save response, unchanged
+  ordinary-request deadline, default-true equality, and initial loading gate.
+
+**Failed / Not Done**
+- No migrations were needed, and no push was performed.
+
+**Open Questions / Decisions**
+- None.
+
+## 2026-08-01 — Shopify widget final reviewer fixes
+
+**Done**
+- Preserved `SHOPIFY_REAUTH_REQUIRED` from Admin API metafield writes so the
+  Widget Design save route reaches the embedded SPA's OAuth redirect handling.
+  Other post-commit publication failures, including Redis lock failures, now
+  return the committed widget config with `synced: false` instead of a false
+  500 indicating the settings were not saved.
+- Widget Design saves now send a leaf-level PATCH relative to the last server
+  snapshot. Unrelated stale fields are no longer sent across concurrent browser
+  tabs, and edits or discard reversals made during the in-flight Shopify
+  publication are rebased onto the response instead of overwritten by it.
+- Escaped the merchant-configured `api_base` Liquid attribute. Moved retry
+  button typography, spacing, text color, and control resets from preview-only
+  CSS into the shared storefront stylesheet, retaining a readable black/white
+  default in both contexts.
+- Added red-green regressions for metafield reauthorization, route-level OAuth
+  propagation, Redis post-commit degradation, partial PATCH generation, and
+  in-flight edit/discard rebasing.
+- Verification: Shopify admin 31/31 tests and production build passed; focused
+  API 17/17 tests, typecheck, and build passed; touched TypeScript Biome checks,
+  widget JavaScript syntax check, and `git diff --check` passed.
+
+**Failed / Not Done**
+- Shopify CLI/theme-check is not installed in this workspace, so there was no
+  separate theme-extension validator beyond the shared CSS being consumed by
+  the passing SPA build/drift tests and the Liquid change being a single
+  standard `escape` filter.
+
+**Open Questions / Decisions**
+- This fix round adds no new decisions. The existing real-Shopify manual
+  acceptance items documented in the entry below remain outstanding. No
+  migrations were needed, and no push was performed.
+
+## 2026-07-31 — Shopify Widget Design + app block migration
+
+**Done**
+- Try-on button moved from app embed (`target: "body"`) to app block
+  (`target: "section"`, `enabled_on.templates: ["product"]`). Deleted
+  `tryon-block.liquid`, `FALLBACK_PLACEMENT_SELECTORS`, `placeWidget()` (~48
+  lines), and the `placement_selector` / `block_alignment` settings. Theme-editor
+  deep link switched from `activateAppId` to
+  `template=product&addAppBlockId=…&target=mainSection`.
+- Widget config stored in `shopify_stores.settings.widget` (no migration) and
+  mirrored to the `aivastra.widget_config` shop metafield via the GraphQL
+  `metafieldsSet` mutation — REST `POST /metafields.json` cannot upsert.
+- `PATCH /v1/shopify/widget-config` and
+  `POST /v1/shopify/widget-config/republish`. Postgres authoritative; failed
+  mirror returns `synced: false` on a 200.
+- Nine configurable copy fields, accent color, and Add to Cart / Share on the
+  result step. Add to Cart reads the theme product form's selected variant and
+  shows Shopify's own 422 message on refusal.
+- Widget Design page: Polaris two-half layout, live preview built on the real
+  `tryon-widget.css`, five step tabs, App Bridge `ui-save-bar` (Polaris
+  `ContextualSaveBar` in dev), unsaved-changes guard, sync-failure retry banner.
+- vitest added to `apps/shopify` with two drift guards binding the preview and
+  its default copy to `tryon-button.liquid`.
+
+**Failed / Not Done**
+- Vintage (non-OS-2.0) theme support dropped by decision — app blocks require
+  JSON templates. Acceptable at zero installs; revisiting means reintroducing a
+  second render path.
+- "Show remaining try-ons" deferred: needs a shopper-limits read endpoint that
+  returns remaining quota before generation.
+- Result-step cart and share logic has no automated test — the theme extension
+  has no test runner.
+- Manual dev-store/browser verification remains outstanding for all four checks:
+  the product-template deep link and dropped-block placement; the no-metafield
+  default appearance; literal rendering of merchant copy such as `<b>x</b>`;
+  and selected-variant Add to Cart, including sold-out error handling and button
+  recovery.
+
+**Open Questions / Decisions**
+- `useBlocker` was unusable (app mounts `<BrowserRouter>`, not a data router), so
+  a module-level `navGuard` consulted by both nav call sites replaced it. If the
+  app ever moves to `createBrowserRouter`, that module should go away.
+- `WIDGET_COPY_DEFAULTS` lives in `apps/shopify/src/lib/widgetDefaults.ts` rather
+  than `packages/types`, because `apps/shopify` deliberately has no
+  `@aivastra/types` dependency (keeps zod out of the SPA bundle) and the server
+  never needs the defaults.
+
+## 2026-07-31 — Shopify shopper limits: final whole-branch review + fix wave
+
+### Done
+- Closes the 12-task shopper-limits plan (`docs/superpowers/plans/2026-07-31-shopify-shopper-limits.md`)
+  with a whole-branch review of the full plan diff (commits `43815b90..98e0808f`) and one fix wave
+  (`98e0808f..490fc0e2`), per `superpowers:subagent-driven-development`'s final-review step. Full ledger
+  in `.superpowers/sdd/2026-07-31-shopify-shopper-limits/progress.md`.
+- The review found no Critical issues. Seven Important findings plus one previously-deferred minor were
+  fixed in one wave and independently re-verified clean by a second reviewer pass:
+  - **`SettingsPage.tsx`:** `Number(raw) || preselected` treated a legitimate `0` ("Before the first
+    try-on") as falsy, silently saving the preselected value (2) instead. Extracted as a pure
+    `resolveNumericLimit` using `Number.isFinite` so `0` round-trips.
+  - **`SettingsPage.tsx`:** the CSV export button used Polaris `Button url=`, which renders a plain
+    `<a href>` — wrong origin in production and no App Bridge auth token, so it 404s or 401s. Replaced
+    with an authenticated fetch (`apiFetch`/new `apiFetchResponse` in `lib/api.ts`) that blobs the
+    response and triggers a download.
+  - **`SettingsPage.tsx`:** the shopper-list fetch's `.catch` only set the error, leaving the `IndexTable`
+    spinning forever on failure. Now also clears `shoppers` to `[]` so the empty state renders.
+  - **`apps/dispatcher/src/shopify/retention.ts`:** the `shopperRecordDays` branch deleted shopper rows
+    on age alone, with no check for still-populated object references on their jobs — the same
+    "never destroy the last reference to an undeleted object" invariant already fixed once at the R2-key
+    level (Task 9), recurring here at the shopper-row/linkage level (deleting the row severs the only
+    path GDPR redaction uses to find those objects). Added a `NOT EXISTS` guard excluding any shopper
+    with a job still holding a non-null `customerPhotoKey`/`resultKey`/`thumbnailKey`.
+  - **`apps/api/src/modules/shopify/gdpr.ts`:** `shop_redact` only purged shopper-linked jobs, so any job
+    with `shopifyShopperId = NULL` (legacy widget traffic with no `clientId`) kept its R2 objects forever
+    even after a full-store erasure request. Added `purgeUnlinkedStoreJobs`, gated strictly to the
+    `matchAll` (`shop_redact`) path — `customers_redact` is unaffected, confirmed by a negative test.
+  - **`apps/api/src/modules/shopify/gdpr.ts` / `webhook.routes.ts`:** a partially-failed redaction (any
+    object delete failure) was swallowed to `log.warn` with no operator-visible signal and no retry path
+    (unlike retention's hourly sweeper). `redactShopperData` now returns `{ removed, incomplete }`; the
+    webhook handler logs at `error` when `incomplete > 0`. No retry/reconciliation system was built —
+    an alertable log line is the accepted scope for this fix.
+  - **`apps/api/src/modules/credits/ledger.ts`:** `refundAndMarkFailed` had no status guard on its jobs
+    UPDATE, so the reverse-direction ambiguous-XADD race (dispatcher completes the job while the API is
+    still inside its own post-commit failure handling) could force-overwrite a `COMPLETED` job to
+    `FAILED` and refund credits for a generation the shopper already received. Added `AND status =
+    'QUEUED'` to the guarded UPDATE; a non-match now skips the refund and status change entirely instead
+    of applying it partially.
+  - **Widget (`tryon-widget.js`):** a logged-in shopper's email (from the `data-customer-email` Liquid
+    prefill, Task 6) was sent to `createJob` and persisted on the very first try-on, before the shopper
+    ever saw the email-gate/consent step — contradicting the plan's own "prefill only" design intent and
+    the Settings page's consent copy. Added an `emailConfirmedByShopper` flag, set only inside the
+    email-gate's submit handler; `createJob` now includes `email`/`emailConsent` only once that flag is
+    true. The Liquid prefill still speeds up filling the gate's input field when a shopper reaches it.
+- All fixes verified: 4-suite Shopify integration 48/48, full API unit suite 323/323 across 42 files,
+  dispatcher build clean, both typechecks clean, widget `node --check` clean, `pnpm lint` clean. Three
+  of the seven findings were verified by reverting the fix and confirming the new test fails first.
+
+### Failed / Not Done
+- (none) — every finding from the final review was fixed and re-verified clean in one fix wave.
+
+### Open Questions / Decisions
+- **User-facing consent gate is now stricter for logged-in shoppers**, per the widget fix above: stores
+  with `emailAfterNTryOns` configured will collect fewer emails from logged-in shoppers than before,
+  since the prefilled address can no longer ride along silently — this is the intended effect of closing
+  the consent gap, not a regression.
+- **Rows captured via the old silent-prefill path are left as-is.** Shopper emails captured before this
+  fix landed (recorded with `emailConsent: false`) remain in `shopify_shoppers` and the CSV export
+  unchanged. User decision (2026-07-31): leave them in place rather than flagging or purging — treated as
+  the merchant's own customer data, consistent with the recommended default presented at review time.
+- Three Minor findings from the re-review were parked, not fixed (none block merge): the CSV download's
+  `URL.revokeObjectURL` runs synchronously right after `anchor.click()` (cross-browser download-cancel
+  risk, strictly better than the prior dead button it replaced); `resolveNumericLimit('', preselected)`
+  returns `0` rather than `preselected` (unreachable given `raw`'s actual call sites); and both
+  `purgeUnlinkedStoreJobs` and the `shopperRecordDays` DELETE remain unbounded with no batch limit
+  (pre-existing pattern, widened rather than introduced — redelivery/re-sweep safe either way).
+
+## 2026-07-31 — Shopify shopper limits: widget dead-history handling + full verification (Task 12)
+
+### Done
+- Closes out the 12-task shopper-limits plan (`docs/superpowers/plans/2026-07-31-shopify-shopper-limits.md`,
+  `.superpowers/sdd/2026-07-31-shopify-shopper-limits/`). Across the plan: the shopper identity model
+  (per-browser `shopify_shoppers` rows keyed on `(storeId, clientId)`, upgraded in place by Shopify
+  customer id or email — `apps/api/src/modules/shopify/shopper.ts`); the three limits (store daily cap,
+  per-shopper cap over a configurable window, and an email-after-N-try-ons gate) enforced with a
+  Redis-backed atomic store-day reservation plus a Postgres advisory lock serializing concurrent
+  requests from the same shopper, with transactional refund-and-compensate on any downstream failure
+  (`apps/api/src/modules/shopify/limits.ts`, `customer.routes.ts`); email capture with consent recorded
+  on the shopper row at job-creation time; the Settings page Limits tab for merchants to configure caps
+  and retention; the captured-email list with CSV export; an hourly retention sweeper that independently
+  nulls `customerPhotoKey`/`resultKey`/`thumbnailKey` only after each object's own R2 delete succeeds,
+  so a partial failure retries just that object next pass instead of orphaning it or wedging the store
+  (`apps/dispatcher/src/shopify/retention.ts`); real `customers/redact`, `customers/data_request`, and
+  `shop/redact` GDPR webhook handlers following the same per-object retry-safe nulling pattern and only
+  deleting a shopper row once every one of its object deletes succeeded (`apps/api/src/modules/shopify/gdpr.ts`);
+  and the dashboard usage card surfacing `todayTryOns` / `storeDailyCap` / `capturedEmailCount`. Several
+  tasks required a correction before being approved: Task 5 (a per-shopper concurrency race and
+  non-atomic compensation, fixed in one review round), Task 6 (a TDZ crash and a dead email-prefill
+  guard in the widget, fixed in one review round), Task 9 (a retention retry-safety gap that could
+  permanently orphan a thumbnail object, fixed in one review round), Task 10 (the GDPR redact handler's
+  unconditional key-nulling and shopper-row deletion, corrected to the Task-9 retry-safe pattern before
+  approval), and Task 11 (a test-fixture cleanup, fixed in one review round). All were resolved and
+  re-reviewed clean; see `.superpowers/sdd/2026-07-31-shopify-shopper-limits/progress.md` for the full
+  per-task ledger.
+- **Task 12, Step 1:** In `renderHistoryList()`
+  (`apps/shopify-extension/extensions/tryon-theme-extension/assets/tryon-widget.js`), added an `error`
+  listener on the history-card thumbnail `<img>` immediately after `img.alt = ''`. Retention can delete
+  the R2 result object a shopper's browser still has cached in `localStorage` history; on a load failure
+  the listener now drops that entry from `getHistory()`, rewrites `HISTORY_STORAGE_KEY`, and re-renders,
+  so a broken image never lingers in the history list.
+- **Task 12, Step 2 (`node --check` on the widget file):** exit 0, no output.
+- **Task 12, Step 3 (`pnpm --filter @aivastra/api test`):** 42/42 files, 323/323 tests passed, exit 0.
+  `test/admin-dev-api.test.ts` — the documented pre-existing full-suite flake — passed on this run.
+- **Task 12, Step 4 (`vitest run --config vitest.integration.config.ts` on the four Shopify integration
+  files together):** `shopify-customer.test.ts`, `shopify-limits.test.ts`, `shopify-settings.test.ts`,
+  `shopify-retention.test.ts` — 4/4 files, 42/42 tests passed, exit 0. Run in isolation from the rest of
+  the integration suite as instructed, so the shared real-Redis rate limiter's 429 cascade (documented
+  below and in the Task 13 entry) did not trigger.
+- **Task 12, Step 5 (`pnpm typecheck && pnpm lint`):** both exit 0. Typecheck: all packages/apps with a
+  `typecheck` script report `Done`, no errors (`apps/admin-web` and `apps/dispatcher` still have no
+  `typecheck` script — pre-existing, unrelated). Lint: 160 warnings / 3 infos, zero errors, all
+  pre-existing and outside this task's touched file; the new widget listener produced no new findings.
+
+### Failed / Not Done
+- (none) — all four verification commands (Steps 2-5) passed cleanly; the pre-existing shared-rate-limiter
+  429 cascade was not encountered because Step 4 ran only the four named Shopify integration files
+  together rather than the full integration suite, as the brief specifies.
+
+### Open Questions / Decisions
+- **Manual smoke test still required** in a real Shopify admin iframe and a real storefront — the email
+  gate (Task 6) and `<ui-nav-menu>` navigation cannot be exercised any other way from this environment.
+- Existing stores have `iana_timezone = NULL` until their next reinstall and fall back to UTC day
+  boundaries for the store-daily-cap and per-shopper-window calculations until then.
+- Deferred (out of scope for this plan): pushing captured emails into Shopify customer records (needs
+  `write_customers` scope plus Shopify's protected-customer-data approval); migrating the widget off
+  direct API calls onto the Shopify App Proxy; notifying the merchant when a store's daily cap is hit.
+
+## 2026-07-31 — Shopify shopper limits: route enforcement (Task 5)
+
+### Done
+- Added test-first enforcement for the Shopify store daily cap, per-shopper cap across linked identity
+  rows, and email gate. Missing or `null` limit settings remain unenforced, while limit refusals return
+  HTTP `202` with exact reason values and non-disclosing store-cap copy.
+- Resolves and links the persisted shopper on accepted jobs, records supplied email consent, and
+  keeps the store cap active when legacy callers omit `clientId`.
+- Added an atomic Redis store-day reservation with a 48-hour expiry. Rejections and downstream
+  failures release the slot; expiry setup failures roll back the increment; release is idempotent and
+  remains retryable if Redis rejects the first decrement.
+- Kept job insertion, inputs, and credit deduction in one Postgres transaction. Redis upload-marker
+  or XADD failures after commit now use the repository's established compensation contract: refund
+  credits, mark the job `FAILED` / `ENQUEUE_FAIL`, release quota, and return HTTP `503`.
+- Excluded compensated `FAILED` jobs from shopper usage counts, so a same-shopper retry does not lose
+  per-shopper quota after an enqueue failure. The focused regression was RED at HTTP `202` before the
+  status filter and GREEN at the deployed success HTTP `201` afterward.
+- Strict TDD evidence: the first focused run was RED (1 passed / 5 failed); separate RED tests exposed
+  missing XADD compensation, upload-marker compensation, expiry rollback, and retryable release before
+  each implementation change. Final focused limits suite passes 9/9.
+- Final verification: existing Shopify customer integration 15/15, API typecheck exit 0, scoped Biome
+  clean (3 TypeScript files), and `git diff --check` clean.
+- Preserved both concurrent widget-design documentation commits: `819180e3` (design) and `139d858b`
+  (implementation plan). The latter is the current Task 5 review base; neither commit's files were
+  changed by Task 5.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- Resolved: successful job creation remains HTTP `201` (the deployed route contract), despite the task
+  brief's `200` sample; limit refusals use HTTP `202` as specified.
+- Resolved: after the RED enqueue test demonstrated that slot-only handling leaves a charged `QUEUED`
+  job, explicit approval was given to use refund + `FAILED` / `ENQUEUE_FAIL` + HTTP `503` compensation.
+- Operational caveat: as with the design's Redis reservation approach, a process crash between slot
+  reservation and cleanup can temporarily fail closed until the 48-hour key expiry.
+
+## 2026-07-31 — Shopify shopper limits: settings PATCH endpoint (Task 4)
+
+### Done
+- Added fixed-option Zod patch schemas for Shopify store limits and retention. `null` explicitly
+  represents Off; the schema accepts no free numeric range or platform default.
+- Added signed-session-protected `PATCH /v1/shopify/settings`, which shallow-merges a nested
+  `limits` or `retention` patch while preserving all unrelated JSONB settings.
+- Extended optional widget request identity fields for the next shopper-limits task without making
+  them required for existing widget calls.
+- Added authenticated integration coverage for out-of-set rejection, unrelated-setting preservation,
+  and turning a configured limit off with `null`.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- (none)
+
+## 2026-07-31 — Shopify shopper limits: database foundation
+
+### Done
+- Added the `shopify_shoppers` schema and migration, with per-store browser identity, Shopify customer and email lookup indexes, consent metadata, and lifecycle timestamps.
+- Added nullable `shopify_stores.iana_timezone` and the `jobs.shopify_shopper_id` SET NULL foreign key, preserving billing history when retention or GDPR erasure removes a shopper.
+- Replaced the dead Shopify widget appearance settings with nested limits and retention settings in both DB and Shopify app type definitions.
+
+### Failed / Not Done
+- The prescribed broad removed-settings grep only finds ignored stale declarations in
+  `packages/db/dist/schema/widget.d.ts` for an unrelated, removed widget schema. The source-tree
+  check (excluding ignored `dist/`) has no matches; the artifact was left untouched.
+
+### Open Questions / Decisions
+- (none)
+
+## 2026-07-31 - Shopify embedded admin restructure: verification (Task 13)
+
+### Done
+- Final verification pass for the 13-task Shopify app restructure (`feat/shopify-app-refactor`, 18 commits
+  ahead of `main`): removed the old per-product `shopify_funnel_rules` routing model and its UI/API
+  entirely, replaced it with a single admin-set `is_default` flag on `shopify_funnel_templates` (the
+  dispatcher now trusts `params.workflowTemplateId` the API pinned at enqueue time — `dc57bda1`,
+  `aa8a293b` — instead of doing its own funnel-rule lookup), and rebuilt the embedded admin app
+  (`apps/shopify`) on stock Polaris behind App Bridge `<ui-nav-menu>` navigation (Dashboard / Manage /
+  Support pages — `7f552eb8`, `6c9a9b21`, `48e8c8da`, `42ab64f8`, `d6ac8e12`).
+- **Step 1 — `pnpm typecheck`:** exit 0. All 10 packages/apps that declare a `typecheck` script report
+  `Done` with no errors (`packages/db`, `apps/shopify`, `packages/logger`, `packages/observability`,
+  `packages/storage`, `packages/types`, `apps/api`, `apps/chatbot`, `apps/admin-mobile`,
+  `apps/catalogues-web`). `apps/admin-web` and `apps/dispatcher` have no `typecheck` script (pre-existing,
+  unrelated to this plan).
+- **Step 2 — `pnpm lint`:** exit 0 (`biome check .`), 158 warnings / 3 infos, zero errors. All warnings
+  are pre-existing and outside the touched surface (`apps/admin-web/src/components/SearchableSelect.tsx`,
+  `apps/api/src/modules/dev/create-saree-mannequin-job.ts`, `apps/api/src/modules/merchant/create-job.ts`,
+  `apps/api/test/admin-dev-api.test.ts`, `apps/api/test/integration/jobs-create.test.ts`,
+  `scripts/ci/lib/classify.mts`). Scoped re-checks confirm both `apps/shopify` (18 files) and
+  `apps/api/src/modules/shopify` (17 files) are fully clean — zero warnings.
+- **Step 3 — unit suite (`pnpm --filter @aivastra/api test`):** **39/39 files, 305/305 tests passed**,
+  exit 0. The known pre-existing intermittent flake, `test/admin-dev-api.test.ts`, happened to pass
+  (13/13) on this run — it is flaky under the full run, not deterministically broken, per this session's
+  earlier isolation testing. No `funnel-rules` or `funnel-routes` test file exists anymore;
+  `test/shopify-funnel-templates-admin.test.ts` (5 tests, passed) covers the new default-template
+  admin flag, a different concept from the removed per-product funnel-rules routing.
+- **Step 4 — integration suite (`vitest run --config vitest.integration.config.ts`):** **41/70 files
+  passed, 239/327 tests passed, 34 skipped**; 29 files / 54 tests failed. This reproduces the
+  established, pre-existing, repo-wide test-infra issue: the shared real-Redis global rate limiter
+  (`apps/api/src/server.ts:168`, `max: 200/min`) is never reset between test files, so registration/login
+  calls get 429'd partway through the run, cascading into `adminAuthHeader: registered user not found`
+  and downstream assertion failures across unrelated auth-dependent files (`auth`, `admin-approval`,
+  `backgrounds-mine`, `jobs-create`, `saree-jobs`, `credits`, `e2e`, `payments-tier`, etc.). 29 failed
+  files is within the 13-30 range observed twice independently earlier this session (parallel run: 30/70;
+  serial run: 13/70). **`test/integration/shopify-customer.test.ts` passed 15/15**, and none of the 29
+  failing files are shopify- or funnel-related. One secondary failure
+  (`catalog.test.ts` — `null value in column "type" of relation "catalog_items" violates not-null
+  constraint`) is a pre-existing, deterministic bug in the test helper itself, not the CLAUDE.md
+  slug-collision gotcha: `seedCatalog()` (`apps/api/test/integration/catalog.test.ts:51-57`) inserts into
+  `schema.catalogItems` without ever setting the `type` column, which `packages/db/src/schema/catalog.ts:26`
+  defines as `text('type').notNull()` with no default (migration `0021_catalog_item_direct_type.sql`
+  backfilled existing rows once and then set `NOT NULL`, but added no default). It fails on every run
+  regardless of parallelism, and is unrelated to this plan's changes.
+- **Step 5 — catalog surface untouched:** `git diff --stat main..HEAD -- apps/api/src/modules/shopify/catalog.routes.ts apps/api/src/modules/shopify/catalog-options.routes.ts apps/api/src/modules/shopify/catalog-publish.ts packages/db/src/schema/jobs.ts`
+  → empty output. Confirmed the funnel-rules removal did not touch the catalog surface.
+
+### Failed / Not Done
+- **The integration suite does not fully pass, and this is a known, pre-existing, out-of-scope
+  condition — not a regression introduced by this plan.** 29/70 integration test files fail due to the
+  untracked shared rate-limiter described above. This has been true of the full integration run all
+  session (verified independently twice before this task), is unrelated to shopify/funnel code, and is
+  not fixed here. Anyone re-running the full suite in one process should expect the same cascade;
+  running `shopify-customer.test.ts` (or any single file) in isolation is unaffected.
+- Step 6 (manual smoke in a real embedded admin) could not be performed — see Open Questions below.
+
+### Open Questions / Decisions
+- **Manual smoke test not yet performed** — `<ui-nav-menu>` only renders inside the real Shopify admin
+  iframe on a dev store, so this is not automatable from this environment. A human needs to confirm,
+  on a dev store, before shipping:
+  1. The sidebar shows Dashboard, Manage and Support, and each navigates without a full iframe reload.
+  2. Dashboard shows a 3-step checklist and collapses to `All set` once all three are done.
+  3. `Sync now` toasts and refreshes the list.
+  4. Enabling and disabling a product persists across a reload.
+  5. The disconnect modal cancels cleanly and, when confirmed, returns you to the link-account gate.
+  6. Visiting `/products` redirects to `/manage`.
+- **Three Support-page URLs are unverified** (`apps/shopify/src/pages/SupportPage.tsx`): `mailto:support@aivastra.com`,
+  `https://app.aivastra.com/support`, `https://app.aivastra.com/demo`. These were added in Task 10 and
+  need team confirmation that the mailbox and pages actually exist/resolve before shipping.
+- The pre-existing shared-rate-limiter test-infra issue (see Failed / Not Done) has no owner or fix
+  scheduled; it should probably get its own follow-up ticket (e.g., a per-test-run Redis flush or a
+  test-only rate-limit bypass) independent of this plan.
+## 2026-08-01 — Bulk upload: catalogue images + admin-held flat batches
+
+**Done**
+- `jobs.queued_at` (migration 0137) so the dispatcher sweeper dates QUEUED staleness from release, not creation — without it every released batch was fail-and-refunded on the next tick.
+- New `jobs.status` value `HELD`. `createMerchantCatalogJob(..., { hold: true })` deducts credits and writes the job/inputs rows as usual but skips the `XADD`; `POST /v1/merchant/catalog/generate-bulk` now always holds. Single-item `/generate` stays interactive.
+- `GET /admin/held-jobs` + `POST /admin/held-jobs/release` — global, status-guarded release into `jobs:low`. Admin page at Operations → Held Batches.
+- `POST /v1/merchant/catalog/reconcile-held` materializes completed held jobs into `isActive: false` products; `PATCH /v1/merchant/catalog/:id` publishes one when a SKU and both prices are supplied.
+- Bulk upload screen gained a Catalogue / Flat toggle: catalogue mode uploads finished photos directly (no job), flat mode is fire-and-forget.
+- Built via subagent-driven-development (8 tasks, each TDD'd + task-reviewed) followed by two whole-branch review rounds. Round 1 found and fixed: the dispatcher sweeper's own `MAX_QUEUE_WAIT_MS` sibling bug in `apps/dispatcher/src/job/processor.ts` (measured queue-wait from `createdAt`, not `queuedAt`, so a released batch's tail was terminated-and-refunded within seconds of release whenever no worker was immediately free — same symptom as the original sweeper bug, independent code path); `reconcile-held`'s idempotency (was inferred from product existence via an anti-join, so deleting a reconciled product made it reappear and re-leak R2 objects on every later reconcile — now tracked via a `heldReconciled` marker on the job itself); an end-to-end lifecycle integration test driving the whole chain through public routes; `AdminHeldJobsResponse`/`AdminHeldJobsReleaseResponse` Zod schemas wired into the actual routes and the admin page (previously declared but unused); and a stuck "Generating" UI state in the bulk-upload screen after a flat batch is sent. Final round: verified clean, ready to merge.
+
+**Failed / Not Done**
+- No way for a merchant to cancel or refund a held batch before release; credits are deducted at upload.
+- No notification when a batch completes — the merchant discovers it by opening the app.
+- Follow-up (pre-existing dispatcher mechanisms, not defects in this branch, but made more likely to bite by the release-burst workload — filed for separate follow-up, not blocking this merge):
+  - A held job whose garment subcategory requires the inline mannequin phase (`requiresMannequinStep`) can be terminated+refunded by `apps/dispatcher/src/job/mannequin-phase.ts`'s own no-worker path (`MANNEQUIN_NO_WORKER`), which uses an attempts-based budget (`MAX_ATTEMPTS = 2`) rather than the `queuedAt`-aware time budget just fixed for the main path.
+  - The dispatcher's anti-starvation promoter (`PROMOTE_TO_PRIORITY_AFTER_RETRIES` in `processor.ts`) can migrate a sustained-contention released batch into `jobs:priority`, ahead of live customer traffic — the opposite of the deliberate `queueStream: 'low'` design for released batches.
+  - Several UI/observability nits from the final review: a stamp-write failure in `reconcile-held` shows a "failed" banner even though the product was actually created; malformed-forever rows nag with unhelpful "try reopening this screen" copy; the reconcile helper's catch swallows session-expiry errors instead of triggering logout; the bulk-upload header's "(N ready)" count is permanently 0 in flat mode after Task 8's changes (same class of dead UI as the CTA that was fixed, just missed); the release-select's oldest-first ordering can let one merchant's large backlog monopolize every release call.
+
+**Open Questions / Decisions**
+- Decided: credits deduct at upload (keeps the deduct+insert transaction invariant, and a released batch can never fail for lack of balance).
+- Decided: release is manual-only. A scheduled off-peak window was considered and deferred.
+- Open: should released batches get their own queue lane rather than sharing `jobs:low` with other low-priority work?
+
 ## 2026-07-31 - Virtual Try-On Android unused raster drawable cleanup
 
 ### Done

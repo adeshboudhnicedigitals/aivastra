@@ -22,6 +22,10 @@ export function TabletLayout(props: TryOnLayoutProps) {
     selectedGarmentJob,
     showGarmentPicker,
     setShowGarmentPicker,
+    showPersonPicker,
+    setShowPersonPicker,
+    loadingPersonHistory,
+    personFileInputRef,
     previewPanelRef,
     isPreviewFullscreen,
     togglePreviewFullscreen,
@@ -31,6 +35,7 @@ export function TabletLayout(props: TryOnLayoutProps) {
     pickFile,
     handleGenerate,
     handleSelectGarment,
+    handleSelectPersonFromHistory,
     handleDownloadResult,
     handleShareResult,
     canGenerate,
@@ -334,9 +339,11 @@ export function TabletLayout(props: TryOnLayoutProps) {
                   progress={personProgress}
                   label=""
                   tip=""
-                  disabled={generating}
+                  disabled={generating || loadingPersonHistory}
                   sampleUrl={personSampleUrl}
                   onFile={(f) => pickFile(f, setPersonFile, setPersonPreview)}
+                  onBrowseClick={() => setShowPersonPicker(true)}
+                  fileInputRef={personFileInputRef}
                   icon={
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
                       <circle cx="12" cy="8" r="3.5" stroke="#EC4899" strokeWidth="1.5" />
@@ -963,6 +970,19 @@ export function TabletLayout(props: TryOnLayoutProps) {
         <GarmentCatalogModal
           onSelect={handleSelectGarment}
           onClose={() => setShowGarmentPicker(false)}
+        />
+      )}
+
+      {showPersonPicker && (
+        <GarmentCatalogModal
+          title="Browse Previous Generations"
+          emptyMessage="No previous generations yet — upload a new image to get started."
+          onSelect={handleSelectPersonFromHistory}
+          onClose={() => setShowPersonPicker(false)}
+          onUploadNew={() => {
+            setShowPersonPicker(false);
+            personFileInputRef.current?.click();
+          }}
         />
       )}
     </>

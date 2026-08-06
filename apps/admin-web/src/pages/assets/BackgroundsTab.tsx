@@ -761,6 +761,12 @@ export function BackgroundsTab() {
                 onClick={async () => {
                   const { id, label } = confirmDeleteBg;
                   setConfirmDeleteBg(null);
+                  if (id.startsWith('bg_demo_')) {
+                    setBackgrounds((prev) => prev.filter((b) => b.id !== id));
+                    setAllBackgrounds((prev) => prev.filter((b) => b.id !== id));
+                    toast({ title: `${label} moved to recycle bin` });
+                    return;
+                  }
                   try {
                     await apiFetch(`/admin/assets/backgrounds/${id}`, { method: 'DELETE' });
                     setBackgrounds((prev) => prev.filter((b) => b.id !== id));

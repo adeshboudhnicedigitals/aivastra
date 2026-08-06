@@ -378,6 +378,11 @@ export function FacesTab() {
                 onClick={async () => {
                   const { id, label } = confirmDeleteFace;
                   setConfirmDeleteFace(null);
+                  if (id.startsWith('face_demo_')) {
+                    setFaces((prev) => prev.filter((f) => f.id !== id));
+                    toast({ title: `${label} moved to recycle bin` });
+                    return;
+                  }
                   try {
                     await apiFetch(`/admin/assets/faces/${id}`, { method: 'DELETE' });
                     setFaces((prev) => prev.filter((f) => f.id !== id));
