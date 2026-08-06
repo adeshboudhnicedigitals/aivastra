@@ -171,6 +171,7 @@ fun PhotoUploadPage(
 
     LaunchedEffect(screenState) {
         if (screenState == PhotoUploadScreenState.CHOICE_SELECTION && photoSourceType == null) {
+            viewModel.clearUploadedPhoto()
             viewModel.ensureActiveSession()
         }
     }
@@ -197,14 +198,19 @@ fun PhotoUploadPage(
         }
     }
 
-    BackHandler(enabled = showSourceDialog || screenState != PhotoUploadScreenState.CHOICE_SELECTION) {
+    BackHandler(enabled = true) {
         if (showSourceDialog) {
             showSourceDialog = false
-        } else {
+        } else if (screenState != PhotoUploadScreenState.CHOICE_SELECTION) {
             photoSourceType = null
             capturedPhotoUri = null
             screenState = PhotoUploadScreenState.CHOICE_SELECTION
             viewModel.resetStateAndRefreshQr()
+        } else {
+            photoSourceType = null
+            capturedPhotoUri = null
+            viewModel.resetStateAndRefreshQr()
+            onBack()
         }
     }
 
@@ -299,14 +305,15 @@ fun PhotoUploadPage(
                                 Spacer(Modifier.height(sdp(R.dimen._30sdp)))
                                 UploadChoiceCard(
                                     visual = {
+                                        val qrUrl = uiState.qrUrl
                                         when {
                                             uiState.isQrLoading && !isPreview -> CircularProgressIndicator(
                                                 color = Color(0xFFE6A01C),
                                                 strokeWidth = sdp(R.dimen._2sdp),
                                                 modifier = Modifier.size(sdp(R.dimen._28sdp))
                                             )
-                                            uiState.qrUrl != null -> QrArtwork(
-                                                content = uiState.qrUrl!!,
+                                            qrUrl != null -> QrArtwork(
+                                                content = qrUrl,
                                                 modifier = Modifier.size(artworkSize),
                                                 onRefresh = { viewModel.createQrSession() }
                                             )

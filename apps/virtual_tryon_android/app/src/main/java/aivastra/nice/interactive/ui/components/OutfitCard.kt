@@ -15,6 +15,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import aivastra.nice.interactive.R
 import aivastra.nice.interactive.utils.sdp
 import coil.compose.AsyncImage
@@ -31,17 +32,16 @@ fun OutfitCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
     val shape = RoundedCornerShape(sdp(R.dimen._10sdp))
+    val interactionSource = remember { MutableInteractionSource() }
 
     Box(
         modifier = modifier
-            .aspectRatio(0.80f)
+            .aspectRatio(0.72f)
             .clip(shape)
             .background(
                 Brush.radialGradient(
                     colors = listOf(
-                        Color(0xFFE8D1B8),
                         accent.copy(alpha = 0.25f),
                         Color(0xFFB18E6E)
                     ),

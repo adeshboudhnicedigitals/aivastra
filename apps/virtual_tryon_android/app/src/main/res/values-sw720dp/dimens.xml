@@ -106,6 +106,9 @@
     <dimen name="_review_action_button_height">68dp</dimen>
     <dimen name="_bottom_action_button_height">74dp</dimen>
 
+    <!-- Download page QR cards (kiosk) -->
+    <dimen name="_download_card_height">360dp</dimen>
+
     <!-- Camera view bottom-bar control icons (kiosk) -->
     <dimen name="_camera_control_button_size">66dp</dimen>
     <dimen name="_camera_control_icon_size">46dp</dimen>

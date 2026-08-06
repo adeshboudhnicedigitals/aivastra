@@ -30,7 +30,7 @@ android {
         applicationId = "aivastra.nice.interactive"
         minSdk = 28
         targetSdk = 36
-        versionCode = 13
+        versionCode = 16
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -96,6 +96,7 @@ dependencies {
     implementation(libs.androidx.credentials)
     implementation(libs.androidx.credentials.play.services.auth)
     implementation(libs.googleid)
+    implementation(libs.play.app.update)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

@@ -5,6 +5,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,6 +37,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Star
@@ -47,6 +52,7 @@ import aivastra.nice.interactive.ui.components.AppHeaderLogo
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -54,14 +60,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import aivastra.nice.interactive.R
@@ -80,13 +92,18 @@ fun TryMoreOutfitsPage(
     initialCategory: String = "women",
     initialProduct: CatalogProduct?,
     resultImageUrl: String? = null,
+    sessionHistory: List<String> = emptyList(),
     onBack: () -> Unit,
+    onUnauthorized: () -> Unit = {},
     onGoToDownloads: () -> Unit,
     onSelectOutfitDetail: (CatalogProduct, List<CatalogProduct>) -> Unit,
     onTryLook: (CatalogProduct) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    BackHandler(onBack = onBack)
+    var showSessionGallery by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = showSessionGallery) { showSessionGallery = false }
+    BackHandler(enabled = !showSessionGallery, onBack = onBack)
 
     val isPreview = LocalInspectionMode.current
     val statusBarH: Dp = (if (isPreview) sdp(R.dimen._28sdp) else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()) + sdp(R.dimen._10sdp)
@@ -98,6 +115,15 @@ fun TryMoreOutfitsPage(
     var displayProducts by remember { mutableStateOf<List<CatalogProduct>>(emptyList()) }
     var selectedProduct by remember { mutableStateOf(initialProduct) }
     var userHasChangedProduct by remember { mutableStateOf(false) }
+
+    // Position within this photo-upload session's generated results (sessionHistory),
+    // defaulting to whichever entry matches the just-completed result.
+    var historyIndex by remember {
+        mutableStateOf(
+            sessionHistory.indexOf(resultImageUrl).takeIf { it >= 0 }
+                ?: (sessionHistory.size - 1).coerceAtLeast(0)
+        )
+    }
 
     var isLoading by remember { mutableStateOf(true) }
     var isDropdownExpanded by remember { mutableStateOf(false) }
@@ -134,12 +160,16 @@ fun TryMoreOutfitsPage(
             }
             is CatalogResult.Failure -> {
                 isLoading = false
+                if (result.isUnauthorized) {
+                    onUnauthorized()
+                }
             }
         }
     }
 
+    Box(modifier = modifier.fillMaxSize()) {
     Box(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF090807))
             .padding(
@@ -223,12 +253,18 @@ fun TryMoreOutfitsPage(
                                     shape = RoundedCornerShape(sdp(R.dimen._16sdp))
                                 )
                                 .clickable {
-                                    selectedProduct?.let { product ->
-                                        onSelectOutfitDetail(product, displayProducts)
+                                    if (sessionHistory.isNotEmpty()) {
+                                        showSessionGallery = true
+                                    } else {
+                                        selectedProduct?.let { product ->
+                                            onSelectOutfitDetail(product, displayProducts)
+                                        }
                                     }
                                 }
                         ) {
-                            val displayUrl = if (!userHasChangedProduct && !resultImageUrl.isNullOrBlank()) {
+                            val displayUrl = if (sessionHistory.isNotEmpty()) {
+                                sessionHistory.getOrNull(historyIndex) ?: resultImageUrl
+                            } else if (!userHasChangedProduct && !resultImageUrl.isNullOrBlank()) {
                                 resultImageUrl
                             } else {
                                 selectedProduct?.imageUrl ?: selectedProduct?.thumbnailUrl ?: resultImageUrl
@@ -242,6 +278,79 @@ fun TryMoreOutfitsPage(
                                     alignment = Alignment.TopCenter,
                                     modifier = Modifier.fillMaxSize()
                                 )
+                            }
+
+                            // Session history navigation: previous/next generated result + dot indicators
+                            if (sessionHistory.size > 1) {
+                                val historySize = sessionHistory.size
+                                Box(
+                                    modifier = Modifier
+                                        .padding(start = sdp(R.dimen._12sdp), bottom = sdp(R.dimen._10sdp))
+                                        .size(sdp(R.dimen._36sdp))
+                                        .align(Alignment.BottomStart)
+                                        .clip(CircleShape)
+                                        .background(
+                                            Brush.linearGradient(
+                                                listOf(Color(0xFFE7A52C), Color(0xFF9B5100))
+                                            )
+                                        )
+                                        .clickable {
+                                            historyIndex = if (historyIndex - 1 < 0) historySize - 1 else historyIndex - 1
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                        contentDescription = "Previous result",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(sdp(R.dimen._22sdp))
+                                    )
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .padding(end = sdp(R.dimen._12sdp), bottom = sdp(R.dimen._10sdp))
+                                        .size(sdp(R.dimen._36sdp))
+                                        .align(Alignment.BottomEnd)
+                                        .clip(CircleShape)
+                                        .background(
+                                            Brush.linearGradient(
+                                                listOf(Color(0xFFE7A52C), Color(0xFF9B5100))
+                                            )
+                                        )
+                                        .clickable {
+                                            historyIndex = (historyIndex + 1) % historySize
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                        contentDescription = "Next result",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(sdp(R.dimen._22sdp))
+                                    )
+                                }
+
+                                Row(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .padding(bottom = sdp(R.dimen._10sdp)),
+                                    horizontalArrangement = Arrangement.spacedBy(sdp(R.dimen._6sdp)),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    sessionHistory.indices.forEach { index ->
+                                        val isActive = index == historyIndex
+                                        Box(
+                                            modifier = Modifier
+                                                .size(if (isActive) sdp(R.dimen._8sdp) else sdp(R.dimen._6sdp))
+                                                .clip(CircleShape)
+                                                .background(
+                                                    if (isActive) Color(0xFFE7A52C) else Color.White.copy(alpha = 0.4f)
+                                                )
+                                                .clickable { historyIndex = index }
+                                        )
+                                    }
+                                }
                             }
                         }
 
@@ -525,6 +634,173 @@ fun TryMoreOutfitsPage(
                             fontFamily = PoppinsFamily
                         )
                     }
+                }
+            }
+        }
+    }
+
+        if (showSessionGallery && sessionHistory.isNotEmpty()) {
+            SessionGalleryOverlay(
+                images = sessionHistory,
+                currentIndex = historyIndex.coerceIn(0, sessionHistory.lastIndex),
+                onIndexChange = { historyIndex = it },
+                onClose = { showSessionGallery = false },
+                statusBarH = statusBarH,
+                navBarH = navBarH
+            )
+        }
+    }
+}
+
+@Composable
+private fun SessionGalleryOverlay(
+    images: List<String>,
+    currentIndex: Int,
+    onIndexChange: (Int) -> Unit,
+    onClose: () -> Unit,
+    statusBarH: Dp,
+    navBarH: Dp
+) {
+    // Pinch-to-zoom / pan / double-tap-to-reset, same as TryOnResultPage's result image.
+    // Pan is clamped to the overflow the current zoom level actually produces so the image
+    // can never be dragged off past its own edge, and resets whenever the user browses to
+    // a different session result.
+    var imageScale by remember { mutableFloatStateOf(1f) }
+    var imageOffset by remember { mutableStateOf(Offset.Zero) }
+    var imageContainerSize by remember { mutableStateOf(IntSize.Zero) }
+
+    LaunchedEffect(currentIndex) {
+        imageScale = 1f
+        imageOffset = Offset.Zero
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+    ) {
+        AsyncImage(
+            model = images[currentIndex],
+            contentDescription = "Session result ${currentIndex + 1} of ${images.size}",
+            contentScale = ContentScale.Crop,
+            alignment = Alignment.TopCenter,
+            modifier = Modifier
+                .fillMaxSize()
+                .clipToBounds()
+                .onGloballyPositioned { imageContainerSize = it.size }
+                .pointerInput(Unit) {
+                    detectTapGestures(onDoubleTap = {
+                        imageScale = 1f
+                        imageOffset = Offset.Zero
+                    })
+                }
+                .pointerInput(Unit) {
+                    detectTransformGestures { _, pan, zoom, _ ->
+                        val newScale = (imageScale * zoom).coerceIn(1f, 4f)
+                        val maxPanX = (imageContainerSize.width * (newScale - 1f) / 2f).coerceAtLeast(0f)
+                        val maxPanY = (imageContainerSize.height * (newScale - 1f) / 2f).coerceAtLeast(0f)
+                        imageOffset = Offset(
+                            x = (imageOffset.x + pan.x).coerceIn(-maxPanX, maxPanX),
+                            y = (imageOffset.y + pan.y).coerceIn(-maxPanY, maxPanY)
+                        )
+                        imageScale = newScale
+                    }
+                }
+                .graphicsLayer {
+                    scaleX = imageScale
+                    scaleY = imageScale
+                    translationX = imageOffset.x
+                    translationY = imageOffset.y
+                }
+        )
+
+        // Close button
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = statusBarH, end = sdp(R.dimen._18sdp))
+                .size(sdp(R.dimen._38sdp))
+                .clip(CircleShape)
+                .background(Color.Black.copy(alpha = 0.6f))
+                .clickable(onClick = onClose),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Default.Close,
+                contentDescription = "Close",
+                tint = Color.White,
+                modifier = Modifier.size(sdp(R.dimen._20sdp))
+            )
+        }
+
+        if (images.size > 1) {
+            val historySize = images.size
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(sdp(R.dimen._16sdp))
+                    .size(sdp(R.dimen._36sdp))
+                    .clip(CircleShape)
+                    .background(
+                        Brush.linearGradient(
+                            listOf(Color(0xFFE7A52C), Color(0xFF9B5100))
+                        )
+                    )
+                    .clickable {
+                        onIndexChange(if (currentIndex - 1 < 0) historySize - 1 else currentIndex - 1)
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                    contentDescription = "Previous result",
+                    tint = Color.White,
+                    modifier = Modifier.size(sdp(R.dimen._22sdp))
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(sdp(R.dimen._16sdp))
+                    .size(sdp(R.dimen._36sdp))
+                    .clip(CircleShape)
+                    .background(
+                        Brush.linearGradient(
+                            listOf(Color(0xFFE7A52C), Color(0xFF9B5100))
+                        )
+                    )
+                    .clickable {
+                        onIndexChange((currentIndex + 1) % historySize)
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = "Next result",
+                    tint = Color.White,
+                    modifier = Modifier.size(sdp(R.dimen._22sdp))
+                )
+            }
+
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = navBarH + sdp(R.dimen._20sdp)),
+                horizontalArrangement = Arrangement.spacedBy(sdp(R.dimen._6sdp)),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                images.indices.forEach { index ->
+                    val isActive = index == currentIndex
+                    Box(
+                        modifier = Modifier
+                            .size(if (isActive) sdp(R.dimen._8sdp) else sdp(R.dimen._6sdp))
+                            .clip(CircleShape)
+                            .background(
+                                if (isActive) Color(0xFFE7A52C) else Color.White.copy(alpha = 0.4f)
+                            )
+                            .clickable { onIndexChange(index) }
+                    )
                 }
             }
         }

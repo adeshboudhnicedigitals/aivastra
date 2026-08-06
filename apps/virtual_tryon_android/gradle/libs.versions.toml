@@ -17,6 +17,7 @@ camerax = "1.4.1"
 foundationLayout = "1.11.4"
 credentials = "1.5.0"
 googleid = "1.1.1"
+appUpdate = "2.1.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -49,6 +50,7 @@ androidx-compose-foundation-layout = { group = "androidx.compose.foundation", na
 androidx-credentials = { group = "androidx.credentials", name = "credentials", version.ref = "credentials" }
 androidx-credentials-play-services-auth = { group = "androidx.credentials", name = "credentials-play-services-auth", version.ref = "credentials" }
 googleid = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version.ref = "googleid" }
+play-app-update = { group = "com.google.android.play", name = "app-update", version.ref = "appUpdate" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

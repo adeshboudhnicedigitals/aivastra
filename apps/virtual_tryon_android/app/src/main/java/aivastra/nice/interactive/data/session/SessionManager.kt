@@ -3,6 +3,7 @@ package aivastra.nice.interactive.data.session
 import android.content.Context
 import android.util.Base64
 import aivastra.nice.interactive.api.ApiClient
+import aivastra.nice.interactive.data.repository.CatalogRepository
 import org.json.JSONObject
 
 /**
@@ -26,22 +27,22 @@ object SessionManager {
     }
 
     private val preferences
-        get() = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        get() = if (::appContext.isInitialized) appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) else null
 
     val accessToken: String?
-        get() = preferences.getString(ACCESS_TOKEN, null)
+        get() = preferences?.getString(ACCESS_TOKEN, null)
 
     val refreshToken: String?
-        get() = preferences.getString(REFRESH_TOKEN, null)
+        get() = preferences?.getString(REFRESH_TOKEN, null)
 
     val userEmail: String?
-        get() = preferences.getString(USER_EMAIL, null)
+        get() = preferences?.getString(USER_EMAIL, null)
 
     val userName: String?
-        get() = preferences.getString(USER_NAME, null)
+        get() = preferences?.getString(USER_NAME, null)
 
     val logoUrl: String?
-        get() = preferences.getString(USER_LOGO_URL, null)
+        get() = preferences?.getString(USER_LOGO_URL, null)
 
     @JvmOverloads
     fun save(
@@ -51,7 +52,8 @@ object SessionManager {
         userName: String? = null,
         logoUrl: String? = null
     ) {
-        val editor = preferences.edit()
+        val prefs = preferences ?: return
+        val editor = prefs.edit()
             .putString(ACCESS_TOKEN, accessToken)
         if (!refreshToken.isNullOrEmpty()) {
             editor.putString(REFRESH_TOKEN, refreshToken)
@@ -67,11 +69,13 @@ object SessionManager {
         }
         editor.apply()
         ApiClient.setAccessToken(accessToken)
+        CatalogRepository.clearCache()
     }
 
     fun clear() {
-        preferences.edit().clear().apply()
+        preferences?.edit()?.clear()?.apply()
         ApiClient.setAccessToken(null)
+        CatalogRepository.clearCache()
     }
 
     fun hasValidSession(): Boolean {

@@ -1,3 +1,57 @@
+## 2026-08-03 - Virtual Try-On Android cache synchronization desync fix
+
+### Done
+- Fixed cache synchronization in `CatalogRepository.kt` by checking cache freshness of both `products` and `subcategories` for the requested category. If either cache entry is stale or missing, the entire cache is invalidated and both lists are re-fetched in sync. This eliminates the rare desync bug where a subcategory list would load fresh from the network but match with stale/empty cached products, resulting in no items showing until an app restart.
+- Verified build with `./gradlew compileDebugKotlin` (`BUILD SUCCESSFUL in 23s`).
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-08-03 - CategorySelectionPage root back gesture exit fix
+
+### Done
+- Updated `CategorySelectionPage.kt` `BackHandler` so system back gestures or buttons on the main category selection page call `(context as? Activity)?.finish()` to cleanly minimize/exit the app, replacing a no-op handler that trapped users on the screen.
+- Verified build with `./gradlew assembleDebug` (`BUILD SUCCESSFUL in 29s`).
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-08-03 - Virtual Try-On Android 401 missing bearer session handling fix
+
+### Done
+- Fixed `CatalogRepository.kt` to explicitly catch HTTP 400/401/403 unauthorized responses during subcategories and product catalog fetching, clear `SessionManager` state, and set `isUnauthorized = true` in `CatalogResult.Failure`.
+- Updated `OutfitSelectionViewModel.kt` and `OutfitSelectionUiState` to capture `isUnauthorized` status.
+- Updated `OutfitSelectionPage.kt` and `TryMoreOutfitsPage.kt` to show a "Session expired. Please sign in again." notification with a "Sign In" action button when an unauthenticated status is detected, replacing infinite dead "Retry" loops.
+- Wired `onUnauthorized` callbacks in `NavGraph.kt` to redirect expired or unauthenticated device sessions directly to `SignInPage`.
+- Verified compilation with `./gradlew assembleDebug` (`BUILD SUCCESSFUL in 15s`).
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-08-01 - Virtual Try-On Android instant merchant catalog loading fix
+
+### Done
+- Fixed Android catalog caching in `CatalogRepository.kt` so empty product/subcategory lists returned prior to merchant access setup are not cached as valid/fresh for 5 minutes.
+- Updated `SessionManager.kt` so `SessionManager.save(...)` and `SessionManager.clear()` automatically purge `CatalogRepository` cache upon login, logout, or session updates.
+- Updated `OutfitSelectionViewModel.kt` to force-reload catalog data whenever products list is empty, and clear cache on refresh/retry.
+- Added a "Refresh Catalog" button to the empty catalog state in `OutfitSelectionPage.kt`.
+- Verified compilation with `./gradlew compileDebugSources` (`BUILD SUCCESSFUL in 1m 2s`).
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
 ## 2026-08-06 — Duplicate pose images, catalog-video thumbnail bug, upload-your-own-image source
 
 **Done**
