@@ -199,6 +199,12 @@ export function usePricingData() {
   const [salesModal, setSalesModal] = useState<string | null>(null);
   const [country, setCountry] = useState('IN');
   const [showCountry, setShowCountry] = useState(false);
+  const [couponModalPlan, setCouponModalPlan] = useState<CreditPlan | null>(null);
+  const [couponCode, setCouponCode] = useState('');
+  const [couponApplying, setCouponApplying] = useState(false);
+  const [couponError, setCouponError] = useState('');
+  const [couponApplied, setCouponApplied] = useState(false);
+  const [couponBonusPercent, setCouponBonusPercent] = useState<number | null>(null);
   const [rates, setRates] = useState<Record<string, number>>(FALLBACK_RATES);
   const [ratesLoading, setRatesLoading] = useState(true);
   const countryRef = useRef<HTMLDivElement>(null);
@@ -240,6 +246,7 @@ export function usePricingData() {
     staleTime: 5 * 60 * 1000,
   });
   const visiblePlans = plans.filter((plan) => plan.slug !== 'free');
+  const hasPriorPurchase = paymentHistory?.payments?.some((p) => p.status === 'paid') ?? false;
 
   const { data: resolutionData } = useQuery<{ resolutions: ResolutionConfigs }>({
     queryKey: ['resolution-configs'],
@@ -379,6 +386,53 @@ export function usePricingData() {
     }
   }
 
+  // Gate before the actual purchase flow: first-time buyers who weren't
+  // auto-attributed to a campaign at signup get a chance to manually enter a
+  // coupon code before proceeding to Razorpay. Already-attributed users and
+  // repeat buyers (no bonus possible either way) skip straight to checkout.
+  function startBuy(plan: CreditPlan) {
+    if (buying) return;
+    if (firstPurchaseBonusPercent === null && !hasPriorPurchase) {
+      setCouponCode('');
+      setCouponError('');
+      setCouponApplied(false);
+      setCouponBonusPercent(null);
+      setCouponModalPlan(plan);
+      return;
+    }
+    void buy(plan);
+  }
+
+  function closeCouponModal() {
+    if (couponApplying) return;
+    setCouponModalPlan(null);
+  }
+
+  async function applyCoupon() {
+    if (!couponCode.trim() || couponApplying) return;
+    setCouponApplying(true);
+    setCouponError('');
+    try {
+      const res = await api.post<{ applied: boolean; bonusPercent: number | null }>(
+        '/v1/credits/apply-coupon',
+        { code: couponCode.trim() },
+      );
+      setCouponApplied(true);
+      setCouponBonusPercent(res.bonusPercent);
+      await qc.invalidateQueries({ queryKey: ['credits'] });
+    } catch (err) {
+      setCouponError((err as Error).message ?? 'Invalid or expired coupon code.');
+    } finally {
+      setCouponApplying(false);
+    }
+  }
+
+  function continueFromCouponModal() {
+    const plan = couponModalPlan;
+    setCouponModalPlan(null);
+    if (plan) void buy(plan);
+  }
+
   // Current Plan Banner derived values — computed once here instead of
   // once per layout component.
   const currentTier = me?.tier ?? 'free';
@@ -432,6 +486,17 @@ export function usePricingData() {
     displayTotal,
     displayTax,
     buy,
+    startBuy,
+    couponModalPlan,
+    couponCode,
+    setCouponCode,
+    couponApplying,
+    couponError,
+    couponApplied,
+    couponBonusPercent,
+    applyCoupon,
+    closeCouponModal,
+    continueFromCouponModal,
     banner: { planName, balance, planCredits, pct, activatedDate },
   };
 }

@@ -65,7 +65,11 @@ export async function fetchHistory(
   if (resultNodeId) {
     const node = entry.outputs[resultNodeId];
     const images = node?.images?.filter((img) => img.type === 'output') ?? [];
-    log?.info({ promptId, resultNodeId, outputCount: images.length }, 'ComfyUI history fetched');
+    // Logs filename+subfolder per image (not just a count) — this is the trace
+    // point for diagnosing cross-job image mixups: if two different promptIds
+    // ever log the identical {filename, subfolder} pair, that pair is the
+    // collision, on this worker, between those two jobs.
+    log?.info({ promptId, resultNodeId, images }, 'ComfyUI history fetched');
     return images;
   }
 
@@ -74,7 +78,7 @@ export async function fetchHistory(
     // Only collect SaveImage outputs (type=output); skip PreviewImage (type=temp)
     if (node.images) images.push(...node.images.filter((img) => img.type === 'output'));
   }
-  log?.info({ promptId, outputCount: images.length }, 'ComfyUI history fetched');
+  log?.info({ promptId, images }, 'ComfyUI history fetched');
   return images;
 }
 
