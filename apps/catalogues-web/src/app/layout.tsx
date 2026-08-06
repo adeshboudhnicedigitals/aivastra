@@ -31,7 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }}
         />
       </head>
-      <body className={poppins.variable}>
+      <body className={poppins.variable} suppressHydrationWarning>
         <Providers>{children}</Providers>
       </body>
     </html>

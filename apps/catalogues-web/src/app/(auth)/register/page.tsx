@@ -3,7 +3,7 @@ import { RegisterBody } from '@aivastra/types';
 import { zodResolver } from '@hookform/resolvers/zod';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import type { z } from 'zod';
 import { GiftIcon, LockIcon, MailIcon, UserIcon } from '@/components/icons';
@@ -15,6 +15,7 @@ import { GoogleBtn } from '@/components/ui/google-btn';
 type RegisterForm = z.infer<typeof RegisterBody>;
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
 const fieldWrap: React.CSSProperties = {
   position: 'relative',
@@ -95,6 +96,18 @@ function RegisterFormInner() {
   const searchParams = useSearchParams();
   const src = searchParams.get('src') ?? undefined;
   const [error, setError] = useState('');
+  const [freeCredits, setFreeCredits] = useState(100);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`${API_URL}/v1/config/free-plan`, { signal: controller.signal })
+      .then((res) => res.json())
+      .then((data: { credits?: number }) => {
+        if (typeof data.credits === 'number' && data.credits > 0) setFreeCredits(data.credits);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
 
   const {
     register,
@@ -176,7 +189,7 @@ function RegisterFormInner() {
             <div
               style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, color: C.mid }}
             >
-              <GiftIcon /> <span>Get 100 Free credits to start.</span>
+              <GiftIcon /> <span>Get {freeCredits} Free credits to start.</span>
             </div>
           </div>
 
