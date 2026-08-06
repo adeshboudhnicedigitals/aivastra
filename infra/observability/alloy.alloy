@@ -15,8 +15,14 @@ discovery.docker "aivastra" {
 }
 
 // Keep only this stack's containers and derive a clean `service` label from the
-// container name. Matches both prod (aivastra-prod-api) and local (aivastra-api),
-// stripping the optional `prod-` segment so `service` is just `api`, `dispatcher`, …
+// container name. Matches prod (aivastra-prod-api), staging (aivastra-staging-api)
+// and local (aivastra-api), stripping the optional environment segment so `service`
+// is just `api`, `dispatcher`, …
+//
+// ALLOY_CONTAINER_REGEX scopes the keep rule to a single stack. Prod and staging run
+// on the same host and share this Docker socket, so without it each environment's
+// Alloy would ingest the other's containers. The default preserves the local
+// docker-compose.yml stack, whose containers have no environment segment.
 discovery.relabel "aivastra" {
   targets = discovery.docker.aivastra.targets
 
@@ -28,14 +34,14 @@ discovery.relabel "aivastra" {
 
   rule {
     source_labels = ["__meta_docker_container_name"]
-    regex         = "/aivastra-(?:prod-)?(.*)"
+    regex         = "/aivastra-(?:prod-|staging-)?(.*)"
     target_label  = "service"
   }
 
   // Drop containers that are not part of this stack.
   rule {
     source_labels = ["__meta_docker_container_name"]
-    regex         = "/aivastra-.*"
+    regex         = coalesce(sys.env("ALLOY_CONTAINER_REGEX"), "/aivastra-.*")
     action        = "keep"
   }
 }
