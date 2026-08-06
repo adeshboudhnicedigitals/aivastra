@@ -4,6 +4,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,15 +37,21 @@ import androidx.compose.material3.Text
 import aivastra.nice.interactive.ui.components.AppHeaderLogo
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -53,6 +61,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.SubcomposeAsyncImage
@@ -81,6 +90,14 @@ fun OutfitDetailPage(
         mutableIntStateOf(if (idx >= 0) idx else 0)
     }
     val currentProduct = effectiveList.getOrNull(currentIndex) ?: product
+
+    // Pinch-to-zoom / pan / double-tap-to-reset on the outfit image, keyed to currentIndex so
+    // switching garments via the arrows always starts the next image back at 1x. Pan is clamped
+    // to the overflow the current zoom level actually produces, and the card's own clip() keeps
+    // zoomed content from ever painting outside the image card - zoom stays within view only.
+    var imageScale by remember(currentIndex) { mutableFloatStateOf(1f) }
+    var imageOffset by remember(currentIndex) { mutableStateOf(Offset.Zero) }
+    var imageContainerSize by remember { mutableStateOf(IntSize.Zero) }
 
     val isPreview = LocalInspectionMode.current
     val statusBarH: Dp = (if (isPreview) sdp(R.dimen._28sdp) else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()) + sdp(R.dimen._10sdp)
@@ -142,9 +159,35 @@ fun OutfitDetailPage(
                     SubcomposeAsyncImage(
                         model = currentProduct.imageUrl ?: currentProduct.thumbnailUrl,
                         contentDescription = currentProduct.label ?: "Selected outfit",
-                        contentScale = ContentScale.Fit,
+                        contentScale = ContentScale.FillBounds,
                         alignment = Alignment.Center,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .onGloballyPositioned { imageContainerSize = it.size }
+                            .pointerInput(currentIndex) {
+                                detectTapGestures(onDoubleTap = {
+                                    imageScale = 1f
+                                    imageOffset = Offset.Zero
+                                })
+                            }
+                            .pointerInput(currentIndex) {
+                                detectTransformGestures { _, pan, zoom, _ ->
+                                    val newScale = (imageScale * zoom).coerceIn(1f, 4f)
+                                    val maxPanX = (imageContainerSize.width * (newScale - 1f) / 2f).coerceAtLeast(0f)
+                                    val maxPanY = (imageContainerSize.height * (newScale - 1f) / 2f).coerceAtLeast(0f)
+                                    imageOffset = Offset(
+                                        x = (imageOffset.x + pan.x).coerceIn(-maxPanX, maxPanX),
+                                        y = (imageOffset.y + pan.y).coerceIn(-maxPanY, maxPanY)
+                                    )
+                                    imageScale = newScale
+                                }
+                            }
+                            .graphicsLayer {
+                                scaleX = imageScale
+                                scaleY = imageScale
+                                translationX = imageOffset.x
+                                translationY = imageOffset.y
+                            },
                         loading = {
                             Box(
                                 modifier = Modifier.fillMaxSize(),
@@ -159,7 +202,7 @@ fun OutfitDetailPage(
                         },
                         error = {
                             Image(
-                                painter = painterResource(R.drawable.women_img),
+                                painter = painterResource(R.drawable.placeholder),
                                 contentDescription = null,
                                 contentScale = ContentScale.Fit,
                                 modifier = Modifier.fillMaxSize()
