@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import aivastra.nice.interactive.data.repository.TryOnRepository
 import aivastra.nice.interactive.data.repository.TryOnResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -61,6 +62,8 @@ class TryOnViewModel @JvmOverloads constructor(
                         }
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(
@@ -75,9 +78,9 @@ class TryOnViewModel @JvmOverloads constructor(
     private fun pollJobStatus(jobId: String) {
         pollingJob = viewModelScope.launch {
             try {
-                val maxSeconds = 600 // 10 minutes max timeout
+                val maxSeconds = 900 // 15 minutes max timeout
                 val pollIntervalMs = 2000L
-                val maxAttempts = maxSeconds / (pollIntervalMs / 1000).toInt() // 300 attempts
+                val maxAttempts = maxSeconds / (pollIntervalMs / 1000).toInt() // 450 attempts
 
                 var consecutiveFailures = 0
 
@@ -159,6 +162,8 @@ class TryOnViewModel @JvmOverloads constructor(
                         errorMessage = "Try-on generation timed out. Please try again."
                     )
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(
@@ -180,6 +185,8 @@ class TryOnViewModel @JvmOverloads constructor(
             viewModelScope.launch {
                 try {
                     repository.deleteJob(currentJobId)
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (_: Exception) {
                     // Handled gracefully if job already finished or non-cancellable
                 }

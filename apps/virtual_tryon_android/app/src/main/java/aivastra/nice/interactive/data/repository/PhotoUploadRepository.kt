@@ -5,6 +5,7 @@ import android.net.Uri
 import aivastra.nice.interactive.api.ApiClient
 import aivastra.nice.interactive.api.ApiService
 import aivastra.nice.interactive.data.models.PresignRequest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -93,6 +94,8 @@ class PhotoUploadRepository(
         withContext(Dispatchers.IO) {
             try {
                 PhotoUploadResult.Success(block())
+            } catch (exception: CancellationException) {
+                throw exception
             } catch (exception: Exception) {
                 PhotoUploadResult.Failure(exception.toFriendlyMessage())
             }

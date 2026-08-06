@@ -4,10 +4,13 @@ import aivastra.nice.interactive.api.ApiClient
 import aivastra.nice.interactive.api.ApiService
 import aivastra.nice.interactive.data.models.CatalogProduct
 import aivastra.nice.interactive.data.models.GarmentSubcategory
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+
+import aivastra.nice.interactive.data.session.SessionManager
 
 data class CatalogData(
     val subcategories: List<GarmentSubcategory>,
@@ -16,8 +19,11 @@ data class CatalogData(
 
 sealed interface CatalogResult {
     data class Success(val data: CatalogData) : CatalogResult
-    data class Failure(val message: String) : CatalogResult
+    data class Failure(val message: String, val isUnauthorized: Boolean = false) : CatalogResult
 }
+
+// Custom exception for clean exception propagation within supervisorScope
+private class CatalogUnauthorizedException(message: String = "Session expired. Please sign in again.") : Exception(message)
 
 // Process-wide cache: merchant-wide catalog caching
 private object CatalogCache {
@@ -51,7 +57,15 @@ class CatalogRepository(
     }
 
     suspend fun getCatalog(category: String, forceReload: Boolean = false): CatalogResult {
-        if (forceReload) CatalogCache.invalidate()
+        val subcategoriesFresh = CatalogCache.subcategoriesByCategory[category] != null &&
+                CatalogCache.isFresh(CatalogCache.subcategoriesFetchedAtByCategory[category] ?: 0L)
+        val productsFresh = CatalogCache.products != null &&
+                CatalogCache.isFresh(CatalogCache.productsFetchedAt)
+
+        val shouldForce = forceReload || !subcategoriesFresh || !productsFresh
+        if (shouldForce) {
+            CatalogCache.invalidate()
+        }
 
         return try {
             supervisorScope {
@@ -78,6 +92,15 @@ class CatalogRepository(
 
                 CatalogResult.Success(CatalogData(subcategories, filteredProducts))
             }
+        } catch (unauthorized: CatalogUnauthorizedException) {
+            CatalogCache.invalidate()
+            SessionManager.clear()
+            CatalogResult.Failure(
+                unauthorized.message ?: "Session expired. Please sign in again.",
+                isUnauthorized = true
+            )
+        } catch (e: CancellationException) {
+            throw e
         } catch (exception: Exception) {
             CatalogResult.Failure(
                 exception.message ?: "Network error. Check your connection and retry."
@@ -96,6 +119,9 @@ class CatalogRepository(
                 } else {
                     val response = service.getCatalog(includeDemo = true)
                     if (!response.isSuccessful) {
+                        if (response.code() in listOf(400, 401, 403)) {
+                            throw CatalogUnauthorizedException()
+                        }
                         null
                     } else {
                         val items = response.body()?.items.orEmpty()
@@ -112,6 +138,7 @@ class CatalogRepository(
                 }
             }
         } catch (e: Exception) {
+            if (e is CatalogUnauthorizedException || e is CancellationException) throw e
             null
         }
     }
@@ -130,6 +157,9 @@ class CatalogRepository(
                 } else {
                     val response = service.getSubcategories(category, includeDemo = true)
                     if (!response.isSuccessful) {
+                        if (response.code() in listOf(400, 401, 403)) {
+                            throw CatalogUnauthorizedException()
+                        }
                         null
                     } else {
                         val items = response.body()?.items.orEmpty()
@@ -147,6 +177,7 @@ class CatalogRepository(
                 }
             }
         } catch (e: Exception) {
+            if (e is CatalogUnauthorizedException || e is CancellationException) throw e
             null
         }
     }

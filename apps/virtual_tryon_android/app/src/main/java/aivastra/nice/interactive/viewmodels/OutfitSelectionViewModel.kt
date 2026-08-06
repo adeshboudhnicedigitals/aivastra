@@ -21,7 +21,8 @@ data class OutfitSelectionUiState(
     val subcategories: List<GarmentSubcategory> = emptyList(),
     val products: List<CatalogProduct> = emptyList(),
     val selectedSubcategoryId: String? = null,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val isUnauthorized: Boolean = false
 ) {
     val visibleProducts: List<CatalogProduct>
         get() = selectedSubcategoryId?.let { id ->
@@ -59,13 +60,15 @@ class OutfitSelectionViewModel(
                     isLoading = false,
                     isRefreshing = true,
                     category = normalizedCategory,
-                    errorMessage = null
+                    errorMessage = null,
+                    isUnauthorized = false
                 )
             } else {
                 OutfitSelectionUiState(
                     isLoading = true,
                     category = normalizedCategory,
-                    errorMessage = null
+                    errorMessage = null,
+                    isUnauthorized = false
                 )
             }
         }
@@ -81,7 +84,8 @@ class OutfitSelectionViewModel(
                         state.copy(
                             isLoading = false,
                             isRefreshing = false,
-                            errorMessage = "Loading timed out. Check connection and tap Retry."
+                            errorMessage = "Loading timed out. Check connection and tap Retry.",
+                            isUnauthorized = false
                         )
                     }
                 } else {
@@ -99,7 +103,8 @@ class OutfitSelectionViewModel(
                                 subcategories = result.data.subcategories,
                                 products = result.data.products,
                                 selectedSubcategoryId = selectedSubcategoryId,
-                                errorMessage = null
+                                errorMessage = null,
+                                isUnauthorized = false
                             )
                         }
 
@@ -107,7 +112,8 @@ class OutfitSelectionViewModel(
                             state.copy(
                                 isLoading = false,
                                 isRefreshing = false,
-                                errorMessage = result.message
+                                errorMessage = result.message,
+                                isUnauthorized = result.isUnauthorized
                             )
                         }
                     }
@@ -117,7 +123,8 @@ class OutfitSelectionViewModel(
                     state.copy(
                         isLoading = false,
                         isRefreshing = false,
-                        errorMessage = e.message ?: "Failed to load catalog. Tap Retry."
+                        errorMessage = e.message ?: "Failed to load catalog. Tap Retry.",
+                        isUnauthorized = false
                     )
                 }
             }

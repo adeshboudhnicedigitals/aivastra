@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import aivastra.nice.interactive.data.repository.PhotoUploadRepository
 import aivastra.nice.interactive.data.repository.PhotoUploadResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -56,6 +57,8 @@ class PhotoUploadViewModel @JvmOverloads constructor(
                         it.copy(isQrLoading = false, errorMessage = result.message)
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(isQrLoading = false, errorMessage = e.message ?: "Failed to create upload session")
@@ -100,6 +103,8 @@ class PhotoUploadViewModel @JvmOverloads constructor(
                 val bytes = try {
                     getApplication<Application>().contentResolver.openInputStream(uri)?.use { it.readBytes() }
                         ?: error("Unable to read captured photo")
+                } catch (exception: CancellationException) {
+                    throw exception
                 } catch (exception: Exception) {
                     _uiState.update { it.copy(isUploading = false, errorMessage = exception.message) }
                     return@launch
@@ -112,6 +117,8 @@ class PhotoUploadViewModel @JvmOverloads constructor(
                         it.copy(isUploading = false, errorMessage = result.message)
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _uiState.update { it.copy(isUploading = false, errorMessage = e.message ?: "Photo upload failed") }
             }
@@ -174,6 +181,8 @@ class PhotoUploadViewModel @JvmOverloads constructor(
                             }
                         }
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     consecutiveFailures++
                     if (consecutiveFailures >= 5) {

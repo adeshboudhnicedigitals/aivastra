@@ -81,6 +81,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 
+import android.app.Activity
+import androidx.compose.ui.platform.LocalContext
+import androidx.activity.compose.BackHandler
+
 // ─── Data model ──────────────────────────────────────────────────────────────
 
 data class Category(
@@ -110,6 +114,12 @@ fun CategorySelectionPage(
     onLogoutSuccess: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    // Finish activity on system back gesture/button on root home screen to exit app cleanly
+    BackHandler(enabled = true) {
+        (context as? Activity)?.finish()
+    }
+
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { delay(80); visible = true }
 
@@ -223,7 +233,7 @@ fun CategorySelectionPage(
                             }
                         }
 
-                        Spacer(Modifier.height(sdp(R.dimen._10sdp)))
+                        Spacer(Modifier.height(sdp(R.dimen._12sdp)))
 
                         // ── Title ───────────────────────────────────────────
                         Box(modifier = Modifier.fillMaxWidth()) {
@@ -255,7 +265,7 @@ fun CategorySelectionPage(
                         }
                     }
 
-                    Spacer(Modifier.height(sdp(R.dimen._10sdp)))
+                    Spacer(Modifier.height(sdp(R.dimen._8sdp)))
 
                     // ── Middle Section: Category cards dynamically sized ─────
                     CategoryList(
@@ -264,7 +274,7 @@ fun CategorySelectionPage(
                         onCategorySelected = onCategorySelected
                     )
 
-                    Spacer(Modifier.height(sdp(R.dimen._10sdp)))
+                    Spacer(Modifier.height(sdp(R.dimen._14sdp)))
 
                     // ── Bottom Section: Privacy notice ──────────────────────
                     Row(
@@ -321,9 +331,8 @@ fun CategorySelectionPage(
                             val refreshToken = SessionManager.refreshToken ?: ""
                             if (refreshToken.isNotEmpty()) {
                                 UserRepository().logoutDevice(refreshToken)
-                            } else {
-                                SessionManager.clear()
                             }
+                            SessionManager.clear()
                             isLoggingOut = false
                             showLogoutDialog = false
                             onLogoutSuccess()
