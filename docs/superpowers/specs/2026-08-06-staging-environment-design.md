@@ -18,11 +18,11 @@ implementation:
 |---|---|
 | Data model | Snapshot copy. Staging runs its own Postgres, Redis and MinIO. |
 | Asset seeding | Mirror everything except the five user-content prefixes (see §5). |
-| GPU workers | Dedicated staging ComfyUI worker. Staging never dispatches to a prod GPU. |
+| GPU workers | None initially. The restore empties the `workers` table, so staging jobs enqueue and stay `QUEUED`. A dedicated staging ComfyUI box gets added later. Staging never dispatches to a prod GPU. |
 | Data scrubbing | None. The snapshot is a raw copy of production rows. |
 | Branch flow | `feature → dev → main`. Merge to `dev` deploys staging; `dev → main` PR deploys prod. |
 | Service scope | All 11 services, Alloy included, shipping to a separate Grafana Cloud account. |
-| Reachability | `staging-*.aivastra.com` subdomains via new CloudPanel vhosts. |
+| Reachability | Two subdomains — `staging-app` and `staging-admin`.aivastra.com. The chatbot gets no subdomain; it is served at the `/chatbot/` path under both. |
 | Pipeline shape | One workflow (`ci.yml`), deploy target parameterized by `github.ref`. |
 
 ## Host facts (surveyed 2026-08-06)
@@ -160,22 +160,43 @@ Values that must differ from production:
   dev app
 - `RESEND_API_KEY`, `EMAIL_FROM` — non-production sender
 - `GRAFANA_CLOUD_*` — the new free-tier Grafana Cloud account
-- `WORKER_*` — the dedicated staging ComfyUI worker's tunnel URL and key
 - `AIVASTRA_ENV=staging` — new marker, read only by the deploy guardrail (see §6). No
   application code reads it, so no code change is needed to introduce it.
+- `COMPOSE_PROJECT_NAME=aivastra-staging` — see §2. Non-negotiable.
 - `VIDEO_CONCURRENCY=0` — see Open Questions
 
-CloudPanel vhosts to create:
+CloudPanel vhosts to create — two, not three:
 
-| host | path | upstream |
-|---|---|---|
-| `staging-app.aivastra.com` | `/` | 3100 |
-| | `/v1/` | 4100 |
-| | `/minio/` | 9100 |
-| `staging-admin.aivastra.com` | `/` | 3101 |
-| | `/admin/`, `/v1/` | 4100 |
-| | `/shopify-admin` | 3103 |
-| `staging-chatbot.aivastra.com` | `/` | 4300 (WebSocket upgrade) |
+| host | path | upstream | notes |
+|---|---|---|---|
+| `staging-app.aivastra.com` | `/` | 3100 | |
+| | `/v1/` | 4100 | |
+| | `/minio/` | 9100 | |
+| | `/chatbot/` | 4300 | prefix stripped; WebSocket upgrade |
+| `staging-admin.aivastra.com` | `/` | 3101 | |
+| | `/admin/`, `/v1/` | 4100 | |
+| | `/shopify-admin` | 3103 | |
+| | `/chatbot/` | 4300 | prefix stripped; WebSocket upgrade |
+
+The chatbot has no subdomain of its own. Every consumer builds its requests as
+`${CHATBOT_URL}/ws-ticket`, `${CHATBOT_URL}/ws`, `${CHATBOT_URL}/conversations/…` and
+derives the socket URL with `.replace(/^http/, 'ws')` — see
+`apps/catalogues-web/src/components/chat-widget.tsx` and
+`apps/admin-web/src/lib/chatws.ts` — so a base URL carrying a path prefix concatenates
+correctly and `https://host/chatbot` becomes `wss://host/chatbot`. NGINX strips the
+prefix (`proxy_pass http://127.0.0.1:4300/;` with the trailing slash), so the chatbot
+service itself is unaware it is mounted on a path.
+
+Mounting `/chatbot/` under *both* vhosts lets the web app and the admin SPA each reach it
+same-origin. Production's `admin.` → `chatbot.` split is cross-origin and needs CORS and
+cross-origin WebSocket handling; staging sidesteps that. This is a deliberate divergence
+from production topology, and the one place staging is not a faithful mirror.
+
+Server-to-server calls are a separate case. `CHATBOT_URL` is read only by the API
+(`apps/api/src/modules/admin/chatbot.routes.ts`, for `/ingest` and `/health`), so staging
+sets it to the in-network `http://chatbot:4200` rather than routing container→NGINX→
+container. `NEXT_PUBLIC_CHATBOT_URL` and `VITE_CHATBOT_URL` are the browser-facing values
+and carry the public path URLs.
 
 The staging clone is a separate checkout tracking `dev`, at
 `/home/aivastra-app/htdocs/staging-app.aivastra.com` — a sibling of the production clone
@@ -236,8 +257,13 @@ Steps:
    `shopify-garments/` and `shopify-catalog-garments/` are **not** excluded despite the
    naming — they hold merchant product images referenced by `catalog_items` rows, and
    dropping them leaves staging merchant catalogs rendering broken thumbnails.
-4. Apply `scripts/staging/post-restore.sql`: `DELETE FROM workers`, then insert the single
-   staging ComfyUI worker row.
+4. Apply `scripts/staging/post-restore.sql`: `DELETE FROM workers`. The snapshot inherits
+   production's worker rows, which point at the live GPUs behind Cloudflare tunnels;
+   emptying the table is what stops the staging dispatcher from selecting one. Nothing is
+   inserted — staging has no GPU yet, so jobs enqueue, the dispatcher finds no healthy
+   worker, and they remain `QUEUED`. When a dedicated staging ComfyUI box exists, it gets
+   added through the admin panel like any other worker, and this file gains an INSERT so
+   the row survives the next sync.
 5. Re-run migrations against staging (`docker compose ... run --rm api pnpm db:migrate:prod`,
    which resolves `/app/.env` from the mounted `.env.staging`). The restore reset the
    schema to production's, so any migration that exists on `dev` but not on `main` has to
@@ -295,9 +321,12 @@ Manual, outside the repo:
 - `STAGING_DEPLOY_PATH` GitHub secret
 - staging clone on the VPS, tracking `dev`
 - `.env.staging` on the VPS
-- three CloudPanel vhosts + DNS records + certs
-- dedicated staging ComfyUI VPS with its own cloudflared tunnel
+- two CloudPanel vhosts + DNS records + certs, each with a `/chatbot/` location
 - new Grafana Cloud account
+
+Deferred, not required for staging to be useful:
+
+- dedicated staging ComfyUI VPS with its own cloudflared tunnel
 
 ## 8. Verification
 
@@ -310,8 +339,10 @@ Staging is working when, in order:
 3. The admin panel at `staging-admin.aivastra.com` lists faces, backgrounds, poses and
    catalog items with images rendering — proving the MinIO mirror covered the admin
    asset prefixes.
-4. A try-on job submitted in staging dispatches to the staging GPU worker and completes,
-   with no entry appearing in the production `jobs` table.
+4. A try-on job submitted in staging deducts credits, writes a `jobs` row and reaches
+   `QUEUED`, with no entry appearing in the production `jobs` table and no request hitting
+   a production GPU. It stays `QUEUED` — that is the expected end state until a staging
+   worker is registered.
 5. Prod Grafana shows no `aivastra-staging-*` containers; the staging Grafana account
    shows no `aivastra-prod-*` containers.
 6. A deliberately malformed `.env.staging` (prod Shopify key) is rejected by the deploy
