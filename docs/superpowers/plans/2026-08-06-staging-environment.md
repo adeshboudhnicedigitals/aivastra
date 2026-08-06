@@ -16,12 +16,34 @@
 - The `!cancelled()` guard and its comment block in the `deploy` job of `ci.yml` must survive verbatim. It exists because GitHub propagates `skipped` transitively through `needs`, which silently killed deploys on admin/web-only merges.
 - Host port bindings stay on `127.0.0.1` in every environment.
 - Staging host ports are production + 100: web 3100, admin 3101, shopify-admin 3103, api 4100, chatbot 4300, minio 9100, minio console 9101.
-- Staging container names are `aivastra-staging-<service>`. Compose project name is `aivastra-staging`. Network is `aivastra-staging-net`.
-- The MinIO mirror excludes exactly two prefixes: `inputs/*` and `outputs/*`. Every other prefix is copied.
+- Staging container names are `aivastra-staging-<service>`. Network is `aivastra-staging-net`.
+- The project name must be set in **two** places: `name: aivastra-staging` in the compose file *and* `COMPOSE_PROJECT_NAME=aivastra-staging` in `.env.staging`. Compose resolves the project name from `COMPOSE_PROJECT_NAME` above the `name:` key, and production's `.env.production` already sets that variable. A `.env.staging` copied from prod without changing it makes every staging compose command operate on the **production** project.
+- The MinIO mirror excludes exactly five prefixes: `inputs/*`, `outputs/*`, `merchant-inputs/*`, `widget-outputs/*`, `shopify-inputs/*`. Every other prefix is copied — in particular `shopify-garments/*` and `shopify-catalog-garments/*` are merchant product images referenced by `catalog_items` rows and must NOT be excluded.
 - No scrub of the Postgres snapshot. Isolation comes from `.env.staging` credentials plus a distinct `SHOPIFY_TOKEN_ENC_KEY`.
 - `.env.staging` is never committed. Only `.env.staging.example` is.
-- Never run `pnpm db:generate` or ad-hoc SQL against `tryon_prod`. The sync script reads production only via `pg_dump`.
+- Never run `pnpm db:generate` or ad-hoc SQL against production. The sync script reads production only via `pg_dump`.
 - No `console.log` in committed code; shell scripts use `set -euo pipefail`.
+
+## Host facts (surveyed 2026-08-06)
+
+Use these exact values; they were measured on the box, not assumed.
+
+| Fact | Value |
+|---|---|
+| Prod clone | `/home/aivastra-app/htdocs/app.aivastra.com` (`.env.production` at its root) |
+| Staging clone | `/home/aivastra-app/htdocs/staging-app.aivastra.com`, tracking `dev` |
+| Prod env file, relative to staging clone | `../app.aivastra.com/.env.production` |
+| Prod bucket | `virtual-tryon-prod` |
+| Prod MinIO volume | 61 G; excluded prefixes total 45.4 G; staging mirror ≈ 15.6 G |
+| Prod Postgres | 205 MB |
+| Disk | 387 G total, 79 G free (80% used), single `/dev/sda1`, shared with Docker |
+| RAM / swap | 31 GiB total, 22 GiB available; swap 2 GiB **fully used** |
+| Reclaimable build cache | 176.8 G |
+| Other Compose projects on the host | `aivastra-prod`, `propicly-prod`, `plane-app`, and a stray local `aivastra` (redis + minio) |
+| Staging ports | 3100, 3101, 3103, 4100, 4300, 9100, 9101 — all confirmed free |
+| Reverse proxy | nginx 1.30.3 under CloudPanel 6.0.8; vhosts in `/etc/nginx/sites-enabled/`; certs via CloudPanel, **not** raw certbot |
+
+The stray local `aivastra` project's containers (`aivastra-redis`, `aivastra-minio`) match the current Alloy filter `/aivastra-.*`, so production's Loki has been ingesting them. Task 1 stops that.
 
 ---
 
@@ -425,28 +447,51 @@ networks:
 
 - [ ] **Step 3: Create the env template**
 
-Create `.env.staging.example`. Copy `.env.production.example` and apply the overrides below. Keep every other variable and comment from the production example intact — a missing variable surfaces as a container crash on first boot, not as a config error.
+Create `.env.staging.example` with exactly the content below. The variable set is the one production actually defines on the VPS (79 names, surveyed 2026-08-06), not the set in `.env.production.example` — the committed example has drifted from the live file. A variable production defines but staging omits surfaces as a container crash on first boot, not a config error.
 
 ```bash
-# ─── Staging marker ───────────────────────────────────────────────────────────
-# Read only by scripts/staging/check-staging-env.sh. No application code reads it.
-# The staging deploy refuses to run without it.
+# Staging environment template. Copy to .env.staging on the VPS and fill every
+# change_me. This file is the ONLY isolation boundary between staging and real
+# customers: the staging database is an unscrubbed production snapshot, so the
+# credentials here decide whether staging can email, charge or call anyone real.
+#
+# Verify with: scripts/staging/check-staging-env.sh .env.staging ../app.aivastra.com/.env.production
+
+# ─── Environment identity ─────────────────────────────────────────────────────
+# AIVASTRA_ENV is read only by check-staging-env.sh; no application code reads it.
 AIVASTRA_ENV=staging
+NODE_ENV=production
+LOG_LEVEL=info
+# CRITICAL: Compose resolves the project name from this variable ABOVE the `name:`
+# key in docker-compose.staging.yml. Production's .env.production also sets it.
+# If this says aivastra-prod, every staging compose command operates on the
+# PRODUCTION stack. check-staging-env.sh refuses to deploy unless it is exactly
+# aivastra-staging.
+COMPOSE_PROJECT_NAME=aivastra-staging
+
+# ─── Ports (container-internal; host mapping lives in the compose file) ───────
+API_PORT=4000
+WEB_PORT=3000
+CHATBOT_PORT=4200
+DISPATCHER_HEALTH_PORT=4100
 
 # ─── Postgres / Redis (staging containers, own credentials) ───────────────────
 POSTGRES_USER=aivastra_staging
-POSTGRES_PASSWORD=change_me_staging
+POSTGRES_PASSWORD=change_me_staging_pg
 POSTGRES_DB=tryon_staging
-DATABASE_URL=postgres://aivastra_staging:change_me_staging@postgres:5432/tryon_staging
+DATABASE_URL=postgres://aivastra_staging:change_me_staging_pg@postgres:5432/tryon_staging
 REDIS_URL=redis://redis:6379
+XPENDING_CLAIM_THRESHOLD_MS=300000
 
-# ─── Secrets — MUST differ from production ────────────────────────────────────
+# ─── Auth secrets — MUST differ from production ───────────────────────────────
 JWT_SECRET=change_me_staging_jwt
 COOKIE_SECRET=change_me_staging_cookie
-# Deliberately different from prod. The staging DB is a raw prod copy, so a
-# distinct key makes the copied shopify_stores access tokens undecryptable here.
-# That is the point: staging structurally cannot call a live merchant storefront.
-SHOPIFY_TOKEN_ENC_KEY=change_me_staging_shopify_enc
+JWT_EXPIRY=15m
+REFRESH_TOKEN_EXPIRY=30d
+TRUST_PROXY_HOPS=1
+NODE_TLS_REJECT_UNAUTHORIZED=1
+ADMIN_BOOTSTRAP_EMAIL=admin@staging.aivastra.com
+ADMIN_BOOTSTRAP_PASSWORD=change_me_staging_admin
 
 # ─── Object storage (staging MinIO) ───────────────────────────────────────────
 MINIO_ROOT_USER=aivastra_staging
@@ -454,8 +499,8 @@ MINIO_ROOT_PASSWORD=change_me_staging_minio
 R2_ENDPOINT=http://minio:9000
 R2_ACCESS_KEY_ID=aivastra_staging
 R2_SECRET_ACCESS_KEY=change_me_staging_minio
-R2_BUCKET=aivastra-staging
-R2_PUBLIC_URL=https://staging-app.aivastra.com/minio/aivastra-staging
+R2_BUCKET=virtual-tryon-staging
+R2_PUBLIC_URL=https://staging-app.aivastra.com/minio/virtual-tryon-staging
 R2_FORCE_PATH_STYLE=true
 R2_PUBLIC_PRESIGN_BASE=https://staging-app.aivastra.com/minio
 R2_SIGN_ENDPOINT=
@@ -470,38 +515,75 @@ NEXT_PUBLIC_CHATBOT_URL=https://staging-chatbot.aivastra.com
 VITE_CHATBOT_URL=https://staging-chatbot.aivastra.com
 VITE_AIVASTRA_APP_URL=https://staging-app.aivastra.com
 VITE_API_BASE_URL=https://staging-app.aivastra.com
-GOOGLE_CALLBACK_URL=https://staging-app.aivastra.com/v1/auth/google/callback
-SHOPIFY_APP_URL=https://staging-app.aivastra.com
 
-# ─── Third-party: non-production credentials only ─────────────────────────────
-# Razorpay MUST be test mode. check-staging-env.sh rejects any rzp_live_ key.
+# ─── Google OAuth (staging callback must be registered separately) ────────────
+GOOGLE_CLIENT_ID=change_me
+GOOGLE_CLIENT_SECRET=change_me
+GOOGLE_CALLBACK_URL=https://staging-app.aivastra.com/v1/auth/google/callback
+
+# ─── Payments — test mode only ────────────────────────────────────────────────
+# check-staging-env.sh rejects any rzp_live_ key outright.
 RAZORPAY_KEY_ID=rzp_test_change_me
 RAZORPAY_KEY_SECRET=change_me
-RAZORPAY_WEBHOOK_SECRET=change_me
-# A separate Shopify dev app, not the production app.
+
+# ─── Shopify — a SEPARATE dev app, never production's ─────────────────────────
 SHOPIFY_API_KEY=change_me_staging_shopify_app
 SHOPIFY_API_SECRET=change_me
 VITE_SHOPIFY_API_KEY=change_me_staging_shopify_app
-# Non-production sender.
+SHOPIFY_APP_URL=https://staging-app.aivastra.com
+SHOPIFY_ADMIN_URL=https://staging-admin.aivastra.com/shopify-admin
+SHOPIFY_SCOPES=read_products,write_products
+# Deliberately different from production. The staging DB is a raw prod copy, so a
+# distinct key makes the copied shopify_stores access tokens undecryptable here.
+# That is the point: staging structurally cannot reach a live merchant storefront.
+SHOPIFY_TOKEN_ENC_KEY=change_me_staging_shopify_enc
+
+# ─── Outbound mail — non-production sender ────────────────────────────────────
 RESEND_API_KEY=change_me
 EMAIL_FROM=staging@staging.aivastra.com
 
-# ─── Observability: separate Grafana Cloud account ────────────────────────────
+# ─── LLM providers (chatbot) ──────────────────────────────────────────────────
+OPENAI_API_KEY=change_me
+ANTHROPIC_API_KEY=change_me
+GOOGLE_API_KEY=change_me
+CHATBOT_SERVICE_TOKEN=change_me_staging_chatbot
+CHATBOT_EMBED_MODEL=text-embedding-3-small
+CHATBOT_TOP_K=5
+CHATBOT_SIMILARITY_THRESHOLD=0.7
+CHATBOT_FALLBACK_LIMIT=3
+CHATBOT_IDLE_TIMEOUT_MIN=30
+CHATBOT_MAX_TOOL_ITERATIONS=6
+CHATBOT_GEN_PROVIDER=anthropic
+CHATBOT_GEN_MODEL=claude-sonnet-5
+CHATBOT_GEN_API_KEY=change_me
+CHATBOT_GEN_BASE_URL=
+CHATBOT_TOOL_PROVIDER=anthropic
+CHATBOT_TOOL_MODEL=claude-sonnet-5
+CHATBOT_TOOL_API_KEY=change_me
+CHATBOT_TOOL_BASE_URL=
+
+# ─── Observability: the SEPARATE staging Grafana Cloud account ────────────────
 GRAFANA_CLOUD_LOKI_URL=change_me
 GRAFANA_CLOUD_LOKI_USER=change_me
 GRAFANA_CLOUD_PROM_URL=change_me
 GRAFANA_CLOUD_PROM_USER=change_me
 GRAFANA_CLOUD_API_KEY=change_me
 
-# ─── GPU worker: dedicated staging ComfyUI box ────────────────────────────────
-WORKER_IDS=staging-a
-WORKER_A_URL=https://staging-worker.example.com
-WORKER_API_KEY=change_me_staging_worker
+# ─── Staging GPU worker ───────────────────────────────────────────────────────
+# NOT read by any application code — workers live in the `workers` table, loaded
+# into the Redis registry at dispatcher boot. These two are consumed only by
+# scripts/staging/post-restore.sql, which rewrites that table after a sync so the
+# staging dispatcher targets the dedicated staging ComfyUI box instead of the
+# production GPUs the snapshot inherited.
+STAGING_WORKER_URL=https://staging-worker.example.com
+STAGING_WORKER_API_KEY=change_me_staging_worker
 
 # ─── PixVerse: deferred decision, fails closed ────────────────────────────────
-# Staging currently shares the production PixVerse key, so a video job would bill
-# the real account. VIDEO_CONCURRENCY=0 keeps the jobs:video lane from dispatching.
-# Raise it only once staging has its own key or the spend is accepted.
+# Staging currently shares the production PixVerse key, so a catalog-video job
+# would bill the real account. VIDEO_CONCURRENCY=0 keeps the jobs:video lane from
+# dispatching at all. Raise it only once staging has its own key, or the spend is
+# accepted. Production does not set this variable; the dispatcher's default is 5.
+PIXVERSE_API_KEY=change_me
 VIDEO_CONCURRENCY=0
 ```
 
@@ -514,7 +596,59 @@ docker compose -f infra/docker-compose.staging.yml --env-file .env.staging.examp
   && echo "PARSE OK"
 ```
 
-Expected: `PARSE OK` and no warnings about unset variables. Any `variable is not set` warning names a variable Task 2 Step 3 failed to carry over from `.env.production.example` — add it and re-run.
+Expected: `PARSE OK` and no warnings about unset variables. Any `variable is not set` warning names a variable Step 3 omitted — add it and re-run.
+
+- [ ] **Step 4b: Verify variable-name parity with production**
+
+The compose parse only catches variables the compose file interpolates. Variables read at runtime by application code (chatbot models, OAuth, Razorpay) fail later, as a crash on first boot. Check the full set against production's actual variable names:
+
+```bash
+python3 - <<'PY'
+import re
+prod = """ADMIN_BOOTSTRAP_EMAIL ADMIN_BOOTSTRAP_PASSWORD ANTHROPIC_API_KEY API_PORT
+CHATBOT_EMBED_MODEL CHATBOT_FALLBACK_LIMIT CHATBOT_GEN_API_KEY CHATBOT_GEN_BASE_URL
+CHATBOT_GEN_MODEL CHATBOT_GEN_PROVIDER CHATBOT_IDLE_TIMEOUT_MIN CHATBOT_MAX_TOOL_ITERATIONS
+CHATBOT_PORT CHATBOT_SERVICE_TOKEN CHATBOT_SIMILARITY_THRESHOLD CHATBOT_TOOL_API_KEY
+CHATBOT_TOOL_BASE_URL CHATBOT_TOOL_MODEL CHATBOT_TOOL_PROVIDER CHATBOT_TOP_K CHATBOT_URL
+COMPOSE_PROJECT_NAME COOKIE_SECRET CORS_ORIGIN DATABASE_URL DISPATCHER_HEALTH_PORT
+EMAIL_FROM GOOGLE_API_KEY GOOGLE_CALLBACK_URL GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET
+GRAFANA_CLOUD_API_KEY GRAFANA_CLOUD_LOKI_URL GRAFANA_CLOUD_LOKI_USER GRAFANA_CLOUD_PROM_URL
+GRAFANA_CLOUD_PROM_USER JWT_EXPIRY JWT_SECRET LOG_LEVEL MINIO_ROOT_PASSWORD MINIO_ROOT_USER
+NEXT_PUBLIC_API_URL NEXT_PUBLIC_BASE_PATH NEXT_PUBLIC_CHATBOT_URL NODE_ENV
+NODE_TLS_REJECT_UNAUTHORIZED OPENAI_API_KEY PIXVERSE_API_KEY POSTGRES_DB POSTGRES_PASSWORD
+POSTGRES_USER R2_ACCESS_KEY_ID R2_BUCKET R2_ENDPOINT R2_FORCE_PATH_STYLE
+R2_PUBLIC_PRESIGN_BASE R2_PUBLIC_URL R2_SECRET_ACCESS_KEY R2_SIGN_ENDPOINT RAZORPAY_KEY_ID
+RAZORPAY_KEY_SECRET REDIS_URL REFRESH_TOKEN_EXPIRY RESEND_API_KEY SHOPIFY_ADMIN_URL
+SHOPIFY_API_KEY SHOPIFY_API_SECRET SHOPIFY_APP_URL SHOPIFY_SCOPES SHOPIFY_TOKEN_ENC_KEY
+TRUST_PROXY_HOPS VITE_AIVASTRA_APP_URL VITE_API_BASE_URL VITE_CHATBOT_URL
+VITE_SHOPIFY_API_KEY WEB_PORT WEB_URL XPENDING_CLAIM_THRESHOLD_MS""".split()
+
+staging = set(re.findall(r'^([A-Z0-9_]+)=', open('.env.staging.example').read(), re.M))
+missing = sorted(set(prod) - staging)
+extra   = sorted(staging - set(prod))
+print("in prod but missing from staging:", missing or "none")
+print("staging-only (expected: AIVASTRA_ENV, STAGING_WORKER_*, VIDEO_CONCURRENCY):", extra)
+assert not missing, f"staging template is missing {missing}"
+print("OK: variable-name parity with production")
+PY
+```
+
+Expected: `in prod but missing from staging: none`, and the staging-only list is exactly `['AIVASTRA_ENV', 'STAGING_WORKER_API_KEY', 'STAGING_WORKER_URL', 'VIDEO_CONCURRENCY']`.
+
+- [ ] **Step 4c: Verify the project name cannot be hijacked**
+
+This is the check that prevents a staging command from operating on the production stack:
+
+```bash
+docker compose -f infra/docker-compose.staging.yml --env-file .env.staging.example config \
+  | head -3
+
+# And prove the failure mode is real, so the guardrail's purpose is not theoretical:
+COMPOSE_PROJECT_NAME=aivastra-prod docker compose -f infra/docker-compose.staging.yml \
+  --env-file .env.staging.example config | head -3
+```
+
+Expected: the first prints `name: aivastra-staging`. The second prints `name: aivastra-prod` — demonstrating that the environment variable overrides the `name:` key, which is exactly why `COMPOSE_PROJECT_NAME=aivastra-staging` must be in the env file and why Task 3 checks it.
 
 - [ ] **Step 5: Verify staging collides with prod on nothing**
 
@@ -613,6 +747,7 @@ fail=0
 
 # A production env file to compare against.
 cat > "$TMP/prod.env" <<'EOF'
+COMPOSE_PROJECT_NAME=aivastra-prod
 SHOPIFY_API_KEY=prodshopifykey123
 EMAIL_FROM=no-reply@aivastra.com
 RAZORPAY_KEY_ID=rzp_live_abc123
@@ -622,6 +757,7 @@ EOF
 good_env() {
   cat > "$TMP/staging.env" <<'EOF'
 AIVASTRA_ENV=staging
+COMPOSE_PROJECT_NAME=aivastra-staging
 SHOPIFY_API_KEY=stagingshopifykey456
 EMAIL_FROM=staging@staging.aivastra.com
 RAZORPAY_KEY_ID=rzp_test_abc123
@@ -652,6 +788,16 @@ check "missing AIVASTRA_ENV marker is rejected" 1
 good_env
 sed -i 's/^AIVASTRA_ENV=.*/AIVASTRA_ENV=production/' "$TMP/staging.env"
 check "AIVASTRA_ENV=production is rejected" 1
+
+# The highest-consequence case: a COMPOSE_PROJECT_NAME left at production's value
+# makes every staging compose command act on the production stack.
+good_env
+sed -i 's/^COMPOSE_PROJECT_NAME=.*/COMPOSE_PROJECT_NAME=aivastra-prod/' "$TMP/staging.env"
+check "COMPOSE_PROJECT_NAME pointing at prod is rejected" 1
+
+good_env
+sed -i '/^COMPOSE_PROJECT_NAME=/d' "$TMP/staging.env"
+check "missing COMPOSE_PROJECT_NAME is rejected" 1
 
 good_env
 sed -i 's/^RAZORPAY_KEY_ID=.*/RAZORPAY_KEY_ID=rzp_live_abc123/' "$TMP/staging.env"
@@ -724,12 +870,19 @@ reject() { echo "guardrail: $1" >&2; failed=1; }
 [ "$(read_var AIVASTRA_ENV "$staging_file")" = "staging" ] \
   || reject "AIVASTRA_ENV must be exactly 'staging' in $staging_file"
 
-# 2. Razorpay must be test mode. A live key here charges real cards.
+# 2. Compose project name. This is the highest-consequence check in the file.
+#    Compose resolves the project name from COMPOSE_PROJECT_NAME above the `name:`
+#    key in the YAML, so a value left at production's turns every staging compose
+#    command — build, up, down, run — into an operation on the production stack.
+[ "$(read_var COMPOSE_PROJECT_NAME "$staging_file")" = "aivastra-staging" ] \
+  || reject "COMPOSE_PROJECT_NAME must be exactly 'aivastra-staging' in $staging_file; anything else points the staging deploy at another Compose project"
+
+# 3. Razorpay must be test mode. A live key here charges real cards.
 if grep -q 'rzp_live_' "$staging_file"; then
   reject "found a live Razorpay key (rzp_live_) in $staging_file; staging must use test keys"
 fi
 
-# 3. Shopify must be a separate dev app. Sharing prod's app means staging OAuth
+# 4. Shopify must be a separate dev app. Sharing prod's app means staging OAuth
 #    callbacks and webhooks target real merchant installs.
 staging_shopify="$(read_var SHOPIFY_API_KEY "$staging_file")"
 prod_shopify="$(read_var SHOPIFY_API_KEY "$prod_file")"
@@ -737,7 +890,7 @@ if [ -n "$prod_shopify" ] && [ "$staging_shopify" = "$prod_shopify" ]; then
   reject "SHOPIFY_API_KEY is identical to production's; staging needs its own Shopify dev app"
 fi
 
-# 4. Outbound mail must not use the production sender. The snapshot is full of
+# 5. Outbound mail must not use the production sender. The snapshot is full of
 #    real customer addresses.
 staging_from="$(read_var EMAIL_FROM "$staging_file")"
 prod_from="$(read_var EMAIL_FROM "$prod_file")"
@@ -773,11 +926,13 @@ Expected:
 ok   - clean staging env passes
 ok   - missing AIVASTRA_ENV marker is rejected
 ok   - AIVASTRA_ENV=production is rejected
+ok   - COMPOSE_PROJECT_NAME pointing at prod is rejected
+ok   - missing COMPOSE_PROJECT_NAME is rejected
 ok   - live Razorpay key is rejected
 ok   - Shopify key matching prod is rejected
 ok   - EMAIL_FROM matching prod is rejected
 
-passed: 6  failed: 0
+passed: 8  failed: 0
 ```
 
 - [ ] **Step 5: Verify the committed template passes its own guardrail**
@@ -789,6 +944,8 @@ bash scripts/staging/check-staging-env.sh .env.staging.example .env.production.e
 ```
 
 Expected: `guardrail: .env.staging.example passed all checks` — proving the template that operators copy is itself compliant. If it fails, fix `.env.staging.example`, not the guardrail.
+
+Note: `.env.production.example` does not define `COMPOSE_PROJECT_NAME`, `SHOPIFY_API_KEY` or `EMAIL_FROM` the way the live VPS file does, so this local run exercises the marker and Razorpay checks fully and the comparison checks vacuously. The comparison checks get their real exercise on the VPS, against the actual `.env.production`, and in the fixture tests above.
 
 - [ ] **Step 6: Verify syntax under strict mode**
 
@@ -835,8 +992,10 @@ Create `scripts/staging/post-restore.sql`:
 -- select one and occupy a GPU a paying customer is waiting on. Staging has its
 -- own dedicated worker, so the table is rewritten wholesale.
 --
--- The worker's URL and API key come from .env.staging and are substituted by
--- sync-from-prod.sh before this file is piped to psql.
+-- The worker's URL and API key come from STAGING_WORKER_URL / STAGING_WORKER_API_KEY
+-- in .env.staging and are passed as psql variables by sync-from-prod.sh. No
+-- application code reads those two variables; the dispatcher loads workers from
+-- this table into the Redis registry at boot.
 
 BEGIN;
 
@@ -879,8 +1038,12 @@ DRY_RUN=0
 
 STAGING_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 STAGING_ENV="$STAGING_ROOT/.env.staging"
-PROD_ROOT="${PROD_ROOT:?set PROD_ROOT to the production clone path, e.g. PROD_ROOT=/home/deploy/aivastra}"
+# Both clones are siblings under the same CloudPanel htdocs directory:
+#   /home/aivastra-app/htdocs/app.aivastra.com          (prod, branch master)
+#   /home/aivastra-app/htdocs/staging-app.aivastra.com  (staging, branch dev)
+PROD_ROOT="${PROD_ROOT:-/home/aivastra-app/htdocs/app.aivastra.com}"
 PROD_ENV="$PROD_ROOT/.env.production"
+[ -r "$PROD_ENV" ] || { echo "cannot read $PROD_ENV — set PROD_ROOT to the production clone" >&2; exit 1; }
 
 COMPOSE="docker compose -f $STAGING_ROOT/infra/docker-compose.staging.yml --env-file $STAGING_ENV"
 DUMP="/tmp/aivastra-prod-$(date +%Y%m%d-%H%M%S).dump"
@@ -911,8 +1074,8 @@ PROD_BUCKET="$(env_var R2_BUCKET "$PROD_ENV")"
 STAGING_MINIO_USER="$(env_var MINIO_ROOT_USER "$STAGING_ENV")"
 STAGING_MINIO_PASS="$(env_var MINIO_ROOT_PASSWORD "$STAGING_ENV")"
 STAGING_BUCKET="$(env_var R2_BUCKET "$STAGING_ENV")"
-STAGING_WORKER_URL="$(env_var WORKER_A_URL "$STAGING_ENV")"
-STAGING_WORKER_KEY="$(env_var WORKER_API_KEY "$STAGING_ENV")"
+STAGING_WORKER_URL="$(env_var STAGING_WORKER_URL "$STAGING_ENV")"
+STAGING_WORKER_KEY="$(env_var STAGING_WORKER_API_KEY "$STAGING_ENV")"
 
 # 1 ── dump production (read-only)
 echo "→ dumping prod database $PROD_PG_DB"
@@ -936,17 +1099,30 @@ else
   docker exec -i aivastra-staging-postgres pg_restore -U "$STAGING_PG_USER" -d "$STAGING_PG_DB" --no-owner --no-acl < "$DUMP"
 fi
 
-# 3 ── mirror objects, skipping the two regenerable user-content prefixes
-echo "→ mirroring MinIO objects (excluding inputs/ and outputs/)"
+# 3 ── mirror objects, skipping the five regenerable user-content prefixes.
+#
+# Measured 2026-08-06 against virtual-tryon-prod (61G total):
+#   inputs/          5.5G   user-uploaded garments
+#   outputs/          38G   job results and thumbnails
+#   merchant-inputs/ 1013M  kiosk/QR customer photos
+#   widget-outputs/   890M  widget job results
+#   shopify-inputs/   144K  Shopify customer photos
+# Leaves ~15.6G, dominated by models/ (12G).
+#
+# NOT excluded despite the similar names: shopify-garments/ and
+# shopify-catalog-garments/ hold merchant PRODUCT images referenced by catalog_items
+# rows. Excluding them leaves staging merchant catalogs rendering broken thumbnails.
+MIRROR_EXCLUDES="--exclude inputs/* --exclude outputs/* --exclude merchant-inputs/* --exclude widget-outputs/* --exclude shopify-inputs/*"
+
+echo "→ mirroring MinIO objects (excluding 5 user-content prefixes, ~15.6G expected)"
 if [ "$DRY_RUN" -eq 1 ]; then
-  echo "DRY-RUN: mc mirror prod/$PROD_BUCKET staging/$STAGING_BUCKET --exclude 'inputs/*' --exclude 'outputs/*'"
+  echo "DRY-RUN: mc mirror prodm/$PROD_BUCKET stagingm/$STAGING_BUCKET $MIRROR_EXCLUDES"
 else
   docker run --rm --network host --entrypoint /bin/sh minio/mc:latest -c "
     mc alias set prodm    http://127.0.0.1:9000 '$PROD_MINIO_USER' '$PROD_MINIO_PASS' &&
     mc alias set stagingm http://127.0.0.1:9100 '$STAGING_MINIO_USER' '$STAGING_MINIO_PASS' &&
     mc mb --ignore-existing stagingm/$STAGING_BUCKET &&
-    mc mirror --overwrite --remove \
-      --exclude 'inputs/*' --exclude 'outputs/*' \
+    mc mirror --overwrite --remove $MIRROR_EXCLUDES \
       prodm/$PROD_BUCKET stagingm/$STAGING_BUCKET
   "
 fi
@@ -1011,6 +1187,14 @@ grep -n 'mc mirror' scripts/staging/sync-from-prod.sh
 ```
 
 Expected: `prodm/$PROD_BUCKET stagingm/$STAGING_BUCKET` — source first, destination second. Reversed, this command would delete production objects, because `--remove` is set.
+
+And confirm the exclusion set is complete and correctly scoped:
+
+```bash
+grep -n 'MIRROR_EXCLUDES=' scripts/staging/sync-from-prod.sh
+```
+
+Expected: exactly five `--exclude` flags — `inputs/*`, `outputs/*`, `merchant-inputs/*`, `widget-outputs/*`, `shopify-inputs/*`. There must be **no** exclusion for `shopify-garments/*` or `shopify-catalog-garments/*`; those are merchant product images that `catalog_items` rows point at.
 
 - [ ] **Step 5: Verify the workers INSERT still matches the schema**
 
@@ -1167,11 +1351,11 @@ Inside the SSH heredoc, make four changes and no others:
 ```bash
                if [ \"\${TARGET_ENV}\" = 'staging' ]; then
                  echo '→ verifying .env.staging is not production'
-                 bash scripts/staging/check-staging-env.sh .env.staging ../aivastra/.env.production
+                 bash scripts/staging/check-staging-env.sh .env.staging ../app.aivastra.com/.env.production
                fi
 ```
 
-The second argument is the production clone's env file. Adjust that relative path to match the actual layout on the VPS; the runbook in Task 6 records the chosen paths.
+The second argument is the production clone's env file. The relative path works because both clones are siblings under `/home/aivastra-app/htdocs/`: prod at `app.aivastra.com`, staging at `staging-app.aivastra.com`. If Task 6's runbook places the staging clone elsewhere, this string changes with it.
 
 - [ ] **Step 5: Verify the workflow still parses and prod semantics are unchanged**
 
@@ -1247,16 +1431,69 @@ Everything so far is in the repo. This task documents the manual steps that are 
 
 Create `docs/staging-runbook.md` covering, in order:
 
-1. **Capacity check.** `df -h`, `free -g`, and `docker system df -v | grep miniodata` on the VPS. Record the prod MinIO volume size; staging needs that minus `inputs/` and `outputs/`, plus a second Postgres volume.
-2. **Clone.** `git clone <repo> <STAGING_DEPLOY_PATH> && cd <STAGING_DEPLOY_PATH> && git checkout dev`. Record the chosen path — it must match the `STAGING_DEPLOY_PATH` GitHub secret and the relative `../aivastra/.env.production` path used by the guardrail in Task 5 Step 4.
-3. **Env file.** `cp .env.staging.example .env.staging`, then fill every `change_me`. Verify with `bash scripts/staging/check-staging-env.sh .env.staging <prod-clone>/.env.production`.
-4. **GitHub secret.** Add `STAGING_DEPLOY_PATH` in repo settings.
-5. **DNS + CloudPanel.** Three vhosts with the port map from the spec's §3 table, TLS via CloudPanel's Let's Encrypt. The chatbot vhost needs WebSocket upgrade headers.
-6. **Staging GPU worker.** Provision the ComfyUI VPS, install `cloudflared`, record the tunnel URL and API key into `.env.staging` as `WORKER_A_URL` / `WORKER_API_KEY`.
-7. **Grafana Cloud.** New free-tier account, copy the Loki/Prometheus URLs, users and API key into `.env.staging`.
-8. **First boot.** `docker compose -f infra/docker-compose.staging.yml --env-file .env.staging up -d --build`, then `docker compose ... ps` to confirm all containers healthy.
-9. **First sync.** `PROD_ROOT=<prod-clone> scripts/staging/sync-from-prod.sh --dry-run`, read the output, then run without `--dry-run`.
-10. **Re-sync cadence.** Whenever staging data drifts too far to be useful. The environment is disposable — a broken staging database is fixed by re-running the sync, not by restoring a backup.
+1. **Reclaim build cache first.** The box is at 80% disk (79 G free) and carries 176.8 G of reclaimable Docker build cache. Staging adds a second build pipeline to the same filesystem, so clear it before the first staging build:
+   ```bash
+   docker system df                # confirm the reclaimable figure
+   docker builder prune -f         # frees ~176 G; next builds are slower, nothing else is lost
+   df -h /
+   ```
+   Note the host has a single `/dev/sda1` filesystem shared by Docker, CloudPanel sites and everything else — there is no separate Docker mount to fill independently.
+
+2. **Capacity baseline.** Record before and after: `free -h`, `df -h /`, `docker system df`. Expected staging footprint: ~15.6 G of MinIO objects plus a ~205 MB database. Flag: swap is 2 GiB and already fully consumed, so watch `free -h` after staging's first boot — three other Compose projects (`propicly-prod`, `plane-app`, the stray local `aivastra`) share this host.
+
+3. **Clone.** The staging clone is a sibling of the production clone so the guardrail's relative path resolves:
+   ```bash
+   git clone https://github.com/adeshboudhnicedigitals/aivastra.git \
+     /home/aivastra-app/htdocs/staging-app.aivastra.com
+   cd /home/aivastra-app/htdocs/staging-app.aivastra.com
+   git checkout dev
+   ```
+   Production sits at `/home/aivastra-app/htdocs/app.aivastra.com` with `.env.production` at its root. If the staging path differs from the above, update the `../app.aivastra.com/.env.production` argument in `.github/workflows/ci.yml` to match.
+
+4. **Env file.**
+   ```bash
+   cp .env.staging.example .env.staging
+   chmod 600 .env.staging      # prod's is 644; staging holds an unscrubbed snapshot's keys
+   # fill every change_me, then:
+   bash scripts/staging/check-staging-env.sh .env.staging ../app.aivastra.com/.env.production
+   ```
+   `COMPOSE_PROJECT_NAME=aivastra-staging` is the one line that must never be copied from production — see Task 3.
+
+5. **GitHub secret.** Add `STAGING_DEPLOY_PATH` = `/home/aivastra-app/htdocs/staging-app.aivastra.com`. `VPS_HOST`, `VPS_USER` and `VPS_SSH_KEY` are reused unchanged.
+
+6. **DNS + CloudPanel.** Create three CloudPanel sites — `staging-app`, `staging-admin`, `staging-chatbot`.aivastra.com — as reverse proxies to the ports in the table below. Certificates go through CloudPanel's Let's Encrypt integration (`clpctl` 6.0.8), **not** raw certbot: only the unrelated `rankplex.cloud` uses certbot directly on this box, and everything else including `app.aivastra.com` is CloudPanel-managed. Vhost files land in `/etc/nginx/sites-enabled/`. The chatbot vhost needs `Upgrade`/`Connection` headers for WebSockets.
+
+   | host | path | upstream |
+   |---|---|---|
+   | `staging-app.aivastra.com` | `/` | 3100 |
+   | | `/v1/` | 4100 |
+   | | `/minio/` | 9100 |
+   | `staging-admin.aivastra.com` | `/` | 3101 |
+   | | `/admin/`, `/v1/` | 4100 |
+   | | `/shopify-admin` | 3103 |
+   | `staging-chatbot.aivastra.com` | `/` | 4300 (WebSocket upgrade) |
+
+7. **Staging GPU worker.** Provision the ComfyUI VPS, install `cloudflared`, then record the tunnel URL and API key in `.env.staging` as `STAGING_WORKER_URL` / `STAGING_WORKER_API_KEY`. These are read only by `post-restore.sql`, which writes them into the `workers` table — no application code reads them.
+
+8. **Grafana Cloud.** New free-tier account. Copy its Loki/Prometheus URLs, users and API key into `.env.staging`. Do not reuse production's.
+
+9. **First boot.**
+   ```bash
+   docker compose -f infra/docker-compose.staging.yml --env-file .env.staging config | head -3
+   # MUST print: name: aivastra-staging
+   docker compose -f infra/docker-compose.staging.yml --env-file .env.staging up -d --build
+   docker compose -f infra/docker-compose.staging.yml --env-file .env.staging ps
+   ```
+   Check the `config | head -3` output before the `up`. If it prints `aivastra-prod`, stop — `COMPOSE_PROJECT_NAME` is wrong and the next command would recreate production.
+
+10. **First sync.**
+    ```bash
+    scripts/staging/sync-from-prod.sh --dry-run   # read every line
+    scripts/staging/sync-from-prod.sh
+    ```
+    `PROD_ROOT` defaults to `/home/aivastra-app/htdocs/app.aivastra.com`; override it only if the layout changed. Expect the mirror to move ~15.6 G.
+
+11. **Re-sync cadence.** Whenever staging data drifts too far to be useful. The environment is disposable — a broken staging database is fixed by re-running the sync, not by restoring a backup.
 
 - [ ] **Step 2: Add the CLAUDE.md section**
 
@@ -1319,7 +1556,13 @@ Expected: every prod container's `Up …` duration predates the staging deploy. 
 docker compose -f infra/docker-compose.staging.yml --env-file .env.staging ps
 ```
 
-Expected: all 10 long-running services `running`, `minio-bootstrap` exited 0.
+Expected: all 10 long-running services `running`, `minio-bootstrap` exited 0. Then confirm the two stacks are genuinely distinct projects:
+
+```bash
+docker compose ls
+```
+
+Expected: `aivastra-prod` and `aivastra-staging` both listed, alongside the pre-existing `aivastra`, `propicly-prod` and `plane-app`. If `aivastra-staging` is absent while `aivastra-prod`'s service count jumped, `COMPOSE_PROJECT_NAME` was wrong and staging containers were created inside the production project — stop and reconcile before going further.
 
 - [ ] **Step 4: Verify the web app and login**
 
@@ -1331,7 +1574,9 @@ Expected: login succeeds; the studio wizard loads garment types.
 
 Open `https://staging-admin.aivastra.com` → Assets. Check the Faces, Backgrounds, Poses tabs and the lower/shoe catalog.
 
-Expected: thumbnails render in every tab. A broken image means the mirror missed that prefix — re-run the sync and re-check. Broken images under `inputs/` or `outputs/` are expected and correct.
+Expected: thumbnails render in every tab. A broken image means the mirror missed that prefix — re-run the sync and re-check.
+
+Broken images are expected and correct for anything under the five excluded prefixes: past job results in the catalogues view, user-uploaded garments, kiosk customer photos, widget results. Merchant product images under `shopify-garments/` must render — if they do not, the exclusion list wrongly caught them.
 
 - [ ] **Step 6: Verify a job reaches the staging GPU and not production**
 
@@ -1373,6 +1618,10 @@ Expected: checks run, no deploy job executes.
 
 **Naming consistency.** `check-staging-env.sh <staging-env> <prod-env>` — defined in Task 3, called with that argument order in Task 4 Step 2 and Task 5 Step 4. `ALLOY_CONTAINER_REGEX` — produced in Task 1, consumed in Task 2's alloy service. Container names `aivastra-staging-*` — set in Task 2, addressed in Task 4 and Task 7. `PROD_ROOT` — required by Task 4's script, supplied in Task 6's runbook step 9.
 
-**Verified against the codebase.** Task 4's `workers` INSERT matches `packages/db/src/schema/workers.ts` as read on 2026-08-06 (`id` text PK with no default, `label`, `url`, `api_key`, `is_active`, `allowed_job_types`). Task 2's compose file mirrors `infra/docker-compose.prod.yml` service-for-service. Task 5's assertions were written against the actual `deploy` job in `.github/workflows/ci.yml`.
+**Verified against the codebase.** Task 4's `workers` INSERT matches `packages/db/src/schema/workers.ts` as read on 2026-08-06 (`id` text PK with no default, `label`, `url`, `api_key`, `is_active`, `allowed_job_types`). The five excluded MinIO prefixes were each traced to their writer: `keys.inputGarment` / `keys.output` in `packages/storage/src/keys.ts`, `merchant-inputs/` in `apps/api/src/modules/merchant/tryon.routes.ts:93`, `widget-outputs/` in `apps/dispatcher/src/job/processor.ts:1890`, `shopify-inputs/` in `apps/api/src/modules/shopify/customer.routes.ts:228`. Task 2's compose file mirrors `infra/docker-compose.prod.yml` service-for-service. Task 5's assertions were written against the actual `deploy` job in `.github/workflows/ci.yml`.
 
-**Assumption the implementer must confirm.** Task 5 Step 4 hardcodes `../aivastra/.env.production` as the production env file's path relative to the staging clone. The real VPS layout is unknown at plan time; Task 6's runbook step 2 records the chosen paths, and that string must be updated to match before the first staging deploy.
+**Verified against the host** (surveyed 2026-08-06, see Host facts above): clone paths, bucket name and per-prefix sizes, free ports, disk and RAM headroom, CloudPanel/nginx layout, and production's live environment-variable set — which is what Task 2 Step 4b checks the template against, since `.env.production.example` in the repo has drifted from the live file.
+
+**Highest-risk item, and why it is covered three times.** Production's `.env.production` sets `COMPOSE_PROJECT_NAME`, and Compose resolves the project name from that variable *above* the `name:` key in the compose file. A `.env.staging` copied from production without changing it silently turns every staging compose command into an operation on the production stack. Task 2 Step 3 puts `COMPOSE_PROJECT_NAME=aivastra-staging` in the template, Task 2 Step 4c demonstrates the override empirically, Task 3 rejects any other value before a deploy proceeds, and Task 6 step 9 has the operator eyeball `config | head -3` before the first `up`.
+
+**Open, unresolved.** PixVerse — staging shares production's key, so `VIDEO_CONCURRENCY=0` keeps the video lane shut. Swap on the host is 2 GiB and already fully consumed before staging exists; Task 6 step 2 requires recording `free -h` after first boot so the decision to raise swap is made on evidence.

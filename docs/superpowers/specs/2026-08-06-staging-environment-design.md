@@ -17,13 +17,39 @@ implementation:
 | Question | Decision |
 |---|---|
 | Data model | Snapshot copy. Staging runs its own Postgres, Redis and MinIO. |
-| Asset seeding | Mirror everything except `inputs/*` (user garments) and `outputs/*` (results). |
+| Asset seeding | Mirror everything except the five user-content prefixes (see §5). |
 | GPU workers | Dedicated staging ComfyUI worker. Staging never dispatches to a prod GPU. |
 | Data scrubbing | None. The snapshot is a raw copy of production rows. |
 | Branch flow | `feature → dev → main`. Merge to `dev` deploys staging; `dev → main` PR deploys prod. |
 | Service scope | All 11 services, Alloy included, shipping to a separate Grafana Cloud account. |
 | Reachability | `staging-*.aivastra.com` subdomains via new CloudPanel vhosts. |
 | Pipeline shape | One workflow (`ci.yml`), deploy target parameterized by `github.ref`. |
+
+## Host facts (surveyed 2026-08-06)
+
+The design is sized against the real box, not assumptions:
+
+- 8 vCPU, 31 GiB RAM (8.8 GiB used, 22 GiB available), single `/dev/sda1` filesystem:
+  387 G total, 79 G free (80% used). Docker shares that filesystem — there is no separate
+  mount.
+- Swap is 2 GiB and **fully consumed**. The host has been under memory pressure before.
+- The box already runs three other Compose projects besides `aivastra-prod`:
+  `propicly-prod` (10 services, sibling product), `plane-app` (12 services, unrelated),
+  and a stray local `aivastra` project running `aivastra-redis` + `aivastra-minio`.
+- 176.8 G of Docker build cache is reclaimable — larger than every data volume combined,
+  and the obvious release valve if disk gets tight.
+- Prod clone: `/home/aivastra-app/htdocs/app.aivastra.com`, with `.env.production` at its
+  root. Local branch is `master`; irrelevant to deploys, which `git reset --hard` to an
+  explicit SHA.
+- Prod data: Postgres 205 MB, Redis 2.1 MB, MinIO 61 G in bucket `virtual-tryon-prod`.
+- All seven intended staging ports are free.
+- nginx 1.30.3 under CloudPanel 6.0.8. Vhosts in `/etc/nginx/sites-enabled/`, sites
+  rooted at `/home/<site-user>/htdocs/<domain>`. Certificates are issued through
+  CloudPanel's Let's Encrypt integration, not raw certbot — only the unrelated
+  `rankplex.cloud` uses certbot directly.
+
+Verdict: a second stack fits with margin. Staging needs roughly 15.6 G of object storage
+plus a ~205 MB database against 79 G free.
 
 ## Non-goals
 
@@ -74,7 +100,13 @@ benefit.
 New file `infra/docker-compose.staging.yml`, derived from `docker-compose.prod.yml` with
 these differences and no others:
 
-- `name: aivastra-staging`
+- `name: aivastra-staging`, **and** `COMPOSE_PROJECT_NAME=aivastra-staging` in
+  `.env.staging`. Both are required. Compose resolves the project name from
+  `COMPOSE_PROJECT_NAME` *above* the `name:` key, and production's `.env.production`
+  already sets that variable — so a `.env.staging` copied from prod without changing it
+  would make `docker compose -f docker-compose.staging.yml --env-file .env.staging up -d`
+  recreate **production's** containers with staging configuration. The guardrail in §6
+  checks this.
 - every `container_name` becomes `aivastra-staging-*`
 - network renamed `aivastra-staging-net`
 - env-file mounts point at `../.env.staging` (both the `api`/`chatbot` volume mounts and
@@ -145,8 +177,11 @@ CloudPanel vhosts to create:
 | | `/shopify-admin` | 3103 |
 | `staging-chatbot.aivastra.com` | `/` | 4300 (WebSocket upgrade) |
 
-The staging clone is a separate checkout on the VPS at `STAGING_DEPLOY_PATH`, tracking
-`dev`.
+The staging clone is a separate checkout tracking `dev`, at
+`/home/aivastra-app/htdocs/staging-app.aivastra.com` — a sibling of the production clone
+under the same `htdocs` directory, which is also the CloudPanel site root for the staging
+web vhost. That sibling layout is what makes the guardrail's relative path to production's
+env file (`../app.aivastra.com/.env.production`) stable.
 
 ## 4. Observability separation
 
@@ -168,6 +203,11 @@ named `aivastra-*` with no environment segment.
 Because staging Alloy writes to a different Grafana Cloud account entirely, no dashboard
 or query in the production account needs an `env` filter added.
 
+Side effect worth noting: the host already runs a stray local `aivastra` Compose project
+(`aivastra-redis`, `aivastra-minio`) whose container names match the current `/aivastra-.*`
+filter, so production's Loki has been ingesting those two containers all along. Pinning
+prod to `/aivastra-prod-.*` stops that too.
+
 ## 5. Data sync
 
 `scripts/staging/sync-from-prod.sh`, run by an operator on the VPS. It is never invoked
@@ -180,12 +220,22 @@ Steps:
    touches.
 2. Drop and recreate the staging database, then `pg_restore` the dump into
    `aivastra-staging-postgres`.
-3. `mc mirror` from the prod MinIO to the staging MinIO with
-   `--exclude 'inputs/*' --exclude 'outputs/*'`. Everything else — `models/`, `catalog/`,
-   `merchant-catalog/`, `demo-catalog/`, `saree/`, `saree-styles/`, `tryon/`,
-   `sample-videos/`, `user-backgrounds/`, `config/`, `support/`, `merchant-logo/`, `dev/` —
-   is copied. The exclusions are exactly the two prefixes that hold regenerable
-   user-generated content, per `packages/storage/src/keys.ts`.
+3. `mc mirror` from the prod MinIO to the staging MinIO, excluding five prefixes that
+   hold customer-supplied photos or generated results — all regenerable, and together
+   45.4 G of the bucket's 61 G:
+
+   | prefix | size | what it is |
+   |---|---|---|
+   | `inputs/` | 5.5 G | user-uploaded garments (`keys.inputGarment`) |
+   | `outputs/` | 38 G | job results and thumbnails (`keys.output`) |
+   | `merchant-inputs/` | 1013 M | kiosk/QR customer photos (`merchant/tryon.routes.ts`) |
+   | `widget-outputs/` | 890 M | widget job results (`dispatcher/job/processor.ts`) |
+   | `shopify-inputs/` | 144 K | Shopify customer photos (`shopify/customer.routes.ts`) |
+
+   Everything else is copied, ~15.6 G, dominated by `models/` at 12 G. Note that
+   `shopify-garments/` and `shopify-catalog-garments/` are **not** excluded despite the
+   naming — they hold merchant product images referenced by `catalog_items` rows, and
+   dropping them leaves staging merchant catalogs rendering broken thumbnails.
 4. Apply `scripts/staging/post-restore.sql`: `DELETE FROM workers`, then insert the single
    staging ComfyUI worker row.
 5. Re-run migrations against staging (`docker compose ... run --rm api pnpm db:migrate:prod`,
@@ -211,6 +261,8 @@ outbound credentials in `.env.staging` are the only barrier. The staging deploy 
 aborts before touching any container unless `.env.staging` passes all of:
 
 - contains a line `AIVASTRA_ENV=staging`
+- `COMPOSE_PROJECT_NAME` is exactly `aivastra-staging` — the check that stops a
+  copied env file from pointing the staging deploy at the production project
 - contains no occurrence of `rzp_live_`
 - `SHOPIFY_API_KEY` differs from the value in `.env.production`
 - `EMAIL_FROM` is not the production sender address
@@ -272,6 +324,10 @@ Staging is working when, in order:
   `.env.staging.example` ships `VIDEO_CONCURRENCY=0` so the video lane never dispatches —
   the deferral fails closed rather than open. Resolving it means either a second PixVerse
   key or accepting the spend and raising the concurrency.
-- **VPS capacity.** A second full stack roughly doubles container RAM and adds a second
-  Postgres and MinIO data volume. Disk headroom should be checked against the size of the
-  prod MinIO volume minus `inputs/` and `outputs/` before the first sync.
+- **Swap exhaustion.** The host's 2 GiB swap is fully consumed before staging exists.
+  22 GiB of RAM is available so the second stack should fit, but the swap figure says the
+  box has been squeezed before, and three unrelated Compose projects share it. Watch
+  memory after staging's first boot; raising swap is the cheap mitigation.
+- **Disk at 80%.** 79 G free covers staging's ~16 G comfortably, but staging adds a second
+  build pipeline on a filesystem that already holds 176.8 G of reclaimable build cache.
+  `docker builder prune` before the first staging build is the recommended first move.
