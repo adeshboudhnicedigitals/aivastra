@@ -966,8 +966,8 @@ suspend fun fixImageRotationFromUri(
             tempFile
         )
 
-    } catch (e: Exception) {
-        e.printStackTrace()
+    } catch (t: Throwable) {
+        t.printStackTrace()
         imageUri
     }
 }

@@ -13,6 +13,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -39,20 +41,29 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import aivastra.nice.interactive.ui.components.AppHeaderLogo
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.imageLoader
@@ -85,6 +96,14 @@ fun TryOnResultPage(
 
     BackHandler(onBack = onBack)
 
+    // Pinch-to-zoom / pan / double-tap-to-reset on the result image. Pan is clamped to the
+    // overflow the current zoom level actually produces (half the extra scaled size in each
+    // direction), so the image can never be dragged off past its own edge, and it collapses
+    // back to (0,0) on its own as the user zooms back out to 1x.
+    var imageScale by remember { mutableFloatStateOf(1f) }
+    var imageOffset by remember { mutableStateOf(Offset.Zero) }
+    var imageContainerSize by remember { mutableStateOf(IntSize.Zero) }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -95,7 +114,34 @@ fun TryOnResultPage(
             model = resultImageUrl,
             contentDescription = "Try-On Result",
             contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .clipToBounds()
+                .onGloballyPositioned { imageContainerSize = it.size }
+                .pointerInput(Unit) {
+                    detectTapGestures(onDoubleTap = {
+                        imageScale = 1f
+                        imageOffset = Offset.Zero
+                    })
+                }
+                .pointerInput(Unit) {
+                    detectTransformGestures { _, pan, zoom, _ ->
+                        val newScale = (imageScale * zoom).coerceIn(1f, 4f)
+                        val maxPanX = (imageContainerSize.width * (newScale - 1f) / 2f).coerceAtLeast(0f)
+                        val maxPanY = (imageContainerSize.height * (newScale - 1f) / 2f).coerceAtLeast(0f)
+                        imageOffset = Offset(
+                            x = (imageOffset.x + pan.x).coerceIn(-maxPanX, maxPanX),
+                            y = (imageOffset.y + pan.y).coerceIn(-maxPanY, maxPanY)
+                        )
+                        imageScale = newScale
+                    }
+                }
+                .graphicsLayer {
+                    scaleX = imageScale
+                    scaleY = imageScale
+                    translationX = imageOffset.x
+                    translationY = imageOffset.y
+                }
         )
 
         // Floating Content Overlay with status bar inset handling
@@ -199,7 +245,7 @@ fun TryOnResultPage(
                             )
                         )
                         .clickable {
-                            downloadResultImage(context, resultImageUrl, coroutineScope)
+                            downloadResultImage(context, resultImageUrl)
                             onDownload()
                         },
                     contentAlignment = Alignment.Center
@@ -244,48 +290,55 @@ private fun DownloadIcon(tint: Color, modifier: Modifier = Modifier) {
     }
 }
 
-private fun downloadResultImage(context: Context, imageUrl: String, scope: CoroutineScope) {
-    scope.launch(Dispatchers.IO) {
+private fun downloadResultImage(context: Context, imageUrl: String) {
+    val appContext = context.applicationContext
+    CoroutineScope(Dispatchers.IO).launch {
         try {
-            // Reuse Coil's shared singleton loader (already warm from the AsyncImage above,
-            // with its own memory/disk cache) instead of spinning up a brand new ImageLoader —
-            // and its own OkHttpClient/caches — on every tap.
-            val request = ImageRequest.Builder(context)
+            val request = ImageRequest.Builder(appContext)
                 .data(imageUrl)
                 .allowHardware(false)
                 .build()
-            val result = (context.imageLoader.execute(request) as? SuccessResult)?.drawable
+            val result = (appContext.imageLoader.execute(request) as? SuccessResult)?.drawable
             val bitmap = (result as? BitmapDrawable)?.bitmap
 
             if (bitmap != null) {
-                saveBitmapToGallery(context, bitmap)
+                saveBitmapToGallery(appContext, bitmap)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(appContext, "Image saved to gallery", Toast.LENGTH_SHORT).show()
+                }
             } else {
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Unable to download image", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(appContext, "Unable to download image", Toast.LENGTH_SHORT).show()
                 }
             }
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            e.printStackTrace()
             withContext(Dispatchers.Main) {
-                Toast.makeText(context, "Download failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(appContext, "Download notice: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }
 }
 
 private fun saveBitmapToGallery(context: Context, bitmap: Bitmap) {
-    val filename = "AiVastra_TryOn_${System.currentTimeMillis()}.jpg"
-    val contentValues = ContentValues().apply {
-        put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
-        put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/AiVastra")
+    try {
+        val filename = "AiVastra_TryOn_${System.currentTimeMillis()}.jpg"
+        val contentValues = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
+            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/AiVastra")
+            }
         }
-    }
-    val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
-    uri?.let {
-        context.contentResolver.openOutputStream(it)?.use { out ->
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
+        val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+        uri?.let {
+            context.contentResolver.openOutputStream(it)?.use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
+            }
         }
+    } catch (e: Exception) {
+        e.printStackTrace()
     }
 }
 

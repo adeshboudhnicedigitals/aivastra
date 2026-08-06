@@ -110,7 +110,6 @@ fun OnboardingPage(
     val editingState = uiState as? OnboardingUiState.Editing
     val isSubmitting = editingState?.isSubmitting ?: false
     val showCompanyNameField = editingState?.showCompanyNameField ?: true
-    val showPhoneField = editingState?.showPhoneField ?: true
     val canSubmit = !isSubmitting && companyName.isNotBlank() && phone.filter(Char::isDigit).length == 10
 
     Box(modifier = modifier.fillMaxSize().background(Color.Black)) {
@@ -171,7 +170,7 @@ fun OnboardingPage(
                 Spacer(modifier = Modifier.height(sdp(R.dimen._6sdp)))
 
                 Text(
-                    text = "One-time setup so your kiosk can start selling",
+                    text = "Start your virtual try-on journey",
                     color = Color.White.copy(alpha = 0.7f),
                     fontSize = ssp(R.dimen._13ssp),
                     fontFamily = PoppinsFamily,
@@ -180,32 +179,28 @@ fun OnboardingPage(
 
                 Spacer(modifier = Modifier.height(sdp(R.dimen._24sdp)))
 
-                if (showCompanyNameField || showPhoneField) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(sdp(R.dimen._16sdp))
-                    ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(sdp(R.dimen._16sdp))
+                ) {
 
-                        if (showCompanyNameField) {
-                            OnboardingFieldSection(
-                                label = "COMPANY / STORE NAME",
-                                value = companyName,
-                                onValueChange = { companyName = it },
-                                enabled = !isSubmitting,
-                                placeholder = "Your business name"
-                            )
-                        }
-
-                        if (showPhoneField) {
-                            OnboardingFieldSection(
-                                label = "MOBILE NUMBER *",
-                                value = phone,
-                                onValueChange = { phone = it.filter(Char::isDigit).take(10) },
-                                enabled = !isSubmitting,
-                                placeholder = "10-digit mobile number"
-                            )
-                        }
+                    if (showCompanyNameField) {
+                        OnboardingFieldSection(
+                            label = "COMPANY / STORE NAME",
+                            value = companyName,
+                            onValueChange = { companyName = it },
+                            enabled = !isSubmitting,
+                            placeholder = "Your business name"
+                        )
                     }
+
+                    OnboardingFieldSection(
+                        label = "MOBILE NUMBER *",
+                        value = phone,
+                        onValueChange = { phone = it.filter(Char::isDigit).take(10) },
+                        enabled = !isSubmitting,
+                        placeholder = "10-digit mobile number"
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(sdp(R.dimen._24sdp)))
