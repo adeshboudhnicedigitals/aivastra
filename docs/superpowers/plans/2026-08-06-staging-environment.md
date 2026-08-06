@@ -16,6 +16,8 @@
 - The `!cancelled()` guard and its comment block in the `deploy` job of `ci.yml` must survive verbatim. It exists because GitHub propagates `skipped` transitively through `needs`, which silently killed deploys on admin/web-only merges.
 - Host port bindings stay on `127.0.0.1` in every environment.
 - Staging host ports are production + 100: web 3100, admin 3101, shopify-admin 3103, api 4100, chatbot 4300, minio 9100, minio console 9101.
+- Staging has **two** vhosts, not three. The chatbot gets no subdomain — it is served at `/chatbot/` under both `staging-app` and `staging-admin`, with the prefix stripped by NGINX so the service is unaware of it. `CHATBOT_URL` (server-side, API only) stays in-network at `http://chatbot:4200`; `NEXT_PUBLIC_CHATBOT_URL` and `VITE_CHATBOT_URL` (browser-side) carry the public path URLs, each same-origin with the app that loads it.
+- The `workers` table is emptied and left empty. Staging has no GPU worker yet, so jobs enqueue and stay `QUEUED`. Nothing in this plan inserts a worker row.
 - Staging container names are `aivastra-staging-<service>`. Network is `aivastra-staging-net`.
 - The project name must be set in **two** places: `name: aivastra-staging` in the compose file *and* `COMPOSE_PROJECT_NAME=aivastra-staging` in `.env.staging`. Compose resolves the project name from `COMPOSE_PROJECT_NAME` above the `name:` key, and production's `.env.production` already sets that variable. A `.env.staging` copied from prod without changing it makes every staging compose command operate on the **production** project.
 - The MinIO mirror excludes exactly five prefixes: `inputs/*`, `outputs/*`, `merchant-inputs/*`, `widget-outputs/*`, `shopify-inputs/*`. Every other prefix is copied — in particular `shopify-garments/*` and `shopify-catalog-garments/*` are merchant product images referenced by `catalog_items` rows and must NOT be excluded.
@@ -221,7 +223,10 @@ name: aivastra-staging
 #   staging-admin.aivastra.com/admin/ -> localhost:4100  (Fastify API)
 #   staging-admin.aivastra.com/v1/    -> localhost:4100  (Fastify API)
 #   staging-admin.aivastra.com/shopify-admin -> localhost:3103
-#   staging-chatbot.aivastra.com/     -> localhost:4300  (WebSocket upgrade)
+#   staging-app.aivastra.com/chatbot/   -> localhost:4300  (prefix stripped, WS upgrade)
+#   staging-admin.aivastra.com/chatbot/ -> localhost:4300  (prefix stripped, WS upgrade)
+# The chatbot has no subdomain of its own; it is mounted on a path under both
+# vhosts so the web app and admin SPA each reach it same-origin.
 
 services:
   postgres:
@@ -510,9 +515,17 @@ WEB_URL=https://staging-app.aivastra.com
 CORS_ORIGIN=https://staging-app.aivastra.com,https://staging-admin.aivastra.com
 NEXT_PUBLIC_API_URL=https://staging-app.aivastra.com
 NEXT_PUBLIC_BASE_PATH=
-CHATBOT_URL=https://staging-chatbot.aivastra.com
-NEXT_PUBLIC_CHATBOT_URL=https://staging-chatbot.aivastra.com
-VITE_CHATBOT_URL=https://staging-chatbot.aivastra.com
+# CHATBOT_URL is server-side only — the API calls /ingest and /health with it
+# (apps/api/src/modules/admin/chatbot.routes.ts). Keep it in-network rather than
+# hairpinning container -> NGINX -> container.
+CHATBOT_URL=http://chatbot:4200
+# Browser-side. The chatbot has no subdomain in staging; NGINX serves it at
+# /chatbot/ under both vhosts with the prefix stripped. Consumers build
+# ${CHATBOT_URL}/ws-ticket and .replace(/^http/,'ws'), so a path-carrying base
+# concatenates correctly and yields wss://host/chatbot/ws. Each value is
+# same-origin with the app that loads it, so no cross-origin WebSocket setup.
+NEXT_PUBLIC_CHATBOT_URL=https://staging-app.aivastra.com/chatbot
+VITE_CHATBOT_URL=https://staging-admin.aivastra.com/chatbot
 VITE_AIVASTRA_APP_URL=https://staging-app.aivastra.com
 VITE_API_BASE_URL=https://staging-app.aivastra.com
 
@@ -569,14 +582,13 @@ GRAFANA_CLOUD_PROM_URL=change_me
 GRAFANA_CLOUD_PROM_USER=change_me
 GRAFANA_CLOUD_API_KEY=change_me
 
-# ─── Staging GPU worker ───────────────────────────────────────────────────────
-# NOT read by any application code — workers live in the `workers` table, loaded
-# into the Redis registry at dispatcher boot. These two are consumed only by
-# scripts/staging/post-restore.sql, which rewrites that table after a sync so the
-# staging dispatcher targets the dedicated staging ComfyUI box instead of the
-# production GPUs the snapshot inherited.
-STAGING_WORKER_URL=https://staging-worker.example.com
-STAGING_WORKER_API_KEY=change_me_staging_worker
+# ─── GPU workers ──────────────────────────────────────────────────────────────
+# Intentionally absent. Workers live in the `workers` table and are loaded into
+# the Redis registry at dispatcher boot, not configured by env vars.
+# scripts/staging/post-restore.sql empties that table after every sync, so the
+# staging dispatcher can never select one of the production GPUs the snapshot
+# inherited. With no worker registered, staging jobs enqueue and stay QUEUED.
+# Add a staging worker later through the admin panel.
 
 # ─── PixVerse: deferred decision, fails closed ────────────────────────────────
 # Staging currently shares the production PixVerse key, so a catalog-video job
@@ -627,13 +639,13 @@ staging = set(re.findall(r'^([A-Z0-9_]+)=', open('.env.staging.example').read(),
 missing = sorted(set(prod) - staging)
 extra   = sorted(staging - set(prod))
 print("in prod but missing from staging:", missing or "none")
-print("staging-only (expected: AIVASTRA_ENV, STAGING_WORKER_*, VIDEO_CONCURRENCY):", extra)
+print("staging-only (expected: AIVASTRA_ENV, VIDEO_CONCURRENCY):", extra)
 assert not missing, f"staging template is missing {missing}"
 print("OK: variable-name parity with production")
 PY
 ```
 
-Expected: `in prod but missing from staging: none`, and the staging-only list is exactly `['AIVASTRA_ENV', 'STAGING_WORKER_API_KEY', 'STAGING_WORKER_URL', 'VIDEO_CONCURRENCY']`.
+Expected: `in prod but missing from staging: none`, and the staging-only list is exactly `['AIVASTRA_ENV', 'VIDEO_CONCURRENCY']`.
 
 - [ ] **Step 4c: Verify the project name cannot be hijacked**
 
@@ -989,30 +1001,21 @@ Create `scripts/staging/post-restore.sql`:
 --
 -- The dump carries production's `workers` rows, which point at the live ComfyUI
 -- GPUs behind Cloudflare tunnels. Left in place, the staging dispatcher would
--- select one and occupy a GPU a paying customer is waiting on. Staging has its
--- own dedicated worker, so the table is rewritten wholesale.
+-- select one and occupy a GPU a paying customer is waiting on. Emptying the table
+-- is the whole point of this file.
 --
--- The worker's URL and API key come from STAGING_WORKER_URL / STAGING_WORKER_API_KEY
--- in .env.staging and are passed as psql variables by sync-from-prod.sh. No
--- application code reads those two variables; the dispatcher loads workers from
--- this table into the Redis registry at boot.
+-- Nothing is inserted. Staging has no GPU of its own yet, so jobs enqueue, the
+-- dispatcher finds no healthy worker, and they stay QUEUED — which still exercises
+-- auth, credit deduction, catalog resolution, the job row, the stream write and the
+-- SSE connection. When a dedicated staging ComfyUI box exists, register it through
+-- the admin panel and add an INSERT here so the row survives the next sync.
+--
+-- The dispatcher loads this table into the Redis worker registry at boot, so the
+-- sync script restarts it after applying this.
 
 BEGIN;
 
 DELETE FROM workers;
-
--- Column list matches packages/db/src/schema/workers.ts. Note `id` is a text
--- primary key with NO default, so it must be supplied explicitly — this is not
--- a uuid-defaulted table.
-INSERT INTO workers (id, label, url, api_key, allowed_job_types, is_active)
-VALUES (
-  'staging-a',
-  'Staging GPU',
-  :'staging_worker_url',
-  :'staging_worker_key',
-  ARRAY['tryon', 'saree', 'widget'],
-  true
-);
 
 COMMIT;
 ```
@@ -1074,8 +1077,6 @@ PROD_BUCKET="$(env_var R2_BUCKET "$PROD_ENV")"
 STAGING_MINIO_USER="$(env_var MINIO_ROOT_USER "$STAGING_ENV")"
 STAGING_MINIO_PASS="$(env_var MINIO_ROOT_PASSWORD "$STAGING_ENV")"
 STAGING_BUCKET="$(env_var R2_BUCKET "$STAGING_ENV")"
-STAGING_WORKER_URL="$(env_var STAGING_WORKER_URL "$STAGING_ENV")"
-STAGING_WORKER_KEY="$(env_var STAGING_WORKER_API_KEY "$STAGING_ENV")"
 
 # 1 ── dump production (read-only)
 echo "→ dumping prod database $PROD_PG_DB"
@@ -1127,15 +1128,14 @@ else
   "
 fi
 
-# 4 ── repoint the worker registry at the dedicated staging GPU
-echo "→ rewriting workers table to the staging GPU"
+# 4 ── empty the worker registry so staging can never dispatch to a production GPU
+echo "→ emptying workers table (staging has no GPU; jobs will stay QUEUED)"
 if [ "$DRY_RUN" -eq 1 ]; then
-  echo "DRY-RUN: psql -f post-restore.sql with staging worker $STAGING_WORKER_URL"
+  echo "DRY-RUN: psql -f post-restore.sql"
 else
   docker exec -i aivastra-staging-postgres psql -U "$STAGING_PG_USER" -d "$STAGING_PG_DB" \
-    -v staging_worker_url="$STAGING_WORKER_URL" \
-    -v staging_worker_key="$STAGING_WORKER_KEY" \
     -f - < "$STAGING_ROOT/scripts/staging/post-restore.sql"
+  echo "  workers remaining: $(docker exec aivastra-staging-postgres psql -tAU "$STAGING_PG_USER" -d "$STAGING_PG_DB" -c 'select count(*) from workers;')"
 fi
 
 # 5 ── re-apply dev-only migrations
@@ -1196,15 +1196,15 @@ grep -n 'MIRROR_EXCLUDES=' scripts/staging/sync-from-prod.sh
 
 Expected: exactly five `--exclude` flags — `inputs/*`, `outputs/*`, `merchant-inputs/*`, `widget-outputs/*`, `shopify-inputs/*`. There must be **no** exclusion for `shopify-garments/*` or `shopify-catalog-garments/*`; those are merchant product images that `catalog_items` rows point at.
 
-- [ ] **Step 5: Verify the workers INSERT still matches the schema**
+- [ ] **Step 5: Verify the post-restore SQL inserts nothing**
 
-The INSERT was written against `packages/db/src/schema/workers.ts` as of 2026-08-06. Confirm it has not drifted:
+The single most important property of this file is that it leaves the table empty — an accidental INSERT pointing at a production tunnel URL is exactly the failure it exists to prevent.
 
 ```bash
-sed -n '/export const workers/,/^});/p' packages/db/src/schema/workers.ts
+grep -icE 'insert|update' scripts/staging/post-restore.sql
 ```
 
-Expected columns: `id` (text, primary key, **no default**), `label`, `url`, `apiKey`, `isActive`, `allowedJobTypes`, `createdAt`, `updatedAt`. Every NOT NULL column without a default must appear in the INSERT — currently `id`, `url`, `api_key`. If a new NOT NULL column has been added since, add it to `post-restore.sql`.
+Expected: `0`. The file contains `BEGIN`, `DELETE FROM workers`, `COMMIT` and comments, nothing else.
 
 - [ ] **Step 6: Commit**
 
@@ -1213,8 +1213,9 @@ git add scripts/staging/sync-from-prod.sh scripts/staging/post-restore.sql
 git commit -m "feat(staging): add prod to staging sync script
 
 Dumps prod Postgres and mirrors prod MinIO minus inputs/ and outputs/, then
-repoints the workers table at the dedicated staging GPU and re-applies dev-only
-migrations. Production is read-only throughout. Operator-run, never CI."
+empties the workers table so staging can never dispatch to a production GPU, and
+re-applies dev-only migrations. Production is read-only throughout. Operator-run,
+never CI."
 ```
 
 ---
@@ -1461,19 +1462,37 @@ Create `docs/staging-runbook.md` covering, in order:
 
 5. **GitHub secret.** Add `STAGING_DEPLOY_PATH` = `/home/aivastra-app/htdocs/staging-app.aivastra.com`. `VPS_HOST`, `VPS_USER` and `VPS_SSH_KEY` are reused unchanged.
 
-6. **DNS + CloudPanel.** Create three CloudPanel sites — `staging-app`, `staging-admin`, `staging-chatbot`.aivastra.com — as reverse proxies to the ports in the table below. Certificates go through CloudPanel's Let's Encrypt integration (`clpctl` 6.0.8), **not** raw certbot: only the unrelated `rankplex.cloud` uses certbot directly on this box, and everything else including `app.aivastra.com` is CloudPanel-managed. Vhost files land in `/etc/nginx/sites-enabled/`. The chatbot vhost needs `Upgrade`/`Connection` headers for WebSockets.
+6. **DNS + CloudPanel.** Create **two** CloudPanel sites — `staging-app.aivastra.com` and `staging-admin.aivastra.com` — as reverse proxies to the ports below. Certificates go through CloudPanel's Let's Encrypt integration (`clpctl` 6.0.8), **not** raw certbot: only the unrelated `rankplex.cloud` uses certbot directly on this box, and everything else including `app.aivastra.com` is CloudPanel-managed. Vhost files land in `/etc/nginx/sites-enabled/`.
 
    | host | path | upstream |
    |---|---|---|
    | `staging-app.aivastra.com` | `/` | 3100 |
    | | `/v1/` | 4100 |
    | | `/minio/` | 9100 |
+   | | `/chatbot/` | 4300 |
    | `staging-admin.aivastra.com` | `/` | 3101 |
    | | `/admin/`, `/v1/` | 4100 |
    | | `/shopify-admin` | 3103 |
-   | `staging-chatbot.aivastra.com` | `/` | 4300 (WebSocket upgrade) |
+   | | `/chatbot/` | 4300 |
 
-7. **Staging GPU worker.** Provision the ComfyUI VPS, install `cloudflared`, then record the tunnel URL and API key in `.env.staging` as `STAGING_WORKER_URL` / `STAGING_WORKER_API_KEY`. These are read only by `post-restore.sql`, which writes them into the `workers` table — no application code reads them.
+   The chatbot has no subdomain. It is mounted at `/chatbot/` on both vhosts so the web app and admin SPA each reach it same-origin. The trailing slash on `proxy_pass` is what strips the prefix — without it the chatbot receives `/chatbot/ws-ticket` and 404s. Both locations need WebSocket upgrade headers:
+
+   ```nginx
+   location /chatbot/ {
+       proxy_pass http://127.0.0.1:4300/;
+       proxy_http_version 1.1;
+       proxy_set_header Upgrade $http_upgrade;
+       proxy_set_header Connection "upgrade";
+       proxy_set_header Host $host;
+       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+       proxy_set_header X-Forwarded-Proto $scheme;
+       proxy_read_timeout 3600s;
+   }
+   ```
+
+   `proxy_read_timeout` matters: the default 60s silently drops idle chat sockets.
+
+7. **Staging GPU worker — deferred.** Staging ships with an empty `workers` table, so jobs enqueue and stay `QUEUED`. Nothing to configure now. When a dedicated ComfyUI box exists: provision it, install `cloudflared`, register it through the staging admin panel, restart the staging dispatcher, and add a matching INSERT to `scripts/staging/post-restore.sql` so the row survives the next sync.
 
 8. **Grafana Cloud.** New free-tier account. Copy its Loki/Prometheus URLs, users and API key into `.env.staging`. Do not reuse production's.
 
@@ -1578,19 +1597,39 @@ Expected: thumbnails render in every tab. A broken image means the mirror missed
 
 Broken images are expected and correct for anything under the five excluded prefixes: past job results in the catalogues view, user-uploaded garments, kiosk customer photos, widget results. Merchant product images under `shopify-garments/` must render — if they do not, the exclusion list wrongly caught them.
 
-- [ ] **Step 6: Verify a job reaches the staging GPU and not production**
+- [ ] **Step 6: Verify a job enqueues in staging and never touches production**
 
 Submit a try-on from the staging studio. Then, on the VPS:
 
 ```bash
-docker exec aivastra-staging-postgres psql -U <staging_user> -d <staging_db> \
-  -c "select id, status, worker_id from jobs order by created_at desc limit 3;"
+# staging: the job exists and is QUEUED
+docker exec aivastra-staging-postgres psql -U aivastra_staging -d tryon_staging \
+  -c "select id, status, worker_id, created_at from jobs order by created_at desc limit 3;"
 
+# staging: no workers registered, which is why it stays QUEUED
+docker exec aivastra-staging-postgres psql -U aivastra_staging -d tryon_staging \
+  -c "select count(*) from workers;"
+
+# production: nothing arrived
 docker exec aivastra-prod-postgres psql -U <prod_user> -d <prod_db> \
   -c "select count(*) from jobs where created_at > now() - interval '10 minutes';"
 ```
 
-Expected: the staging job progresses and names the staging worker. The production count is `0`.
+Expected: the staging job exists with `status = QUEUED` and `worker_id` null; the staging worker count is `0`; the production count is `0`. Credits were deducted and the row was written, which is the whole path under test — a job that *starts processing* would mean the `workers` table was not emptied and staging is dispatching to a production GPU. Stop immediately if that happens.
+
+Also confirm the dispatcher is idling cleanly rather than erroring:
+
+```bash
+docker logs --tail 30 aivastra-staging-dispatcher
+```
+
+Expected: it reports no healthy worker and keeps polling. Repeated crashes are a different problem.
+
+- [ ] **Step 6b: Verify the chatbot works on its path mount**
+
+Open the staging web app, then the admin panel, and start a chat in each.
+
+Expected: the socket connects in both. In the browser devtools Network tab the WebSocket URL is `wss://staging-app.aivastra.com/chatbot/ws?ticket=…` (and the `staging-admin` equivalent). A 404 on `/chatbot/ws-ticket` means the `proxy_pass` trailing slash is missing and the prefix is not being stripped. A connection that opens then drops after ~60s means `proxy_read_timeout` was not raised.
 
 - [ ] **Step 7: Verify observability separation**
 
@@ -1624,4 +1663,6 @@ Expected: checks run, no deploy job executes.
 
 **Highest-risk item, and why it is covered three times.** Production's `.env.production` sets `COMPOSE_PROJECT_NAME`, and Compose resolves the project name from that variable *above* the `name:` key in the compose file. A `.env.staging` copied from production without changing it silently turns every staging compose command into an operation on the production stack. Task 2 Step 3 puts `COMPOSE_PROJECT_NAME=aivastra-staging` in the template, Task 2 Step 4c demonstrates the override empirically, Task 3 rejects any other value before a deploy proceeds, and Task 6 step 9 has the operator eyeball `config | head -3` before the first `up`.
 
-**Open, unresolved.** PixVerse — staging shares production's key, so `VIDEO_CONCURRENCY=0` keeps the video lane shut. Swap on the host is 2 GiB and already fully consumed before staging exists; Task 6 step 2 requires recording `free -h` after first boot so the decision to raise swap is made on evidence.
+**Deliberate divergences from production topology.** Two, both chosen and both recorded in the spec. (1) The chatbot is path-mounted at `/chatbot/` under both staging vhosts instead of getting its own subdomain, which additionally makes it same-origin for the web app and the admin SPA — production's `admin.` → `chatbot.` split is cross-origin. (2) `CHATBOT_URL` points in-network at `http://chatbot:4200` rather than at a public URL, since only the API reads it and only server-side.
+
+**Open, unresolved.** PixVerse — staging shares production's key, so `VIDEO_CONCURRENCY=0` keeps the video lane shut. Swap on the host is 2 GiB and already fully consumed before staging exists; Task 6 step 2 requires recording `free -h` after first boot so the decision to raise swap is made on evidence. No staging GPU worker — jobs enqueue and stay `QUEUED`, which is the accepted end state until one is provisioned.
