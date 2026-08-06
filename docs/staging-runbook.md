@@ -65,6 +65,8 @@ Create **two** CloudPanel sites — `staging-app.aivastra.com` and `staging-admi
 | | `/shopify-admin` | 3103 |
 | | `/chatbot/` | 4300 |
 
+**Note:** Port 9101 (MinIO console) has no public vhost. It is bound to `127.0.0.1:9101` (see `infra/docker-compose.staging.yml`) for SSH-tunnel-only access, same as production's MinIO console on 9001 — neither is proxied through CloudPanel/nginx.
+
 ### ChatBot WebSocket configuration
 
 The chatbot has no subdomain. It is mounted at `/chatbot/` on both vhosts so the web app and admin SPA each reach it same-origin. The trailing slash on `proxy_pass` is what strips the prefix — without it the chatbot receives `/chatbot/ws-ticket` and 404s. Both locations need WebSocket upgrade headers:
