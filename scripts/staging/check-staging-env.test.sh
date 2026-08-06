@@ -30,7 +30,7 @@ EOF
 
 check() {
   local name="$1" expected="$2"
-  "$SCRIPT" "$TMP/staging.env" "$TMP/prod.env" >/dev/null 2>"$TMP/err"
+  bash "$SCRIPT" "$TMP/staging.env" "$TMP/prod.env" >/dev/null 2>"$TMP/err"
   local actual=$?
   if [ "$actual" = "$expected" ]; then
     echo "ok   - $name"

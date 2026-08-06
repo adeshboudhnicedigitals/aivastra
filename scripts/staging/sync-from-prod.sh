@@ -22,7 +22,9 @@ PROD_ENV="$PROD_ROOT/.env.production"
 [ -r "$PROD_ENV" ] || { echo "cannot read $PROD_ENV — set PROD_ROOT to the production clone" >&2; exit 1; }
 
 COMPOSE="docker compose -f $STAGING_ROOT/infra/docker-compose.staging.yml --env-file $STAGING_ENV"
-DUMP="/tmp/aivastra-prod-$(date +%Y%m%d-%H%M%S).dump"
+umask 077
+DUMP="$(mktemp /tmp/aivastra-prod-XXXXXX.dump)"
+trap 'rm -f "$DUMP"' EXIT
 
 run() {
   if [ "$DRY_RUN" -eq 1 ]; then
@@ -34,7 +36,7 @@ run() {
 
 env_var() {
   local key="$1" file="$2"
-  grep -E "^${key}=" "$file" | tail -n1 | cut -d= -f2-
+  grep -E "^${key}=" "$file" | tail -n1 | cut -d= -f2- | tr -d '\r"'
 }
 
 echo "→ verifying staging env before touching anything"
@@ -123,5 +125,4 @@ run $COMPOSE run --rm api pnpm db:verify:prod
 echo "→ restarting staging services"
 run $COMPOSE up -d api dispatcher chatbot
 
-[ "$DRY_RUN" -eq 0 ] && rm -f "$DUMP"
 echo "✓ staging synced from production"

@@ -207,6 +207,9 @@ jobs:
       - name: Run detector tests
         run: pnpm test:ci-scripts
 
+      - name: Run staging env guardrail tests
+        run: bash scripts/staging/check-staging-env.test.sh
+
   ci-gate:
     name: ci-gate
     runs-on: ubuntu-latest
