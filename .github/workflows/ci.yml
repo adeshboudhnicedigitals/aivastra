@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
-    branches: [main]
+    branches: [main, dev]
   schedule:
     # 02:30 UTC daily — validates the whole monorepo regardless of any diff, so a
     # detector misclassification surfaces within a day instead of at the next incident.
@@ -248,20 +248,47 @@ jobs:
       !cancelled() &&
       needs.detect.result == 'success' &&
       needs['ci-gate'].result == 'success' &&
-      github.ref == 'refs/heads/main' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       needs.detect.outputs.has_deployable == 'true'
     concurrency:
-      group: aivastra-production
+      # Prod and staging must never share a group: a staging deploy must not be
+      # able to queue behind or cancel a production deploy.
+      group: aivastra-${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
       cancel-in-progress: false
 
     steps:
+      - name: Resolve deploy target
+        env:
+          PROD_DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          STAGING_DEPLOY_PATH: ${{ secrets.STAGING_DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF}" = 'refs/heads/main' ]; then
+            echo "TARGET_ENV=production"                             >> "$GITHUB_ENV"
+            echo "TARGET_BRANCH=main"                                >> "$GITHUB_ENV"
+            echo "COMPOSE_FILE=infra/docker-compose.prod.yml"        >> "$GITHUB_ENV"
+            echo "ENV_FILE=.env.production"                          >> "$GITHUB_ENV"
+            echo "TARGET_DEPLOY_PATH=${PROD_DEPLOY_PATH}"            >> "$GITHUB_ENV"
+          else
+            echo "TARGET_ENV=staging"                                >> "$GITHUB_ENV"
+            echo "TARGET_BRANCH=dev"                                 >> "$GITHUB_ENV"
+            echo "COMPOSE_FILE=infra/docker-compose.staging.yml"     >> "$GITHUB_ENV"
+            echo "ENV_FILE=.env.staging"                             >> "$GITHUB_ENV"
+            echo "TARGET_DEPLOY_PATH=${STAGING_DEPLOY_PATH}"         >> "$GITHUB_ENV"
+          fi
+          echo "resolved target: $(grep TARGET_ENV "$GITHUB_ENV")"
+
       - name: Deploy via SSH
         env:
           SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          DEPLOY_PATH: ${{ env.TARGET_DEPLOY_PATH }}
+          TARGET_ENV: ${{ env.TARGET_ENV }}
+          TARGET_BRANCH: ${{ env.TARGET_BRANCH }}
+          COMPOSE_FILE: ${{ env.COMPOSE_FILE }}
+          ENV_FILE: ${{ env.ENV_FILE }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           SERVICES: ${{ needs.detect.outputs.compose_services }}
@@ -284,7 +311,9 @@ jobs:
                SERVICES='${SERVICES}'
                MIGRATION_CHANGED='${MIGRATION_CHANGED}'
                DEPLOY_SHA='${DEPLOY_SHA}'
-               COMPOSE=\"docker compose -f infra/docker-compose.prod.yml --env-file .env.production\"
+               TARGET_ENV='${TARGET_ENV}'
+               TARGET_BRANCH='${TARGET_BRANCH}'
+               COMPOSE=\"docker compose -f ${COMPOSE_FILE} --env-file ${ENV_FILE}\"
 
                echo \"→ checking out \${DEPLOY_SHA}\"
                git config --global --add safe.directory ${DEPLOY_PATH}
@@ -296,8 +325,13 @@ jobs:
                # first guarantees the commit is present (it is always an ancestor
                # of, or equal to, the branch tip) without relying on the server
                # allowing a bare-SHA fetch.
-               git fetch https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git main
+               git fetch https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git \${TARGET_BRANCH}
                git reset --hard \${DEPLOY_SHA}
+
+               if [ \"\${TARGET_ENV}\" = 'staging' ]; then
+                 echo '→ verifying .env.staging is not production'
+                 bash scripts/staging/check-staging-env.sh .env.staging ../app.aivastra.com/.env.production
+               fi
 
                echo \"→ building images for: \${SERVICES}\"
                \${COMPOSE} build \${SERVICES}
