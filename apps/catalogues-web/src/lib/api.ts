@@ -6,7 +6,15 @@ import {
   responseError,
 } from './errors';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+export function getApiUrl(): string {
+  const envUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+  if (typeof window === 'undefined') return envUrl;
+  if (envUrl.includes('localhost') && window.location.hostname !== 'localhost') {
+    return envUrl.replace('localhost', window.location.hostname);
+  }
+  return envUrl;
+}
+
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
 // Access token lives only in module memory — never in a JS-readable cookie.
@@ -82,7 +90,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  let res = await fetchApi(`${API_URL}${path}`, {
+  let res = await fetchApi(`${getApiUrl()}${path}`, {
     ...options,
     headers,
     credentials: 'include',
@@ -92,7 +100,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const refreshed = await tryRefresh();
     if (refreshed) {
       headers.Authorization = `Bearer ${refreshed}`;
-      res = await fetchApi(`${API_URL}${path}`, {
+      res = await fetchApi(`${getApiUrl()}${path}`, {
         ...options,
         headers,
         credentials: 'include',
@@ -103,7 +111,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       const fallback = _memToken;
       if (fallback) {
         headers.Authorization = `Bearer ${fallback}`;
-        res = await fetchApi(`${API_URL}${path}`, {
+        res = await fetchApi(`${getApiUrl()}${path}`, {
           ...options,
           headers,
           credentials: 'include',

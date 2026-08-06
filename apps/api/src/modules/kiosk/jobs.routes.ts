@@ -6,10 +6,11 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { Redis } from 'ioredis';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 import { merchantRefund } from '../merchant/ledger.js';
 import { resolveTryonGarment } from '../merchant/resolve-tryon-garment.js';
-import { createKioskJob, KIOSK_JOB_COST } from './create-job.js';
+import { createKioskJob } from './create-job.js';
 
 async function checkRateLimit(
   redis: Redis,
@@ -183,7 +184,7 @@ export async function kioskJobsRoutes(app: FastifyInstance) {
         kioskDeviceId,
         upperGarmentKey: garment.r2Key,
         customerPhotoKey,
-        cost: KIOSK_JOB_COST,
+        cost: await getTryonCreditCost(app),
         workflowTemplateId: garment.workflowTemplateId,
       });
 

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { apiErrorMessage, apiFetch } from '../../lib/data';
+import { apiFetch } from '../../lib/data';
 import type {
   CatalogItem,
   GarmentType,
@@ -38,12 +38,10 @@ const VALID_TABS: AssetTab[] = [
 export type Toast = (t: { kind?: 'error'; title: string; body?: string }) => void;
 
 interface AssetsContextValue {
-  // Navigation
   activeTab: AssetTab;
   setActiveTab: (tab: AssetTab) => void;
   genderFilter: GenderFilter;
   setGenderFilter: (f: GenderFilter) => void;
-  // Shared data
   faces: ModelFace[];
   setFaces: React.Dispatch<React.SetStateAction<ModelFace[]>>;
   loadFaces: () => void;
@@ -55,10 +53,8 @@ interface AssetsContextValue {
   loadGarmentTypes: () => Promise<void>;
   workflows: WorkflowOption[];
   setWorkflows: React.Dispatch<React.SetStateAction<WorkflowOption[]>>;
-  // Catalog items (used for garment-type coverage indicator)
   catalogItems: CatalogItem[];
   setCatalogItems: React.Dispatch<React.SetStateAction<CatalogItem[]>>;
-  // UI helpers
   loading: boolean;
   setLoading: React.Dispatch<React.SetStateAction<boolean>>;
   previewUrl: string | null;
@@ -100,63 +96,51 @@ export function AssetsProvider({ toast, children }: { toast: Toast; children: Re
     try {
       const res = await apiFetch<{ items: ModelFace[] }>('/admin/assets/faces');
       setFaces(res.items);
-    } catch (e) {
-      toast({
-        kind: 'error',
-        title: 'Failed to load faces',
-        body: apiErrorMessage(e, 'Please try again.'),
-      });
+    } catch (_e) {
+      setFaces([]);
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, []);
 
   const loadAllBackgrounds = useCallback(async () => {
     setLoading(true);
     try {
       const res = await apiFetch<{ items: ModelBackground[] }>('/admin/assets/backgrounds');
       setAllBackgrounds(res.items);
-    } catch (e) {
-      toast({
-        kind: 'error',
-        title: 'Failed to load backgrounds',
-        body: apiErrorMessage(e, 'Please try again.'),
-      });
+    } catch (_e) {
+      setAllBackgrounds([]);
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, []);
 
   const loadGarmentTypes = useCallback(async () => {
     setLoading(true);
     try {
       const res = await apiFetch<{ items: GarmentType[] }>('/admin/assets/garment-types');
       setGarmentTypes(res.items);
-    } catch (e) {
-      toast({
-        kind: 'error',
-        title: 'Failed to load garment types',
-        body: apiErrorMessage(e, 'Please try again.'),
-      });
+    } catch (_e) {
+      setGarmentTypes([]);
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, []);
 
   // Preload shared data on mount so filters/dropdowns are populated immediately
   useEffect(() => {
     apiFetch<{ items: ModelFace[] }>('/admin/assets/faces')
       .then((r) => setFaces(r.items))
-      .catch(() => {});
+      .catch(() => setFaces([]));
     apiFetch<{ items: ModelBackground[] }>('/admin/assets/backgrounds')
       .then((r) => setAllBackgrounds(r.items))
-      .catch(() => {});
+      .catch(() => setAllBackgrounds([]));
     apiFetch<CatalogItem[]>('/admin/catalog/items')
       .then((items) => setCatalogItems(items))
       .catch(() => {});
     apiFetch<{ items: GarmentType[] }>('/admin/assets/garment-types')
       .then((r) => setGarmentTypes(r.items))
-      .catch(() => {});
+      .catch(() => setGarmentTypes([]));
   }, []);
 
   const value = useMemo<AssetsContextValue>(

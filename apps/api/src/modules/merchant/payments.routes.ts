@@ -9,6 +9,7 @@ import {
 import { and, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { AppError } from '../../lib/errors.js';
+import { resolveMerchantUserId } from './ledger.js';
 
 const GST_RATE = 0.18;
 
@@ -34,7 +35,7 @@ async function createRazorpayOrder(
   return res.json() as Promise<{ id: string }>;
 }
 
-// Idempotent credit grant to a merchant + ledger entry.
+// Idempotent credit grant to a merchant's (single, unified) credit pool + ledger entry.
 async function grantMerchantCredits(
   app: FastifyInstance,
   merchantId: string,
@@ -43,6 +44,9 @@ async function grantMerchantCredits(
   credits: number,
   signature?: string,
 ): Promise<void> {
+  // biome-ignore lint/suspicious/noExplicitAny: DB type narrowing
+  const userId = await resolveMerchantUserId(app.db as any, merchantId);
+
   await app.db.transaction(async (tx) => {
     await tx
       .update(schema.merchantPayments)
@@ -55,18 +59,18 @@ async function grantMerchantCredits(
       .where(eq(schema.merchantPayments.razorpayOrderId, razorpayOrderId));
 
     await tx
-      .insert(schema.merchantCredits)
-      .values({ merchantId, balance: credits })
+      .insert(schema.userCredits)
+      .values({ userId, balance: credits })
       .onConflictDoUpdate({
-        target: schema.merchantCredits.merchantId,
+        target: schema.userCredits.userId,
         set: {
-          balance: sql`${schema.merchantCredits.balance} + ${credits}`,
+          balance: sql`${schema.userCredits.balance} + ${credits}`,
           updatedAt: new Date(),
         },
       });
 
-    await tx.insert(schema.merchantCreditLedger).values({
-      merchantId,
+    await tx.insert(schema.creditLedger).values({
+      userId,
       delta: credits,
       reason: 'PAYMENT',
       adminId: null,
@@ -171,9 +175,10 @@ export async function merchantPaymentsRoutes(app: FastifyInstance) {
       );
 
       const [bal] = await app.db
-        .select({ balance: schema.merchantCredits.balance })
-        .from(schema.merchantCredits)
-        .where(eq(schema.merchantCredits.merchantId, clientId));
+        .select({ balance: schema.userCredits.balance })
+        .from(schema.merchants)
+        .innerJoin(schema.userCredits, eq(schema.userCredits.userId, schema.merchants.userId))
+        .where(eq(schema.merchants.id, clientId));
 
       return { ok: true, alreadyCredited: false, balance: bal?.balance ?? payment.credits };
     },

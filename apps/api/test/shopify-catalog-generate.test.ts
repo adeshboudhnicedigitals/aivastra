@@ -108,11 +108,11 @@ beforeAll(async () => {
     .returning();
   poseId = pose.id;
 
-  // Stub the outbound fetch to (a) the Shopify Admin REST images.json endpoint the
+  // Stub the outbound fetch to (a) the Shopify Admin GraphQL endpoint the
   // route now calls to confirm sourceImageUrl belongs to the product (fetchLiveProductImages,
   // products.routes.ts), and (b) the Shopify CDN image download itself — so the test
   // doesn't depend on network access. createJob only needs the object to exist in R2
-  // with a readable size, not real image bytes. The images.json stub returns every
+  // with a readable size, not real image bytes. The GraphQL stub returns every
   // sourceImageUrl used across this file's tests as "live" images of the product, so
   // each test's legitimate sourceImageUrl matches.
   const LIVE_IMAGE_URLS = [
@@ -122,9 +122,20 @@ beforeAll(async () => {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) => {
-      if (typeof url === 'string' && url.includes('/images.json')) {
+      if (typeof url === 'string' && url.includes('/graphql.json')) {
         return new Response(
-          JSON.stringify({ images: LIVE_IMAGE_URLS.map((src, id) => ({ id, src })) }),
+          JSON.stringify({
+            data: {
+              product: {
+                images: {
+                  nodes: LIVE_IMAGE_URLS.map((imageUrl, i) => ({
+                    id: `gid://shopify/ProductImage/${i}`,
+                    url: imageUrl,
+                  })),
+                },
+              },
+            },
+          }),
           { status: 200, headers: { 'content-type': 'application/json' } },
         );
       }

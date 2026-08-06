@@ -13,6 +13,7 @@ import CreditAnalysisPage from './pages/CreditAnalysisPage';
 import DashboardPage from './pages/DashboardPage';
 import DemoCatalogPage from './pages/DemoCatalogPage';
 import DevApiPage from './pages/DevApiPage';
+import HeldBatchesPage from './pages/HeldBatchesPage';
 import JobsPage from './pages/JobsPage';
 import LoginPage from './pages/LoginPage';
 import RecycleBinPage from './pages/RecycleBinPage';
@@ -33,6 +34,7 @@ const PATH_LABELS: Record<string, string> = {
   'demo-catalog': 'Kiosk Demo Data',
   users: 'Users',
   jobs: 'Jobs',
+  'held-batches': 'Held Batches',
   workflows: 'Workflows',
   'dev-api': 'Dev API',
   'chat-inbox': 'Chat Inbox',
@@ -63,6 +65,7 @@ export default function App() {
   const [theme, setThemeState] = useState<Theme>(readStoredTheme);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const idRef = useRef(0);
   const navigate = useNavigate();
   const location = useLocation();
@@ -82,6 +85,11 @@ export default function App() {
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
   }, [theme]);
+
+  // Close the mobile drawer whenever the route changes
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [location.pathname]);
 
   // Load server preference on login
   useEffect(() => {
@@ -199,13 +207,21 @@ export default function App() {
         role={role ?? ''}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
+        mobileOpen={mobileNavOpen}
+        onCloseMobile={() => setMobileNavOpen(false)}
       />
+      {mobileNavOpen && (
+        // biome-ignore lint/a11y/useKeyWithClickEvents: backdrop closes drawer
+        // biome-ignore lint/a11y/noStaticElementInteractions: backdrop closes drawer
+        <div className="sidebar-backdrop" onClick={() => setMobileNavOpen(false)} />
+      )}
       <div className="main">
         <Topbar
           trail={trail}
           onNavTrail={(i) => i === 0 && navigate('/dashboard')}
           theme={theme}
           onToggleTheme={toggleTheme}
+          onOpenMobileNav={() => setMobileNavOpen(true)}
         />
         <main className="content">
           <Routes>
@@ -214,6 +230,7 @@ export default function App() {
             <Route path="/assets" element={<AssetsPage {...pageProps} />} />
             <Route path="/users" element={<UsersPage {...pageProps} />} />
             <Route path="/jobs" element={<JobsPage {...pageProps} />} />
+            <Route path="/held-batches" element={<HeldBatchesPage {...pageProps} />} />
             <Route path="/workflows" element={<WorkflowsPage {...pageProps} />} />
             <Route path="/shopify-funnels" element={<ShopifyFunnelsPage {...pageProps} />} />
             <Route path="/credit-analysis" element={<CreditAnalysisPage {...pageProps} />} />

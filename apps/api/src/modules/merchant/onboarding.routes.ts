@@ -15,8 +15,9 @@ function fallbackContactName(displayName: string | null, email: string | null): 
  * Guarded by requireDeviceUser, NOT requireMerchant — the entire point is that no
  * merchants row exists yet, so requireMerchant would 403 every caller. Restricted
  * to device-app sessions (not requireUser) because this is an Android-app-only
- * flow: onboarding creates an active, zero-review, 0-credit merchant, so a plain
- * web session must not be able to reach it.
+ * flow: onboarding creates an active, zero-review merchant profile that shares
+ * the user's existing credit balance, so a plain web session must not be able
+ * to reach it.
  */
 export async function merchantOnboardingRoutes(app: FastifyInstance) {
   app.get('/v1/merchant/onboarding', { preHandler: app.requireDeviceUser }, async (req) => {
@@ -82,9 +83,6 @@ export async function merchantOnboardingRoutes(app: FastifyInstance) {
           })
           .returning({ id: schema.merchants.id });
         if (!created) throw new AppError('INTERNAL', 500, 'failed to create merchant');
-
-        // Every merchant credit helper assumes this row exists.
-        await tx.insert(schema.merchantCredits).values({ merchantId: created.id, balance: 0 });
 
         if (!user.phone) {
           await tx

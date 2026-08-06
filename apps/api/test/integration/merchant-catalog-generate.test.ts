@@ -29,7 +29,6 @@ async function createMerchant(app: TestApp, email: string) {
       userId: merchantUser.id,
     })
     .returning();
-  await app.db.insert(schema.merchantCredits).values({ merchantId: merchant.id, balance: 0 });
   return { merchant, userId: merchantUser.id };
 }
 
@@ -816,7 +815,9 @@ describe('merchant catalog generate (single, Path B)', () => {
       expect(status.statusCode).toBe(200);
       const body = status.json() as { items: Array<{ jobId: string; status: string }> };
       expect(body.items).toHaveLength(3);
-      expect(body.items.every((i) => i.status === 'QUEUED')).toBe(true);
+      // Bulk-flat batches are held for admin release, not enqueued immediately —
+      // see Task 2 (create-job.ts's `hold` flag).
+      expect(body.items.every((i) => i.status === 'HELD')).toBe(true);
     });
 
     it('reports failures for unowned keys while still enqueuing the valid ones', async () => {
@@ -863,7 +864,7 @@ describe('merchant catalog generate (single, Path B)', () => {
       expect(failures[0].flatImageKey).toBe(unownedKey);
     });
 
-    it('returns 400 when every image in the batch fails', async () => {
+    it('returns 201 with an empty jobIds and per-item reasons when every image in the batch fails', async () => {
       const { userId } = await createMerchant(app, 'gen-bulk-allfail@example.com');
       await grantUserCredits(app, userId, 1000);
       const auth = await authHeader(userId);
@@ -888,7 +889,14 @@ describe('merchant catalog generate (single, Path B)', () => {
         headers: auth,
         payload: { subcategoryId, flatImageKeys: unownedKeys },
       });
-      expect(bulk.statusCode).toBe(400);
+      expect(bulk.statusCode).toBe(201);
+      const { jobIds, failures } = bulk.json() as {
+        jobIds: string[];
+        failures: Array<{ flatImageKey: string; error: string }>;
+      };
+      expect(jobIds).toHaveLength(0);
+      expect(failures).toHaveLength(2);
+      expect(failures.map((f) => f.flatImageKey).sort()).toEqual([...unownedKeys].sort());
     });
   });
 

@@ -1,14 +1,19 @@
 import type { schema } from '@aivastra/db';
 import type { FastifyInstance } from 'fastify';
+import { shopifyActivationRoutes } from './activation.routes.js';
+import { shopifyAnalyticsRoutes } from './analytics.routes.js';
 import { shopifyAuthRoutes } from './auth.routes.js';
 import { shopifyCatalogRoutes } from './catalog.routes.js';
 import { shopifyCatalogOptionsRoutes } from './catalog-options.routes.js';
-import { shopifyFunnelRoutes } from './funnel.routes.js';
+import { shopifyEventsRoutes } from './events.routes.js';
 import { shopifyMeRoutes } from './me.routes.js';
 import { shopifyOnboardingRoutes } from './onboarding.routes.js';
 import { shopifyProductsRoutes } from './products.routes.js';
 import { enqueueSync } from './service.js';
+import { shopifySettingsRoutes } from './settings.routes.js';
+import { shopifyShoppersRoutes } from './shoppers.routes.js';
 import { registerWebhooksDecorator, shopifyWebhookRoutes } from './webhook.routes.js';
+import { shopifyWidgetConfigRoutes } from './widget-config.routes.js';
 
 export async function shopifyRoutes(app: FastifyInstance) {
   // Must register before shopifyAuthRoutes: the callback handler in auth.routes.ts
@@ -23,7 +28,12 @@ export async function shopifyRoutes(app: FastifyInstance) {
   await app.register(shopifyCatalogOptionsRoutes);
   await app.register(shopifyCatalogRoutes);
   await app.register(shopifyOnboardingRoutes);
-  await app.register(shopifyFunnelRoutes);
+  await app.register(shopifySettingsRoutes);
+  await app.register(shopifyEventsRoutes);
+  await app.register(shopifyAnalyticsRoutes);
+  await app.register(shopifyWidgetConfigRoutes);
+  await app.register(shopifyShoppersRoutes);
+  await app.register(shopifyActivationRoutes);
   // Plain (non-fp) function: gets its own encapsulated child context, so the
   // raw-body JSON content-type parser registered inside stays scoped to these
   // webhook routes only and never leaks to sibling routes or the rest of the app.

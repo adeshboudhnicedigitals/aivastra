@@ -1,3 +1,4 @@
+import { getApiUrl, getToken, initToken } from './api';
 import { responseError } from './errors';
 
 /**
@@ -8,7 +9,6 @@ import { responseError } from './errors';
  * over auth, reconnect logic, and parsing.
  */
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
 const INITIAL_DELAY_MS = 1_000;
@@ -27,21 +27,16 @@ export interface SSEConnection {
 
 export type SSEState = 'connecting' | 'connected' | 'reconnecting';
 
-function getToken(): string | null {
-  if (typeof document === 'undefined') return null;
-  const m = document.cookie.match(/(?:^|; )access_token=([^;]*)/);
-  return m?.[1] !== undefined ? decodeURIComponent(m[1]) : null;
-}
-
 async function tryRefreshToken(): Promise<string | null> {
   try {
     const res = await fetch(`${BASE}/api/auth/refresh`, { method: 'POST' });
     if (!res.ok) return null;
     const { accessToken } = (await res.json()) as { accessToken: string };
-    const secure = location.protocol === 'https:' ? '; Secure' : '';
-    // biome-ignore lint/suspicious/noDocumentCookie: cookie is the only way to set auth token for custom SSE client
-    document.cookie = `access_token=${encodeURIComponent(accessToken)}; path=/; max-age=900; SameSite=Lax${secure}`;
-    return accessToken;
+    if (accessToken) {
+      initToken(accessToken);
+      return accessToken;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -84,10 +79,13 @@ export function createSSEConnection<T = unknown>(
 
     try {
       let token = getToken();
+      if (!token) {
+        token = await tryRefreshToken();
+      }
       const headers: Record<string, string> = {};
       if (token) headers.Authorization = `Bearer ${token}`;
 
-      let res = await fetch(`${API_URL}${path}`, {
+      let res = await fetch(`${getApiUrl()}${path}`, {
         headers,
         credentials: 'include',
         signal: controller.signal,
@@ -100,7 +98,7 @@ export function createSSEConnection<T = unknown>(
           closed = true;
           return;
         }
-        res = await fetch(`${API_URL}${path}`, {
+        res = await fetch(`${getApiUrl()}${path}`, {
           headers: { Authorization: `Bearer ${token}` },
           credentials: 'include',
           signal: controller.signal,

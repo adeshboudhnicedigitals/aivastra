@@ -6,7 +6,11 @@ import type { TestApp } from './api.js';
 
 export async function createTestMerchant(
   app: TestApp,
-  opts: { isActive?: boolean; balance?: number; demoData?: boolean } = {},
+  opts: {
+    isActive?: boolean;
+    balance?: number;
+    demoData?: boolean;
+  } = {},
 ) {
   const [user] = await app.db
     .insert(schema.users)
@@ -32,6 +36,8 @@ export async function createTestMerchant(
     .returning();
   if (!merchant) throw new Error('failed to create test merchant');
 
+  // One pool: merchant spend (kiosk, android tryon) and personal spend
+  // (studio, catalogue generation) both draw from this balance.
   await app.db.insert(schema.userCredits).values({ userId: user.id, balance: opts.balance ?? 100 });
 
   return {

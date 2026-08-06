@@ -64,6 +64,7 @@ export default function UsersPage({ onNav, toast }: Props) {
   const isSuperAdmin = myRole === 'SUPER_ADMIN';
   const [query, setQuery] = useState('');
   const [merchantsOnly, setMerchantsOnly] = useState(false);
+  const [showBanned, setShowBanned] = useState(false);
   const [page, setPage] = useState(0);
   const [sortKey, setSortKey] = useState<keyof User>('createdAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -73,6 +74,11 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [detail, setDetail] = useState<User | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [confirmSuspend, setConfirmSuspend] = useState<string | null>(null);
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [deletingUser, setDeletingUser] = useState(false);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [grantUserId, setGrantUserId] = useState<string | null>(null);
   const [grantMode, setGrantMode] = useState<'grant' | 'deduct'>('grant');
   const [grantAmount, setGrantAmount] = useState('');
@@ -107,6 +113,7 @@ export default function UsersPage({ onNav, toast }: Props) {
       const params = new URLSearchParams({ page: String(page + 1), pageSize: String(PAGE_SIZE) });
       if (query) params.set('search', query);
       if (merchantsOnly) params.set('merchant', 'true');
+      if (showBanned) params.set('showBanned', 'true');
       const data = await apiFetch<{ items: User[]; total: number }>(`/admin/users?${params}`);
       setUsers(data.items);
       setTotal(data.total);
@@ -119,7 +126,7 @@ export default function UsersPage({ onNav, toast }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [page, query, merchantsOnly, toast]);
+  }, [page, query, merchantsOnly, showBanned, toast]);
 
   useEffect(() => {
     load();
@@ -237,6 +244,66 @@ export default function UsersPage({ onNav, toast }: Props) {
       });
     }
     setConfirmSuspend(null);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!confirmDelete) return;
+    const targetId = confirmDelete;
+    setDeletingUser(true);
+    try {
+      await apiFetch(`/admin/users/${targetId}`, { method: 'DELETE' });
+      if (detail?.id === targetId) setDetail(null);
+      toast({ title: 'User data erased' });
+      await load();
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Action failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setDeletingUser(false);
+      setConfirmDelete(null);
+    }
+  };
+
+  const handleBulkDeleteConfirm = async () => {
+    if (selectedUserIds.length === 0) return;
+    setBulkDeleting(true);
+    try {
+      const res = await apiFetch<{
+        succeeded: string[];
+        skipped: { id: string; reason: string }[];
+      }>('/admin/users/bulk-delete', {
+        method: 'POST',
+        body: JSON.stringify({ ids: selectedUserIds }),
+      });
+      const succLen = res.succeeded.length;
+      const skipLen = res.skipped.length;
+      toast({
+        title: `Erased ${succLen}, skipped ${skipLen}`,
+        body:
+          skipLen > 0
+            ? res.skipped
+                .map((s) => {
+                  const u = users.find((x) => x.id === s.id);
+                  return `${u ? (u.email ?? userLabel(u)) : s.id}: ${s.reason}`;
+                })
+                .join(', ')
+            : undefined,
+      });
+      setSelectedUserIds([]);
+      await load();
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Bulk delete failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setBulkDeleting(false);
+      setShowBulkDeleteConfirm(false);
+    }
   };
 
   const handleTierSave = async () => {
@@ -614,6 +681,11 @@ export default function UsersPage({ onNav, toast }: Props) {
                 <Icon.Ban /> {u.isBanned ? 'Unsuspend' : 'Suspend'}
               </button>
             )}
+            {isSuperAdmin && !u.isAdmin && (
+              <button className="btn danger" onClick={() => setConfirmDelete(u.id)}>
+                <Icon.Trash /> Delete
+              </button>
+            )}
           </div>
         </div>
 
@@ -785,11 +857,6 @@ export default function UsersPage({ onNav, toast }: Props) {
                         </label>
                       }
                     />
-                    <KV
-                      k="Catalogue credits"
-                      v={(u.merchant.creditBalance ?? 0).toLocaleString()}
-                      mono
-                    />
                   </div>
                 )}
               </div>
@@ -937,6 +1004,49 @@ export default function UsersPage({ onNav, toast }: Props) {
                 </button>
                 <button className="btn danger" onClick={handleSuspendConfirm}>
                   Confirm
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {confirmDelete && (
+          <div className="modal-overlay" onClick={() => setConfirmDelete(null)}>
+            <div className="modal confirm" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <h3>Delete user</h3>
+              </div>
+              <div className="modal-body">
+                <p>
+                  Permanently erase personal data for{' '}
+                  <strong>
+                    {(() => {
+                      const u = confirmDelete
+                        ? detail?.id === confirmDelete
+                          ? detail
+                          : users.find((x) => x.id === confirmDelete)
+                        : null;
+                      return u ? (u.email ?? userLabel(u)) : 'this user';
+                    })()}
+                  </strong>
+                  ? This cannot be undone. Their job and payment history will be retained but
+                  anonymized.
+                </p>
+              </div>
+              <div className="modal-foot">
+                <button
+                  className="btn ghost"
+                  onClick={() => setConfirmDelete(null)}
+                  disabled={deletingUser}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn danger"
+                  onClick={handleDeleteConfirm}
+                  disabled={deletingUser}
+                >
+                  {deletingUser ? 'Erasing…' : 'Confirm'}
                 </button>
               </div>
             </div>
@@ -1327,10 +1437,74 @@ export default function UsersPage({ onNav, toast }: Props) {
         </p>
       ) : (
         <>
-          <div className="table-wrap">
+          <div
+            style={{
+              display: 'flex',
+              gap: 8,
+              alignItems: 'center',
+              padding: '10px 0',
+              marginBottom: 4,
+              flexWrap: 'wrap',
+            }}
+          >
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 13,
+                color: 'var(--muted)',
+                cursor: 'pointer',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={showBanned}
+                onChange={(e) => {
+                  setShowBanned(e.target.checked);
+                  setPage(0);
+                }}
+              />
+              Show suspended/deleted
+            </label>
+            {(() => {
+              const pagedUserIds = sorted.map((u) => u.id);
+              const pageSelected =
+                pagedUserIds.length > 0 && pagedUserIds.every((id) => selectedUserIds.includes(id));
+              return (
+                <button
+                  className="btn sm ghost"
+                  onClick={() => {
+                    setSelectedUserIds((prev) =>
+                      pageSelected
+                        ? prev.filter((id) => !pagedUserIds.includes(id))
+                        : [...new Set([...prev, ...pagedUserIds])],
+                    );
+                  }}
+                >
+                  {pageSelected ? 'Deselect page' : 'Select page'}
+                </button>
+              );
+            })()}
+            {selectedUserIds.length > 0 && (
+              <>
+                <span style={{ fontSize: 13, color: 'var(--muted)' }}>
+                  {selectedUserIds.length} selected
+                </span>
+                {isSuperAdmin && (
+                  <button className="btn sm danger" onClick={() => setShowBulkDeleteConfirm(true)}>
+                    Delete selected ({selectedUserIds.length})
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+
+          <div className="desktop-only table-wrap">
             <table>
               <thead>
                 <tr>
+                  <th style={{ width: 36 }} />
                   <Th k="displayName" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
                     User
                   </Th>
@@ -1364,6 +1538,17 @@ export default function UsersPage({ onNav, toast }: Props) {
                     onClick={() => openDetail(u)}
                     style={{ cursor: 'pointer', opacity: u.isBanned ? 0.6 : 1 }}
                   >
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedUserIds.includes(u.id)}
+                        onChange={(e) =>
+                          setSelectedUserIds((prev) =>
+                            e.target.checked ? [...prev, u.id] : prev.filter((x) => x !== u.id),
+                          )
+                        }
+                      />
+                    </td>
                     <td>
                       <div
                         style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 220 }}
@@ -1461,7 +1646,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                 {sorted.length === 0 && (
                   <tr>
                     <td
-                      colSpan={10}
+                      colSpan={11}
                       style={{ textAlign: 'center', color: 'var(--muted)', padding: '2.5rem' }}
                     >
                       No users found.
@@ -1470,6 +1655,100 @@ export default function UsersPage({ onNav, toast }: Props) {
                 )}
               </tbody>
             </table>
+          </div>
+
+          <div className="mobile-only" style={{ gap: 12 }}>
+            {sorted.map((u) => (
+              <button
+                type="button"
+                key={u.id}
+                onClick={() => openDetail(u)}
+                className="card"
+                style={{
+                  padding: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 10,
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  opacity: u.isBanned ? 0.6 : 1,
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                  background: 'var(--surface)',
+                  width: '100%',
+                  textAlign: 'left',
+                  color: 'inherit',
+                  fontFamily: 'inherit',
+                  fontSize: 'inherit',
+                }}
+              >
+                <div
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}
+                >
+                  <NameAvatar name={userLabel(u)} email={u.email ?? undefined} size={32} />
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div
+                      className="semi"
+                      style={{
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        fontSize: 14,
+                      }}
+                    >
+                      {userLabel(u)}
+                    </div>
+                    <div
+                      className="sub"
+                      style={{
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        fontSize: 11,
+                        display: 'flex',
+                        gap: 6,
+                        alignItems: 'center',
+                      }}
+                    >
+                      <span style={{ textTransform: 'capitalize' }}>{u.tier}</span>
+                      <span>&middot;</span>
+                      <span className="mono">{u.balance.toLocaleString()} credits</span>
+                    </div>
+                  </div>
+                </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-end',
+                    gap: 4,
+                    flexShrink: 0,
+                  }}
+                >
+                  {u.isBanned ? (
+                    <span className="badge danger dot">Suspended</span>
+                  ) : (
+                    <span className="badge success dot">Active</span>
+                  )}
+                  {u.isAdmin && (
+                    <span className="badge accent" style={{ fontSize: 10 }}>
+                      {u.adminRole === 'SUPER_ADMIN' ? 'Super Admin' : 'Admin'}
+                    </span>
+                  )}
+                  {u.isMerchant && (
+                    <span className="badge success" style={{ fontSize: 10 }}>
+                      Merchant
+                    </span>
+                  )}
+                </div>
+              </button>
+            ))}
+            {sorted.length === 0 && (
+              <div style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}>
+                No users found.
+              </div>
+            )}
           </div>
 
           <Pager
@@ -1563,6 +1842,63 @@ export default function UsersPage({ onNav, toast }: Props) {
                 disabled={creatingUser}
               >
                 {creatingUser ? 'Creating…' : 'Create User'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showBulkDeleteConfirm && (
+        <div className="modal-overlay" onClick={() => setShowBulkDeleteConfirm(false)}>
+          <div className="modal confirm" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Delete selected users</h3>
+            </div>
+            <div className="modal-body">
+              <p>
+                Permanently erase personal data for {selectedUserIds.length} selected user
+                {selectedUserIds.length > 1 ? 's' : ''}? This cannot be undone. Their job and
+                payment history will be retained but anonymized.
+              </p>
+              <ul
+                style={{
+                  maxHeight: 180,
+                  overflowY: 'auto',
+                  margin: '8px 0',
+                  paddingLeft: 20,
+                  fontSize: 13,
+                }}
+              >
+                {selectedUserIds.slice(0, 10).map((id) => {
+                  const uObj = users.find((x) => x.id === id);
+                  const label = uObj ? (uObj.email ?? userLabel(uObj)) : id;
+                  return (
+                    <li key={id}>
+                      <strong>{label}</strong>
+                    </li>
+                  );
+                })}
+                {selectedUserIds.length > 10 && (
+                  <li style={{ fontStyle: 'italic', color: 'var(--muted)' }}>
+                    and {selectedUserIds.length - 10} more
+                  </li>
+                )}
+              </ul>
+            </div>
+            <div className="modal-foot">
+              <button
+                className="btn ghost"
+                onClick={() => setShowBulkDeleteConfirm(false)}
+                disabled={bulkDeleting}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn danger"
+                onClick={handleBulkDeleteConfirm}
+                disabled={bulkDeleting}
+              >
+                {bulkDeleting ? 'Erasing…' : 'Confirm'}
               </button>
             </div>
           </div>

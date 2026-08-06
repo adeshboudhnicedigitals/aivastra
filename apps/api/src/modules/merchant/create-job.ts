@@ -47,6 +47,11 @@ export async function createMerchantCatalogJob(
     flatImageKey: string;
     subcategoryId: string;
     merchantId: string;
+    // Bulk-flat batches are parked at status HELD and never enqueued here; an
+    // admin releases every merchant's held jobs at once during free-GPU hours
+    // (POST /admin/held-jobs/release). Credits are still deducted now, in the
+    // same transaction, so a released batch can never fail for lack of balance.
+    hold?: boolean;
   },
 ): Promise<{ jobId: string }> {
   const [garmentType] = await app.db
@@ -223,11 +228,13 @@ export async function createMerchantCatalogJob(
     await tx.insert(schema.jobs).values({
       id: jobId,
       userId: params.userId,
-      status: 'QUEUED',
+      status: params.hold ? 'HELD' : 'QUEUED',
       // Merchant-generated catalogue images are never watermarked, regardless of
       // the user's plan tier — merchants are paying customers of a distinct product.
       watermark: false,
-      queueStream: 'normal',
+      // A released batch is bulk backfill, not someone waiting on a screen — it
+      // must never sit in front of live customer traffic.
+      queueStream: params.hold ? 'low' : 'normal',
       creditsCharged: cost,
       source: JOB_SOURCE.MERCHANT_CATALOG,
     });
@@ -253,21 +260,28 @@ export async function createMerchantCatalogJob(
         // before the real generation. See apps/dispatcher/src/job/processor.ts's
         // requiresMannequinStep branch.
         needsMannequinStep: garmentType.requiresMannequinStep,
+        // Marks the job for POST /v1/merchant/catalog/reconcile-held, which turns
+        // it into a product row once it completes — the merchant is long gone by
+        // then and cannot call /import themselves.
+        ...(params.hold ? { heldBatch: true } : {}),
       },
     });
   });
 
-  await app.redis.xadd(
-    'jobs:normal',
-    'MAXLEN',
-    '~',
-    10000,
-    '*',
-    'jobId',
-    jobId,
-    'userId',
-    params.userId,
-  );
+  // Held jobs enter the stream only when an admin releases them.
+  if (!params.hold) {
+    await app.redis.xadd(
+      'jobs:normal',
+      'MAXLEN',
+      '~',
+      10000,
+      '*',
+      'jobId',
+      jobId,
+      'userId',
+      params.userId,
+    );
+  }
 
   return { jobId };
 }

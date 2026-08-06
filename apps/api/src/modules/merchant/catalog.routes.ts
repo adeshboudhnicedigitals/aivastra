@@ -11,7 +11,7 @@ import {
   MerchantCatalogSubcategoryUpdateBody,
   MerchantCatalogUpdateBody,
 } from '@aivastra/types';
-import { and, count, desc, eq, ilike, inArray, or, type SQL } from 'drizzle-orm';
+import { and, count, desc, eq, ilike, inArray, or, type SQL, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -67,6 +67,10 @@ async function copyJobOutputIntoProduct(
     sourceKind: 'imported' | 'generated';
     flatSourceKey?: string;
     label?: string;
+    // Held-batch products land inactive: nobody was on screen to give them a
+    // SKU or a price, and the kiosk query filters on isActive. Defaults true so
+    // the interactive /import path is unchanged.
+    isActive?: boolean;
   },
 ): Promise<MerchantCatalogRow> {
   const sourceThumbKey = params.thumbnailKey ?? params.resultKey;
@@ -102,6 +106,7 @@ async function copyJobOutputIntoProduct(
         sourceJobId: params.job.id,
         sourceKind: params.sourceKind,
         flatSourceKey: params.flatSourceKey ?? null,
+        isActive: params.isActive ?? true,
       })
       .returning();
     return item;
@@ -579,9 +584,38 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         if (!subcategory) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
       }
 
+      const [existing] = await app.db
+        .select()
+        .from(schema.merchantCatalogItems)
+        .where(
+          and(
+            eq(schema.merchantCatalogItems.id, id),
+            eq(schema.merchantCatalogItems.merchantId, merchantId),
+          ),
+        )
+        .limit(1);
+      if (!existing) throw new AppError('NOT_FOUND', 404, 'catalog item not found');
+
+      // A held-batch product is materialized inactive with ₹0 prices and no SKU
+      // (see /reconcile-held). Filling those in is what publishes it to the
+      // kiosk. The ₹0 test is what distinguishes it from a product the merchant
+      // priced and then deliberately switched off — that one stays off.
+      const isPendingHeldProduct =
+        !existing.isActive &&
+        existing.sourceKind === 'generated' &&
+        existing.actualPricePaise === 0 &&
+        existing.offerPricePaise === 0;
+      const completesDetails =
+        !!body.sku?.trim() &&
+        body.actualPrice !== undefined &&
+        body.actualPrice > 0 &&
+        body.offerPrice !== undefined;
+      const autoActivate = isPendingHeldProduct && completesDetails && body.isActive === undefined;
+
       const [updated] = await app.db
         .update(schema.merchantCatalogItems)
         .set({
+          ...(autoActivate ? { isActive: true } : {}),
           ...(body.subcategoryId !== undefined ? { subcategoryId: body.subcategoryId } : {}),
           ...(body.label !== undefined ? { label: body.label } : {}),
           ...(body.sku !== undefined ? { sku: body.sku?.trim() || null } : {}),
@@ -917,6 +951,10 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
             flatImageKey,
             subcategoryId,
             merchantId,
+            // Every bulk-flat batch is held for admin release — see Task 3's
+            // POST /admin/held-jobs/release. The single-item /generate route
+            // stays interactive because the merchant is waiting on it.
+            hold: true,
           });
           jobIds.push(jobId);
         } catch (err) {
@@ -930,10 +968,9 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         }
       }
 
-      if (jobIds.length === 0) {
-        throw new AppError('VALIDATION', 400, 'all images in the batch failed to enqueue');
-      }
-
+      // Always return per-item failures rather than throwing, even when every
+      // item failed — the client needs the real reason for each row (e.g. a
+      // missing admin default), not a generic "all failed" message.
       reply.code(201);
       return { jobIds, failures };
     },
@@ -1029,6 +1066,119 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         : null;
 
       return { jobId: job.id, status: job.status, resultUrl, errorCode: job.errorCode };
+    },
+  );
+
+  /**
+   * Materializes completed held-batch jobs into products. The interactive
+   * generate flow finalizes each job from the browser via /import, but a held
+   * batch completes hours or days after the merchant closed the app — so the
+   * app calls this on load instead. Rows land isActive=false; PATCHing in a SKU
+   * and prices is what publishes them to the kiosk.
+   */
+  app.post(
+    '/v1/merchant/catalog/reconcile-held',
+    { preHandler: app.requireMerchant },
+    async (req) => {
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
+
+      const [client] = await app.db
+        .select({ userId: schema.merchants.userId })
+        .from(schema.merchants)
+        .where(eq(schema.merchants.id, merchantId))
+        .limit(1);
+      if (!client) throw new AppError('NOT_FOUND', 404, 'merchant not found');
+
+      const rows = await app.db
+        .select({
+          jobId: schema.jobs.id,
+          catalogueId: schema.jobs.catalogueId,
+          resultKey: schema.jobOutputs.resultKey,
+          thumbnailKey: schema.jobOutputs.thumbnailKey,
+          flatKey: schema.jobInputs.upperGarmentKey,
+          params: schema.jobInputs.params,
+        })
+        .from(schema.jobs)
+        .innerJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+        .innerJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
+        .where(
+          and(
+            eq(schema.jobs.userId, client.userId),
+            eq(schema.jobs.status, 'COMPLETED'),
+            sql`${schema.jobInputs.params}->>'heldBatch' = 'true'`,
+            sql`coalesce(${schema.jobInputs.params}->>'heldReconciled', 'false') <> 'true'`,
+          ),
+        )
+        .limit(200);
+
+      const created: Awaited<ReturnType<typeof serializeCatalogItem>>[] = [];
+      let failed = 0;
+      for (const row of rows) {
+        const subcategoryId = (row.params as { subcategoryId?: string } | null)?.subcategoryId;
+        if (!row.resultKey || !subcategoryId) {
+          failed++;
+          app.log.warn(
+            { jobId: row.jobId, hasResultKey: !!row.resultKey, subcategoryId },
+            'reconcile-held: job has incomplete data, cannot finalize',
+          );
+          continue;
+        }
+        try {
+          const item = await copyJobOutputIntoProduct(app, {
+            merchantId,
+            subcategoryId,
+            job: { id: row.jobId, catalogueId: row.catalogueId },
+            resultKey: row.resultKey,
+            thumbnailKey: row.thumbnailKey,
+            sourceKind: 'generated',
+            flatSourceKey: row.flatKey ?? undefined,
+            isActive: false,
+          });
+          created.push(await serializeCatalogItem(app, item));
+        } catch (err) {
+          // 409 = a concurrent reconcile already claimed this job and created
+          // its product — still mark reconciled below so this job stops being
+          // re-selected, exactly as if this call had won the race itself.
+          if (!(err instanceof AppError && err.statusCode === 409)) {
+            failed++;
+            app.log.warn({ err, jobId: row.jobId }, 'reconcile-held: failed to finalize job');
+            continue;
+          }
+        }
+        // Marks the job reconciled regardless of who actually created the
+        // product (this call or a concurrent one), so a merchant deleting the
+        // resulting product later never makes reconcile-held resurrect it —
+        // idempotency lives on the job, not on whether the product row exists.
+        try {
+          await app.db
+            .update(schema.jobInputs)
+            .set({
+              params: sql`${schema.jobInputs.params} || '{"heldReconciled": true}'::jsonb`,
+            })
+            .where(eq(schema.jobInputs.jobId, row.jobId));
+        } catch (err) {
+          // The product was already created (or a concurrent call already
+          // created it) — only the reconciled-marker write failed. Count it
+          // as failed so it's visible, but don't let it take down the whole
+          // response; the job stays selectable next time, which will retry
+          // this stamp (copyJobOutputIntoProduct's own 409 guard makes that
+          // safe even if the product now exists).
+          failed++;
+          app.log.warn(
+            { err, jobId: row.jobId },
+            'reconcile-held: failed to stamp reconciled marker',
+          );
+        }
+      }
+
+      if (failed > 0) {
+        app.log.error(
+          { failed, total: rows.length },
+          'reconcile-held: some jobs failed to finalize',
+        );
+      }
+      return { created, failed };
     },
   );
 }
