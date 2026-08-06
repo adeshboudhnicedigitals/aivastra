@@ -20,7 +20,7 @@ done
 # Prints nothing when the key is absent.
 read_var() {
   local key="$1" file="$2"
-  grep -E "^${key}=" "$file" | tail -n1 | cut -d= -f2- || true
+  grep -E "^${key}=" "$file" | tail -n1 | cut -d= -f2- | tr -d '\r"' || true
 }
 
 failed=0

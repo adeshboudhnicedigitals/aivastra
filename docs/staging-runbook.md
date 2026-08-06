@@ -108,8 +108,8 @@ docker compose -f infra/docker-compose.staging.yml --env-file .env.staging ps
 ## 10. First sync
 
 ```bash
-scripts/staging/sync-from-prod.sh --dry-run   # read every line
-scripts/staging/sync-from-prod.sh
+bash scripts/staging/sync-from-prod.sh --dry-run   # read every line
+bash scripts/staging/sync-from-prod.sh
 ```
 
 `PROD_ROOT` defaults to `/home/aivastra-app/htdocs/app.aivastra.com`; override it only if the layout changed. Expect the mirror to move ~15.6 G.

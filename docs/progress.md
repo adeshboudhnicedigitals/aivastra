@@ -1,15 +1,19 @@
 ## 2026-08-06 — Staging environment
 
 ### Done
-- Created `docs/staging-runbook.md` documenting the complete VPS provisioning guide (11 steps: reclaim cache, capacity baseline, clone repo, env file setup, GitHub secrets, DNS/CloudPanel vhost configuration with nginx WebSocket settings for chatbot, GPU worker deferral, Grafana Cloud setup, first boot sequence, initial sync, and re-sync cadence).
-- Added `## Staging Environment` section to `CLAUDE.md` after the "Adding a GPU worker" section, explaining that staging runs from `dev` on the same VPS under `aivastra-staging` project, ports are prod+100, data is an unscrubbed production snapshot, and `.env.staging` must pass validation before deploy.
-- Verified all bound ports in the staging compose file match the vhost routing table in the runbook (3100, 3101, 3103, 4100, 4300, 9100, 9101).
+- **Alloy env-scoping:** Scoped Grafana Alloy's container discovery per environment (`ALLOY_CONTAINER_REGEX`) so staging's Alloy only reads `aivastra-staging-*` containers and production's only reads `aivastra-prod-*`, sharing one Docker socket without cross-environment log/metric bleed.
+- **Staging compose stack + env template:** Added `infra/docker-compose.staging.yml` (mirror of `docker-compose.prod.yml`, namespaced project/container/network/ports at prod+100) and `.env.staging.example` covering every var the stack needs, each `change_me` placeholder flagged for the operator.
+- **Deploy guardrail script:** Added `scripts/staging/check-staging-env.sh`, which refuses to deploy unless `.env.staging` is demonstrably not a copy of production's (env marker, compose project name, no live Razorpay key, distinct Shopify app, distinct mail sender).
+- **Prod-to-staging sync script:** Added `scripts/staging/sync-from-prod.sh` — read-only against production, dumps + restores Postgres, mirrors MinIO objects (excluding user-content prefixes), empties the workers table, and re-applies dev-only migrations.
+- **CI pipeline routing:** Changed the deploy pipeline so pushes to `dev` deploy to staging and pushes to `main` deploy to production.
+- **VPS runbook + docs:** Created `docs/staging-runbook.md` documenting the complete VPS provisioning guide (11 steps: reclaim cache, capacity baseline, clone repo, env file setup, GitHub secrets, DNS/CloudPanel vhost configuration with nginx WebSocket settings for chatbot, GPU worker deferral, Grafana Cloud setup, first boot sequence, initial sync, and re-sync cadence). Added `## Staging Environment` section to `CLAUDE.md` after the "Adding a GPU worker" section. Verified all bound ports in the staging compose file match the vhost routing table in the runbook (3100, 3101, 3103, 4100, 4300, 9100, 9101).
 
 ### Failed / Not Done
-- None.
+- **No staging GPU worker yet (accepted, deferred):** Staging ships with an empty `workers` table, so every try-on job enqueues and stays `QUEUED` forever. This is intentional — the environment validates the rest of the stack (auth, credits, catalog, dispatcher plumbing up to worker selection) without needing a second GPU box. A dedicated ComfyUI worker will be provisioned and registered later.
 
 ### Open Questions / Decisions
-- **PixVerse:** Staging shares the production API key, so `VIDEO_CONCURRENCY=0` keeps the video lane closed until a second key exists or the spend is accepted.
+- **PixVerse:** Staging shares the production API key, so `PIXVERSE_API_KEY` is shipped empty in `.env.staging.example` — the dispatcher logs a startup warning and fails every catalog-video job fast with `PIXVERSE_NOT_CONFIGURED`, so no request ever reaches PixVerse. Fill it in only once staging has its own key, or the spend is accepted.
+- **Unscrubbed staging DB (accepted):** The staging database is an unscrubbed production snapshot — real customer, merchant and payment data — isolated from causing real-world effects only by staging's own credentials (test Razorpay keys, a separate Shopify dev app, a non-production mail sender), not by data scrubbing. `scripts/staging/check-staging-env.sh` enforces the credential isolation before every deploy.
 
 ## 2026-08-03 - Virtual Try-On Android cache synchronization desync fix
 
