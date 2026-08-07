@@ -333,7 +333,10 @@ jobs:
 
                if [ \"\${TARGET_ENV}\" = 'staging' ]; then
                  echo '→ verifying .env.staging is not production'
-                 bash scripts/staging/check-staging-env.sh .env.staging ../app.aivastra.com/.env.production
+                 # Staging and production are separate CloudPanel sites with their own
+                 # per-site home directories (aivastra-staging-app vs aivastra-app), not
+                 # siblings under one parent — an absolute path is required here.
+                 bash scripts/staging/check-staging-env.sh .env.staging /home/aivastra-app/htdocs/app.aivastra.com/.env.production
                fi
 
                echo \"→ building images for: \${SERVICES}\"
