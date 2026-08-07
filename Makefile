@@ -1,7 +1,7 @@
 # Aivastra — Makefile shortcuts
 # Requires: pnpm, docker, node >=20
 
-.PHONY: setup sync dev dev-api dev-web dev-dispatcher dev-admin build test typecheck lint docker-up docker-down docker-reset db-generate db-migrate seed-catalog health prod-up prod-down prod-restart prod-bootstrap prod-logs prod-ps shopify-deploy shopify-deploy-dev
+.PHONY: setup sync dev dev-api dev-web dev-dispatcher dev-admin build test typecheck lint docker-up docker-down docker-reset db-generate db-migrate seed-catalog health prod-up prod-down prod-restart prod-bootstrap prod-logs prod-ps shopify-deploy shopify-deploy-dev shopify-deploy-staging
 
 setup:
 	cp .env.example .env
@@ -80,6 +80,11 @@ shopify-deploy:
 # instead of the prod app's shopify.app.toml -- never omit --config here.
 shopify-deploy-dev:
 	cd apps/shopify-extension && npx shopify app deploy --config dev
+
+# Deploys shopify.app.staging.toml (separate Partner Dashboard app, pinned to
+# staging-app.aivastra.com) -- never omit --config here.
+shopify-deploy-staging:
+	cd apps/shopify-extension && npx shopify app deploy --config staging
 
 # ── Production (VPS only) ──────────────────────────────────────────────────
 # Always pass --env-file .env.production so Compose var-substitution (${VAR}
