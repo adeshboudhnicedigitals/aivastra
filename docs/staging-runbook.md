@@ -100,7 +100,11 @@ location /v1/ {
 }
 
 location /minio/ {
-    proxy_pass http://127.0.0.1:9100;
+    # Trailing slash on proxy_pass is required — it tells nginx to strip the
+    # matched /minio/ prefix before forwarding. The bucket lives at MinIO's
+    # root, not under a /minio/ path; without the trailing slash nginx
+    # forwards the full /minio/<bucket>/<key> URI and MinIO 403s.
+    proxy_pass http://127.0.0.1:9100/;
     proxy_set_header Host $host;
 }
 
