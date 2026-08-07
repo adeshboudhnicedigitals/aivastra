@@ -14,9 +14,10 @@ DRY_RUN=0
 
 STAGING_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 STAGING_ENV="$STAGING_ROOT/.env.staging"
-# Both clones are siblings under the same CloudPanel htdocs directory:
-#   /home/aivastra-app/htdocs/app.aivastra.com          (prod, branch master)
-#   /home/aivastra-app/htdocs/staging-app.aivastra.com  (staging, branch dev)
+# Prod and staging are separate CloudPanel sites with their own per-site home
+# directories, not siblings under a shared parent:
+#   /home/aivastra-app/htdocs/app.aivastra.com                  (prod, branch main)
+#   /home/aivastra-staging-app/htdocs/staging-app.aivastra.com  (staging, branch dev)
 PROD_ROOT="${PROD_ROOT:-/home/aivastra-app/htdocs/app.aivastra.com}"
 PROD_ENV="$PROD_ROOT/.env.production"
 [ -r "$PROD_ENV" ] || { echo "cannot read $PROD_ENV — set PROD_ROOT to the production clone" >&2; exit 1; }
