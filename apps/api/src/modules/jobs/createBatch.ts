@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { type DB, schema } from '@aivastra/db';
 import { jobsCreatedTotal } from '@aivastra/observability';
-import { type CreateBatchJobBody, JOB_SOURCE } from '@aivastra/types';
+import { type CreateBatchJobBody, countBatchJobs, JOB_SOURCE } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { getMaxBatchJobs } from '../../lib/batch-config.js';
 import { AppError, withRowIndex } from '../../lib/errors.js';
 import { atomicDeduct, refundAndMarkFailed } from '../credits/ledger.js';
 import { resolveTryonPlan, type TryonPlan, verifyGarmentKey } from './create.js';
@@ -67,6 +68,19 @@ export async function createBatchJobs(
     );
   }
 
+  // Cap on total jobs, not rows: 50 rows of 10 poses is 500 jobs regardless of
+  // how few rows that is.
+  const requestedJobs = countBatchJobs(rows);
+  const maxBatchJobs = await getMaxBatchJobs(app);
+  if (requestedJobs > maxBatchJobs) {
+    throw new AppError(
+      'VALIDATION',
+      400,
+      `batch of ${requestedJobs} images exceeds the limit of ${maxBatchJobs}`,
+      { totalJobs: requestedJobs, maxBatchJobs },
+    );
+  }
+
   const queueStream: string = planRow?.queueStream ?? 'normal';
   const priority = queueStream === 'priority';
   const watermark: boolean = planRow?.watermark ?? false;
@@ -125,6 +139,24 @@ export async function createBatchJobs(
 
   const totalJobs = plans.reduce((n, plan) => n + plan.looks.length, 0);
   const creditsCharged = plans.reduce((n, plan) => n + plan.cost * plan.looks.length, 0);
+
+  // Preflight so an unaffordable batch is rejected with a useful message instead
+  // of surfacing as an opaque mid-transaction atomicDeduct failure. This is not
+  // the safety net — atomicDeduct inside the transaction below still is, and
+  // still rolls the whole batch back if a concurrent spend races past this read.
+  const [balanceRow] = await app.db
+    .select({ balance: schema.userCredits.balance })
+    .from(schema.userCredits)
+    .where(eq(schema.userCredits.userId, userId));
+  const available = balanceRow?.balance ?? 0;
+  if (available < creditsCharged) {
+    throw new AppError(
+      'INSUFFICIENT_CREDITS',
+      402,
+      `batch needs ${creditsCharged} credits, balance is ${available}`,
+      { required: creditsCharged, available },
+    );
+  }
 
   const batchId = randomUUID();
 
