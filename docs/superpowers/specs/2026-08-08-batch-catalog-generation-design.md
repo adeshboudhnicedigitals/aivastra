@@ -212,9 +212,12 @@ parity) is the guard on it.
 `GROUP BY batch_id, catalogue_id`, scoped to `jobs.user_id = req.userId`. Another
 user's batch is a 404, not a 403 — the ID's existence is not disclosed.
 
-Live progress rides the existing per-user SSE stream (`userStreamHandler` in
-`apps/api/src/modules/jobs/sse.ts`). One connection covers the whole batch; no
-per-job SSE.
+The batch view polls this endpoint every 4s until every catalogue is terminal,
+then stops. The existing per-user SSE stream (`userStreamHandler` in
+`apps/api/src/modules/jobs/sse.ts`) continues to drive the individual catalogue
+pages as it does today — one connection, never one per job. Polling the batch
+endpoint rather than deriving batch totals from SSE events keeps the batch view's
+counts correct even if the connection drops mid-run.
 
 ## Frontend
 
