@@ -5,7 +5,7 @@ import { type CreateBatchJobBody, JOB_SOURCE } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError, withRowIndex } from '../../lib/errors.js';
-import { atomicDeduct, refund } from '../credits/ledger.js';
+import { atomicDeduct, refundAndMarkFailed } from '../credits/ledger.js';
 import { resolveTryonPlan, type TryonPlan, verifyGarmentKey } from './create.js';
 import { promptGuard } from './sanitize.js';
 
@@ -33,7 +33,7 @@ export async function createBatchJobs(
 ): Promise<BatchCreateResult> {
   const { rows } = body;
 
-  const [[user], [planRow]] = await Promise.all([
+  const [[user], [planRow], [garmentType]] = await Promise.all([
     app.db.select().from(schema.users).where(eq(schema.users.id, userId)),
     app.db
       .select({
@@ -43,8 +43,29 @@ export async function createBatchJobs(
       .from(schema.users)
       .innerJoin(schema.creditPlans, eq(schema.users.tier, schema.creditPlans.slug))
       .where(eq(schema.users.id, userId)),
+    app.db
+      .select({ requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep })
+      .from(schema.garmentSubcategories)
+      .where(eq(schema.garmentSubcategories.id, body.garmentTypeId)),
   ]);
   if (!user || user.isBanned) throw new AppError('FORBIDDEN', 403, 'banned');
+
+  // Batch rows only ever carry a fresh upperGarmentKey upload — never a
+  // mannequinJobId — so opts.resolvedUpperGarmentKey passed to resolveTryonPlan
+  // below is always a string, never `undefined`. That means resolveTryonPlan's
+  // own defensive mannequin check (which only fires on `undefined`) can never
+  // catch this here. createJob rejects requiresMannequinStep garment types
+  // without a mannequinJobId explicitly (see create.ts) — mirror that guard so
+  // the batch path can't silently charge+route a flat upload through a
+  // workflow that expects a mannequin render, which would complete "successfully"
+  // and never trigger a refund.
+  if (garmentType?.requiresMannequinStep) {
+    throw new AppError(
+      'VALIDATION',
+      400,
+      'batch does not support garment types that require the mannequin two-pass flow',
+    );
+  }
 
   const queueStream: string = planRow?.queueStream ?? 'normal';
   const priority = queueStream === 'priority';
@@ -171,14 +192,21 @@ export async function createBatchJobs(
   }
 
   if (failedJobIds.length > 0) {
+    // refundAndMarkFailed does the refund + FAILED transition as one atomic,
+    // idempotent operation (guarded on status='QUEUED') — closes the crash-
+    // between-two-calls gap a separate refund() + UPDATE would leave open, and
+    // is a no-op if the dispatcher already claimed the job past QUEUED.
     await Promise.all(
-      failedJobIds.map(async (jobId) => {
-        await refund(app.db, userId, costByJobId.get(jobId) ?? 0, jobId, 'REFUND_ENQUEUE_FAIL');
-        await app.db
-          .update(schema.jobs)
-          .set({ status: 'FAILED', errorCode: 'ENQUEUE_FAIL' })
-          .where(eq(schema.jobs.id, jobId));
-      }),
+      failedJobIds.map((jobId) =>
+        refundAndMarkFailed(
+          app.db,
+          userId,
+          costByJobId.get(jobId) ?? 0,
+          jobId,
+          'REFUND_ENQUEUE_FAIL',
+          'ENQUEUE_FAIL',
+        ),
+      ),
     );
     if (failedJobIds.length === totalJobs) {
       throw new AppError('ENQUEUE_FAIL', 503, 'queue unavailable');
