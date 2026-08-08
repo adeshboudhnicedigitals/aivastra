@@ -1016,6 +1016,13 @@
       "when": 1785710400000,
       "tag": "0144_drop_merchant_credits",
       "breakpoints": true
+    },
+    {
+      "idx": 145,
+      "version": "7",
+      "when": 1785796800000,
+      "tag": "0145_model_face_tags",
+      "breakpoints": true
     }
   ]
 }
