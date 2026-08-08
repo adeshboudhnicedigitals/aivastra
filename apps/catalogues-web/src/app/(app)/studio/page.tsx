@@ -38,6 +38,7 @@ interface FaceItem {
   label: string;
   thumbnailUrl: string;
   gender: string;
+  tags: string[];
 }
 interface BackgroundItem {
   id: string;
@@ -574,6 +575,7 @@ export default function StudioPage(): React.ReactElement {
   const [backgroundModalOpen, setBackgroundModalOpen] = useState(false);
   const [backgroundItemFilter, setBackgroundItemFilter] = useState<number | ''>('');
   const [backgroundTagFilter, setBackgroundTagFilter] = useState<string>('');
+  const [modelTagFilter, setModelTagFilter] = useState<string>('');
   const [catalogueTemplateId, setCatalogueTemplateId] = useState('custom');
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [poseModalOpen, setPoseModalOpen] = useState(false);
@@ -650,6 +652,13 @@ export default function StudioPage(): React.ReactElement {
     refetchOnWindowFocus: true,
   });
   const filteredFaces = useMemo(() => faces?.items ?? [], [faces?.items]);
+  const modalFaces = useMemo(
+    () =>
+      modelTagFilter === ''
+        ? filteredFaces
+        : filteredFaces.filter((f) => (f.tags ?? []).includes(modelTagFilter)),
+    [filteredFaces, modelTagFilter],
+  );
   useEffect(() => {
     if (!filteredFaces.length) return;
     if (!filteredFaces.some((f) => f.id === faceId)) {
@@ -830,6 +839,11 @@ export default function StudioPage(): React.ReactElement {
     for (const b of backgrounds?.items ?? []) for (const t of b.tags ?? []) set.add(t);
     return Array.from(set).sort();
   }, [backgrounds]);
+  const faceTags = useMemo(() => {
+    const set = new Set<string>();
+    for (const f of faces?.items ?? []) for (const t of f.tags ?? []) set.add(t);
+    return Array.from(set).sort();
+  }, [faces]);
   const {
     data: poses,
     isError: posesError,
@@ -2757,10 +2771,13 @@ export default function StudioPage(): React.ReactElement {
               {modelModalOpen && faces && (
                 <SelectGridModal
                   title="Choose your model"
-                  items={filteredFaces}
+                  items={modalFaces}
                   selectedIds={faceId ? [faceId] : []}
                   aspect={1}
                   columns={5}
+                  tagOptions={faceTags}
+                  activeTag={modelTagFilter}
+                  onTagChange={setModelTagFilter}
                   onSelect={(id) => {
                     handleFaceSelect(id);
                     setModelModalOpen(false);
