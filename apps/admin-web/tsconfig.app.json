@@ -15,11 +15,7 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true,
-    "baseUrl": ".",
-    "paths": {
-      "@aivastra/*": ["../../packages/*/dist"]
-    }
+    "noFallthroughCasesInSwitch": true
   },
   "include": ["src"]
 }
