@@ -74,23 +74,25 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       schema: { body: ConfirmModelFaceBody },
     },
     async (req) => {
-      const { label, gender, r2Key, thumbnailKey, faceSideR2Key, sortOrder } = req.body as {
+      const body = req.body as {
         label: string;
         gender: string;
         r2Key: string;
         thumbnailKey: string;
         faceSideR2Key?: string;
         sortOrder: number;
+        tags?: string[];
       };
       const [row] = await app.db
         .insert(schema.modelFaces)
         .values({
-          label,
-          gender,
-          r2Key,
-          thumbnailKey,
-          faceSideR2Key: faceSideR2Key ?? null,
-          sortOrder,
+          label: body.label,
+          gender: body.gender,
+          r2Key: body.r2Key,
+          thumbnailKey: body.thumbnailKey,
+          faceSideR2Key: body.faceSideR2Key ?? null,
+          sortOrder: body.sortOrder,
+          tags: body.tags ?? [],
         })
         .returning();
       return row;
