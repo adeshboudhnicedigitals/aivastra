@@ -9,5 +9,6 @@ export default defineConfig({
     hookTimeout: 60_000,
     testTimeout: 30_000,
     fileParallelism: false,
+    exclude: ['**/node_modules/**', 'dist/**'],
   },
 });
