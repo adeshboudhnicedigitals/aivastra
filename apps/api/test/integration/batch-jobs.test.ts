@@ -568,4 +568,111 @@ describe('POST /v1/jobs/batch', () => {
     expect(res.statusCode).toBe(400);
     expect(res.json().error.rowIndex).toBe(0);
   });
+
+  it('refunds and fails every job when the queue is unreachable', async () => {
+    await seedCreditPlan();
+    const { token, userId } = await registerUser('batch-noqueue@x.com');
+    await grantCredits(userId, 1000);
+    const cat = await seedCatalog();
+    const g = await uploadKey(userId, 'cccccccc-cccc-4ccc-8ccc-cccccccccccc');
+
+    const realXadd = app.redis.xadd.bind(app.redis);
+    app.redis.xadd = (async () => {
+      throw new Error('redis down');
+    }) as typeof app.redis.xadd;
+
+    let res: Awaited<ReturnType<typeof app.inject>>;
+    try {
+      res = await app.inject({
+        method: 'POST',
+        url: '/v1/jobs/batch',
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          garmentTypeId: cat.garmentTypeId,
+          aspectRatio: '1:1',
+          resolution: '2K',
+          rows: [
+            {
+              upperGarmentKey: g,
+              faceId: cat.faceId,
+              backgroundId: cat.bgId,
+              poseIds: [cat.poseAId, cat.poseBId],
+            },
+          ],
+        },
+      });
+    } finally {
+      app.redis.xadd = realXadd;
+    }
+
+    expect(res.statusCode).toBe(503);
+    expect(res.json().error.code).toBe('ENQUEUE_FAIL');
+
+    const jobRows = await app.db
+      .select({ status: schema.jobs.status, errorCode: schema.jobs.errorCode })
+      .from(schema.jobs)
+      .where(eq(schema.jobs.userId, userId));
+    expect(jobRows).toHaveLength(2);
+    expect(jobRows.every((j) => j.status === 'FAILED' && j.errorCode === 'ENQUEUE_FAIL')).toBe(
+      true,
+    );
+
+    // Charged then refunded, so the net balance is whole again.
+    const [credits] = await app.db
+      .select({ balance: schema.userCredits.balance })
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, userId));
+    expect(credits.balance).toBe(1000);
+  });
+
+  it('returns 201 with failedJobIds when only some enqueues fail', async () => {
+    await seedCreditPlan();
+    const { token, userId } = await registerUser('batch-partialqueue@x.com');
+    await grantCredits(userId, 1000);
+    const cat = await seedCatalog();
+    const g = await uploadKey(userId, 'dddddddd-dddd-4ddd-8ddd-dddddddddddd');
+
+    const realXadd = app.redis.xadd.bind(app.redis);
+    let calls = 0;
+    app.redis.xadd = (async (...args: unknown[]) => {
+      calls += 1;
+      if (calls === 2) throw new Error('redis blip');
+      return (realXadd as (...a: unknown[]) => Promise<unknown>)(...args);
+    }) as typeof app.redis.xadd;
+
+    let res: Awaited<ReturnType<typeof app.inject>>;
+    try {
+      res = await app.inject({
+        method: 'POST',
+        url: '/v1/jobs/batch',
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          garmentTypeId: cat.garmentTypeId,
+          aspectRatio: '1:1',
+          resolution: '2K',
+          rows: [
+            {
+              upperGarmentKey: g,
+              faceId: cat.faceId,
+              backgroundId: cat.bgId,
+              poseIds: [cat.poseAId, cat.poseBId],
+            },
+          ],
+        },
+      });
+    } finally {
+      app.redis.xadd = realXadd;
+    }
+
+    expect(res.statusCode).toBe(201);
+    expect(res.json().failedJobIds).toHaveLength(1);
+
+    const failedId = res.json().failedJobIds[0];
+    const [failed] = await app.db
+      .select({ status: schema.jobs.status, errorCode: schema.jobs.errorCode })
+      .from(schema.jobs)
+      .where(eq(schema.jobs.id, failedId));
+    expect(failed.status).toBe('FAILED');
+    expect(failed.errorCode).toBe('ENQUEUE_FAIL');
+  });
 });
