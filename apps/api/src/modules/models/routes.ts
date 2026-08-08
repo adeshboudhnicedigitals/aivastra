@@ -115,6 +115,7 @@ export async function modelsRoutes(app: FastifyInstance) {
           gender: schema.modelFaces.gender,
           label: schema.modelFaces.label,
           thumbnailUrl: schema.modelFaces.thumbnailKey,
+          tags: schema.modelFaces.tags,
         })
         .from(schema.modelFaces)
         .where(
