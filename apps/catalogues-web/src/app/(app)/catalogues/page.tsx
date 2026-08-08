@@ -1,7 +1,8 @@
 'use client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CalendarDaysIcon,
   CheckSquareIcon,
@@ -178,7 +179,7 @@ function dateLabel(filter: string, from: string, to: string): string {
 
 // ─── page ─────────────────────────────────────────────────────────────────────
 
-export default function CataloguesPage(): React.ReactElement {
+function CataloguesPageInner(): React.ReactElement {
   // filter state
   const [search, setSearch] = useState('');
   const [genderFilter, setGenderFilter] = useState('All Segments');
@@ -227,6 +228,41 @@ export default function CataloguesPage(): React.ReactElement {
     // Long-interval fallback in case SSE drops. Real-time updates come from useJobStream below.
     refetchInterval: 5 * 60 * 1000,
   });
+
+  const searchParams = useSearchParams();
+  const batchId = searchParams.get('batch');
+
+  // A batch view is a filtered catalogues list, not a separate page: the batch
+  // endpoint returns the same catalogueIds plus per-catalogue progress counts.
+  const batch = useQuery({
+    queryKey: ['batch', batchId],
+    queryFn: () =>
+      api.get<{
+        batchId: string;
+        totalJobs: number;
+        catalogues: Array<{
+          catalogueId: string;
+          total: number;
+          completed: number;
+          failed: number;
+          createdAt: string;
+        }>;
+      }>(`/v1/batches/${batchId}`),
+    enabled: !!batchId,
+    // Poll while anything is still running. The per-user SSE stream also pushes
+    // job transitions, but a poll is the simpler correctness floor here.
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return 4000;
+      const done = data.catalogues.every((c) => c.completed + c.failed === c.total);
+      return done ? false : 4000;
+    },
+  });
+
+  const batchCatalogueIds = useMemo(
+    () => new Set(batch.data?.catalogues.map((c) => c.catalogueId) ?? []),
+    [batch.data],
+  );
 
   useJobStream(
     useCallback(
@@ -299,6 +335,8 @@ export default function CataloguesPage(): React.ReactElement {
 
   const filtered = useMemo(() => {
     return (catalogues ?? []).filter((c) => {
+      if (batchId && !batchCatalogueIds.has(c.catalogueId)) return false;
+
       if (!c.catalogueId.toLowerCase().includes(search.toLowerCase())) return false;
 
       if (genderFilter !== 'All Segments') {
@@ -356,6 +394,8 @@ export default function CataloguesPage(): React.ReactElement {
     });
   }, [
     catalogues,
+    batchId,
+    batchCatalogueIds,
     search,
     genderFilter,
     platformFilter,
@@ -1456,6 +1496,18 @@ export default function CataloguesPage(): React.ReactElement {
         {/* ── end sticky toolbar ── */}
 
         <div style={{ paddingTop: 20 }}>
+          {batchId && batch.data && (
+            <div style={{ marginBottom: 16 }}>
+              <strong style={{ color: C.text }}>
+                Batch — {batch.data.catalogues.length} catalogues, {batch.data.totalJobs} images
+              </strong>
+              <span style={{ marginLeft: 12, color: C.mid, fontSize: 13 }}>
+                {batch.data.catalogues.reduce((n, c) => n + c.completed, 0)} done,{' '}
+                {batch.data.catalogues.reduce((n, c) => n + c.failed, 0)} failed
+              </span>
+            </div>
+          )}
+
           {isLoading && (
             <div
               style={{
@@ -1740,5 +1792,15 @@ export default function CataloguesPage(): React.ReactElement {
         </div>
       )}
     </>
+  );
+}
+
+// useSearchParams (for ?batch=<id>) requires a Suspense boundary, or Next.js
+// fails the production build with a missing-suspense-with-csr-bailout error.
+export default function CataloguesPage(): React.ReactElement {
+  return (
+    <Suspense fallback={<div style={{ minHeight: '100vh', background: C.bg }} />}>
+      <CataloguesPageInner />
+    </Suspense>
   );
 }
