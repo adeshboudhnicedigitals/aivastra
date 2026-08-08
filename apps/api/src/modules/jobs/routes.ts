@@ -1,6 +1,7 @@
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import {
+  CreateBatchJobRequest,
   CreateCatalogVideoJobRequest,
   CreateSareeJobRequest,
   CreateSareeMannequinJobRequest,
@@ -16,6 +17,7 @@ import { AppError } from '../../lib/errors.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { getSareeSettings } from '../saree/settings.js';
 import { createCatalogVideoJob, createJob, createSimpleTryonJob } from './create.js';
+import { createBatchJobs } from './createBatch.js';
 import { createSareeJob } from './createSaree.js';
 import { createSareeMannequinJob } from './createSareeMannequin.js';
 import { regenerateJob } from './regenerate.js';
@@ -108,6 +110,21 @@ export async function jobsRoutes(app: FastifyInstance) {
         req.userId,
         req.headers['idempotency-key'] as string | undefined,
         () => createJob(app, req.userId, req.body as z.infer<typeof CreateTryOnJobRequest>),
+      );
+      reply.code(201);
+      return result;
+    },
+  );
+
+  app.post(
+    '/v1/jobs/batch',
+    { preHandler: app.requireUser, schema: { body: CreateBatchJobRequest } },
+    async (req, reply) => {
+      const result = await withIdempotency(
+        app,
+        req.userId,
+        req.headers['idempotency-key'] as string | undefined,
+        () => createBatchJobs(app, req.userId, req.body as z.infer<typeof CreateBatchJobRequest>),
       );
       reply.code(201);
       return result;

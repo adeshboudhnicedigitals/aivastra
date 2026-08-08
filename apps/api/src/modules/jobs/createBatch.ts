@@ -1,0 +1,189 @@
+import { randomUUID } from 'node:crypto';
+import { type DB, schema } from '@aivastra/db';
+import { jobsCreatedTotal } from '@aivastra/observability';
+import { type CreateBatchJobBody, JOB_SOURCE } from '@aivastra/types';
+import { eq } from 'drizzle-orm';
+import type { FastifyInstance } from 'fastify';
+import { AppError, withRowIndex } from '../../lib/errors.js';
+import { atomicDeduct, refund } from '../credits/ledger.js';
+import { resolveTryonPlan, type TryonPlan, verifyGarmentKey } from './create.js';
+import { promptGuard } from './sanitize.js';
+
+export interface BatchCreateResult {
+  batchId: string;
+  totalJobs: number;
+  creditsCharged: number;
+  catalogues: Array<{ rowIndex: number; catalogueId: string; jobIds: string[] }>;
+  failedJobIds: string[];
+}
+
+/**
+ * Creates every job in a batch, or none of them.
+ *
+ * A row is exactly one Studio submission — one garment, one face, one
+ * background, N poses — so each row is validated by the same resolveTryonPlan()
+ * the single-job path uses, and each row's jobs share their own catalogueId. The
+ * whole batch shares a batchId; there is no batches table, and progress is
+ * derived by GROUP BY batch_id.
+ */
+export async function createBatchJobs(
+  app: FastifyInstance,
+  userId: string,
+  body: CreateBatchJobBody,
+): Promise<BatchCreateResult> {
+  const { rows } = body;
+
+  const [[user], [planRow]] = await Promise.all([
+    app.db.select().from(schema.users).where(eq(schema.users.id, userId)),
+    app.db
+      .select({
+        queueStream: schema.creditPlans.queueStream,
+        watermark: schema.creditPlans.watermark,
+      })
+      .from(schema.users)
+      .innerJoin(schema.creditPlans, eq(schema.users.tier, schema.creditPlans.slug))
+      .where(eq(schema.users.id, userId)),
+  ]);
+  if (!user || user.isBanned) throw new AppError('FORBIDDEN', 403, 'banned');
+
+  const queueStream: string = planRow?.queueStream ?? 'normal';
+  const priority = queueStream === 'priority';
+  const watermark: boolean = planRow?.watermark ?? false;
+
+  // H2 ownership: each DISTINCT key is verified once, not once per row — a
+  // garment reused across five rows is one Redis lookup. The map remembers the
+  // first row using each key so a failure can be attributed to a row.
+  const keyFirstRow = new Map<string, number>();
+  rows.forEach((row, index) => {
+    if (!keyFirstRow.has(row.upperGarmentKey)) keyFirstRow.set(row.upperGarmentKey, index);
+    if (row.lowerGarmentKey && !keyFirstRow.has(row.lowerGarmentKey)) {
+      keyFirstRow.set(row.lowerGarmentKey, index);
+    }
+  });
+  for (const [key, rowIndex] of keyFirstRow) {
+    try {
+      await verifyGarmentKey(app, userId, key);
+    } catch (err) {
+      throw withRowIndex(err, rowIndex);
+    }
+  }
+
+  // Plan every row before touching credits or inserting anything. resolveTryonPlan
+  // is read-only by contract, so a mid-loop rejection leaves no residue.
+  const plans: TryonPlan[] = [];
+  for (const [rowIndex, row] of rows.entries()) {
+    try {
+      plans.push(
+        await resolveTryonPlan(
+          app,
+          userId,
+          {
+            inputs: {
+              upperGarmentKey: row.upperGarmentKey,
+              faceId: row.faceId,
+              backgroundId: row.backgroundId,
+              poseIds: row.poseIds,
+              garmentTypeId: body.garmentTypeId,
+              lowerCatalogId: row.lowerCatalogId,
+              lowerGarmentKey: row.lowerGarmentKey,
+              shoeCatalogId: row.shoeCatalogId,
+            },
+            params: body.params,
+            userHint: body.userHint,
+            aspectRatio: body.aspectRatio,
+            resolution: body.resolution,
+            platform: body.platform,
+          },
+          { resolvedUpperGarmentKey: row.upperGarmentKey },
+        ),
+      );
+    } catch (err) {
+      throw withRowIndex(err, rowIndex);
+    }
+  }
+
+  const totalJobs = plans.reduce((n, plan) => n + plan.looks.length, 0);
+  const creditsCharged = plans.reduce((n, plan) => n + plan.cost * plan.looks.length, 0);
+
+  const batchId = randomUUID();
+
+  // One transaction for the whole batch. atomicDeduct throwing part-way through
+  // (a concurrent spend draining the balance) propagates out of the callback and
+  // rolls back every insert, so all-or-nothing survives without a lock.
+  const catalogues = await app.db.transaction(async (tx) => {
+    const created: BatchCreateResult['catalogues'] = [];
+    for (const [rowIndex, plan] of plans.entries()) {
+      const row = rows[rowIndex];
+      const jobIds: string[] = [];
+      for (const look of plan.looks) {
+        const [job] = await tx
+          .insert(schema.jobs)
+          .values({
+            userId,
+            batchId,
+            catalogueId: plan.catalogueId,
+            status: 'QUEUED',
+            priority,
+            queueStream,
+            watermark,
+            creditsCharged: plan.cost,
+            source: JOB_SOURCE.CATALOG,
+          })
+          .returning();
+        await atomicDeduct(tx as unknown as DB, userId, plan.cost, job.id);
+        await tx.insert(schema.jobInputs).values({
+          jobId: job.id,
+          upperGarmentKey: look.upperGarmentKey,
+          faceId: row.faceId,
+          backgroundId: look.backgroundId,
+          poseId: look.poseId,
+          garmentTypeId: body.garmentTypeId,
+          lowerCatalogId: look.lowerCatalogId,
+          lowerGarmentKey: look.lowerGarmentKey,
+          shoeCatalogId: look.shoeCatalogId,
+          userHint: promptGuard(body.userHint),
+          params: look.params,
+        });
+        jobIds.push(job.id);
+      }
+      created.push({ rowIndex, catalogueId: plan.catalogueId, jobIds });
+    }
+    return created;
+  });
+
+  const stream = `jobs:${queueStream}`;
+  const failedJobIds: string[] = [];
+  const costByJobId = new Map<string, number>();
+  catalogues.forEach((group, i) => {
+    for (const jobId of group.jobIds) costByJobId.set(jobId, plans[i].cost);
+  });
+
+  for (const group of catalogues) {
+    for (const jobId of group.jobIds) {
+      try {
+        await app.redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId, 'userId', userId);
+        jobsCreatedTotal.inc({ priority: queueStream, kind: JOB_SOURCE.CATALOG });
+      } catch (err) {
+        app.log.error({ err, jobId, batchId }, 'batch xadd failed — job will be refunded');
+        failedJobIds.push(jobId);
+      }
+    }
+  }
+
+  if (failedJobIds.length > 0) {
+    await Promise.all(
+      failedJobIds.map(async (jobId) => {
+        await refund(app.db, userId, costByJobId.get(jobId) ?? 0, jobId, 'REFUND_ENQUEUE_FAIL');
+        await app.db
+          .update(schema.jobs)
+          .set({ status: 'FAILED', errorCode: 'ENQUEUE_FAIL' })
+          .where(eq(schema.jobs.id, jobId));
+      }),
+    );
+    if (failedJobIds.length === totalJobs) {
+      throw new AppError('ENQUEUE_FAIL', 503, 'queue unavailable');
+    }
+  }
+
+  return { batchId, totalJobs, creditsCharged, catalogues, failedJobIds };
+}
