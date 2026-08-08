@@ -668,6 +668,54 @@ export async function jobsRoutes(app: FastifyInstance) {
     );
   });
 
+  // Batch progress. There is no batches table — every field here is derived from
+  // jobs grouped by (batch_id, catalogue_id). A batch belonging to another user
+  // is a 404 rather than a 403 so the ID's existence is not disclosed.
+  app.get(
+    '/v1/batches/:id',
+    {
+      preHandler: app.requireUser,
+      schema: { params: z.object({ id: z.string().uuid() }) },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const rows = await app.db
+        .select({
+          catalogueId: schema.jobs.catalogueId,
+          total: sql<number>`COUNT(*)`.as('total'),
+          completed: sql<number>`COUNT(*) FILTER (WHERE ${schema.jobs.status} = 'COMPLETED')`.as(
+            'completed',
+          ),
+          failed: sql<number>`COUNT(*) FILTER (WHERE ${schema.jobs.status} = 'FAILED')`.as(
+            'failed',
+          ),
+          createdAt: sql<Date>`MIN(${schema.jobs.createdAt})`.as('createdAt'),
+        })
+        .from(schema.jobs)
+        .where(and(eq(schema.jobs.batchId, id), eq(schema.jobs.userId, req.userId)))
+        .groupBy(schema.jobs.catalogueId)
+        .orderBy(asc(sql`MIN(${schema.jobs.createdAt})`));
+
+      if (rows.length === 0) throw new AppError('NOT_FOUND', 404, 'batch not found');
+
+      // Raw sql`` aggregates come back from the driver as strings regardless of
+      // the sql<number> annotations — those generics are TypeScript-only.
+      const catalogues = rows.map((r) => ({
+        catalogueId: r.catalogueId,
+        total: Number(r.total),
+        completed: Number(r.completed),
+        failed: Number(r.failed),
+        createdAt: new Date(r.createdAt).toISOString(),
+      }));
+
+      return {
+        batchId: id,
+        totalJobs: catalogues.reduce((n, c) => n + c.total, 0),
+        catalogues,
+      };
+    },
+  );
+
   app.get('/v1/jobs', { preHandler: app.requireUser }, async (req) => {
     return app.db
       .select()

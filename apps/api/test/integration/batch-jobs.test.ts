@@ -675,4 +675,62 @@ describe('POST /v1/jobs/batch', () => {
     expect(failed.status).toBe('FAILED');
     expect(failed.errorCode).toBe('ENQUEUE_FAIL');
   });
+
+  it("reports per-catalogue progress for a batch, and 404s another user's batch", async () => {
+    await seedCreditPlan();
+    const { token, userId } = await registerUser('batch-progress@x.com');
+    const stranger = await registerUser('batch-stranger@x.com');
+    await grantCredits(userId, 1000);
+    const cat = await seedCatalog();
+    const g = await uploadKey(userId, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee');
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/batch',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        garmentTypeId: cat.garmentTypeId,
+        aspectRatio: '1:1',
+        resolution: '2K',
+        rows: [
+          {
+            upperGarmentKey: g,
+            faceId: cat.faceId,
+            backgroundId: cat.bgId,
+            poseIds: [cat.poseAId, cat.poseBId],
+          },
+        ],
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const { batchId, catalogues } = created.json();
+
+    // Drive one job to COMPLETED so the counts are not all zero.
+    await app.db
+      .update(schema.jobs)
+      .set({ status: 'COMPLETED' })
+      .where(eq(schema.jobs.id, catalogues[0].jobIds[0]));
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/batches/${batchId}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.batchId).toBe(batchId);
+    expect(body.totalJobs).toBe(2);
+    expect(body.catalogues).toHaveLength(1);
+    expect(body.catalogues[0].catalogueId).toBe(catalogues[0].catalogueId);
+    expect(body.catalogues[0].total).toBe(2);
+    expect(body.catalogues[0].completed).toBe(1);
+    expect(body.catalogues[0].failed).toBe(0);
+
+    const foreign = await app.inject({
+      method: 'GET',
+      url: `/v1/batches/${batchId}`,
+      headers: { authorization: `Bearer ${stranger.token}` },
+    });
+    expect(foreign.statusCode).toBe(404);
+  });
 });
