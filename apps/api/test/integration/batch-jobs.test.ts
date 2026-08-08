@@ -348,4 +348,224 @@ describe('POST /v1/jobs/batch', () => {
     const streamLen = await app.redis.xlen('jobs:normal');
     expect(streamLen).toBe(0);
   });
+
+  it('rejects the whole batch when the balance is short, charging nothing', async () => {
+    await seedCreditPlan();
+    const { token, userId } = await registerUser('batch-poor@x.com');
+    await grantCredits(userId, 1);
+    const cat = await seedCatalog();
+    const g = await uploadKey(userId, '66666666-6666-4666-8666-666666666666');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/batch',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        garmentTypeId: cat.garmentTypeId,
+        aspectRatio: '1:1',
+        resolution: '2K',
+        rows: [
+          {
+            upperGarmentKey: g,
+            faceId: cat.faceId,
+            backgroundId: cat.bgId,
+            poseIds: [cat.poseAId, cat.poseBId],
+          },
+        ],
+      },
+    });
+
+    expect(res.statusCode).toBe(402);
+    expect(res.json().error.code).toBe('INSUFFICIENT_CREDITS');
+    expect(res.json().error.required).toBeGreaterThan(res.json().error.available);
+
+    const jobs = await app.db
+      .select({ id: schema.jobs.id })
+      .from(schema.jobs)
+      .where(eq(schema.jobs.userId, userId));
+    expect(jobs).toHaveLength(0);
+
+    const ledger = await app.db
+      .select({ id: schema.creditLedger.id })
+      .from(schema.creditLedger)
+      .where(eq(schema.creditLedger.userId, userId));
+    expect(ledger).toHaveLength(0);
+
+    const [credits] = await app.db
+      .select({ balance: schema.userCredits.balance })
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, userId));
+    expect(credits.balance).toBe(1);
+  });
+
+  it('rejects a batch whose total job count exceeds the admin cap', async () => {
+    await seedCreditPlan();
+    await app.redis.set('config:system', JSON.stringify({ maxBatchJobs: 2 }));
+    const { token, userId } = await registerUser('batch-cap@x.com');
+    await grantCredits(userId, 1000);
+    const cat = await seedCatalog();
+    const g = await uploadKey(userId, '77777777-7777-4777-8777-777777777777');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/batch',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        garmentTypeId: cat.garmentTypeId,
+        aspectRatio: '1:1',
+        resolution: '2K',
+        rows: [
+          {
+            upperGarmentKey: g,
+            faceId: cat.faceId,
+            backgroundId: cat.bgId,
+            poseIds: [cat.poseAId, cat.poseBId],
+          },
+          {
+            upperGarmentKey: g,
+            faceId: cat.faceId,
+            backgroundId: cat.bgId,
+            poseIds: [cat.poseAId],
+          },
+        ],
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe('VALIDATION');
+    expect(res.json().error.totalJobs).toBe(3);
+    expect(res.json().error.maxBatchJobs).toBe(2);
+
+    const jobs = await app.db
+      .select({ id: schema.jobs.id })
+      .from(schema.jobs)
+      .where(eq(schema.jobs.userId, userId));
+    expect(jobs).toHaveLength(0);
+  });
+
+  it('names the offending row when it references an inactive pose', async () => {
+    await seedCreditPlan();
+    const { token, userId } = await registerUser('batch-badrow@x.com');
+    await grantCredits(userId, 1000);
+    const cat = await seedCatalog();
+    const g = await uploadKey(userId, '88888888-8888-4888-8888-888888888888');
+    await app.db
+      .update(schema.modelPoseAssets)
+      .set({ isActive: false })
+      .where(eq(schema.modelPoseAssets.id, cat.poseBId));
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/batch',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        garmentTypeId: cat.garmentTypeId,
+        aspectRatio: '1:1',
+        resolution: '2K',
+        rows: [
+          {
+            upperGarmentKey: g,
+            faceId: cat.faceId,
+            backgroundId: cat.bgId,
+            poseIds: [cat.poseAId],
+          },
+          {
+            upperGarmentKey: g,
+            faceId: cat.faceId,
+            backgroundId: cat.bgId,
+            poseIds: [cat.poseBId],
+          },
+        ],
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe('BAD_CATALOG');
+    expect(res.json().error.rowIndex).toBe(1);
+
+    const jobs = await app.db
+      .select({ id: schema.jobs.id })
+      .from(schema.jobs)
+      .where(eq(schema.jobs.userId, userId));
+    expect(jobs).toHaveLength(0);
+
+    await app.db
+      .update(schema.modelPoseAssets)
+      .set({ isActive: true })
+      .where(eq(schema.modelPoseAssets.id, cat.poseBId));
+  });
+
+  it('names the offending row when its garment key belongs to another user', async () => {
+    await seedCreditPlan();
+    const { token, userId } = await registerUser('batch-thief@x.com');
+    const other = await registerUser('batch-victim@x.com');
+    await grantCredits(userId, 1000);
+    const cat = await seedCatalog();
+    const mine = await uploadKey(userId, '99999999-9999-4999-8999-999999999999');
+    const theirs = await uploadKey(other.userId, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/batch',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        garmentTypeId: cat.garmentTypeId,
+        aspectRatio: '1:1',
+        resolution: '2K',
+        rows: [
+          {
+            upperGarmentKey: mine,
+            faceId: cat.faceId,
+            backgroundId: cat.bgId,
+            poseIds: [cat.poseAId],
+          },
+          {
+            upperGarmentKey: theirs,
+            faceId: cat.faceId,
+            backgroundId: cat.bgId,
+            poseIds: [cat.poseAId],
+          },
+        ],
+      },
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.rowIndex).toBe(1);
+
+    const jobs = await app.db
+      .select({ id: schema.jobs.id })
+      .from(schema.jobs)
+      .where(eq(schema.jobs.userId, userId));
+    expect(jobs).toHaveLength(0);
+  });
+
+  it('rejects a row that repeats the same pose', async () => {
+    await seedCreditPlan();
+    const { token, userId } = await registerUser('batch-duppose@x.com');
+    await grantCredits(userId, 1000);
+    const cat = await seedCatalog();
+    const g = await uploadKey(userId, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/batch',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        garmentTypeId: cat.garmentTypeId,
+        aspectRatio: '1:1',
+        resolution: '2K',
+        rows: [
+          {
+            upperGarmentKey: g,
+            faceId: cat.faceId,
+            backgroundId: cat.bgId,
+            poseIds: [cat.poseAId, cat.poseAId],
+          },
+        ],
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.rowIndex).toBe(0);
+  });
 });
