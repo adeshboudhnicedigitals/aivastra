@@ -255,4 +255,97 @@ describe('POST /v1/jobs/batch', () => {
 
     expect(await load(batchJobIds)).toEqual(await load(singleJobIds));
   });
+
+  it('rejects a batch whose garment type requires the mannequin two-pass flow', async () => {
+    await seedCreditPlan();
+    const { token, userId } = await registerUser('batch-mannequin@x.com');
+    await grantCredits(userId, 1000);
+    const cat = await seedCatalog();
+    const [mannequinGarmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({
+        label: 'Saree',
+        slug: `saree-${Date.now()}`,
+        genderSlug: 'men',
+        requiresMannequinStep: true,
+      })
+      .returning();
+    const g = await uploadKey(userId, '66666666-6666-4666-8666-666666666666');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/batch',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        garmentTypeId: mannequinGarmentType.id,
+        aspectRatio: '1:1',
+        resolution: '2K',
+        rows: [
+          {
+            upperGarmentKey: g,
+            faceId: cat.faceId,
+            backgroundId: cat.bgId,
+            poseIds: [cat.poseAId],
+          },
+        ],
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+
+    // No job or credit-ledger residue from the rejected batch.
+    const jobRows = await app.db.select().from(schema.jobs).where(eq(schema.jobs.userId, userId));
+    expect(jobRows).toHaveLength(0);
+  });
+
+  it('rolls back the whole batch — no jobs, no credit deduction — when credits run out mid-batch', async () => {
+    await seedCreditPlan();
+    const { token, userId } = await registerUser('batch-rollback@x.com');
+    // Two rows of two poses each = 4 jobs @ 35 credits (2K) = 140 needed.
+    // 100 covers only the first two jobs, so atomicDeduct throws on the third,
+    // inside the single batch transaction.
+    await grantCredits(userId, 100);
+    const cat = await seedCatalog();
+    const g1 = await uploadKey(userId, '77777777-7777-4777-8777-777777777777');
+    const g2 = await uploadKey(userId, '88888888-8888-4888-8888-888888888888');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/batch',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        garmentTypeId: cat.garmentTypeId,
+        aspectRatio: '1:1',
+        resolution: '2K',
+        rows: [
+          {
+            upperGarmentKey: g1,
+            faceId: cat.faceId,
+            backgroundId: cat.bgId,
+            poseIds: [cat.poseAId, cat.poseBId],
+          },
+          {
+            upperGarmentKey: g2,
+            faceId: cat.faceId,
+            backgroundId: cat.bgId,
+            poseIds: [cat.poseAId, cat.poseBId],
+          },
+        ],
+      },
+    });
+
+    expect(res.statusCode).toBe(402);
+
+    const jobRows = await app.db.select().from(schema.jobs).where(eq(schema.jobs.userId, userId));
+    expect(jobRows).toHaveLength(0);
+
+    const [credits] = await app.db
+      .select({ balance: schema.userCredits.balance })
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, userId));
+    expect(credits.balance).toBe(100);
+
+    const streamLen = await app.redis.xlen('jobs:normal');
+    expect(streamLen).toBe(0);
+  });
 });
