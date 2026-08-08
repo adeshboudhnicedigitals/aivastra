@@ -384,6 +384,10 @@ function AspectRatioIcon({ ratio, active }: { ratio: string; active?: boolean })
 export default function StudioPage(): React.ReactElement {
   const qc = useQueryClient();
   const [mode, setMode] = useState<'single' | 'batch'>('single');
+  // Switching the mode ternary unmounts <BatchMode> outright, discarding its
+  // garments/rows with no undo. Tracked here so the toggle can confirm before
+  // leaving Batch while there's unsaved work.
+  const [batchDirty, setBatchDirty] = useState(false);
   const [gender, setGender] = useState('women');
   const [garmentTypeId, setGarmentTypeId] = useState('');
   const [garmentModalOpen, setGarmentModalOpen] = useState(false);
@@ -1693,7 +1697,15 @@ export default function StudioPage(): React.ReactElement {
           <button
             key={m}
             type="button"
-            onClick={() => setMode(m)}
+            onClick={() => {
+              if (mode === 'batch' && m !== 'batch' && batchDirty) {
+                const ok = window.confirm(
+                  'Switching modes will discard your batch grid. Continue?',
+                );
+                if (!ok) return;
+              }
+              setMode(m);
+            }}
             style={{
               padding: '6px 14px',
               borderRadius: 999,
@@ -1716,10 +1728,16 @@ export default function StudioPage(): React.ReactElement {
             aspectRatio={effectiveAspect}
             resolution={resolution ?? 'HD'}
             platform={platform}
+            params={
+              aspect === 'custom' && customDimsReady
+                ? { outputWidth: customWNum, outputHeight: customHNum }
+                : undefined
+            }
             creditCostPerImage={
               resolution ? RESOLUTION_COSTS[resolution] : (resolutionConfig.HD?.creditCost ?? 25)
             }
             balance={userCredits}
+            onDirtyChange={setBatchDirty}
           />
         </div>
       ) : (

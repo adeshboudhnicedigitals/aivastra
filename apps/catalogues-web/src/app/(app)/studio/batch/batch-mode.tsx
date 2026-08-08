@@ -35,8 +35,10 @@ export function BatchMode({
   aspectRatio,
   resolution,
   platform,
+  params,
   creditCostPerImage,
   balance,
+  onDirtyChange,
 }: {
   gender: string;
   garmentTypeId: string;
@@ -44,8 +46,18 @@ export function BatchMode({
   aspectRatio: string;
   resolution: string;
   platform?: string;
+  /**
+   * Custom output dimensions, mirroring CreateBatchJobRequest.params
+   * (packages/types/src/batch.ts) — only meaningful when the page's aspect is
+   * 'custom'. Omitted entirely (not sent as undefined fields) when the page
+   * isn't in custom-dims mode, matching how the single-mode submit builds its
+   * own `params` object.
+   */
+  params?: { outputWidth: number; outputHeight: number };
   creditCostPerImage: number;
   balance: number | null;
+  /** Lets the page warn before switching away from Batch and losing this work. */
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const router = useRouter();
   const [garments, setGarments] = useState<TrayGarment[]>([]);
@@ -107,6 +119,14 @@ export function BatchMode({
   const poseOptions = useMemo(() => poses.data ?? [], [poses.data]);
   const { invalidRowIds, totalJobs } = batchIssues(rows, poseOptions);
 
+  // Any uploaded/uploading garment or any row with real progress (a pose picked,
+  // or a garment attached) counts as work the mode toggle would otherwise
+  // silently destroy by unmounting this component.
+  const isDirty = garments.length > 0 || rows.some((r) => r.poseIds.length > 0 || !!r.garmentId);
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
+
   const onAddGarments = useCallback((added: TrayGarment[]) => {
     setGarments((prev) => [...prev, ...added]);
   }, []);
@@ -141,9 +161,10 @@ export function BatchMode({
     setSubmitting(true);
     setError('');
     try {
-      // Rows carry a client-side garment id; the API takes the R2 key. A row
-      // whose upload has not landed yet is not submittable, and rowIssues has
-      // already blocked that case via the disabled submit button.
+      // Rows carry a client-side garment id; the API takes the R2 key. rowIssues
+      // only checks that a row *has* a garmentId, not that its upload finished —
+      // a row can still point at a garment whose r2Key hasn't landed yet, so this
+      // throw is genuinely reachable, not just defensive.
       const payloadRows = rows.map((row) => {
         const garment = garments.find((g) => g.id === row.garmentId);
         if (!garment?.r2Key) throw new Error('A garment is still uploading');
@@ -162,6 +183,7 @@ export function BatchMode({
         aspectRatio,
         resolution,
         ...(platform ? { platform } : {}),
+        ...(params ? { params } : {}),
         rows: payloadRows,
       });
       router.push(`/catalogues?batch=${result.batchId}`);
@@ -198,6 +220,17 @@ export function BatchMode({
               resetRows();
               setConfirmingTypeChange(null);
             }}
+            style={{
+              marginTop: 8,
+              padding: '6px 14px',
+              borderRadius: 8,
+              border: 'none',
+              background: C.pink,
+              color: C.white,
+              fontWeight: 600,
+              fontSize: 13,
+              cursor: 'pointer',
+            }}
           >
             Clear rows and continue
           </button>
@@ -220,7 +253,11 @@ export function BatchMode({
         onAddRow={addRow}
       />
 
-      {error && <p role="alert">{error}</p>}
+      {error && (
+        <p role="alert" style={{ color: C.pink, fontSize: 13, margin: '12px 0 0' }}>
+          {error}
+        </p>
+      )}
 
       <SummaryBar
         rowCount={rows.length}

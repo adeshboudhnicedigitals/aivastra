@@ -56,7 +56,21 @@ export function SummaryBar({
             is reused here as the nearest existing token, matching the stopgap
             already applied in Task 12. Logged as a design-system gap, not fixed here. */}
         {blockedReason && <span style={{ color: C.pink, fontSize: 13 }}>{blockedReason}</span>}
-        <button type="button" disabled={!!blockedReason || submitting} onClick={onSubmit}>
+        <button
+          type="button"
+          disabled={!!blockedReason || submitting}
+          onClick={onSubmit}
+          style={{
+            padding: '8px 16px',
+            borderRadius: 8,
+            border: 'none',
+            background: blockedReason || submitting ? C.border : C.pink,
+            color: C.white,
+            fontWeight: 600,
+            fontSize: 13,
+            cursor: blockedReason || submitting ? 'not-allowed' : 'pointer',
+          }}
+        >
           {submitting ? 'Submitting…' : `Generate ${totalJobs} images`}
         </button>
       </div>
