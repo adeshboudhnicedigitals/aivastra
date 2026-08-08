@@ -173,6 +173,7 @@ export const ConfirmModelFaceBody = z.object({
   thumbnailKey: z.string().min(1),
   faceSideR2Key: z.string().min(1).optional(),
   sortOrder: z.number().int().default(0),
+  tags: z.array(z.string().min(1).max(40)).max(20).optional(),
 });
 /**
  * Opts an asset into the public developer API and names it there.
@@ -209,6 +210,7 @@ export const PatchModelFaceBody = z.object({
   thumbnailKey: z.string().optional(),
   faceSideR2Key: z.string().nullable().optional(),
   publicApiSlug: PublicApiSlugField,
+  tags: z.array(z.string().min(1).max(40)).max(20).optional(),
 });
 
 // Backgrounds are now global — no faceId
