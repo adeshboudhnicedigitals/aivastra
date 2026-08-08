@@ -7,6 +7,7 @@ export interface ModelFace {
   thumbnailKey: string;
   r2Key: string;
   faceSideR2Key: string | null;
+  tags: string[];
   /** Non-null = published to the public developer API under this slug. */
   publicApiSlug: string | null;
   isActive: boolean;
