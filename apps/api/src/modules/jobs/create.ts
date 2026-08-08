@@ -104,6 +104,40 @@ export interface TryonPlan {
 }
 
 /**
+ * Per-request memo for resolveTryonPlan's existence checks. Batch creation calls
+ * resolveTryonPlan once per row, and rows overwhelmingly share the same face,
+ * background, poses and garment type — without this, a 30-row batch reissues the
+ * same handful of queries 30 times.
+ *
+ * Only ID-existence and admin-config lookups are cached. Per-pose workflow
+ * resolution is NOT, because it depends on (poseId, garmentTypeId) together and
+ * on pose_garment_configs overrides that vary per row.
+ *
+ * Lifetime is a single request. Never hold one across requests: an admin
+ * deactivating an asset mid-flight must be visible to the next request.
+ */
+export interface TryonPlanCache {
+  faces: Map<string, boolean>;
+  backgrounds: Map<string, boolean>;
+  poses: Map<string, boolean>;
+  catalogItems: Map<string, boolean>;
+  garmentTypes: Map<string, boolean>;
+  maxOutputPx?: number;
+  resolutionCosts: Map<string, number>;
+}
+
+export function createTryonPlanCache(): TryonPlanCache {
+  return {
+    faces: new Map(),
+    backgrounds: new Map(),
+    poses: new Map(),
+    catalogItems: new Map(),
+    garmentTypes: new Map(),
+    resolutionCosts: new Map(),
+  };
+}
+
+/**
  * Validates a tryon request end-to-end — server-side cost, garment-type/
  * mannequin-step policy, face/background/pose/catalog existence, and per-pose
  * workflow node requirements — and produces a plan of QUEUED-job-ready "looks".
@@ -134,7 +168,11 @@ export async function resolveTryonPlan(
         aspectRatio: string;
         platform?: string;
       },
-  opts: { resolvedUpperGarmentKey: string | null; trustedGarmentKeys?: Set<string> },
+  opts: {
+    resolvedUpperGarmentKey: string | null;
+    trustedGarmentKeys?: Set<string>;
+    cache?: TryonPlanCache;
+  },
 ): Promise<TryonPlan> {
   const {
     faceId,
@@ -160,7 +198,13 @@ export async function resolveTryonPlan(
   // getMaxOutputPx). Only downscale, and only the long edge exceeding it; the
   // dispatcher patches the workflow with whatever dims land in job_inputs.params,
   // so this is the single enforcement point.
-  const maxOutputPx = await getMaxOutputPx(app);
+  const maxOutputPx =
+    opts.cache?.maxOutputPx ??
+    (await (async () => {
+      const value = await getMaxOutputPx(app);
+      if (opts.cache) opts.cache.maxOutputPx = value;
+      return value;
+    })());
   const requestedLongEdge = Math.max(requestedDims.width, requestedDims.height);
   const outputDims =
     requestedLongEdge > maxOutputPx
@@ -175,7 +219,13 @@ export async function resolveTryonPlan(
           }
       : requestedDims;
   const resolution: Resolution = resolutionFromDims(outputDims.width, outputDims.height);
-  const COST = await getResolutionCreditCost(app, resolution);
+  const COST =
+    opts.cache?.resolutionCosts.get(resolution) ??
+    (await (async () => {
+      const value = await getResolutionCreditCost(app, resolution);
+      opts.cache?.resolutionCosts.set(resolution, value);
+      return value;
+    })());
 
   // Flat-saree (and any future two-pass) garment types resolve their garment
   // input from a completed mannequin job instead of a fresh upload, and use a
@@ -303,78 +353,106 @@ export async function resolveTryonPlan(
   const distinctPoseIds = Array.from(new Set(looks.map((l) => l.poseId)));
   const distinctBackgroundIds = Array.from(new Set(looks.map((l) => l.backgroundId)));
 
+  // Only IDs not already known-good in the cache hit the database.
+  const uncachedBackgroundIds = distinctBackgroundIds.filter(
+    (id) => !opts.cache?.backgrounds.get(id),
+  );
+  const uncachedPoseIds = distinctPoseIds.filter((id) => !opts.cache?.poses.get(id));
+  const faceCached = opts.cache?.faces.get(faceId) === true;
+
   const [face, backgroundRows, poses] = await Promise.all([
-    app.db
-      .select({ id: schema.modelFaces.id })
-      .from(schema.modelFaces)
-      .where(and(eq(schema.modelFaces.id, faceId), eq(schema.modelFaces.isActive, true))),
-    app.db
-      .select({ id: schema.modelBackgrounds.id })
-      .from(schema.modelBackgrounds)
-      .where(
-        and(
-          inArray(schema.modelBackgrounds.id, distinctBackgroundIds),
-          eq(schema.modelBackgrounds.isActive, true),
-          // Soft-deleted personal backgrounds (DELETE /v1/backgrounds/mine/:id sets
-          // deletedAt rather than hard-deleting) must never validate here - the
-          // delete action is user-facing and must actually revoke usability, not
-          // just hide the row from GET /mine.
-          isNull(schema.modelBackgrounds.deletedAt),
-          // A background is valid input either when it's not personal (scope='general'
-          // or scope='template' — both open to any caller, matching pre-existing
-          // behavior) or when it's the caller's own scope='user' row. Deliberately
-          // `ne(scope, 'user')` rather than `eq(scope, 'general')` — catalogue-template
-          // jobs resolve backgroundIds that can be scope='template' through this same
-          // query (see resolveTryonPlan's templateLooks path above), so narrowing to
-          // 'general' only would reject legitimate template-scoped backgrounds.
-          or(
-            ne(schema.modelBackgrounds.scope, 'user'),
+    faceCached
+      ? Promise.resolve([{ id: faceId }])
+      : app.db
+          .select({ id: schema.modelFaces.id })
+          .from(schema.modelFaces)
+          .where(and(eq(schema.modelFaces.id, faceId), eq(schema.modelFaces.isActive, true))),
+    uncachedBackgroundIds.length === 0
+      ? Promise.resolve([])
+      : app.db
+          .select({ id: schema.modelBackgrounds.id })
+          .from(schema.modelBackgrounds)
+          .where(
             and(
-              eq(schema.modelBackgrounds.scope, 'user'),
-              eq(schema.modelBackgrounds.userId, userId),
+              inArray(schema.modelBackgrounds.id, uncachedBackgroundIds),
+              eq(schema.modelBackgrounds.isActive, true),
+              // Soft-deleted personal backgrounds (DELETE /v1/backgrounds/mine/:id sets
+              // deletedAt rather than hard-deleting) must never validate here - the
+              // delete action is user-facing and must actually revoke usability, not
+              // just hide the row from GET /mine.
+              isNull(schema.modelBackgrounds.deletedAt),
+              // A background is valid input either when it's not personal (scope='general'
+              // or scope='template' — both open to any caller, matching pre-existing
+              // behavior) or when it's the caller's own scope='user' row. Deliberately
+              // `ne(scope, 'user')` rather than `eq(scope, 'general')` — catalogue-template
+              // jobs resolve backgroundIds that can be scope='template' through this same
+              // query (see resolveTryonPlan's templateLooks path above), so narrowing to
+              // 'general' only would reject legitimate template-scoped backgrounds.
+              or(
+                ne(schema.modelBackgrounds.scope, 'user'),
+                and(
+                  eq(schema.modelBackgrounds.scope, 'user'),
+                  eq(schema.modelBackgrounds.userId, userId),
+                ),
+              ),
             ),
           ),
-        ),
-      ),
-    app.db
-      .select({ id: schema.modelPoseAssets.id })
-      .from(schema.modelPoseAssets)
-      .where(
-        and(
-          inArray(schema.modelPoseAssets.id, distinctPoseIds),
-          eq(schema.modelPoseAssets.isActive, true),
-          isNull(schema.modelPoseAssets.deletedAt),
-        ),
-      ),
+    uncachedPoseIds.length === 0
+      ? Promise.resolve([])
+      : app.db
+          .select({ id: schema.modelPoseAssets.id })
+          .from(schema.modelPoseAssets)
+          .where(
+            and(
+              inArray(schema.modelPoseAssets.id, uncachedPoseIds),
+              eq(schema.modelPoseAssets.isActive, true),
+              isNull(schema.modelPoseAssets.deletedAt),
+            ),
+          ),
   ]);
 
   if (!face[0]) throw new AppError('BAD_CATALOG', 400, 'face not found or inactive');
-  if (backgroundRows.length !== distinctBackgroundIds.length)
+  if (backgroundRows.length !== uncachedBackgroundIds.length)
     throw new AppError('BAD_CATALOG', 400, 'one or more backgrounds not found or inactive');
-  if (poses.length !== distinctPoseIds.length)
+  if (poses.length !== uncachedPoseIds.length)
     throw new AppError('BAD_CATALOG', 400, 'one or more poses not found or inactive');
+
+  // Only successful lookups are memoised. A miss throws above, so a failing ID is
+  // never cached as good — and never cached as bad either, which keeps the cache
+  // a pure optimisation.
+  if (opts.cache) {
+    opts.cache.faces.set(faceId, true);
+    for (const id of uncachedBackgroundIds) opts.cache.backgrounds.set(id, true);
+    for (const id of uncachedPoseIds) opts.cache.poses.set(id, true);
+  }
 
   // S6: validate optional catalog IDs so the dispatcher never silently falls back
   // on a bad ID that slipped through as null.
+  const lowerCatalogCached =
+    !!lowerCatalogId && opts.cache?.catalogItems.get(lowerCatalogId) === true;
+  const shoeCatalogCached = !!shoeCatalogId && opts.cache?.catalogItems.get(shoeCatalogId) === true;
+  const garmentTypeCached = !!garmentTypeId && opts.cache?.garmentTypes.get(garmentTypeId) === true;
+
   const catalogChecks = await Promise.all([
-    lowerCatalogId
-      ? app.db
+    !lowerCatalogId || lowerCatalogCached
+      ? Promise.resolve([{ id: lowerCatalogId }])
+      : app.db
           .select({ id: schema.catalogItems.id })
           .from(schema.catalogItems)
           .where(
             and(eq(schema.catalogItems.id, lowerCatalogId), eq(schema.catalogItems.isActive, true)),
-          )
-      : Promise.resolve([{ id: lowerCatalogId }]),
-    shoeCatalogId
-      ? app.db
+          ),
+    !shoeCatalogId || shoeCatalogCached
+      ? Promise.resolve([{ id: shoeCatalogId }])
+      : app.db
           .select({ id: schema.catalogItems.id })
           .from(schema.catalogItems)
           .where(
             and(eq(schema.catalogItems.id, shoeCatalogId), eq(schema.catalogItems.isActive, true)),
-          )
-      : Promise.resolve([{ id: shoeCatalogId }]),
-    garmentTypeId
-      ? app.db
+          ),
+    !garmentTypeId || garmentTypeCached
+      ? Promise.resolve([{ id: garmentTypeId }])
+      : app.db
           .select({ id: schema.garmentSubcategories.id })
           .from(schema.garmentSubcategories)
           .where(
@@ -382,8 +460,7 @@ export async function resolveTryonPlan(
               eq(schema.garmentSubcategories.id, garmentTypeId),
               eq(schema.garmentSubcategories.isActive, true),
             ),
-          )
-      : Promise.resolve([{ id: garmentTypeId }]),
+          ),
   ]);
   if (lowerCatalogId && !catalogChecks[0]?.[0])
     throw new AppError('BAD_CATALOG', 400, 'lower catalog item not found or inactive');
@@ -391,6 +468,14 @@ export async function resolveTryonPlan(
     throw new AppError('BAD_CATALOG', 400, 'shoe catalog item not found or inactive');
   if (garmentTypeId && !catalogChecks[2]?.[0])
     throw new AppError('BAD_CATALOG', 400, 'garment type not found or inactive');
+
+  // Only successful lookups are memoised, same rationale as the face/background/pose
+  // checks above: a miss throws before this point, so nothing bad is ever cached.
+  if (opts.cache) {
+    if (lowerCatalogId && !lowerCatalogCached) opts.cache.catalogItems.set(lowerCatalogId, true);
+    if (shoeCatalogId && !shoeCatalogCached) opts.cache.catalogItems.set(shoeCatalogId, true);
+    if (garmentTypeId && !garmentTypeCached) opts.cache.garmentTypes.set(garmentTypeId, true);
+  }
 
   // Validate that workflow-required inputs are present for every selected pose.
   // If a pose's workflow has a lower garment node → lowerCatalogId is mandatory.

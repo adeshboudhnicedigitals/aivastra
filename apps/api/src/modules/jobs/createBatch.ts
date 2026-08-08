@@ -7,7 +7,12 @@ import type { FastifyInstance } from 'fastify';
 import { getMaxBatchJobs } from '../../lib/batch-config.js';
 import { AppError, withRowIndex } from '../../lib/errors.js';
 import { atomicDeduct, refundAndMarkFailed } from '../credits/ledger.js';
-import { resolveTryonPlan, type TryonPlan, verifyGarmentKey } from './create.js';
+import {
+  createTryonPlanCache,
+  resolveTryonPlan,
+  type TryonPlan,
+  verifyGarmentKey,
+} from './create.js';
 import { promptGuard } from './sanitize.js';
 
 export interface BatchCreateResult {
@@ -106,6 +111,7 @@ export async function createBatchJobs(
   // Plan every row before touching credits or inserting anything. resolveTryonPlan
   // is read-only by contract, so a mid-loop rejection leaves no residue.
   const plans: TryonPlan[] = [];
+  const cache = createTryonPlanCache();
   for (const [rowIndex, row] of rows.entries()) {
     try {
       plans.push(
@@ -129,7 +135,7 @@ export async function createBatchJobs(
             resolution: body.resolution,
             platform: body.platform,
           },
-          { resolvedUpperGarmentKey: row.upperGarmentKey },
+          { resolvedUpperGarmentKey: row.upperGarmentKey, cache },
         ),
       );
     } catch (err) {
