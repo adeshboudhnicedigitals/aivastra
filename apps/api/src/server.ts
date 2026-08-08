@@ -274,7 +274,9 @@ export async function buildServer(env: Env) {
         { code: err.code, statusCode: err.statusCode, msg: err.message, url: _req.url },
         'app error',
       );
-      return reply.code(err.statusCode).send({ error: { code: err.code, message: err.message } });
+      return reply
+        .code(err.statusCode)
+        .send({ error: { code: err.code, message: err.message, ...(err.details ?? {}) } });
     }
     if ((err as { validation?: unknown }).validation) {
       app.log.warn({ err, url: _req.url, body: _req.body }, 'validation error');
