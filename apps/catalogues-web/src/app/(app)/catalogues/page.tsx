@@ -263,6 +263,12 @@ function CataloguesPageInner(): React.ReactElement {
     () => new Set(batch.data?.catalogues.map((c) => c.catalogueId) ?? []),
     [batch.data],
   );
+  // True only during the batch query's first-ever fetch (no cached data yet) — not on
+  // background poll ticks, which already have data. Gates the loading spinner / empty
+  // state so a batch view never flashes "No catalogues yet" before batch.data lands.
+  // If /v1/batches/:id errors out, this settles to false and the filter below no-ops
+  // (falls back to the unfiltered list) rather than getting stuck showing nothing.
+  const batchPending = !!batchId && batch.isLoading;
 
   useJobStream(
     useCallback(
@@ -335,7 +341,10 @@ function CataloguesPageInner(): React.ReactElement {
 
   const filtered = useMemo(() => {
     return (catalogues ?? []).filter((c) => {
-      if (batchId && !batchCatalogueIds.has(c.catalogueId)) return false;
+      // Only apply the batch filter once batch.data has actually loaded — filtering
+      // against an empty Set (still loading, or the batch fetch errored) would fail
+      // closed and hide every catalogue instead of degrading to the unfiltered list.
+      if (batchId && batch.data && !batchCatalogueIds.has(c.catalogueId)) return false;
 
       if (!c.catalogueId.toLowerCase().includes(search.toLowerCase())) return false;
 
@@ -395,6 +404,7 @@ function CataloguesPageInner(): React.ReactElement {
   }, [
     catalogues,
     batchId,
+    batch.data,
     batchCatalogueIds,
     search,
     genderFilter,
@@ -1508,7 +1518,7 @@ function CataloguesPageInner(): React.ReactElement {
             </div>
           )}
 
-          {isLoading && (
+          {(isLoading || batchPending) && (
             <div
               style={{
                 display: 'flex',
@@ -1521,7 +1531,7 @@ function CataloguesPageInner(): React.ReactElement {
             </div>
           )}
 
-          {!isLoading && filtered.length === 0 && (
+          {!isLoading && !batchPending && filtered.length === 0 && (
             <div style={{ textAlign: 'center', padding: '64px 24px', color: C.mid }}>
               {dateFilter !== 'Date' ||
               genderFilter !== 'All Segments' ||
