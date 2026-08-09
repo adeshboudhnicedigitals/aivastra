@@ -75,6 +75,7 @@ export interface WorkflowOption {
   poseCount: number;
   defaultFacePhasePrompt: string;
   defaultGarmentPhasePrompt: string;
+  facePhasePromptNode: string | null;
   lowerNodeId: string | null;
   shoeNodeId: string | null;
   thirdNodeId: string | null;
