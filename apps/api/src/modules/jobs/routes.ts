@@ -1,6 +1,7 @@
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import {
+  CreateBatchJobRequest,
   CreateCatalogVideoJobRequest,
   CreateSareeJobRequest,
   CreateSareeMannequinJobRequest,
@@ -11,11 +12,13 @@ import {
 import { and, asc, desc, eq, isNotNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { getMaxBatchJobs } from '../../lib/batch-config.js';
 import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { getSareeSettings } from '../saree/settings.js';
 import { createCatalogVideoJob, createJob, createSimpleTryonJob } from './create.js';
+import { createBatchJobs } from './createBatch.js';
 import { createSareeJob } from './createSaree.js';
 import { createSareeMannequinJob } from './createSareeMannequin.js';
 import { regenerateJob } from './regenerate.js';
@@ -108,6 +111,21 @@ export async function jobsRoutes(app: FastifyInstance) {
         req.userId,
         req.headers['idempotency-key'] as string | undefined,
         () => createJob(app, req.userId, req.body as z.infer<typeof CreateTryOnJobRequest>),
+      );
+      reply.code(201);
+      return result;
+    },
+  );
+
+  app.post(
+    '/v1/jobs/batch',
+    { preHandler: app.requireUser, schema: { body: CreateBatchJobRequest } },
+    async (req, reply) => {
+      const result = await withIdempotency(
+        app,
+        req.userId,
+        req.headers['idempotency-key'] as string | undefined,
+        () => createBatchJobs(app, req.userId, req.body as z.infer<typeof CreateBatchJobRequest>),
       );
       reply.code(201);
       return result;
@@ -375,90 +393,107 @@ export async function jobsRoutes(app: FastifyInstance) {
     );
   });
 
-  // List catalogues — grouped by catalogue_id, ordered newest first
-  app.get('/v1/catalogues', { preHandler: app.requireUser }, async (req) => {
-    const rows = await app.db
-      .select({
-        id: schema.jobs.id,
-        catalogueId: schema.jobs.catalogueId,
-        status: schema.jobs.status,
-        createdAt: schema.jobs.createdAt,
-        creditsCharged: schema.jobs.creditsCharged,
-        genderSlug: schema.modelPoseAssets.genderSlug,
-        params: schema.jobInputs.params,
-        garmentTypeLabel: schema.garmentSubcategories.label,
-      })
-      .from(schema.jobs)
-      .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
-      .leftJoin(schema.modelPoseAssets, eq(schema.modelPoseAssets.id, schema.jobInputs.poseId))
-      .leftJoin(
-        schema.garmentSubcategories,
-        eq(schema.garmentSubcategories.id, schema.jobInputs.garmentTypeId),
-      )
-      .where(
-        and(
-          eq(schema.jobs.userId, req.userId),
-          sql`${schema.jobInputs.params}->>'sourceJobId' is null`,
-          sql`${schema.jobInputs.params}->>'kind' is distinct from 'saree_mannequin'`,
-          // Catalog-video jobs always set kind='video' regardless of source
-          // (an existing AI Vastra job vs. a fresh upload) — the sourceJobId-is-null
-          // check above only excludes them by coincidence (today sourceJobId is
-          // always set on these jobs) and stops working once sourceJobId becomes
-          // optional for the upload path. Exclude by kind explicitly instead.
-          sql`${schema.jobInputs.params}->>'kind' is distinct from 'video'`,
-        ),
-      )
-      .orderBy(desc(schema.jobs.createdAt))
-      .limit(200);
+  // List catalogues — grouped by catalogue_id, ordered newest first.
+  // Optional ?batchId scopes to one batch: without it, a batch at the platform's own
+  // max size (maxBatchJobs, same as the .limit(200) below) can fill this entire
+  // window by itself, silently pushing older batch catalogues out of the list. The
+  // batchId equality filter already bounds the row count to that one batch's size,
+  // so the limit is set from the same admin-configured ceiling the batch itself is
+  // capped by (getMaxBatchJobs) rather than the general 200.
+  app.get(
+    '/v1/catalogues',
+    {
+      preHandler: app.requireUser,
+      schema: { querystring: z.object({ batchId: z.string().uuid().optional() }) },
+    },
+    async (req) => {
+      const { batchId } = req.query as { batchId?: string };
+      const batchLimit = batchId ? await getMaxBatchJobs(app) : 200;
+      const rows = await app.db
+        .select({
+          id: schema.jobs.id,
+          catalogueId: schema.jobs.catalogueId,
+          status: schema.jobs.status,
+          createdAt: schema.jobs.createdAt,
+          creditsCharged: schema.jobs.creditsCharged,
+          genderSlug: schema.modelPoseAssets.genderSlug,
+          params: schema.jobInputs.params,
+          garmentTypeLabel: schema.garmentSubcategories.label,
+        })
+        .from(schema.jobs)
+        .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+        .leftJoin(schema.modelPoseAssets, eq(schema.modelPoseAssets.id, schema.jobInputs.poseId))
+        .leftJoin(
+          schema.garmentSubcategories,
+          eq(schema.garmentSubcategories.id, schema.jobInputs.garmentTypeId),
+        )
+        .where(
+          and(
+            eq(schema.jobs.userId, req.userId),
+            sql`${schema.jobInputs.params}->>'sourceJobId' is null`,
+            sql`${schema.jobInputs.params}->>'kind' is distinct from 'saree_mannequin'`,
+            // Catalog-video jobs always set kind='video' regardless of source
+            // (an existing AI Vastra job vs. a fresh upload) — the sourceJobId-is-null
+            // check above only excludes them by coincidence (today sourceJobId is
+            // always set on these jobs) and stops working once sourceJobId becomes
+            // optional for the upload path. Exclude by kind explicitly instead.
+            sql`${schema.jobInputs.params}->>'kind' is distinct from 'video'`,
+            ...(batchId ? [eq(schema.jobs.batchId, batchId)] : []),
+          ),
+        )
+        .orderBy(desc(schema.jobs.createdAt))
+        .limit(batchLimit);
 
-    // Group by catalogueId; jobs without catalogueId use their own id
-    type Row = (typeof rows)[number];
-    const map = new Map<string, Row[]>();
-    for (const row of rows) {
-      const key = row.catalogueId ?? row.id;
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)?.push(row);
-    }
+      // Group by catalogueId; jobs without catalogueId use their own id
+      type Row = (typeof rows)[number];
+      const map = new Map<string, Row[]>();
+      for (const row of rows) {
+        const key = row.catalogueId ?? row.id;
+        if (!map.has(key)) map.set(key, []);
+        map.get(key)?.push(row);
+      }
 
-    const groups = Array.from(map.entries()).map(([catalogueId, cJobs]) => ({
-      catalogueId,
-      // genderSlug + platform + garmentType come from the first job that has one
-      // (all jobs in a catalogue share these — one Studio submission per catalogue)
-      genderSlug: cJobs.find((j) => j.genderSlug)?.genderSlug ?? null,
-      platform: ((cJobs[0]?.params as Record<string, unknown> | null)?.platform as string) ?? null,
-      garmentType: cJobs.find((j) => j.garmentTypeLabel)?.garmentTypeLabel ?? null,
-      jobs: cJobs.map(({ genderSlug: _g, params: _p, garmentTypeLabel: _gt, ...j }) => j),
-      createdAt: cJobs[cJobs.length - 1].createdAt,
-    }));
+      const groups = Array.from(map.entries()).map(([catalogueId, cJobs]) => ({
+        catalogueId,
+        // genderSlug + platform + garmentType come from the first job that has one
+        // (all jobs in a catalogue share these — one Studio submission per catalogue)
+        genderSlug: cJobs.find((j) => j.genderSlug)?.genderSlug ?? null,
+        platform:
+          ((cJobs[0]?.params as Record<string, unknown> | null)?.platform as string) ?? null,
+        garmentType: cJobs.find((j) => j.garmentTypeLabel)?.garmentTypeLabel ?? null,
+        jobs: cJobs.map(({ genderSlug: _g, params: _p, garmentTypeLabel: _gt, ...j }) => j),
+        createdAt: cJobs[cJobs.length - 1].createdAt,
+      }));
 
-    // Presign cover + cover thumbnail per catalogue server-side (fast local crypto, no network).
-    // coverThumbUrl uses the 512px JPEG thumbnail; coverUrl is the full-size fallback.
-    return Promise.all(
-      groups.map(async (g) => {
-        const cover = g.jobs.find((j) => j.status === 'COMPLETED');
-        let coverUrl: string | null = null;
-        let coverThumbUrl: string | null = null;
-        if (cover) {
-          try {
-            const [output] = await app.db
-              .select({ thumbnailKey: schema.jobOutputs.thumbnailKey })
-              .from(schema.jobOutputs)
-              .where(eq(schema.jobOutputs.jobId, cover.id));
-            const thumbKey = output?.thumbnailKey;
-            const [full, thumb] = await Promise.all([
-              app.storage.presignGet(keys.output(cover.id), 3600),
-              thumbKey ? app.storage.presignGet(thumbKey, 3600) : null,
-            ]);
-            coverUrl = full.url;
-            coverThumbUrl = thumb?.url ?? null;
-          } catch {
-            /* missing object — leave null, client shows placeholder */
+      // Presign cover + cover thumbnail per catalogue server-side (fast local crypto, no network).
+      // coverThumbUrl uses the 512px JPEG thumbnail; coverUrl is the full-size fallback.
+      return Promise.all(
+        groups.map(async (g) => {
+          const cover = g.jobs.find((j) => j.status === 'COMPLETED');
+          let coverUrl: string | null = null;
+          let coverThumbUrl: string | null = null;
+          if (cover) {
+            try {
+              const [output] = await app.db
+                .select({ thumbnailKey: schema.jobOutputs.thumbnailKey })
+                .from(schema.jobOutputs)
+                .where(eq(schema.jobOutputs.jobId, cover.id));
+              const thumbKey = output?.thumbnailKey;
+              const [full, thumb] = await Promise.all([
+                app.storage.presignGet(keys.output(cover.id), 3600),
+                thumbKey ? app.storage.presignGet(thumbKey, 3600) : null,
+              ]);
+              coverUrl = full.url;
+              coverThumbUrl = thumb?.url ?? null;
+            } catch {
+              /* missing object — leave null, client shows placeholder */
+            }
           }
-        }
-        return { ...g, coverUrl, coverThumbUrl };
-      }),
-    );
-  });
+          return { ...g, coverUrl, coverThumbUrl };
+        }),
+      );
+    },
+  );
 
   // Single catalogue — all jobs for a catalogueId
   app.get(
@@ -650,6 +685,54 @@ export async function jobsRoutes(app: FastifyInstance) {
       }),
     );
   });
+
+  // Batch progress. There is no batches table — every field here is derived from
+  // jobs grouped by (batch_id, catalogue_id). A batch belonging to another user
+  // is a 404 rather than a 403 so the ID's existence is not disclosed.
+  app.get(
+    '/v1/batches/:id',
+    {
+      preHandler: app.requireUser,
+      schema: { params: z.object({ id: z.string().uuid() }) },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const rows = await app.db
+        .select({
+          catalogueId: schema.jobs.catalogueId,
+          total: sql<number>`COUNT(*)`.as('total'),
+          completed: sql<number>`COUNT(*) FILTER (WHERE ${schema.jobs.status} = 'COMPLETED')`.as(
+            'completed',
+          ),
+          failed: sql<number>`COUNT(*) FILTER (WHERE ${schema.jobs.status} = 'FAILED')`.as(
+            'failed',
+          ),
+          createdAt: sql<Date>`MIN(${schema.jobs.createdAt})`.as('createdAt'),
+        })
+        .from(schema.jobs)
+        .where(and(eq(schema.jobs.batchId, id), eq(schema.jobs.userId, req.userId)))
+        .groupBy(schema.jobs.catalogueId)
+        .orderBy(asc(sql`MIN(${schema.jobs.createdAt})`));
+
+      if (rows.length === 0) throw new AppError('NOT_FOUND', 404, 'batch not found');
+
+      // Raw sql`` aggregates come back from the driver as strings regardless of
+      // the sql<number> annotations — those generics are TypeScript-only.
+      const catalogues = rows.map((r) => ({
+        catalogueId: r.catalogueId,
+        total: Number(r.total),
+        completed: Number(r.completed),
+        failed: Number(r.failed),
+        createdAt: new Date(r.createdAt).toISOString(),
+      }));
+
+      return {
+        batchId: id,
+        totalJobs: catalogues.reduce((n, c) => n + c.total, 0),
+        catalogues,
+      };
+    },
+  );
 
   app.get('/v1/jobs', { preHandler: app.requireUser }, async (req) => {
     return app.db

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -182,6 +183,16 @@ export async function buildServer(env: Env) {
   // watches, though ordering against them is not strictly required since it is
   // registered with fastify-plugin and therefore applies app-wide.
   await app.register(catalogCacheInvalidationPlugin);
+  // Distinct per server instance, only in test: the integration suite runs many
+  // files back-to-back against one shared real Redis instance, all injecting
+  // from the same default IP. Without this, unrelated test files' request
+  // volume piles into the same rate-limit bucket over real wall-clock time and
+  // produces spurious 429s. Salting the key per instance isolates each test
+  // file's app from every other's, while still bucketing by IP *within* one
+  // instance/file — so a test that deliberately varies its own remoteAddress
+  // (e.g. kiosk-auth.test.ts's "rate-limits the 11th claim attempt" case) is
+  // unaffected.
+  const rateLimitTestSalt = env.NODE_ENV === 'test' ? randomUUID() : '';
   await app.register(rateLimit, {
     max: 200,
     timeWindow: '1 minute',
@@ -200,7 +211,8 @@ export async function buildServer(env: Env) {
     // absent (local dev, direct-to-origin health checks).
     keyGenerator: (req) => {
       const cf = req.headers['cf-connecting-ip'];
-      return (typeof cf === 'string' && cf) || req.ip;
+      const ip = (typeof cf === 'string' && cf) || req.ip;
+      return rateLimitTestSalt ? `${rateLimitTestSalt}:${ip}` : ip;
     },
     allowList: (req) =>
       (req.url.startsWith('/admin/') && !req.url.startsWith('/admin/auth/')) ||
@@ -274,7 +286,9 @@ export async function buildServer(env: Env) {
         { code: err.code, statusCode: err.statusCode, msg: err.message, url: _req.url },
         'app error',
       );
-      return reply.code(err.statusCode).send({ error: { code: err.code, message: err.message } });
+      return reply
+        .code(err.statusCode)
+        .send({ error: { code: err.code, message: err.message, ...(err.details ?? {}) } });
     }
     if ((err as { validation?: unknown }).validation) {
       app.log.warn({ err, url: _req.url, body: _req.body }, 'validation error');

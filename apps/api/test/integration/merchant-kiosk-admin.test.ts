@@ -86,7 +86,7 @@ describe('merchant kiosk device admin controls', () => {
 
     const adminCreate = await app.inject({
       method: 'POST',
-      url: `/v1/admin/merchants/${merchant.id}/kiosk-devices`,
+      url: `/admin/merchants/${merchant.id}/kiosk-devices`,
       headers: { authorization: `Bearer ${adminToken}` },
       payload: { label: 'Admin Tablet' },
     });

@@ -24,6 +24,10 @@ export const jobs = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
     catalogueId: uuid('catalogue_id'),
+    // Groups the jobs created by one POST /v1/jobs/batch. Nullable: every
+    // single-job flow leaves it NULL. There is no batches table — batch totals
+    // and status are derived by GROUP BY batch_id (see GET /v1/batches/:id).
+    batchId: uuid('batch_id'),
     status: text('status').notNull().default('QUEUED'),
     workerId: text('worker_id'),
     priority: boolean('priority').notNull().default(false),
@@ -72,6 +76,7 @@ export const jobs = pgTable(
     // Every Shopify analytics query filters on exactly this pair. Without it
     // each one degrades to a sequential scan of every job in the system.
     byShopifyStoreTime: index('jobs_shopify_store_created_idx').on(t.shopifyStoreId, t.createdAt),
+    byBatch: index('jobs_batch_idx').on(t.batchId),
   }),
 );
 

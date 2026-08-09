@@ -1,7 +1,8 @@
 'use client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CalendarDaysIcon,
   CheckSquareIcon,
@@ -178,7 +179,7 @@ function dateLabel(filter: string, from: string, to: string): string {
 
 // ─── page ─────────────────────────────────────────────────────────────────────
 
-export default function CataloguesPage(): React.ReactElement {
+function CataloguesPageInner(): React.ReactElement {
   // filter state
   const [search, setSearch] = useState('');
   const [genderFilter, setGenderFilter] = useState('All Segments');
@@ -228,41 +229,98 @@ export default function CataloguesPage(): React.ReactElement {
     refetchInterval: 5 * 60 * 1000,
   });
 
+  const searchParams = useSearchParams();
+  const batchId = searchParams.get('batch');
+
+  // Progress-only: per-catalogue total/completed/failed counts for the banner + polling.
+  // NOT used to source the card list — /v1/catalogues (below) is capped at 200 rows,
+  // so filtering the unfiltered ['catalogues'] cache against this endpoint's catalogueIds
+  // silently drops batch catalogues once other job activity fills that window. The
+  // batch-scoped query right below fetches the actual cards, unbounded by that cap.
+  const batch = useQuery({
+    queryKey: ['batch', batchId],
+    queryFn: () =>
+      api.get<{
+        batchId: string;
+        totalJobs: number;
+        catalogues: Array<{
+          catalogueId: string;
+          total: number;
+          completed: number;
+          failed: number;
+          createdAt: string;
+        }>;
+      }>(`/v1/batches/${batchId}`),
+    enabled: !!batchId,
+    // Poll while anything is still running. The per-user SSE stream also pushes
+    // job transitions, but a poll is the simpler correctness floor here.
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return 4000;
+      const done = data.catalogues.every((c) => c.completed + c.failed === c.total);
+      return done ? false : 4000;
+    },
+  });
+
+  // The actual card data for a batch view — scoped server-side via ?batchId, so it's
+  // never subject to the general /v1/catalogues 200-row cap.
+  const batchCatalogues = useQuery<Catalogue[]>({
+    queryKey: ['catalogues', 'batch', batchId],
+    queryFn: () => api.get(`/v1/catalogues?batchId=${batchId}`),
+    enabled: !!batchId,
+    refetchInterval: 5 * 60 * 1000,
+  });
+
+  // True only during the batch-scoped catalogues query's first-ever fetch (no cached
+  // data yet) — not on background refetch ticks, which already have data. Gates the
+  // loading spinner / empty state so a batch view never flashes "No catalogues yet"
+  // before the data lands.
+  const batchPending = !!batchId && batchCatalogues.isLoading;
+
   useJobStream(
     useCallback(
       (evt) => {
-        qc.setQueryData<Catalogue[]>(['catalogues'], (old) => {
-          if (!old) return old;
-          const updated = old.map((cat) => {
-            const jobIdx = cat.jobs.findIndex((j) => j.id === evt.jobId);
-            if (jobIdx === -1) return cat;
-            const prevStatus = cat.jobs[jobIdx]?.status;
-            const updatedJobs = cat.jobs.map((j) =>
-              j.id === evt.jobId ? { ...j, status: evt.status } : j,
-            );
-            const justCompleted = evt.status === 'COMPLETED' && prevStatus !== 'COMPLETED';
-            if (justCompleted) {
-              // Fetch cover URLs for only this job, then patch only this catalogue in cache.
-              // Avoids re-presigning every catalogue's cover on each completion event.
-              Promise.all([
-                api.get<{ url: string }>(`/v1/jobs/${evt.jobId}/result`).catch(() => null),
-                api.get<{ url: string }>(`/v1/jobs/${evt.jobId}/thumbnail`).catch(() => null),
-              ]).then(([result, thumb]) => {
-                if (!result) return;
-                qc.setQueryData<Catalogue[]>(['catalogues'], (prev) => {
-                  if (!prev) return prev;
-                  return prev.map((c) =>
-                    c.catalogueId === cat.catalogueId
-                      ? { ...c, coverUrl: result.url, coverThumbUrl: thumb?.url ?? result.url }
-                      : c,
-                  );
+        // Both the unfiltered list and the batch-scoped list (when a batch view is
+        // active) need the same patch — a job can belong to a catalogue that only
+        // exists in one of the two caches.
+        const cacheKeys = [['catalogues'], ...(batchId ? [['catalogues', 'batch', batchId]] : [])];
+
+        for (const key of cacheKeys) {
+          qc.setQueryData<Catalogue[]>(key, (old) => {
+            if (!old) return old;
+            const updated = old.map((cat) => {
+              const jobIdx = cat.jobs.findIndex((j) => j.id === evt.jobId);
+              if (jobIdx === -1) return cat;
+              const prevStatus = cat.jobs[jobIdx]?.status;
+              const updatedJobs = cat.jobs.map((j) =>
+                j.id === evt.jobId ? { ...j, status: evt.status } : j,
+              );
+              const justCompleted = evt.status === 'COMPLETED' && prevStatus !== 'COMPLETED';
+              if (justCompleted) {
+                // Fetch cover URLs for only this job, then patch only this catalogue in cache.
+                // Avoids re-presigning every catalogue's cover on each completion event.
+                Promise.all([
+                  api.get<{ url: string }>(`/v1/jobs/${evt.jobId}/result`).catch(() => null),
+                  api.get<{ url: string }>(`/v1/jobs/${evt.jobId}/thumbnail`).catch(() => null),
+                ]).then(([result, thumb]) => {
+                  if (!result) return;
+                  for (const k of cacheKeys) {
+                    qc.setQueryData<Catalogue[]>(k, (prev) => {
+                      if (!prev) return prev;
+                      return prev.map((c) =>
+                        c.catalogueId === cat.catalogueId
+                          ? { ...c, coverUrl: result.url, coverThumbUrl: thumb?.url ?? result.url }
+                          : c,
+                      );
+                    });
+                  }
                 });
-              });
-            }
-            return { ...cat, jobs: updatedJobs };
+              }
+              return { ...cat, jobs: updatedJobs };
+            });
+            return updated;
           });
-          return updated;
-        });
+        }
         // Also keep the detail view in sync if it's mounted.
         // Look up the catalogueId from the list cache so we target the right key.
         const cats = qc.getQueryData<Catalogue[]>(['catalogues']);
@@ -280,25 +338,30 @@ export default function CataloguesPage(): React.ReactElement {
           );
         }
       },
-      [qc],
+      [qc, batchId],
     ),
   );
 
   // ── derived state ────────────────────────────────────────────────────────────
+
+  // In a batch view, the batch-scoped query is the source of truth for cards — the
+  // unfiltered ['catalogues'] list is capped at 200 rows and can be missing this
+  // batch's older catalogues entirely (see the batchCatalogues query above).
+  const catalogueSource = batchId ? (batchCatalogues.data ?? []) : (catalogues ?? []);
 
   // Garment types are admin-curated and numerous (unlike the fixed GENDERS/platform
   // lists) — build the option list from whatever actually appears in the loaded
   // catalogues, rather than hardcoding one.
   const garmentTypeOptions = useMemo(() => {
     const seen = new Set<string>();
-    for (const c of catalogues ?? []) {
+    for (const c of catalogueSource) {
       if (c.garmentType) seen.add(c.garmentType);
     }
     return ['All Garment Types', ...Array.from(seen).sort()];
-  }, [catalogues]);
+  }, [catalogueSource]);
 
   const filtered = useMemo(() => {
-    return (catalogues ?? []).filter((c) => {
+    return catalogueSource.filter((c) => {
       if (!c.catalogueId.toLowerCase().includes(search.toLowerCase())) return false;
 
       if (genderFilter !== 'All Segments') {
@@ -355,7 +418,7 @@ export default function CataloguesPage(): React.ReactElement {
       return true;
     });
   }, [
-    catalogues,
+    catalogueSource,
     search,
     genderFilter,
     platformFilter,
@@ -368,10 +431,10 @@ export default function CataloguesPage(): React.ReactElement {
   // downloadable = selected catalogues that have at least one COMPLETED job
   const downloadableCatalogues = useMemo(
     () =>
-      (catalogues ?? []).filter(
+      catalogueSource.filter(
         (c) => selected.has(c.catalogueId) && c.jobs.some((j) => j.status === 'COMPLETED'),
       ),
-    [catalogues, selected],
+    [catalogueSource, selected],
   );
 
   const isSelectionMode = selected.size > 0;
@@ -1456,7 +1519,19 @@ export default function CataloguesPage(): React.ReactElement {
         {/* ── end sticky toolbar ── */}
 
         <div style={{ paddingTop: 20 }}>
-          {isLoading && (
+          {batchId && batch.data && (
+            <div style={{ marginBottom: 16 }}>
+              <strong style={{ color: C.text }}>
+                Batch — {batch.data.catalogues.length} catalogues, {batch.data.totalJobs} images
+              </strong>
+              <span style={{ marginLeft: 12, color: C.mid, fontSize: 13 }}>
+                {batch.data.catalogues.reduce((n, c) => n + c.completed, 0)} done,{' '}
+                {batch.data.catalogues.reduce((n, c) => n + c.failed, 0)} failed
+              </span>
+            </div>
+          )}
+
+          {(isLoading || batchPending) && (
             <div
               style={{
                 display: 'flex',
@@ -1469,7 +1544,7 @@ export default function CataloguesPage(): React.ReactElement {
             </div>
           )}
 
-          {!isLoading && filtered.length === 0 && (
+          {!isLoading && !batchPending && filtered.length === 0 && (
             <div style={{ textAlign: 'center', padding: '64px 24px', color: C.mid }}>
               {dateFilter !== 'Date' ||
               genderFilter !== 'All Segments' ||
@@ -1740,5 +1815,15 @@ export default function CataloguesPage(): React.ReactElement {
         </div>
       )}
     </>
+  );
+}
+
+// useSearchParams (for ?batch=<id>) requires a Suspense boundary, or Next.js
+// fails the production build with a missing-suspense-with-csr-bailout error.
+export default function CataloguesPage(): React.ReactElement {
+  return (
+    <Suspense fallback={<div style={{ minHeight: '100vh', background: C.bg }} />}>
+      <CataloguesPageInner />
+    </Suspense>
   );
 }
