@@ -397,6 +397,12 @@ export const UpdateWorkflowBody = z.object({
   resultNodeId: z.string().min(1).nullable().optional(),
   facePhasePromptNode: z.string().min(1).optional(),
   garmentPhasePromptNode: z.string().min(1).optional(),
+  // Prompt TEXT (not which node holds it — see facePhasePromptNode/garmentPhasePromptNode
+  // above for that). No .min(1) here on purpose: emptiness rules differ per field and are
+  // enforced in the route handler (garmentPhasePrompt must be non-empty, facePhasePrompt may
+  // be empty).
+  garmentPhasePrompt: z.string().optional(),
+  facePhasePrompt: z.string().optional(),
   // Tryon workflow node IDs
   tryonPersonNodeId: z.string().min(1).nullable().optional(),
   tryonGarmentNodeId: z.string().min(1).nullable().optional(),
