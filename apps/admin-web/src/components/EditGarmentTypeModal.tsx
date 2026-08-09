@@ -9,6 +9,7 @@ import type {
   WorkflowOption,
 } from '../types';
 import { AssetThumb } from './AssetThumb';
+import { EditDrawer } from './EditDrawer';
 import { Icon } from './Icons';
 import { PublicApiSlugField } from './PublicApiSlugField';
 import { SearchableSelect } from './SearchableSelect';
@@ -509,46 +510,21 @@ export function EditGarmentTypeModal({
   };
 
   return (
-    <div className="modal-overlay" onClick={saving ? undefined : onClose}>
-      <div
-        className="drawer"
-        onClick={(e) => e.stopPropagation()}
-        style={{ width: 'min(780px, calc(100vw - 60px))' }}
-      >
-        <div className="drawer-head">
-          <AssetThumb
-            thumbnailKey={garmentType.thumbnailKey ?? undefined}
-            label={garmentType.label}
-            w={40}
-            h={40}
-            storageBase={storagePublicUrl}
-          />
-          <div style={{ minWidth: 0 }}>
-            <h2>Edit Garment Type</h2>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-              <span className="badge dot accent">{garmentType.genderSlug}</span>
-              <span className="mono sub">{garmentType.slug}</span>
-            </div>
-          </div>
-          <button
-            className="btn sm ghost"
-            onClick={onClose}
-            disabled={saving}
-            style={{ marginLeft: 'auto' }}
-          >
-            <Icon.Close />
-          </button>
-        </div>
-
-        <div className="drawer-body" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-          <div className="card">
-            <div className="card-head">
-              <h3>Basic Info</h3>
-            </div>
-            <div
-              className="card-body"
-              style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
-            >
+    <EditDrawer
+      onClose={onClose}
+      title="Edit Garment Type"
+      subtitle={garmentType.slug}
+      tags={[{ label: garmentType.genderSlug, tone: 'dot-accent' }]}
+      thumbnail={{ thumbnailKey: garmentType.thumbnailKey ?? undefined, storagePublicUrl }}
+      width="min(780px, calc(100vw - 60px))"
+      saving={saving}
+      onSave={() => void save()}
+      saveDisabled={!dirty}
+      sections={[
+        {
+          title: 'Basic Info',
+          children: (
+            <>
               <UploadBox
                 label="thumbnail"
                 previewUrl={imagePreview}
@@ -605,7 +581,7 @@ export function EditGarmentTypeModal({
                     <label>Top garment upload label</label>
                     <input
                       className="input"
-                      placeholder={`e.g. Upload Top (defaults to garment name)`}
+                      placeholder="e.g. Upload Top (defaults to garment name)"
                       value={upperUploadLabel}
                       disabled={saving}
                       onChange={(e) => setUpperUploadLabel(e.target.value)}
@@ -671,17 +647,13 @@ export function EditGarmentTypeModal({
                   the tryon page.
                 </span>
               </div>
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="card-head">
-              <h3>Two-Step Generation</h3>
-            </div>
-            <div
-              className="card-body"
-              style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
-            >
+            </>
+          ),
+        },
+        {
+          title: 'Two-Step Generation',
+          children: (
+            <>
               <div className="setting-row" style={{ padding: 0, border: 0 }}>
                 <div>
                   <div className="setting-lbl">Two-step generation (mannequin + drape)</div>
@@ -750,79 +722,63 @@ export function EditGarmentTypeModal({
                   </div>
                 </>
               )}
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="card-head">
-              <h3>Default Lower Garment</h3>
-            </div>
-            <div className="card-body flush">
-              <ItemPicker
-                type="lower"
-                gender={garmentType.genderSlug}
-                items={catalogItems}
-                categories={categories}
-                selectedId={defaultLowerId}
-                onSelect={setDefaultLowerId}
-                storagePublicUrl={storagePublicUrl}
-              />
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="card-head">
-              <h3>Default Shoe</h3>
-            </div>
-            <div className="card-body flush">
-              <ItemPicker
-                type="shoe"
-                gender={garmentType.genderSlug}
-                items={catalogItems}
-                categories={categories}
-                selectedId={defaultShoeId}
-                onSelect={setDefaultShoeId}
-                storagePublicUrl={storagePublicUrl}
-              />
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="card-head">
-              <h3>Instruction Image</h3>
-            </div>
-            <div className="card-body">
-              <UploadBox
-                label="instruction image"
-                hint="Shown to users as an upload guide for this garment type."
-                previewUrl={instructionPreview}
-                onPick={(f) => {
-                  setInstructionFile(f);
-                  setRemoveInstructionImage(false);
-                }}
-                onRemove={
-                  instructionPreview
-                    ? () => {
-                        setInstructionFile(null);
-                        setRemoveInstructionImage(true);
-                      }
-                    : undefined
-                }
-                disabled={saving}
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="drawer-foot">
-          <button className="btn ghost" onClick={onClose} disabled={saving}>
-            Cancel
-          </button>
-          <button className="btn primary" disabled={saving || !dirty} onClick={() => void save()}>
-            {saving ? 'Saving…' : 'Save changes'}
-          </button>
-        </div>
-      </div>
-    </div>
+            </>
+          ),
+        },
+        {
+          title: 'Default Lower Garment',
+          flush: true,
+          children: (
+            <ItemPicker
+              type="lower"
+              gender={garmentType.genderSlug}
+              items={catalogItems}
+              categories={categories}
+              selectedId={defaultLowerId}
+              onSelect={setDefaultLowerId}
+              storagePublicUrl={storagePublicUrl}
+            />
+          ),
+        },
+        {
+          title: 'Default Shoe',
+          flush: true,
+          children: (
+            <ItemPicker
+              type="shoe"
+              gender={garmentType.genderSlug}
+              items={catalogItems}
+              categories={categories}
+              selectedId={defaultShoeId}
+              onSelect={setDefaultShoeId}
+              storagePublicUrl={storagePublicUrl}
+            />
+          ),
+        },
+        {
+          title: 'Instruction Image',
+          children: (
+            <UploadBox
+              label="instruction image"
+              hint="Shown to users as an upload guide for this garment type."
+              previewUrl={instructionPreview}
+              onPick={(f) => {
+                setInstructionFile(f);
+                setRemoveInstructionImage(false);
+              }}
+              onRemove={
+                instructionPreview
+                  ? () => {
+                      setInstructionFile(null);
+                      setRemoveInstructionImage(true);
+                    }
+                  : undefined
+              }
+              disabled={saving}
+            />
+          ),
+        },
+      ]}
+    />
   );
 }
