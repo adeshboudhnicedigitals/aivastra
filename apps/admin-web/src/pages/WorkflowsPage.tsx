@@ -50,6 +50,8 @@ export default function WorkflowsPage({ toast }: Props) {
   const [editForm, setEditForm] = useState({
     label: '',
     slug: '',
+    garmentPhasePrompt: '',
+    facePhasePrompt: '',
   });
   const [editSaving, setEditSaving] = useState(false);
 
@@ -175,7 +177,11 @@ export default function WorkflowsPage({ toast }: Props) {
       const patch: Record<string, unknown> = {
         label: editForm.label.trim(),
         slug: editForm.slug.trim(),
+        garmentPhasePrompt: editForm.garmentPhasePrompt.trim(),
       };
+      if (editingWf.facePhasePromptNode) {
+        patch.facePhasePrompt = editForm.facePhasePrompt.trim();
+      }
       await apiFetch(`/admin/workflows/${editingWf.id}`, {
         method: 'PATCH',
         body: JSON.stringify(patch),
@@ -187,6 +193,10 @@ export default function WorkflowsPage({ toast }: Props) {
                 ...w,
                 label: editForm.label.trim(),
                 slug: editForm.slug.trim(),
+                defaultGarmentPhasePrompt: editForm.garmentPhasePrompt.trim(),
+                ...(editingWf.facePhasePromptNode
+                  ? { defaultFacePhasePrompt: editForm.facePhasePrompt.trim() }
+                  : {}),
               }
             : w,
         ),
@@ -378,6 +388,8 @@ export default function WorkflowsPage({ toast }: Props) {
                               setEditForm({
                                 label: wf.label,
                                 slug: wf.slug,
+                                garmentPhasePrompt: wf.defaultGarmentPhasePrompt,
+                                facePhasePrompt: wf.defaultFacePhasePrompt,
                               });
                             }}
                             title="Edit workflow"
@@ -630,6 +642,8 @@ export default function WorkflowsPage({ toast }: Props) {
                             setEditForm({
                               label: wf.label,
                               slug: wf.slug,
+                              garmentPhasePrompt: wf.defaultGarmentPhasePrompt,
+                              facePhasePrompt: wf.defaultFacePhasePrompt,
                             });
                           }}
                         >
@@ -975,7 +989,7 @@ export default function WorkflowsPage({ toast }: Props) {
           <div
             className="modal"
             onClick={(e) => e.stopPropagation()}
-            style={{ width: 'min(420px, calc(100vw - 40px))' }}
+            style={{ width: 'min(640px, calc(100vw - 40px))' }}
           >
             <div className="modal-head">
               <h3>Edit workflow</h3>
@@ -1016,6 +1030,32 @@ export default function WorkflowsPage({ toast }: Props) {
                   }
                 />
               </div>
+              <div className="field">
+                <label>Garment-phase prompt</label>
+                <textarea
+                  className="input"
+                  rows={4}
+                  value={editForm.garmentPhasePrompt}
+                  disabled={editSaving}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, garmentPhasePrompt: e.target.value }))
+                  }
+                />
+              </div>
+              {editingWf?.facePhasePromptNode && (
+                <div className="field">
+                  <label>Face-phase (negative) prompt</label>
+                  <textarea
+                    className="input"
+                    rows={4}
+                    value={editForm.facePhasePrompt}
+                    disabled={editSaving}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, facePhasePrompt: e.target.value }))
+                    }
+                  />
+                </div>
+              )}
             </div>
             <div className="modal-foot">
               <button
@@ -1027,7 +1067,12 @@ export default function WorkflowsPage({ toast }: Props) {
               </button>
               <button
                 className="btn primary"
-                disabled={editSaving || !editForm.label.trim() || !editForm.slug.trim()}
+                disabled={
+                  editSaving ||
+                  !editForm.label.trim() ||
+                  !editForm.slug.trim() ||
+                  !editForm.garmentPhasePrompt.trim()
+                }
                 onClick={handleEditSave}
               >
                 {editSaving ? 'Saving…' : 'Save'}
