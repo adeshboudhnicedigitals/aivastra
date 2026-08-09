@@ -87,6 +87,47 @@ function writePromptText(json: Record<string, unknown>, nodeId: string, text: st
   node.inputs[key] = text;
 }
 
+// Every real workflow has exactly one KSampler node (verified against production
+// workflow exports) — found by class_type, not a stored node-id column, since
+// nothing else needs to identify it and a scan is O(nodes) on an already-small JSON.
+function findKSamplerNode(
+  json: Record<string, unknown>,
+): { nodeId: string; node: WorkflowNode } | null {
+  for (const [nodeId, value] of Object.entries(json)) {
+    const node = value as WorkflowNode;
+    if (node?.class_type === 'KSampler') return { nodeId, node };
+  }
+  return null;
+}
+
+function extractKSamplerValues(json: Record<string, unknown>): {
+  ksamplerSteps: number | null;
+  ksamplerCfg: number | null;
+  ksamplerDenoise: number | null;
+} {
+  const inputs = findKSamplerNode(json)?.node.inputs;
+  return {
+    ksamplerSteps: typeof inputs?.steps === 'number' ? inputs.steps : null,
+    ksamplerCfg: typeof inputs?.cfg === 'number' ? inputs.cfg : null,
+    ksamplerDenoise: typeof inputs?.denoise === 'number' ? inputs.denoise : null,
+  };
+}
+
+// Returns false (no write performed) when the workflow has no KSampler node —
+// caller turns that into a 400, mirroring the facePhasePrompt-with-no-node case.
+function writeKSamplerValues(
+  json: Record<string, unknown>,
+  values: { steps?: number; cfg?: number; denoise?: number },
+): boolean {
+  const found = findKSamplerNode(json);
+  if (!found) return false;
+  found.node.inputs ??= {};
+  if (values.steps !== undefined) found.node.inputs.steps = values.steps;
+  if (values.cfg !== undefined) found.node.inputs.cfg = values.cfg;
+  if (values.denoise !== undefined) found.node.inputs.denoise = values.denoise;
+  return true;
+}
+
 // ── Routes ────────────────────────────────────────────────────────────────
 
 export async function adminWorkflowsRoutes(app: FastifyInstance) {
@@ -120,6 +161,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       defaultFacePhasePrompt: r.defaultFacePhasePrompt,
       defaultGarmentPhasePrompt: r.defaultGarmentPhasePrompt,
       facePhasePromptNode: r.facePhasePromptNode,
+      ...extractKSamplerValues(r.jsonContent as Record<string, unknown>),
       lowerNodeId: r.lowerNodeId,
       shoeNodeId: r.shoeNodeId,
       thirdNodeId: r.thirdNodeId,
@@ -502,7 +544,11 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         .from(schema.modelPoseAssets)
         .where(eq(schema.modelPoseAssets.workflowTemplateId, id));
 
-      return { ...row, poseCount: Number(poseCountRow?.cnt ?? 0) };
+      return {
+        ...row,
+        poseCount: Number(poseCountRow?.cnt ?? 0),
+        ...extractKSamplerValues(row.jsonContent as Record<string, unknown>),
+      };
     },
   );
 
@@ -536,6 +582,9 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         garmentPhasePromptNode?: string;
         garmentPhasePrompt?: string;
         facePhasePrompt?: string;
+        ksamplerSteps?: number;
+        ksamplerCfg?: number;
+        ksamplerDenoise?: number;
         tryonPersonNodeId?: string | null;
         tryonGarmentNodeId?: string | null;
         tryonGarmentNodeId2?: string | null;
@@ -641,6 +690,24 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         }
         writePromptText(json, newNegNode, body.facePhasePrompt);
       }
+      if (
+        body.ksamplerSteps !== undefined ||
+        body.ksamplerCfg !== undefined ||
+        body.ksamplerDenoise !== undefined
+      ) {
+        const wrote = writeKSamplerValues(json, {
+          steps: body.ksamplerSteps,
+          cfg: body.ksamplerCfg,
+          denoise: body.ksamplerDenoise,
+        });
+        if (!wrote) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'cannot set ksampler values: this workflow has no KSampler node',
+          );
+        }
+      }
 
       let defaultFacePhasePrompt = existing.defaultFacePhasePrompt;
       let defaultGarmentPhasePrompt = existing.defaultGarmentPhasePrompt;
@@ -660,7 +727,13 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         defaultFacePhasePrompt,
         defaultGarmentPhasePrompt,
       };
-      if (body.garmentPhasePrompt !== undefined || body.facePhasePrompt !== undefined) {
+      if (
+        body.garmentPhasePrompt !== undefined ||
+        body.facePhasePrompt !== undefined ||
+        body.ksamplerSteps !== undefined ||
+        body.ksamplerCfg !== undefined ||
+        body.ksamplerDenoise !== undefined
+      ) {
         updateValues.jsonContent = json;
       }
       if (body.label !== undefined) updateValues.label = body.label;

@@ -479,4 +479,244 @@ describe('admin workflows - floor validation', () => {
     );
     expect(row?.facePhasePromptNode).toBe('negative_node');
   });
+
+  const jsonContentWithKSampler = {
+    ...jsonContent,
+    ksampler_node: {
+      inputs: {
+        seed: 12345,
+        steps: 4,
+        cfg: 1,
+        sampler_name: 'euler',
+        scheduler: 'simple',
+        denoise: 1,
+      },
+      class_type: 'KSampler',
+      _meta: { title: 'KSampler' },
+    },
+  };
+
+  it('PATCH updates ksamplerSteps/ksamplerCfg/ksamplerDenoise in jsonContent', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `ksampler_edit_${Date.now()}`,
+        label: 'KSampler edit',
+        jsonContent: jsonContentWithKSampler,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        garmentPhasePromptNode: 'positive_node',
+      },
+    });
+    const id = createRes.json().id as string;
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/admin/workflows/${id}`,
+      headers,
+      payload: { ksamplerSteps: 8, ksamplerCfg: 2.5, ksamplerDenoise: 0.75 },
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const [row] = await app.db
+      .select({ jsonContent: schema.workflowTemplates.jsonContent })
+      .from(schema.workflowTemplates)
+      .where(eq(schema.workflowTemplates.id, id));
+    const stored = row?.jsonContent as Record<
+      string,
+      { inputs: { steps?: number; cfg?: number; denoise?: number } }
+    >;
+    expect(stored.ksampler_node.inputs.steps).toBe(8);
+    expect(stored.ksampler_node.inputs.cfg).toBe(2.5);
+    expect(stored.ksampler_node.inputs.denoise).toBe(0.75);
+  });
+
+  it('PATCH rejects ksamplerSteps below 1', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `ksampler_steps_${Date.now()}`,
+        label: 'KSampler steps invalid',
+        jsonContent: jsonContentWithKSampler,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        garmentPhasePromptNode: 'positive_node',
+      },
+    });
+    const id = createRes.json().id as string;
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/admin/workflows/${id}`,
+      headers,
+      payload: { ksamplerSteps: 0 },
+    });
+    expect(patchRes.statusCode).toBe(400);
+  });
+
+  it('PATCH rejects a negative ksamplerCfg', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `ksampler_cfg_${Date.now()}`,
+        label: 'KSampler cfg invalid',
+        jsonContent: jsonContentWithKSampler,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        garmentPhasePromptNode: 'positive_node',
+      },
+    });
+    const id = createRes.json().id as string;
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/admin/workflows/${id}`,
+      headers,
+      payload: { ksamplerCfg: -1 },
+    });
+    expect(patchRes.statusCode).toBe(400);
+  });
+
+  it('PATCH rejects a ksamplerDenoise outside [0, 1]', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `ksampler_denoise_${Date.now()}`,
+        label: 'KSampler denoise invalid',
+        jsonContent: jsonContentWithKSampler,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        garmentPhasePromptNode: 'positive_node',
+      },
+    });
+    const id = createRes.json().id as string;
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/admin/workflows/${id}`,
+      headers,
+      payload: { ksamplerDenoise: 1.5 },
+    });
+    expect(patchRes.statusCode).toBe(400);
+  });
+
+  it('PATCH rejects ksampler fields when the workflow has no KSampler node', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `ksampler_missing_${Date.now()}`,
+        label: 'KSampler missing node',
+        jsonContent,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        garmentPhasePromptNode: 'positive_node',
+      },
+    });
+    const id = createRes.json().id as string;
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/admin/workflows/${id}`,
+      headers,
+      payload: { ksamplerSteps: 10 },
+    });
+    expect(patchRes.statusCode).toBe(400);
+  });
+
+  it('GET list and GET detail agree on ksamplerSteps/ksamplerCfg/ksamplerDenoise for the same workflow', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `ksampler_agree_${Date.now()}`,
+        label: 'KSampler agreement',
+        jsonContent: jsonContentWithKSampler,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        garmentPhasePromptNode: 'positive_node',
+      },
+    });
+    const id = createRes.json().id as string;
+
+    const listRes = await app.inject({ method: 'GET', url: '/admin/workflows', headers });
+    const detailRes = await app.inject({
+      method: 'GET',
+      url: `/admin/workflows/${id}`,
+      headers,
+    });
+    const listItem = (
+      listRes.json() as {
+        id: string;
+        ksamplerSteps: number | null;
+        ksamplerCfg: number | null;
+        ksamplerDenoise: number | null;
+      }[]
+    ).find((w) => w.id === id);
+    const detail = detailRes.json() as {
+      ksamplerSteps: number | null;
+      ksamplerCfg: number | null;
+      ksamplerDenoise: number | null;
+    };
+    expect(listItem?.ksamplerSteps).toBe(4);
+    expect(listItem?.ksamplerCfg).toBe(1);
+    expect(listItem?.ksamplerDenoise).toBe(1);
+    expect(detail.ksamplerSteps).toBe(listItem?.ksamplerSteps);
+    expect(detail.ksamplerCfg).toBe(listItem?.ksamplerCfg);
+    expect(detail.ksamplerDenoise).toBe(listItem?.ksamplerDenoise);
+  });
+
+  it('PATCH with only ksamplerSteps leaves cfg/denoise unchanged', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `ksampler_partial_${Date.now()}`,
+        label: 'KSampler partial update',
+        jsonContent: jsonContentWithKSampler,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        garmentPhasePromptNode: 'positive_node',
+      },
+    });
+    const id = createRes.json().id as string;
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/admin/workflows/${id}`,
+      headers,
+      payload: { ksamplerSteps: 20 },
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const [row] = await app.db
+      .select({ jsonContent: schema.workflowTemplates.jsonContent })
+      .from(schema.workflowTemplates)
+      .where(eq(schema.workflowTemplates.id, id));
+    const stored = row?.jsonContent as Record<
+      string,
+      { inputs: { steps?: number; cfg?: number; denoise?: number } }
+    >;
+    expect(stored.ksampler_node.inputs.steps).toBe(20);
+    expect(stored.ksampler_node.inputs.cfg).toBe(1);
+    expect(stored.ksampler_node.inputs.denoise).toBe(1);
+  });
 });
