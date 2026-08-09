@@ -403,6 +403,13 @@ export const UpdateWorkflowBody = z.object({
   // be empty).
   garmentPhasePrompt: z.string().optional(),
   facePhasePrompt: z.string().optional(),
+  // KSampler settings — found by class_type scan, not a stored node-id column (every
+  // real workflow has exactly one KSampler). steps<1 means no generation happens;
+  // denoise is bounded to its defined semantic range [0,1]; cfg has no fixed ceiling
+  // since it varies by model/LoRA.
+  ksamplerSteps: z.number().int().min(1).optional(),
+  ksamplerCfg: z.number().min(0).optional(),
+  ksamplerDenoise: z.number().min(0).max(1).optional(),
   // Tryon workflow node IDs
   tryonPersonNodeId: z.string().min(1).nullable().optional(),
   tryonGarmentNodeId: z.string().min(1).nullable().optional(),
