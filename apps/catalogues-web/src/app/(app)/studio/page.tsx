@@ -194,6 +194,28 @@ function resolutionFromOutputDims(w: number, h: number): 'HD' | '2K' | '4K' {
   if (longer <= 2048) return '2K';
   return '4K';
 }
+
+/**
+ * Tracks .studio-5col-grid's actual column count (see its @media rules below in
+ * this file's <style> block: 5 cols above 768px, 4 at <=768px, 3 at <=480px).
+ * Batch's garment-type grid uses this to cap visible rows to exactly 2 —
+ * unlike single mode's hand-tuned categoryVisibleCount (calibrated for its
+ * narrower, two-column layout), batch is full-width so the true column count
+ * is what determines how many items fit in a row.
+ */
+function useGridColumns(): number {
+  const [columns, setColumns] = useState(5);
+  useEffect(() => {
+    const update = () => {
+      const w = window.innerWidth;
+      setColumns(w <= 480 ? 3 : w <= 768 ? 4 : 5);
+    };
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+  return columns;
+}
 const OUTFIT_IMG: Record<string, string> = {
   kurta: `${BASE}/assets/outfit-kurta.png`,
   saree: `${BASE}/assets/outfit-saree.png`,
@@ -391,6 +413,7 @@ export default function StudioPage(): React.ReactElement {
   const [gender, setGender] = useState('women');
   const [garmentTypeId, setGarmentTypeId] = useState('');
   const [garmentModalOpen, setGarmentModalOpen] = useState(false);
+  const [batchGarmentModalOpen, setBatchGarmentModalOpen] = useState(false);
   const [platform, setPlatform] = useState('Amazon');
   const [aspect, setAspect] = useState(BRAND_CONFIG.Amazon?.default ?? '1:1');
   const [customRatio, setCustomRatio] = useState('');
@@ -571,6 +594,11 @@ export default function StudioPage(): React.ReactElement {
   const categoryVisibleCount = isDesktopView ? 5 : isSmallLaptop ? 10 : isTablet ? 8 : 6;
 
   const garmentVisibleCount = categoryVisibleCount;
+  // Batch is full-width (no two-column split), so unlike single mode's
+  // categoryVisibleCount (1 row at the desktop tier), its garment-type grid
+  // shows exactly 2 rows at every tier — see useGridColumns.
+  const batchGarmentGridColumns = useGridColumns();
+  const batchGarmentVisibleCount = batchGarmentGridColumns * 2;
   const modelVisibleCount = categoryVisibleCount;
   const backgroundVisibleCount = categoryVisibleCount;
   const templateVisibleCount = categoryVisibleCount;
@@ -1720,25 +1748,147 @@ export default function StudioPage(): React.ReactElement {
         ))}
       </div>
       {mode === 'batch' ? (
-        <div style={{ padding: '16px 28px' }}>
-          <BatchMode
-            gender={gender}
-            garmentTypeId={garmentTypeId}
-            defaultFaceId={faceId}
-            aspectRatio={effectiveAspect}
-            resolution={resolution ?? 'HD'}
-            platform={platform}
-            params={
-              aspect === 'custom' && customDimsReady
-                ? { outputWidth: customWNum, outputHeight: customHNum }
-                : undefined
-            }
-            creditCostPerImage={
-              resolution ? RESOLUTION_COSTS[resolution] : (resolutionConfig.HD?.creditCost ?? 25)
-            }
-            balance={userCredits}
-            onDirtyChange={setBatchDirty}
-          />
+        <div
+          className="studio-layout-wrapper"
+          style={{ padding: '16px 28px', display: 'flex', flexDirection: 'column', gap: 20 }}
+        >
+          <section className="studio-section-card studio-audience-section" style={sectionCardStyle}>
+            <SectionHead
+              title="Create Catalogue For"
+              subtitle="Choose your target audience"
+              stepNumber={1}
+            />
+            <div className="gender-card-grid">
+              {GENDERS.map((g) => (
+                <GenderCard
+                  key={g.value}
+                  img={g.img}
+                  label={g.label}
+                  selected={gender === g.value}
+                  onClick={() => {
+                    if (g.value === gender) return;
+                    setGender(g.value);
+                    // Forces the auto-select effect below to re-pick the first
+                    // garment type for the new gender, same as switching gender
+                    // in single mode.
+                    setGarmentTypeId('');
+                  }}
+                />
+              ))}
+            </div>
+          </section>
+
+          <section className="studio-section-card" style={sectionCardStyle}>
+            <SectionHead
+              title="Select Your Garment Type"
+              subtitle="Select the garment category"
+              stepNumber={2}
+              right={
+                garmentTypes &&
+                garmentTypes.items.length > batchGarmentVisibleCount && (
+                  <button
+                    type="button"
+                    onClick={() => setBatchGarmentModalOpen(true)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      cursor: 'pointer',
+                      height: 16,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontFamily: 'var(--font-poppins), Poppins, sans-serif',
+                        fontWeight: 600,
+                        fontSize: 12,
+                        lineHeight: '16px',
+                        color: '#626262',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      View More
+                    </span>
+                  </button>
+                )
+              }
+            />
+            {!garmentTypes ? (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  fontSize: 13,
+                  color: C.mid,
+                }}
+              >
+                <SpinnerIcon size={16} /> Loading…
+              </div>
+            ) : (
+              <div className="studio-5col-grid">
+                {(() => {
+                  const all = garmentTypes.items;
+                  const inFirstN = all
+                    .slice(0, batchGarmentVisibleCount)
+                    .some((s) => s.id === garmentTypeId);
+                  const visible =
+                    garmentTypeId && !inFirstN
+                      ? [
+                          // biome-ignore lint/style/noNonNullAssertion: inFirstN is false here, so the find returns a value
+                          all.find((s) => s.id === garmentTypeId)!,
+                          ...all
+                            .filter((s) => s.id !== garmentTypeId)
+                            .slice(0, batchGarmentVisibleCount - 1),
+                        ]
+                      : all.slice(0, batchGarmentVisibleCount);
+                  return visible.map((s) => {
+                    const fallbackKey = Object.keys(OUTFIT_IMG).find(
+                      (k) => s.slug.toLowerCase().includes(k) || s.label.toLowerCase().includes(k),
+                    );
+                    const img = s.thumbnailUrl ?? (fallbackKey ? OUTFIT_IMG[fallbackKey] : null);
+                    return (
+                      <VisualCard
+                        key={s.id}
+                        img={img ?? null}
+                        label={s.label}
+                        width="100%"
+                        selected={garmentTypeId === s.id}
+                        onClick={() => setGarmentTypeId(s.id)}
+                      />
+                    );
+                  });
+                })()}
+              </div>
+            )}
+          </section>
+
+          {garmentTypeId ? (
+            <BatchMode
+              gender={gender}
+              garmentTypeId={garmentTypeId}
+              aspectRatio={effectiveAspect}
+              resolution={resolution ?? 'HD'}
+              platform={platform}
+              params={
+                aspect === 'custom' && customDimsReady
+                  ? { outputWidth: customWNum, outputHeight: customHNum }
+                  : undefined
+              }
+              creditCostPerImage={
+                resolution ? RESOLUTION_COSTS[resolution] : (resolutionConfig.HD?.creditCost ?? 25)
+              }
+              balance={userCredits}
+              onDirtyChange={setBatchDirty}
+            />
+          ) : (
+            <p style={{ color: C.mid, fontSize: 13 }}>
+              Select a garment type above to start uploading garments.
+            </p>
+          )}
         </div>
       ) : (
         <div
@@ -4232,6 +4382,32 @@ export default function StudioPage(): React.ReactElement {
             }
           }}
           onClose={() => setGarmentModalOpen(false)}
+        />
+      )}
+
+      {batchGarmentModalOpen && garmentTypes && (
+        <SelectGridModal
+          title="Select Your Garment Type"
+          aspect={1}
+          columns={5}
+          items={garmentTypes.items.map((s) => ({
+            id: s.id,
+            label: s.label,
+            thumbnailUrl:
+              s.thumbnailUrl ??
+              (() => {
+                const fallbackKey = Object.keys(OUTFIT_IMG).find(
+                  (k) => s.slug.toLowerCase().includes(k) || s.label.toLowerCase().includes(k),
+                );
+                return fallbackKey ? OUTFIT_IMG[fallbackKey] : null;
+              })(),
+          }))}
+          selectedIds={garmentTypeId ? [garmentTypeId] : []}
+          onSelect={(id) => {
+            setGarmentTypeId(id);
+            setBatchGarmentModalOpen(false);
+          }}
+          onClose={() => setBatchGarmentModalOpen(false)}
         />
       )}
 
