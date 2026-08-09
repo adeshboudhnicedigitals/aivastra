@@ -110,6 +110,9 @@ export const SystemConfigBody = z.object({
   // final image resolution is a product/pricing decision, unlike latentMaxPx
   // (per-template, VRAM-bound diffusion canvas size).
   maxOutputPx: z.number().int().min(512).max(4096).optional(),
+  // Ceiling on jobs per Studio batch submission (createBatch.ts) — same number
+  // GET /v1/catalogues?batchId uses to size its row cap, so the two stay in sync.
+  maxBatchJobs: z.number().int().min(1).max(2000).optional(),
   // Admin-fixed inputs for merchant catalogue-manager's constrained "flat garment
   // -> catalogue image" generation. Keyed by category so studio-style face/background
   // variety per gender is preserved without per-merchant or per-item picking.
