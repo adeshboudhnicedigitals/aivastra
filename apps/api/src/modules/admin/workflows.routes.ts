@@ -75,6 +75,18 @@ function extractDefaultPrompts(
   };
 }
 
+// Writes into whichever key the node already uses (standard CLIPTextEncode = "text",
+// custom nodes like TextEncodeQwenImageEditPlusPro = "prompt") — mirrors extractPromptText's
+// read priority so a write always lands in the field ComfyUI actually reads for that node.
+// Defaults to "text" (the standard CLIPTextEncode key) when the node has neither key yet.
+function writePromptText(json: Record<string, unknown>, nodeId: string, text: string): void {
+  const node = json[nodeId] as WorkflowNode | undefined;
+  if (!node) return;
+  node.inputs ??= {};
+  const key = 'prompt' in node.inputs ? 'prompt' : 'text';
+  node.inputs[key] = text;
+}
+
 // ── Routes ────────────────────────────────────────────────────────────────
 
 export async function adminWorkflowsRoutes(app: FastifyInstance) {
@@ -107,6 +119,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       poseCount: countMap[r.id] ?? 0,
       defaultFacePhasePrompt: r.defaultFacePhasePrompt,
       defaultGarmentPhasePrompt: r.defaultGarmentPhasePrompt,
+      facePhasePromptNode: r.facePhasePromptNode,
       lowerNodeId: r.lowerNodeId,
       shoeNodeId: r.shoeNodeId,
       thirdNodeId: r.thirdNodeId,
@@ -521,6 +534,8 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         resultNodeId?: string | null;
         facePhasePromptNode?: string;
         garmentPhasePromptNode?: string;
+        garmentPhasePrompt?: string;
+        facePhasePrompt?: string;
         tryonPersonNodeId?: string | null;
         tryonGarmentNodeId?: string | null;
         tryonGarmentNodeId2?: string | null;
@@ -606,9 +621,35 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       const newNegNode = body.facePhasePromptNode ?? existing.facePhasePromptNode;
       const newPosNode = body.garmentPhasePromptNode ?? existing.garmentPhasePromptNode;
 
+      if (body.garmentPhasePrompt !== undefined) {
+        if (!body.garmentPhasePrompt.trim()) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'garmentPhasePrompt cannot be empty — an empty positive prompt causes ComfyUI to reject the job',
+          );
+        }
+        writePromptText(json, newPosNode, body.garmentPhasePrompt);
+      }
+      if (body.facePhasePrompt !== undefined) {
+        if (!newNegNode) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'cannot set facePhasePrompt: this workflow has no face-phase prompt node',
+          );
+        }
+        writePromptText(json, newNegNode, body.facePhasePrompt);
+      }
+
       let defaultFacePhasePrompt = existing.defaultFacePhasePrompt;
       let defaultGarmentPhasePrompt = existing.defaultGarmentPhasePrompt;
-      if (body.facePhasePromptNode || body.garmentPhasePromptNode) {
+      if (
+        body.facePhasePromptNode ||
+        body.garmentPhasePromptNode ||
+        body.facePhasePrompt !== undefined ||
+        body.garmentPhasePrompt !== undefined
+      ) {
         const extracted = extractDefaultPrompts(json, newNegNode, newPosNode);
         defaultFacePhasePrompt = extracted.defaultFacePhasePrompt;
         defaultGarmentPhasePrompt = extracted.defaultGarmentPhasePrompt;
@@ -619,6 +660,9 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         defaultFacePhasePrompt,
         defaultGarmentPhasePrompt,
       };
+      if (body.garmentPhasePrompt !== undefined || body.facePhasePrompt !== undefined) {
+        updateValues.jsonContent = json;
+      }
       if (body.label !== undefined) updateValues.label = body.label;
       if (body.slug !== undefined) {
         const [conflict] = await app.db

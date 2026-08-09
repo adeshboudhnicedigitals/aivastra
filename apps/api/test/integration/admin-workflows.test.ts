@@ -218,4 +218,265 @@ describe('admin workflows - floor validation', () => {
       .where(eq(schema.workflowTemplates.id, id));
     expect(row?.thirdNodeId).toBe('third_node');
   });
+
+  it('PATCH updates garmentPhasePrompt text in both jsonContent and defaultGarmentPhasePrompt', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `prompt_edit_garment_${Date.now()}`,
+        label: 'Prompt edit garment',
+        jsonContent,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        garmentPhasePromptNode: 'positive_node',
+      },
+    });
+    const id = createRes.json().id as string;
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/admin/workflows/${id}`,
+      headers,
+      payload: { garmentPhasePrompt: 'a brand new positive prompt' },
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const [row] = await app.db
+      .select({
+        jsonContent: schema.workflowTemplates.jsonContent,
+        defaultGarmentPhasePrompt: schema.workflowTemplates.defaultGarmentPhasePrompt,
+      })
+      .from(schema.workflowTemplates)
+      .where(eq(schema.workflowTemplates.id, id));
+    expect(row?.defaultGarmentPhasePrompt).toBe('a brand new positive prompt');
+    const stored = row?.jsonContent as Record<string, { inputs: { prompt?: string } }>;
+    expect(stored.positive_node.inputs.prompt).toBe('a brand new positive prompt');
+  });
+
+  it('PATCH rejects an empty or whitespace-only garmentPhasePrompt', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `prompt_edit_empty_${Date.now()}`,
+        label: 'Prompt edit empty',
+        jsonContent,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        garmentPhasePromptNode: 'positive_node',
+      },
+    });
+    const id = createRes.json().id as string;
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/admin/workflows/${id}`,
+      headers,
+      payload: { garmentPhasePrompt: '   ' },
+    });
+    expect(patchRes.statusCode).toBe(400);
+  });
+
+  it('PATCH updates facePhasePrompt when the workflow has a facePhasePromptNode', async () => {
+    const withFace = {
+      ...jsonContent,
+      face_node: { inputs: { image: '' }, class_type: 'LoadImage', _meta: { title: 'face' } },
+      negative_node: {
+        inputs: { prompt: 'default negative' },
+        class_type: 'CLIPTextEncode',
+        _meta: { title: 'negative_prompt' },
+      },
+    };
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `prompt_edit_face_${Date.now()}`,
+        label: 'Prompt edit face',
+        jsonContent: withFace,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        garmentPhasePromptNode: 'positive_node',
+        faceNodeId: 'face_node',
+        facePhasePromptNode: 'negative_node',
+      },
+    });
+    const id = createRes.json().id as string;
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/admin/workflows/${id}`,
+      headers,
+      payload: { facePhasePrompt: 'a brand new negative prompt' },
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const [row] = await app.db
+      .select({
+        jsonContent: schema.workflowTemplates.jsonContent,
+        defaultFacePhasePrompt: schema.workflowTemplates.defaultFacePhasePrompt,
+      })
+      .from(schema.workflowTemplates)
+      .where(eq(schema.workflowTemplates.id, id));
+    expect(row?.defaultFacePhasePrompt).toBe('a brand new negative prompt');
+    const stored = row?.jsonContent as Record<string, { inputs: { prompt?: string } }>;
+    expect(stored.negative_node.inputs.prompt).toBe('a brand new negative prompt');
+  });
+
+  it('PATCH rejects facePhasePrompt when the workflow has no facePhasePromptNode', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `prompt_edit_no_face_${Date.now()}`,
+        label: 'Prompt edit no face',
+        jsonContent,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        garmentPhasePromptNode: 'positive_node',
+      },
+    });
+    const id = createRes.json().id as string;
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/admin/workflows/${id}`,
+      headers,
+      payload: { facePhasePrompt: 'should be rejected' },
+    });
+    expect(patchRes.statusCode).toBe(400);
+  });
+
+  it('PATCH allows an empty facePhasePrompt when a facePhasePromptNode exists', async () => {
+    const withFace = {
+      ...jsonContent,
+      face_node: { inputs: { image: '' }, class_type: 'LoadImage', _meta: { title: 'face' } },
+      negative_node: {
+        inputs: { prompt: 'default negative' },
+        class_type: 'CLIPTextEncode',
+        _meta: { title: 'negative_prompt' },
+      },
+    };
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `prompt_edit_face_empty_${Date.now()}`,
+        label: 'Prompt edit face empty',
+        jsonContent: withFace,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        garmentPhasePromptNode: 'positive_node',
+        faceNodeId: 'face_node',
+        facePhasePromptNode: 'negative_node',
+      },
+    });
+    const id = createRes.json().id as string;
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/admin/workflows/${id}`,
+      headers,
+      payload: { facePhasePrompt: '' },
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const [row] = await app.db
+      .select({ defaultFacePhasePrompt: schema.workflowTemplates.defaultFacePhasePrompt })
+      .from(schema.workflowTemplates)
+      .where(eq(schema.workflowTemplates.id, id));
+    expect(row?.defaultFacePhasePrompt).toBe('');
+  });
+
+  it('PATCH writes to the "text" key for a node that already uses "text" instead of "prompt"', async () => {
+    const textKeyed = {
+      ...jsonContent,
+      positive_node: {
+        inputs: { text: 'default via text key' },
+        class_type: 'CLIPTextEncode',
+        _meta: { title: 'positive_prompt' },
+      },
+    };
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `prompt_edit_textkey_${Date.now()}`,
+        label: 'Prompt edit text key',
+        jsonContent: textKeyed,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        garmentPhasePromptNode: 'positive_node',
+      },
+    });
+    const id = createRes.json().id as string;
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/admin/workflows/${id}`,
+      headers,
+      payload: { garmentPhasePrompt: 'updated via text key' },
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const [row] = await app.db
+      .select({ jsonContent: schema.workflowTemplates.jsonContent })
+      .from(schema.workflowTemplates)
+      .where(eq(schema.workflowTemplates.id, id));
+    const stored = row?.jsonContent as Record<
+      string,
+      { inputs: { text?: string; prompt?: string } }
+    >;
+    expect(stored.positive_node.inputs.text).toBe('updated via text key');
+    expect(stored.positive_node.inputs.prompt).toBeUndefined();
+  });
+
+  it('GET /admin/workflows list response includes facePhasePromptNode', async () => {
+    const withFace = {
+      ...jsonContent,
+      face_node: { inputs: { image: '' }, class_type: 'LoadImage', _meta: { title: 'face' } },
+      negative_node: {
+        inputs: { prompt: 'default negative' },
+        class_type: 'CLIPTextEncode',
+        _meta: { title: 'negative_prompt' },
+      },
+    };
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `list_face_node_${Date.now()}`,
+        label: 'List face node',
+        jsonContent: withFace,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        garmentPhasePromptNode: 'positive_node',
+        faceNodeId: 'face_node',
+        facePhasePromptNode: 'negative_node',
+      },
+    });
+    const id = createRes.json().id as string;
+
+    const listRes = await app.inject({ method: 'GET', url: '/admin/workflows', headers });
+    expect(listRes.statusCode).toBe(200);
+    const row = (listRes.json() as { id: string; facePhasePromptNode: string | null }[]).find(
+      (w) => w.id === id,
+    );
+    expect(row?.facePhasePromptNode).toBe('negative_node');
+  });
 });
