@@ -8,7 +8,6 @@ import { api } from '@/lib/api';
 import { ApiError } from '@/lib/errors';
 import { BatchGrid } from './batch-grid';
 import type { PickerItem } from './batch-row';
-import { GarmentTray } from './garment-tray';
 import { SummaryBar } from './summary-bar';
 import type { PoseOption, TrayGarment } from './types';
 import { batchIssues, useBatchState } from './use-batch-state';
@@ -51,7 +50,6 @@ function errorRowIndex(err: unknown): number | null {
 export function BatchMode({
   gender,
   garmentTypeId,
-  defaultFaceId,
   aspectRatio,
   resolution,
   platform,
@@ -62,7 +60,6 @@ export function BatchMode({
 }: {
   gender: string;
   garmentTypeId: string;
-  defaultFaceId: string;
   aspectRatio: string;
   resolution: string;
   platform?: string;
@@ -81,7 +78,6 @@ export function BatchMode({
 }) {
   const router = useRouter();
   const [garments, setGarments] = useState<TrayGarment[]>([]);
-  const [selectedGarmentId, setSelectedGarmentId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   /** Row the server named via error.rowIndex on the last failed submit. */
@@ -95,7 +91,7 @@ export function BatchMode({
     setPoses,
     clearGarmentFromRows,
     resetRows,
-  } = useBatchState(defaultFaceId);
+  } = useBatchState();
 
   // /v1/models/faces only accepts `gender` (see apps/api/src/modules/models/routes.ts) —
   // it has no garmentTypeId param, and its response is `{ items: [...] }`, matching
@@ -124,26 +120,37 @@ export function BatchMode({
       ).items,
     enabled: !!gender && !!garmentTypeId,
   });
-  // /v1/catalog/lower and /v1/catalog/shoe return a category tree scoped by
-  // gender (poseIds is omitted here — a batch row's pose selection is per-row,
-  // not a single grid-wide value, so there is no one poseIds list to pass; this
-  // falls back to the same "all active items for this gender" path the legacy,
-  // no-poseIds branch of that route already serves).
+  // /v1/catalog/lower and /v1/catalog/shoe branch on whether poseIds is present
+  // (apps/api/src/modules/catalog/routes.ts): with it, they query catalog_items
+  // directly; without it, they fall back to a legacy path keyed off a
+  // catalog_types row that no longer exists for 'lower'/'shoe' and 404s. Single
+  // mode never hits that path because its equivalent query only ever runs once
+  // a pose is selected. A batch row's pose selection is per-row, not a single
+  // grid-wide value, so there's no one row's poseIds to scope this shared query
+  // to — passing every pose available under this garment type instead is enough
+  // to route into the non-legacy branch and pass its "does any given pose
+  // support this role" gate; the item list itself (all active items for the
+  // type+gender) doesn't otherwise depend on which poses were passed.
+  const allPoseIds = (poses.data ?? []).map((p) => p.id).join(',');
   const lowerItems = useQuery({
-    queryKey: ['batch-lower', gender],
+    queryKey: ['batch-lower', gender, garmentTypeId, allPoseIds],
     queryFn: async () => {
-      const res = await api.get<{ tree: CatalogTreeNode[] }>(`/v1/catalog/lower?gender=${gender}`);
+      const res = await api.get<{ tree: CatalogTreeNode[] }>(
+        `/v1/catalog/lower?gender=${gender}&garmentTypeId=${garmentTypeId}&poseIds=${allPoseIds}`,
+      );
       return res.tree.flatMap(flattenCatalogTree);
     },
-    enabled: !!gender,
+    enabled: !!gender && !!garmentTypeId && !!allPoseIds,
   });
   const shoeItems = useQuery({
-    queryKey: ['batch-shoe', gender],
+    queryKey: ['batch-shoe', gender, garmentTypeId, allPoseIds],
     queryFn: async () => {
-      const res = await api.get<{ tree: CatalogTreeNode[] }>(`/v1/catalog/shoe?gender=${gender}`);
+      const res = await api.get<{ tree: CatalogTreeNode[] }>(
+        `/v1/catalog/shoe?gender=${gender}&garmentTypeId=${garmentTypeId}&poseIds=${allPoseIds}`,
+      );
       return res.tree.flatMap(flattenCatalogTree);
     },
-    enabled: !!gender,
+    enabled: !!gender && !!garmentTypeId && !!allPoseIds,
   });
 
   const poseOptions = useMemo(() => poses.data ?? [], [poses.data]);
@@ -157,8 +164,8 @@ export function BatchMode({
     onDirtyChange?.(isDirty);
   }, [isDirty, onDirtyChange]);
 
-  const onAddGarments = useCallback((added: TrayGarment[]) => {
-    setGarments((prev) => [...prev, ...added]);
+  const onAddGarment = useCallback((added: TrayGarment) => {
+    setGarments((prev) => [...prev, added]);
   }, []);
   const onPatchGarment = useCallback((id: string, patch: Partial<TrayGarment>) => {
     setGarments((prev) => prev.map((g) => (g.id === id ? { ...g, ...patch } : g)));
@@ -240,15 +247,6 @@ export function BatchMode({
 
   return (
     <div>
-      <GarmentTray
-        garments={garments}
-        onAdd={onAddGarments}
-        onPatch={onPatchGarment}
-        onRemove={onRemoveGarment}
-        selectedGarmentId={selectedGarmentId}
-        onSelect={setSelectedGarmentId}
-      />
-
       {confirmingTypeChange && (
         <div
           role="alertdialog"
@@ -299,6 +297,9 @@ export function BatchMode({
         onDuplicateRow={duplicateRow}
         onRemoveRow={removeRow}
         onAddRow={addRow}
+        onAddGarment={onAddGarment}
+        onPatchGarment={onPatchGarment}
+        onRemoveGarment={onRemoveGarment}
       />
 
       {error && (

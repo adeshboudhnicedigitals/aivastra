@@ -3,11 +3,11 @@ import { countBatchJobs, requiredInputsForPoses } from '@aivastra/types';
 import { useCallback, useState } from 'react';
 import type { BatchRowState, PoseOption } from './types';
 
-function newRow(faceId: string): BatchRowState {
+function newRow(): BatchRowState {
   return {
     id: crypto.randomUUID(),
     garmentId: null,
-    faceId,
+    faceId: '',
     backgroundId: '',
     poseIds: [],
     lowerCatalogId: '',
@@ -44,12 +44,12 @@ export function batchIssues(
   };
 }
 
-export function useBatchState(defaultFaceId: string) {
-  const [rows, setRows] = useState<BatchRowState[]>([newRow(defaultFaceId)]);
+export function useBatchState() {
+  const [rows, setRows] = useState<BatchRowState[]>([newRow()]);
 
   const addRow = useCallback(() => {
-    setRows((prev) => [...prev, newRow(defaultFaceId)]);
-  }, [defaultFaceId]);
+    setRows((prev) => [...prev, newRow()]);
+  }, []);
 
   const duplicateRow = useCallback((rowId: string) => {
     setRows((prev) => {
@@ -62,14 +62,9 @@ export function useBatchState(defaultFaceId: string) {
 
   // The grid must never reach zero rows — an empty grid has no affordance to add
   // one back that is discoverable mid-task.
-  const removeRow = useCallback(
-    (rowId: string) => {
-      setRows((prev) =>
-        prev.length === 1 ? [newRow(defaultFaceId)] : prev.filter((r) => r.id !== rowId),
-      );
-    },
-    [defaultFaceId],
-  );
+  const removeRow = useCallback((rowId: string) => {
+    setRows((prev) => (prev.length === 1 ? [newRow()] : prev.filter((r) => r.id !== rowId)));
+  }, []);
 
   const patchRow = useCallback((rowId: string, patch: Partial<BatchRowState>) => {
     setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, ...patch } : r)));
@@ -109,8 +104,8 @@ export function useBatchState(defaultFaceId: string) {
   }, []);
 
   const resetRows = useCallback(() => {
-    setRows([newRow(defaultFaceId)]);
-  }, [defaultFaceId]);
+    setRows([newRow()]);
+  }, []);
 
   return {
     rows,
