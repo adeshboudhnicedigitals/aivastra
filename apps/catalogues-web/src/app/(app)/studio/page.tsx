@@ -2984,6 +2984,7 @@ export default function StudioPage(): React.ReactElement {
                     selectedIds={faceId ? [faceId] : []}
                     aspect={1}
                     columns={5}
+                    hideLabels
                     tagOptions={faceTags}
                     activeTag={modelTagFilter}
                     onTagChange={setModelTagFilter}
@@ -3637,7 +3638,6 @@ export default function StudioPage(): React.ReactElement {
                                       setBackgroundModalOpen(false);
                                     }}
                                     imageUrl={i.thumbnailUrl}
-                                    label={i.label}
                                     w="100%"
                                     ratio={215.2 / 212.67}
                                     borderWidth={3}

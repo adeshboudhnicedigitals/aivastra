@@ -506,6 +506,7 @@ export function BatchRow({
           title="Choose model"
           items={faces}
           selectedIds={row.faceId ? [row.faceId] : []}
+          hideLabels
           onSelect={(id) => {
             onPatch({ faceId: id });
             setPicker(null);
@@ -518,6 +519,7 @@ export function BatchRow({
           title="Choose background"
           items={backgrounds}
           selectedIds={row.backgroundId ? [row.backgroundId] : []}
+          hideLabels
           onSelect={(id) => {
             onPatch({ backgroundId: id });
             setPicker(null);
@@ -532,6 +534,7 @@ export function BatchRow({
           multiSelect
           selectedIds={row.poseIds}
           continueLabel="Done"
+          hideLabels
           onSelect={(id) =>
             onSetPoses(
               row.poseIds.includes(id) ? row.poseIds.filter((p) => p !== id) : [...row.poseIds, id],
@@ -545,6 +548,7 @@ export function BatchRow({
           title="Choose lower garment"
           items={lowerItems}
           selectedIds={row.lowerCatalogId ? [row.lowerCatalogId] : []}
+          hideLabels
           onSelect={(id) => {
             onPatch({ lowerCatalogId: id });
             setPicker(null);
@@ -557,6 +561,7 @@ export function BatchRow({
           title="Choose shoes"
           items={shoeItems}
           selectedIds={row.shoeCatalogId ? [row.shoeCatalogId] : []}
+          hideLabels
           onSelect={(id) => {
             onPatch({ shoeCatalogId: id });
             setPicker(null);
