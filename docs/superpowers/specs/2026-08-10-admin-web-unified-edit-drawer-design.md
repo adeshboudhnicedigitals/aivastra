@@ -6,11 +6,13 @@
 
 It's worse than "different pages look different." Within the *same* tab, on the *exact same record type* (`GarmentTypesTab.tsx`): **Add garment type** (line 865) opens a 440px centered `.modal`, while **Edit garment type** (via `EditGarmentTypeModal.tsx`) opens a 780px `.drawer` with sectioned fields. A user adding a record and then immediately editing what they just added sees the popup shape change under them.
 
-This isn't isolated. A repo-wide inventory (see Appendix) found **~73 add/edit popup instances across ~39 files**, almost all hand-rolling their own `.modal`/`.modal-overlay` (or occasionally `.drawer`) markup independently — the same duplication problem already visible elsewhere in this codebase (6 places hand-roll a confirm-dialog's JSX instead of reusing the one `ConfirmModal` component that exists for exactly that purpose).
+This isn't isolated. A repo-wide grep found 73 `.modal`/`.drawer` instances across 39 files, almost all hand-rolling their own `.modal`/`.modal-overlay` (or occasionally `.drawer`) markup independently — the same duplication problem already visible elsewhere in this codebase (6 places hand-roll a confirm-dialog's JSX instead of reusing the one `ConfirmModal` component that exists for exactly that purpose).
+
+**Correction from the implementation plan** (`docs/superpowers/plans/2026-08-10-admin-web-unified-edit-drawer.md`): the raw grep count above includes confirm-style action dialogs ("Delete category", "Cancel job", "Move to recycle bin", bulk "Change gender for N backgrounds" pickers, etc.) that were miscounted as add/edit forms during brainstorming — a title/line-number grep can't distinguish "edit a record" from "confirm an action" or "bulk-manage a list." Reading every modal's actual header during plan-writing narrowed this to **42 genuine add/edit/create-with-input instances across ~28 files** — the plan's per-task file lists are the authoritative, verified breakdown; the Appendix below is left as the original raw inventory for scope-boundary reference (which files were checked and ruled out), not as an accurate in-scope count.
 
 ## Goal
 
-Standardize every add/edit popup in `apps/admin-web` on the richer pattern already proven by `EditGarmentTypeModal`: full-height right-side drawer, wider, sectioned content where a form genuinely has multiple groupings, a richer header, consistent footer. Build it once as a shared component and migrate all ~39 files to render through it, instead of reskinning each file's bespoke markup independently.
+Standardize every add/edit popup in `apps/admin-web` on the richer pattern already proven by `EditGarmentTypeModal`: full-height right-side drawer, wider, sectioned content where a form genuinely has multiple groupings, a richer header, consistent footer. Build it once as a shared component and migrate the ~42 in-scope instances (see plan) to render through it, instead of reskinning each file's bespoke markup independently.
 
 ## Scope decisions (from brainstorming)
 
