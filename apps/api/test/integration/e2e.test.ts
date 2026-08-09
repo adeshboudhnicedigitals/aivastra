@@ -1,8 +1,12 @@
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { signAccess } from '../../src/modules/auth/service';
 import { buildTestApp, type TestApp } from '../helpers/api';
 import { type Containers, startContainers } from '../helpers/containers';
+
+const JWT_SECRET = 'test-jwt-secret-0123456789abcdef-32min';
+const secret = new TextEncoder().encode(JWT_SECRET);
 
 describe('e2e', () => {
   let c: Containers;
@@ -56,21 +60,15 @@ describe('e2e', () => {
       .update(schema.users)
       .set({ emailVerified: true })
       .where(eq(schema.users.id, adminRow.id));
-    const adminLogin = await app.inject({
-      method: 'POST',
-      url: '/v1/auth/login',
-      payload: { email: 'e2e-admin@x.com', password: 'password123' },
-    });
-    const adminId = JSON.parse(atob(adminLogin.json().accessToken.split('.')[1])).sub;
-    await app.db.insert(schema.adminUsers).values({ userId: adminId, role: 'SUPER_ADMIN' });
-    const adminToken = adminLogin.json().accessToken;
+    await app.db.insert(schema.adminUsers).values({ userId: adminRow.id, role: 'SUPER_ADMIN' });
+    const adminToken = await signAccess(secret, adminRow.id, { kind: 'access' }, '15m', 'admin');
 
-    // 3. admin grants 5 credits
+    // 3. admin grants credits
     const grantRes = await app.inject({
       method: 'POST',
       url: '/admin/credits/grant',
       headers: { authorization: `Bearer ${adminToken}` },
-      payload: { userId, amount: 5, reason: 'E2E test' },
+      payload: { userId, amount: 100, reason: 'E2E test' },
     });
     expect(grantRes.statusCode).toBe(200);
 
@@ -80,7 +78,7 @@ describe('e2e', () => {
       url: '/v1/credits',
       headers: { authorization: `Bearer ${userToken}` },
     });
-    expect(balRes.json().balance).toBe(5);
+    expect(balRes.json().balance).toBe(100);
 
     // 5. presign upload
     const presignRes = await app.inject({
@@ -90,31 +88,28 @@ describe('e2e', () => {
       payload: { contentType: 'image/jpeg', contentLength: 1024 },
     });
     expect(presignRes.statusCode).toBe(200);
+    const { r2Key: garmentKey } = presignRes.json();
+    // No real file was PUT to storage via the presigned URL — stub headObject like
+    // jobs-create.test.ts does, since assertOwnsUploadKey checks both Redis
+    // ownership (set for real by /v1/uploads/presign above) and object existence.
+    app.storage.headObject = (async () => ({
+      contentLength: 1024,
+    })) as typeof app.storage.headObject;
 
-    // 6. seed catalog
-    const [type] = await app.db
-      .insert(schema.catalogTypes)
-      .values({ slug: 'models-e2e', label: 'Models' })
+    // 6. seed admin-curated face/pose/background assets — the current input model
+    // for createJob (see jobs-create.test.ts / jobs-create-looks.test.ts). catalog_items
+    // is for user-selectable lower garments/shoes only and requires a non-null `type`.
+    const [face] = await app.db
+      .insert(schema.modelFaces)
+      .values({ gender: 'women', label: 'Face A', r2Key: 'f1.jpg', thumbnailKey: 'f1.jpg' })
       .returning();
-    const [cat] = await app.db
-      .insert(schema.catalogCategories)
-      .values({ typeId: type.id, slug: 'women-e2e', label: 'Women' })
+    const [background] = await app.db
+      .insert(schema.modelBackgrounds)
+      .values({ label: 'Bg A', r2Key: 'b1.jpg', thumbnailKey: 'b1.jpg' })
       .returning();
-    const [m] = await app.db
-      .insert(schema.catalogItems)
-      .values({ categoryId: cat.id, label: 'Model A', r2Key: 'k1', thumbnailKey: 't1' })
-      .returning();
-    const [p] = await app.db
-      .insert(schema.catalogItems)
-      .values({ categoryId: cat.id, label: 'Pose A', r2Key: 'k2', thumbnailKey: 't2' })
-      .returning();
-    const [b] = await app.db
-      .insert(schema.catalogItems)
-      .values({ categoryId: cat.id, label: 'Bg A', r2Key: 'k3', thumbnailKey: 't3' })
-      .returning();
-    const [l] = await app.db
-      .insert(schema.catalogItems)
-      .values({ categoryId: cat.id, label: 'Lower A', r2Key: 'k4', thumbnailKey: 't4' })
+    const [pose] = await app.db
+      .insert(schema.modelPoseAssets)
+      .values({ label: 'Pose A', r2Key: 'p1.jpg', thumbnailKey: 'p1.jpg' })
       .returning();
 
     // 7. create job
@@ -124,17 +119,19 @@ describe('e2e', () => {
       headers: { authorization: `Bearer ${userToken}` },
       payload: {
         inputs: {
-          upperGarmentKey: 'inputs/x/garment.jpg',
-          modelCatalogId: m.id,
-          poseCatalogId: p.id,
-          backgroundCatalogId: b.id,
-          lowerCatalogId: l.id,
+          upperGarmentKey: garmentKey,
+          faceId: face.id,
+          looks: [{ poseId: pose.id, backgroundId: background.id }],
         },
+        aspectRatio: '1:1',
+        resolution: '2K',
         userHint: 'soft light',
       },
     });
     expect(jobRes.statusCode).toBe(201);
-    const { jobId } = jobRes.json();
+    const {
+      jobIds: [jobId],
+    } = jobRes.json();
 
     // 8. assert balance deducted
     const bal2 = await app.inject({
@@ -142,7 +139,9 @@ describe('e2e', () => {
       url: '/v1/credits',
       headers: { authorization: `Bearer ${userToken}` },
     });
-    expect(bal2.json().balance).toBe(4);
+    // Actual cost is admin-configurable per resolution (getResolutionCreditCost) — assert
+    // a deduction happened, not an exact value (see jobs-create.test.ts for the same pattern).
+    expect(bal2.json().balance).toBeLessThan(100);
 
     // 9. assert job queued
     const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
