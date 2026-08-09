@@ -52,6 +52,9 @@ export default function WorkflowsPage({ toast }: Props) {
     slug: '',
     garmentPhasePrompt: '',
     facePhasePrompt: '',
+    ksamplerSteps: '',
+    ksamplerCfg: '',
+    ksamplerDenoise: '',
   });
   const [editSaving, setEditSaving] = useState(false);
 
@@ -182,6 +185,14 @@ export default function WorkflowsPage({ toast }: Props) {
       if (editingWf.facePhasePromptNode) {
         patch.facePhasePrompt = editForm.facePhasePrompt.trim();
       }
+      if (editingWf.ksamplerSteps !== null) {
+        const steps = Number(editForm.ksamplerSteps);
+        const cfg = Number(editForm.ksamplerCfg);
+        const denoise = Number(editForm.ksamplerDenoise);
+        if (!Number.isNaN(steps)) patch.ksamplerSteps = steps;
+        if (!Number.isNaN(cfg)) patch.ksamplerCfg = cfg;
+        if (!Number.isNaN(denoise)) patch.ksamplerDenoise = denoise;
+      }
       await apiFetch(`/admin/workflows/${editingWf.id}`, {
         method: 'PATCH',
         body: JSON.stringify(patch),
@@ -196,6 +207,19 @@ export default function WorkflowsPage({ toast }: Props) {
                 defaultGarmentPhasePrompt: editForm.garmentPhasePrompt.trim(),
                 ...(editingWf.facePhasePromptNode
                   ? { defaultFacePhasePrompt: editForm.facePhasePrompt.trim() }
+                  : {}),
+                ...(editingWf.ksamplerSteps !== null
+                  ? {
+                      ksamplerSteps: Number.isNaN(Number(editForm.ksamplerSteps))
+                        ? w.ksamplerSteps
+                        : Number(editForm.ksamplerSteps),
+                      ksamplerCfg: Number.isNaN(Number(editForm.ksamplerCfg))
+                        ? w.ksamplerCfg
+                        : Number(editForm.ksamplerCfg),
+                      ksamplerDenoise: Number.isNaN(Number(editForm.ksamplerDenoise))
+                        ? w.ksamplerDenoise
+                        : Number(editForm.ksamplerDenoise),
+                    }
                   : {}),
               }
             : w,
@@ -390,6 +414,9 @@ export default function WorkflowsPage({ toast }: Props) {
                                 slug: wf.slug,
                                 garmentPhasePrompt: wf.defaultGarmentPhasePrompt,
                                 facePhasePrompt: wf.defaultFacePhasePrompt,
+                                ksamplerSteps: String(wf.ksamplerSteps ?? ''),
+                                ksamplerCfg: String(wf.ksamplerCfg ?? ''),
+                                ksamplerDenoise: String(wf.ksamplerDenoise ?? ''),
                               });
                             }}
                             title="Edit workflow"
@@ -644,6 +671,9 @@ export default function WorkflowsPage({ toast }: Props) {
                               slug: wf.slug,
                               garmentPhasePrompt: wf.defaultGarmentPhasePrompt,
                               facePhasePrompt: wf.defaultFacePhasePrompt,
+                              ksamplerSteps: String(wf.ksamplerSteps ?? ''),
+                              ksamplerCfg: String(wf.ksamplerCfg ?? ''),
+                              ksamplerDenoise: String(wf.ksamplerDenoise ?? ''),
                             });
                           }}
                         >
@@ -1056,6 +1086,44 @@ export default function WorkflowsPage({ toast }: Props) {
                   />
                 </div>
               )}
+              {editingWf?.ksamplerSteps !== null && (
+                <div style={{ display: 'flex', gap: 14 }}>
+                  <div className="field" style={{ flex: 1 }}>
+                    <label>Steps</label>
+                    <input
+                      className="input"
+                      type="number"
+                      value={editForm.ksamplerSteps}
+                      disabled={editSaving}
+                      onChange={(e) =>
+                        setEditForm((f) => ({ ...f, ksamplerSteps: e.target.value }))
+                      }
+                    />
+                  </div>
+                  <div className="field" style={{ flex: 1 }}>
+                    <label>CFG</label>
+                    <input
+                      className="input"
+                      type="number"
+                      value={editForm.ksamplerCfg}
+                      disabled={editSaving}
+                      onChange={(e) => setEditForm((f) => ({ ...f, ksamplerCfg: e.target.value }))}
+                    />
+                  </div>
+                  <div className="field" style={{ flex: 1 }}>
+                    <label>Denoise</label>
+                    <input
+                      className="input"
+                      type="number"
+                      value={editForm.ksamplerDenoise}
+                      disabled={editSaving}
+                      onChange={(e) =>
+                        setEditForm((f) => ({ ...f, ksamplerDenoise: e.target.value }))
+                      }
+                    />
+                  </div>
+                </div>
+              )}
             </div>
             <div className="modal-foot">
               <button
@@ -1071,7 +1139,15 @@ export default function WorkflowsPage({ toast }: Props) {
                   editSaving ||
                   !editForm.label.trim() ||
                   !editForm.slug.trim() ||
-                  !editForm.garmentPhasePrompt.trim()
+                  !editForm.garmentPhasePrompt.trim() ||
+                  (editingWf?.ksamplerSteps !== null &&
+                    (Number.isNaN(Number(editForm.ksamplerSteps)) ||
+                      Number(editForm.ksamplerSteps) < 1 ||
+                      Number.isNaN(Number(editForm.ksamplerCfg)) ||
+                      Number(editForm.ksamplerCfg) < 0 ||
+                      Number.isNaN(Number(editForm.ksamplerDenoise)) ||
+                      Number(editForm.ksamplerDenoise) < 0 ||
+                      Number(editForm.ksamplerDenoise) > 1))
                 }
                 onClick={handleEditSave}
               >
