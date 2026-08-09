@@ -1688,182 +1688,156 @@ function MappedTemplateWorkflowModal({
   }
   const configuredCount = items.filter((item) => item.workflowTemplateId).length;
   return (
-    <div className="modal-overlay" onClick={savingId || savingLookId ? undefined : onClose}>
-      <div
-        className="modal"
-        onClick={(event) => event.stopPropagation()}
-        style={{ width: 'min(820px, calc(100vw - 64px))' }}
-      >
-        <div className="modal-head">
-          <div>
-            <h3 style={{ margin: 0 }}>{mapping.label}</h3>
-            <p style={{ margin: '5px 0 0', color: 'var(--muted)', fontSize: 12 }}>
-              {garmentTypeLabel} / {configuredCount} of {items.length} poses ready
-            </p>
-          </div>
-          <button
-            className="btn sm ghost"
-            onClick={onClose}
-            disabled={!!savingId || !!savingLookId}
-          >
-            <Icon.Close />
-          </button>
+    <EditDrawer
+      onClose={onClose}
+      title={mapping.label}
+      subtitle={`${garmentTypeLabel} / ${configuredCount} of ${items.length} poses ready`}
+      width="min(820px, calc(100vw - 64px))"
+      saving={!!savingId || !!savingLookId}
+      onSave={onClose}
+      saveLabel="Done"
+    >
+      {loading ? (
+        <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--muted)' }}>
+          Loading poses...
         </div>
-        <div className="modal-body">
-          {loading ? (
-            <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--muted)' }}>
-              Loading poses...
-            </div>
-          ) : items.length === 0 ? (
-            <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--muted)' }}>
-              Add looks to the global template before configuring workflows.
-            </div>
-          ) : (
-            <div style={{ display: 'grid', gap: 10 }}>
-              {items.map((item) => (
-                <div key={item.id} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      ) : items.length === 0 ? (
+        <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--muted)' }}>
+          Add looks to the global template before configuring workflows.
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: 10 }}>
+          {items.map((item) => (
+            <div key={item.id} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div
+                className="card"
+                style={{
+                  padding: 10,
+                  display: 'grid',
+                  gridTemplateColumns: '58px minmax(140px, 1fr) minmax(220px, 1.4fr) auto',
+                  alignItems: 'center',
+                  gap: 12,
+                  outline: item.workflowTemplateId ? '1px solid var(--pink)' : undefined,
+                  opacity: savingId === item.id ? 0.65 : 1,
+                }}
+              >
+                {/* biome-ignore lint/performance/noImgElement: admin panel */}
+                <img
+                  src={item.thumbnailUrl}
+                  alt={item.displayName ?? item.label}
+                  style={{ width: 58, height: 68, borderRadius: 8, objectFit: 'cover' }}
+                />
+                <div style={{ minWidth: 0 }}>
+                  <p style={{ margin: 0, fontSize: 12, fontWeight: 650 }}>
+                    {item.displayName ?? item.label}
+                  </p>
+                  <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                    <span
+                      className={`badge ${item.workflowTemplateId ? 'dot accent' : ''}`}
+                      style={{ fontSize: 9 }}
+                    >
+                      {item.workflowTemplateId ? 'Ready' : 'Workflow required'}
+                    </span>
+                    {item.workflowTemplateId && item.source === 'auto' && (
+                      <span
+                        className="badge"
+                        style={{ fontSize: 9, opacity: 0.7 }}
+                        title="Filled from this garment type's shot-type default — picking a workflow here overrides it"
+                      >
+                        auto
+                      </span>
+                    )}
+                    {item.promptGarmentPhase && (
+                      <span className="badge dot" style={{ fontSize: 9 }}>
+                        Custom prompt
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <SearchableSelect
+                  options={workflows.map((w) => ({ id: w.id, label: w.label }))}
+                  value={item.workflowTemplateId ?? ''}
+                  disabled={savingId === item.id}
+                  onChange={(val) => void setWorkflow(item.id, val || null)}
+                  emptyLabel="Select workflow..."
+                  placeholder="— search workflow —"
+                  ariaLabel={`Workflow for ${item.displayName ?? item.label}`}
+                />
+                <div style={{ display: 'grid', justifyItems: 'end', gap: 7 }}>
+                  <button
+                    className="btn sm ghost"
+                    disabled={!item.workflowTemplateId || savingId === item.id}
+                    onClick={() =>
+                      editingPromptId === item.id ? closePromptEditor() : openPromptEditor(item)
+                    }
+                  >
+                    <Icon.MessageSquare /> Prompt
+                  </button>
+                  {(looksByPoseId.get(item.id) ?? []).map((look) => (
+                    <div
+                      key={look.id}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                      title={`Visible for ${garmentTypeLabel}: ${look.backgroundLabel}`}
+                    >
+                      <span style={{ color: 'var(--muted)', fontSize: 10 }}>
+                        {look.isEnabled ? 'Visible' : 'Hidden'}
+                      </span>
+                      <Switch
+                        checked={look.isEnabled}
+                        onChange={() => void setLookEnabled(look.id, !look.isEnabled)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {editingPromptId === item.id && (
+                <div className="card" style={{ padding: 10 }}>
+                  <div className="field">
+                    <label>Garment-phase prompt override</label>
+                    <textarea
+                      className="input"
+                      rows={6}
+                      placeholder="Inherited from workflow default"
+                      value={promptDraft}
+                      disabled={savingId === item.id}
+                      onChange={(e) => setPromptDraft(e.target.value)}
+                      style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }}
+                    />
+                    <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
+                      Used only for this pose within this template/garment-type mapping. Leave blank
+                      to use the assigned workflow's own default prompt.
+                    </span>
+                  </div>
                   <div
-                    className="card"
                     style={{
-                      padding: 10,
-                      display: 'grid',
-                      gridTemplateColumns: '58px minmax(140px, 1fr) minmax(220px, 1.4fr) auto',
-                      alignItems: 'center',
-                      gap: 12,
-                      outline: item.workflowTemplateId ? '1px solid var(--pink)' : undefined,
-                      opacity: savingId === item.id ? 0.65 : 1,
+                      display: 'flex',
+                      justifyContent: 'flex-end',
+                      gap: 8,
+                      marginTop: 10,
                     }}
                   >
-                    {/* biome-ignore lint/performance/noImgElement: admin panel */}
-                    <img
-                      src={item.thumbnailUrl}
-                      alt={item.displayName ?? item.label}
-                      style={{ width: 58, height: 68, borderRadius: 8, objectFit: 'cover' }}
-                    />
-                    <div style={{ minWidth: 0 }}>
-                      <p style={{ margin: 0, fontSize: 12, fontWeight: 650 }}>
-                        {item.displayName ?? item.label}
-                      </p>
-                      <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-                        <span
-                          className={`badge ${item.workflowTemplateId ? 'dot accent' : ''}`}
-                          style={{ fontSize: 9 }}
-                        >
-                          {item.workflowTemplateId ? 'Ready' : 'Workflow required'}
-                        </span>
-                        {item.workflowTemplateId && item.source === 'auto' && (
-                          <span
-                            className="badge"
-                            style={{ fontSize: 9, opacity: 0.7 }}
-                            title="Filled from this garment type's shot-type default — picking a workflow here overrides it"
-                          >
-                            auto
-                          </span>
-                        )}
-                        {item.promptGarmentPhase && (
-                          <span className="badge dot" style={{ fontSize: 9 }}>
-                            Custom prompt
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <SearchableSelect
-                      options={workflows.map((w) => ({ id: w.id, label: w.label }))}
-                      value={item.workflowTemplateId ?? ''}
+                    <button
+                      className="btn sm ghost"
                       disabled={savingId === item.id}
-                      onChange={(val) => void setWorkflow(item.id, val || null)}
-                      emptyLabel="Select workflow..."
-                      placeholder="— search workflow —"
-                      ariaLabel={`Workflow for ${item.displayName ?? item.label}`}
-                    />
-                    <div style={{ display: 'grid', justifyItems: 'end', gap: 7 }}>
-                      <button
-                        className="btn sm ghost"
-                        disabled={!item.workflowTemplateId || savingId === item.id}
-                        onClick={() =>
-                          editingPromptId === item.id ? closePromptEditor() : openPromptEditor(item)
-                        }
-                      >
-                        <Icon.MessageSquare /> Prompt
-                      </button>
-                      {(looksByPoseId.get(item.id) ?? []).map((look) => (
-                        <div
-                          key={look.id}
-                          style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                          title={`Visible for ${garmentTypeLabel}: ${look.backgroundLabel}`}
-                        >
-                          <span style={{ color: 'var(--muted)', fontSize: 10 }}>
-                            {look.isEnabled ? 'Visible' : 'Hidden'}
-                          </span>
-                          <Switch
-                            checked={look.isEnabled}
-                            onChange={() => void setLookEnabled(look.id, !look.isEnabled)}
-                          />
-                        </div>
-                      ))}
-                    </div>
+                      onClick={closePromptEditor}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      className="btn sm primary"
+                      disabled={savingId === item.id}
+                      onClick={() => void savePrompt(item.id)}
+                    >
+                      {savingId === item.id ? 'Saving…' : 'Save'}
+                    </button>
                   </div>
-                  {editingPromptId === item.id && (
-                    <div className="card" style={{ padding: 10 }}>
-                      <div className="field">
-                        <label>Garment-phase prompt override</label>
-                        <textarea
-                          className="input"
-                          rows={6}
-                          placeholder="Inherited from workflow default"
-                          value={promptDraft}
-                          disabled={savingId === item.id}
-                          onChange={(e) => setPromptDraft(e.target.value)}
-                          style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }}
-                        />
-                        <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
-                          Used only for this pose within this template/garment-type mapping. Leave
-                          blank to use the assigned workflow's own default prompt.
-                        </span>
-                      </div>
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'flex-end',
-                          gap: 8,
-                          marginTop: 10,
-                        }}
-                      >
-                        <button
-                          className="btn sm ghost"
-                          disabled={savingId === item.id}
-                          onClick={closePromptEditor}
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          className="btn sm primary"
-                          disabled={savingId === item.id}
-                          onClick={() => void savePrompt(item.id)}
-                        >
-                          {savingId === item.id ? 'Saving…' : 'Save'}
-                        </button>
-                      </div>
-                    </div>
-                  )}
                 </div>
-              ))}
+              )}
             </div>
-          )}
+          ))}
         </div>
-        <div className="modal-foot">
-          <span
-            className="mono"
-            style={{ marginRight: 'auto', color: 'var(--muted)', fontSize: 10 }}
-          >
-            Mapping {mapping.mappingId}
-          </span>
-          <button className="btn" onClick={onClose} disabled={!!savingId || !!savingLookId}>
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
+      )}
+    </EditDrawer>
   );
 }
 
@@ -2301,103 +2275,74 @@ function PoseConfigsPanel({
 
       {/* Edit override modal */}
       {editing && (
-        <div className="modal-overlay" onClick={savingId === editing.id ? undefined : closeEdit}>
-          <div
-            className="modal"
-            onClick={(e) => e.stopPropagation()}
-            style={{ width: 'min(720px, calc(100vw - 80px))' }}
-          >
-            <div className="modal-head">
-              <h3>
-                {sub.label} — {editing.displayName ?? editing.label}
-              </h3>
-              <button
-                className="btn sm ghost"
-                onClick={closeEdit}
-                disabled={savingId === editing.id}
-                style={{ marginLeft: 'auto' }}
-              >
-                <Icon.Close />
-              </button>
-            </div>
-            <div
-              className="modal-body"
-              style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
-            >
-              <div className="field">
-                <label>Workflow override</label>
-                <SearchableSelect
-                  options={workflows.map((w) => ({ id: w.id, label: w.label }))}
-                  value={editWorkflow}
-                  disabled={savingId === editing.id}
-                  onChange={(newId) => {
-                    setEditWorkflow(newId);
-                    // Always follow the newly selected workflow's own default prompt — same
-                    // convention as the pose-asset-level edit modal — so switching workflows
-                    // here doesn't keep sending the previous workflow's prompt text. Admin can
-                    // still hand-edit the textarea below before saving to customize further.
-                    const wf = newId ? workflows.find((w) => w.id === newId) : null;
-                    setEditGarmentPrompt(
-                      wf?.defaultGarmentPhasePrompt ?? editing.defaultPromptGarmentPhase ?? '',
-                    );
-                  }}
-                  emptyLabel={`Use default (${
-                    editing.defaultWorkflowTemplateId
-                      ? (workflows.find((w) => w.id === editing.defaultWorkflowTemplateId)?.label ??
-                        '?')
-                      : 'none'
-                  })`}
-                  placeholder="— search workflow —"
-                />
-                <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
-                  Changing this updates the prompt below to that workflow's own default — edit it
-                  after to customize further.
-                </span>
-              </div>
-              <div className="field">
-                <label>Positive prompt</label>
-                <textarea
-                  className="input"
-                  rows={10}
-                  placeholder="Inherited from pose"
-                  value={editGarmentPrompt}
-                  disabled={savingId === editing.id}
-                  onChange={(e) => setEditGarmentPrompt(e.target.value)}
-                  style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }}
-                />
-              </div>
-            </div>
-            <div className="modal-foot">
-              {editing.config && (
-                <button
-                  className="btn ghost"
-                  disabled={savingId === editing.id}
-                  style={{ marginRight: 'auto' }}
-                  onClick={() =>
-                    void onSave(sub.id, editing.id, {
-                      workflowTemplateId: null,
-                      promptGarmentPhase: null,
-                      promptFacePhase: null,
-                      isActive: null,
-                    }).then(closeEdit)
-                  }
-                >
-                  Clear override
-                </button>
-              )}
-              <button className="btn ghost" onClick={closeEdit} disabled={savingId === editing.id}>
-                Cancel
-              </button>
-              <button
-                className="btn primary"
-                disabled={savingId === editing.id}
-                onClick={() => void doSave()}
-              >
-                {savingId === editing.id ? 'Saving…' : 'Save'}
-              </button>
-            </div>
+        <EditDrawer
+          onClose={closeEdit}
+          title={`${sub.label} — ${editing.displayName ?? editing.label}`}
+          width="min(720px, calc(100vw - 80px))"
+          saving={savingId === editing.id}
+          onSave={() => void doSave()}
+          saveLabel="Save"
+        >
+          <div className="field">
+            <label>Workflow override</label>
+            <SearchableSelect
+              options={workflows.map((w) => ({ id: w.id, label: w.label }))}
+              value={editWorkflow}
+              disabled={savingId === editing.id}
+              onChange={(newId) => {
+                setEditWorkflow(newId);
+                // Always follow the newly selected workflow's own default prompt — same
+                // convention as the pose-asset-level edit modal — so switching workflows
+                // here doesn't keep sending the previous workflow's prompt text. Admin can
+                // still hand-edit the textarea below before saving to customize further.
+                const wf = newId ? workflows.find((w) => w.id === newId) : null;
+                setEditGarmentPrompt(
+                  wf?.defaultGarmentPhasePrompt ?? editing.defaultPromptGarmentPhase ?? '',
+                );
+              }}
+              emptyLabel={`Use default (${
+                editing.defaultWorkflowTemplateId
+                  ? (workflows.find((w) => w.id === editing.defaultWorkflowTemplateId)?.label ??
+                    '?')
+                  : 'none'
+              })`}
+              placeholder="— search workflow —"
+            />
+            <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
+              Changing this updates the prompt below to that workflow's own default — edit it after
+              to customize further.
+            </span>
           </div>
-        </div>
+          <div className="field">
+            <label>Positive prompt</label>
+            <textarea
+              className="input"
+              rows={10}
+              placeholder="Inherited from pose"
+              value={editGarmentPrompt}
+              disabled={savingId === editing.id}
+              onChange={(e) => setEditGarmentPrompt(e.target.value)}
+              style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }}
+            />
+          </div>
+          {editing.config && (
+            <button
+              className="btn ghost"
+              disabled={savingId === editing.id}
+              style={{ alignSelf: 'flex-start' }}
+              onClick={() =>
+                void onSave(sub.id, editing.id, {
+                  workflowTemplateId: null,
+                  promptGarmentPhase: null,
+                  promptFacePhase: null,
+                  isActive: null,
+                }).then(closeEdit)
+              }
+            >
+              Clear override
+            </button>
+          )}
+        </EditDrawer>
       )}
     </>
   );
