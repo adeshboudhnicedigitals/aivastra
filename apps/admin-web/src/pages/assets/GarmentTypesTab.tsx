@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { AssetThumb } from '../../components/AssetThumb';
+import { EditDrawer } from '../../components/EditDrawer';
 import { EditGarmentTypeModal } from '../../components/EditGarmentTypeModal';
 import { Icon } from '../../components/Icons';
 import { SearchableSelect } from '../../components/SearchableSelect';
@@ -864,251 +865,206 @@ export function GarmentTypesTab() {
 
       {/* Add garment type */}
       {showSubcatModal && (
-        <div
-          className="modal-overlay"
-          onClick={
-            subcatSaving
-              ? undefined
-              : () => {
-                  setShowSubcatModal(false);
-                  setSubcatImageFile(null);
-                }
-          }
+        <EditDrawer
+          onClose={() => {
+            setShowSubcatModal(false);
+            setSubcatImageFile(null);
+          }}
+          title="Add garment type"
+          width="min(560px, calc(100vw - 60px))"
+          saving={subcatSaving}
+          saveDisabled={!subcatForm.label.trim() || !subcatForm.slug.trim()}
+          saveLabel={subcatSaving ? 'Creating…' : 'Create'}
+          onSave={async () => {
+            setSubcatSaving(true);
+            try {
+              let thumbnailKey: string | undefined;
+              if (subcatImageFile) {
+                const presign = await apiFetch<{ uploadUrl: string; thumbnailKey: string }>(
+                  '/admin/assets/garment-types/presign',
+                  {
+                    method: 'POST',
+                    body: JSON.stringify({ contentType: subcatImageFile.type }),
+                  },
+                );
+                const thumb = await makeThumbnail(subcatImageFile);
+                await fetch(presign.uploadUrl, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': thumb.type },
+                  body: thumb,
+                });
+                thumbnailKey = presign.thumbnailKey;
+              }
+              const row = await apiFetch<GarmentType>('/admin/assets/garment-types', {
+                method: 'POST',
+                body: JSON.stringify({ ...subcatForm, thumbnailKey }),
+              });
+              // A collision at the chosen sortOrder shifts other rows of this
+              // gender server-side - refetch instead of patching just this one.
+              await loadGarmentTypes();
+              toast({ title: `${row.label} created` });
+              setShowSubcatModal(false);
+              setSubcatImageFile(null);
+            } catch (e) {
+              toast({
+                kind: 'error',
+                title: 'Failed to create garment type',
+                body: apiErrorMessage(e, 'Please try again.'),
+              });
+            } finally {
+              setSubcatSaving(false);
+            }
+          }}
         >
-          <div
-            className="modal"
-            onClick={(e) => e.stopPropagation()}
-            style={{ width: 'min(440px, calc(100vw - 80px))' }}
-          >
-            <div className="modal-head">
-              <h3>Add garment type</h3>
-              <button
-                className="btn sm ghost"
-                onClick={() => {
-                  setShowSubcatModal(false);
-                  setSubcatImageFile(null);
-                }}
-                disabled={subcatSaving}
-                style={{ marginLeft: 'auto' }}
-              >
-                <Icon.Close />
-              </button>
-            </div>
-            <div
-              className="modal-body"
-              style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
+          <div className="field">
+            <label>Label</label>
+            <input
+              className="input"
+              placeholder="Full Sleeve Shirt"
+              value={subcatForm.label}
+              disabled={subcatSaving}
+              onChange={(e) => setSubcatForm((f) => ({ ...f, label: e.target.value }))}
+            />
+          </div>
+          <div className="field">
+            <label>Slug</label>
+            <input
+              className="input"
+              placeholder="fullsleeveshirt"
+              value={subcatForm.slug}
+              disabled={subcatSaving}
+              onChange={(e) =>
+                setSubcatForm((f) => ({
+                  ...f,
+                  slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
+                }))
+              }
+            />
+          </div>
+          <div className="field">
+            <label>Gender</label>
+            <select
+              className="select"
+              value={subcatForm.genderSlug}
+              disabled={subcatSaving}
+              onChange={(e) => {
+                const genderSlug = e.target.value as GenderSlug;
+                setSubcatForm((f) => ({
+                  ...f,
+                  genderSlug,
+                  sortOrder: nextSortOrderFor(genderSlug),
+                }));
+              }}
             >
-              <div className="field">
-                <label>Label</label>
-                <input
-                  className="input"
-                  placeholder="Full Sleeve Shirt"
-                  value={subcatForm.label}
-                  disabled={subcatSaving}
-                  onChange={(e) => setSubcatForm((f) => ({ ...f, label: e.target.value }))}
+              <option value="men">Men</option>
+              <option value="women">Women</option>
+              <option value="boys">Boys</option>
+              <option value="girls">Girls</option>
+            </select>
+          </div>
+          <div className="field">
+            <label>
+              Sort order{' '}
+              <span style={{ color: 'var(--muted)', fontWeight: 400 }}>
+                (1 shows first; picking a taken position pushes the rest down)
+              </span>
+            </label>
+            <input
+              className="input"
+              type="number"
+              step={1}
+              value={subcatForm.sortOrder}
+              disabled={subcatSaving}
+              onChange={(e) => setSubcatForm((f) => ({ ...f, sortOrder: Number(e.target.value) }))}
+            />
+          </div>
+          <div className="field">
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={subcatForm.requiresLowerUpload}
+                disabled={subcatSaving}
+                onChange={(e) =>
+                  setSubcatForm((f) => ({ ...f, requiresLowerUpload: e.target.checked }))
+                }
+              />
+              Requires lower garment upload
+              <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
+                (user uploads bottom wear separately)
+              </span>
+            </label>
+          </div>
+          <div className="field">
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={subcatForm.requiresThirdUpload}
+                disabled={subcatSaving}
+                onChange={(e) =>
+                  setSubcatForm((f) => ({ ...f, requiresThirdUpload: e.target.checked }))
+                }
+              />
+              Requires 3rd garment upload
+              <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
+                (user uploads a third garment image separately)
+              </span>
+            </label>
+          </div>
+          <div className="field">
+            <label>
+              Thumbnail image{' '}
+              <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {subcatImageFile ? (
+                // biome-ignore lint/performance/noImgElement: admin panel
+                <img
+                  src={URL.createObjectURL(subcatImageFile)}
+                  alt="preview"
+                  style={{
+                    width: 48,
+                    height: 48,
+                    objectFit: 'cover',
+                    borderRadius: 6,
+                    flexShrink: 0,
+                  }}
                 />
-              </div>
-              <div className="field">
-                <label>Slug</label>
-                <input
-                  className="input"
-                  placeholder="fullsleeveshirt"
-                  value={subcatForm.slug}
-                  disabled={subcatSaving}
-                  onChange={(e) =>
-                    setSubcatForm((f) => ({
-                      ...f,
-                      slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
-                    }))
-                  }
-                />
-              </div>
-              <div className="field">
-                <label>Gender</label>
-                <select
-                  className="select"
-                  value={subcatForm.genderSlug}
-                  disabled={subcatSaving}
-                  onChange={(e) => {
-                    const genderSlug = e.target.value as GenderSlug;
-                    setSubcatForm((f) => ({
-                      ...f,
-                      genderSlug,
-                      sortOrder: nextSortOrderFor(genderSlug),
-                    }));
+              ) : (
+                <div
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 6,
+                    background: 'var(--subtle)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
                   }}
                 >
-                  <option value="men">Men</option>
-                  <option value="women">Women</option>
-                  <option value="boys">Boys</option>
-                  <option value="girls">Girls</option>
-                </select>
-              </div>
-              <div className="field">
-                <label>
-                  Sort order{' '}
-                  <span style={{ color: 'var(--muted)', fontWeight: 400 }}>
-                    (1 shows first; picking a taken position pushes the rest down)
-                  </span>
-                </label>
-                <input
-                  className="input"
-                  type="number"
-                  step={1}
-                  value={subcatForm.sortOrder}
-                  disabled={subcatSaving}
-                  onChange={(e) =>
-                    setSubcatForm((f) => ({ ...f, sortOrder: Number(e.target.value) }))
-                  }
-                />
-              </div>
-              <div className="field">
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={subcatForm.requiresLowerUpload}
-                    disabled={subcatSaving}
-                    onChange={(e) =>
-                      setSubcatForm((f) => ({ ...f, requiresLowerUpload: e.target.checked }))
-                    }
-                  />
-                  Requires lower garment upload
-                  <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
-                    (user uploads bottom wear separately)
-                  </span>
-                </label>
-              </div>
-              <div className="field">
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={subcatForm.requiresThirdUpload}
-                    disabled={subcatSaving}
-                    onChange={(e) =>
-                      setSubcatForm((f) => ({ ...f, requiresThirdUpload: e.target.checked }))
-                    }
-                  />
-                  Requires 3rd garment upload
-                  <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
-                    (user uploads a third garment image separately)
-                  </span>
-                </label>
-              </div>
-              <div className="field">
-                <label>
-                  Thumbnail image{' '}
-                  <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
-                </label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  {subcatImageFile ? (
-                    // biome-ignore lint/performance/noImgElement: admin panel
-                    <img
-                      src={URL.createObjectURL(subcatImageFile)}
-                      alt="preview"
-                      style={{
-                        width: 48,
-                        height: 48,
-                        objectFit: 'cover',
-                        borderRadius: 6,
-                        flexShrink: 0,
-                      }}
-                    />
-                  ) : (
-                    <div
-                      style={{
-                        width: 48,
-                        height: 48,
-                        borderRadius: 6,
-                        background: 'var(--subtle)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0,
-                      }}
-                    >
-                      <Icon.Image />
-                    </div>
-                  )}
-                  <label className="btn sm ghost" style={{ cursor: 'pointer' }}>
-                    {subcatImageFile ? 'Change image' : 'Upload image'}
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      style={{ display: 'none' }}
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) setSubcatImageFile(f);
-                      }}
-                    />
-                  </label>
-                  {subcatImageFile && (
-                    <button className="btn sm ghost" onClick={() => setSubcatImageFile(null)}>
-                      <Icon.Close />
-                    </button>
-                  )}
+                  <Icon.Image />
                 </div>
-              </div>
-            </div>
-            <div className="modal-foot">
-              <button
-                className="btn ghost"
-                onClick={() => {
-                  setShowSubcatModal(false);
-                  setSubcatImageFile(null);
-                }}
-                disabled={subcatSaving}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn primary"
-                disabled={subcatSaving || !subcatForm.label.trim() || !subcatForm.slug.trim()}
-                onClick={async () => {
-                  setSubcatSaving(true);
-                  try {
-                    let thumbnailKey: string | undefined;
-                    if (subcatImageFile) {
-                      const presign = await apiFetch<{ uploadUrl: string; thumbnailKey: string }>(
-                        '/admin/assets/garment-types/presign',
-                        {
-                          method: 'POST',
-                          body: JSON.stringify({ contentType: subcatImageFile.type }),
-                        },
-                      );
-                      const thumb = await makeThumbnail(subcatImageFile);
-                      await fetch(presign.uploadUrl, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': thumb.type },
-                        body: thumb,
-                      });
-                      thumbnailKey = presign.thumbnailKey;
-                    }
-                    const row = await apiFetch<GarmentType>('/admin/assets/garment-types', {
-                      method: 'POST',
-                      body: JSON.stringify({ ...subcatForm, thumbnailKey }),
-                    });
-                    // A collision at the chosen sortOrder shifts other rows of this
-                    // gender server-side - refetch instead of patching just this one.
-                    await loadGarmentTypes();
-                    toast({ title: `${row.label} created` });
-                    setShowSubcatModal(false);
-                    setSubcatImageFile(null);
-                  } catch (e) {
-                    toast({
-                      kind: 'error',
-                      title: 'Failed to create garment type',
-                      body: apiErrorMessage(e, 'Please try again.'),
-                    });
-                  } finally {
-                    setSubcatSaving(false);
-                  }
-                }}
-              >
-                <Icon.Add /> {subcatSaving ? 'Creating…' : 'Create'}
-              </button>
+              )}
+              <label className="btn sm ghost" style={{ cursor: 'pointer' }}>
+                {subcatImageFile ? 'Change image' : 'Upload image'}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) setSubcatImageFile(f);
+                  }}
+                />
+              </label>
+              {subcatImageFile && (
+                <button className="btn sm ghost" onClick={() => setSubcatImageFile(null)}>
+                  <Icon.Close />
+                </button>
+              )}
             </div>
           </div>
-        </div>
+        </EditDrawer>
       )}
 
       {/* Edit garment type */}
