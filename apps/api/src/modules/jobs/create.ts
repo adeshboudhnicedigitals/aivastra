@@ -25,7 +25,7 @@ import {
   getTryonCreditCost,
 } from '../../lib/resolution-config.js';
 import { assertGarmentObjectValid, assertOwnsUploadKey } from '../../lib/upload-ownership.js';
-import { atomicDeduct, refund } from '../credits/ledger.js';
+import { atomicDeduct, refundAndMarkFailed } from '../credits/ledger.js';
 import { getSareeSettings } from '../saree/settings.js';
 import { promptGuard } from './sanitize.js';
 
@@ -847,14 +847,20 @@ export async function createJob(
   }
 
   if (failedEnqueues.length > 0) {
+    // refundAndMarkFailed does the refund + FAILED transition as one atomic,
+    // idempotent operation (guarded on status='QUEUED') — closes the crash-
+    // between-two-calls gap a separate refund() + UPDATE would leave open.
     await Promise.all(
-      failedEnqueues.map(async (jobId) => {
-        await refund(app.db, userId, plan.cost, jobId, 'REFUND_ENQUEUE_FAIL');
-        await app.db
-          .update(schema.jobs)
-          .set({ status: 'FAILED', errorCode: 'ENQUEUE_FAIL' })
-          .where(eq(schema.jobs.id, jobId));
-      }),
+      failedEnqueues.map((jobId) =>
+        refundAndMarkFailed(
+          app.db,
+          userId,
+          plan.cost,
+          jobId,
+          'REFUND_ENQUEUE_FAIL',
+          'ENQUEUE_FAIL',
+        ),
+      ),
     );
     if (failedEnqueues.length === jobIds.length) {
       throw new AppError('ENQUEUE_FAIL', 503, 'queue unavailable');
@@ -1005,11 +1011,10 @@ export async function createSimpleTryonJob(
     jobsCreatedTotal.inc({ priority: queueStream, kind: JOB_SOURCE.TRYON });
   } catch (err) {
     app.log.error({ err, jobId: job.id }, 'redis xadd failed — simple tryon job will be refunded');
-    await refund(app.db, userId, COST, job.id, 'REFUND_ENQUEUE_FAIL');
-    await app.db
-      .update(schema.jobs)
-      .set({ status: 'FAILED', errorCode: 'ENQUEUE_FAIL' })
-      .where(eq(schema.jobs.id, job.id));
+    // refundAndMarkFailed does the refund + FAILED transition as one atomic,
+    // idempotent operation (guarded on status='QUEUED') — closes the crash-
+    // between-two-calls gap a separate refund() + UPDATE would leave open.
+    await refundAndMarkFailed(app.db, userId, COST, job.id, 'REFUND_ENQUEUE_FAIL', 'ENQUEUE_FAIL');
     throw new AppError('ENQUEUE_FAIL', 503, 'queue unavailable');
   }
 
@@ -1120,11 +1125,10 @@ export async function createCatalogVideoJob(
     jobsCreatedTotal.inc({ priority: 'video', kind: JOB_SOURCE.CATALOG_VIDEO });
   } catch (err) {
     app.log.error({ err, jobId: job.id }, 'redis xadd failed');
-    await refund(app.db, userId, cost, job.id, 'REFUND_ENQUEUE_FAIL');
-    await app.db
-      .update(schema.jobs)
-      .set({ status: 'FAILED', errorCode: 'ENQUEUE_FAIL' })
-      .where(eq(schema.jobs.id, job.id));
+    // refundAndMarkFailed does the refund + FAILED transition as one atomic,
+    // idempotent operation (guarded on status='QUEUED') — closes the crash-
+    // between-two-calls gap a separate refund() + UPDATE would leave open.
+    await refundAndMarkFailed(app.db, userId, cost, job.id, 'REFUND_ENQUEUE_FAIL', 'ENQUEUE_FAIL');
     throw new AppError('ENQUEUE_FAIL', 503, 'queue unavailable');
   }
   return { jobId: job.id };
