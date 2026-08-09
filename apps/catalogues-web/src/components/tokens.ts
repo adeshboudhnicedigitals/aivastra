@@ -15,6 +15,13 @@ export const C = {
   lighter: 'var(--c-lighter)',
   field: 'var(--c-field)',
   mint: 'var(--c-mint)',
+  /**
+   * Error/invalid signal. Points at the same CSS variable the merchant token map
+   * uses (`M.danger`), which globals.css already defines for both light and dark
+   * themes — C.pink must stay reserved for "selected/active", or a red invalid
+   * row and a chosen picker item read as the same state.
+   */
+  danger: 'var(--c-merchant-danger)',
 } as const;
 
 export const M = {

@@ -8,6 +8,7 @@ export function SummaryBar({
   balance,
   maxBatchJobs,
   invalidRowCount,
+  aspectSupported,
   submitting,
   onSubmit,
 }: {
@@ -17,12 +18,23 @@ export function SummaryBar({
   balance: number | null;
   maxBatchJobs: number;
   invalidRowCount: number;
+  /**
+   * False when the page's aspect ratio is outside CreateBatchJobRequest's enum
+   * (packages/types/src/batch.ts). Batch mode has no aspect control of its own,
+   * so the only fix is Single mode — say that up front instead of letting the
+   * submission 400 with an unattributed validation error.
+   */
+  aspectSupported: boolean;
   submitting: boolean;
   onSubmit: () => void;
 }) {
-  // One specific reason, in the order the user can act on it.
-  const blockedReason =
-    invalidRowCount > 0
+  // One specific reason, in the order the user can act on it. The aspect check
+  // sits above the row/pose reasons: filling the grid in is wasted effort while
+  // the ratio makes every submission impossible, and unlike the others it is not
+  // fixable from this screen at all.
+  const blockedReason = !aspectSupported
+    ? "Batch doesn't support this aspect ratio — switch to Single mode to change it"
+    : invalidRowCount > 0
       ? `${invalidRowCount} row${invalidRowCount === 1 ? '' : 's'} incomplete`
       : totalJobs === 0
         ? 'Add at least one pose'
@@ -52,10 +64,7 @@ export function SummaryBar({
         {balance !== null ? ` · balance ${balance}` : ''}
       </span>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        {/* C.danger does not exist on the design-token map (see tokens.ts); C.pink
-            is reused here as the nearest existing token, matching the stopgap
-            already applied in Task 12. Logged as a design-system gap, not fixed here. */}
-        {blockedReason && <span style={{ color: C.pink, fontSize: 13 }}>{blockedReason}</span>}
+        {blockedReason && <span style={{ color: C.danger, fontSize: 13 }}>{blockedReason}</span>}
         <button
           type="button"
           disabled={!!blockedReason || submitting}

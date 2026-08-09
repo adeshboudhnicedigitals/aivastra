@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { C } from '@/components/tokens';
 import { api } from '@/lib/api';
+import { ApiError } from '@/lib/errors';
 import { BatchGrid } from './batch-grid';
 import type { PickerItem } from './batch-row';
 import { GarmentTray } from './garment-tray';
@@ -26,6 +27,25 @@ interface CatalogTreeNode {
 }
 function flattenCatalogTree(node: CatalogTreeNode): PickerItem[] {
   return [...node.items, ...node.children.flatMap((c) => flattenCatalogTree(c))];
+}
+
+/**
+ * Mirrors CreateBatchJobRequest.aspectRatio (packages/types/src/batch.ts). The
+ * page's own ALL_ASPECTS list is wider (it includes 9:16 / 16:9 / custom), and
+ * batch mode has no aspect control to correct a selection with, so an
+ * unsupported ratio is surfaced as a blocking reason rather than a 400.
+ */
+const BATCH_ASPECTS = ['1:1', '2:3', '3:4', '4:5'];
+
+/** Pulls the row index off a row-attributed API error envelope, if present. */
+function errorRowIndex(err: unknown): number | null {
+  if (!(err instanceof ApiError)) return null;
+  const body = err.body;
+  if (!body || typeof body !== 'object') return null;
+  const error = (body as { error?: unknown }).error;
+  if (!error || typeof error !== 'object') return null;
+  const rowIndex = (error as { rowIndex?: unknown }).rowIndex;
+  return typeof rowIndex === 'number' ? rowIndex : null;
 }
 
 export function BatchMode({
@@ -64,8 +84,18 @@ export function BatchMode({
   const [selectedGarmentId, setSelectedGarmentId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const { rows, addRow, duplicateRow, removeRow, patchRow, setPoses, resetRows } =
-    useBatchState(defaultFaceId);
+  /** Row the server named via error.rowIndex on the last failed submit. */
+  const [rejectedRowId, setRejectedRowId] = useState<string | null>(null);
+  const {
+    rows,
+    addRow,
+    duplicateRow,
+    removeRow,
+    patchRow,
+    setPoses,
+    clearGarmentFromRows,
+    resetRows,
+  } = useBatchState(defaultFaceId);
 
   // /v1/models/faces only accepts `gender` (see apps/api/src/modules/models/routes.ts) —
   // it has no garmentTypeId param, and its response is `{ items: [...] }`, matching
@@ -133,9 +163,14 @@ export function BatchMode({
   const onPatchGarment = useCallback((id: string, patch: Partial<TrayGarment>) => {
     setGarments((prev) => prev.map((g) => (g.id === id ? { ...g, ...patch } : g)));
   }, []);
-  const onRemoveGarment = useCallback((id: string) => {
-    setGarments((prev) => prev.filter((g) => g.id !== id));
-  }, []);
+  const onRemoveGarment = useCallback(
+    (id: string) => {
+      setGarments((prev) => prev.filter((g) => g.id !== id));
+      // Rows still pointing at the removed tile would otherwise stay "complete".
+      clearGarmentFromRows(id);
+    },
+    [clearGarmentFromRows],
+  );
 
   // Pose availability is scoped to the garment type — /v1/models/poses?garmentTypeId=
   // returns a different set, and pose_garment_configs can deactivate a pose for one
@@ -160,6 +195,7 @@ export function BatchMode({
   async function handleSubmit() {
     setSubmitting(true);
     setError('');
+    setRejectedRowId(null);
     try {
       // Rows carry a client-side garment id; the API takes the R2 key. rowIssues
       // only checks that a row *has* a garmentId, not that its upload finished —
@@ -188,7 +224,15 @@ export function BatchMode({
       });
       router.push(`/catalogues?batch=${result.batchId}`);
     } catch (e) {
-      setError((e as Error).message || 'Batch submission failed');
+      // The API attributes row-scoped rejections with error.rowIndex (see
+      // withRowIndex in apps/api/src/lib/errors.ts). Light up that row with the
+      // same treatment client-side validation uses, so "pose not found" points
+      // at a row instead of at the whole grid.
+      const rowIndex = errorRowIndex(e);
+      const rejected = rowIndex !== null ? rows[rowIndex] : undefined;
+      setRejectedRowId(rejected?.id ?? null);
+      const message = (e as Error).message || 'Batch submission failed';
+      setError(rejected && rowIndex !== null ? `Row ${rowIndex + 1}: ${message}` : message);
     } finally {
       setSubmitting(false);
     }
@@ -239,7 +283,11 @@ export function BatchMode({
 
       <BatchGrid
         rows={rows}
-        invalidRowIds={invalidRowIds}
+        invalidRowIds={
+          rejectedRowId && !invalidRowIds.includes(rejectedRowId)
+            ? [...invalidRowIds, rejectedRowId]
+            : invalidRowIds
+        }
         garments={garments}
         faces={faces.data ?? []}
         backgrounds={backgrounds.data ?? []}
@@ -254,7 +302,7 @@ export function BatchMode({
       />
 
       {error && (
-        <p role="alert" style={{ color: C.pink, fontSize: 13, margin: '12px 0 0' }}>
+        <p role="alert" style={{ color: C.danger, fontSize: 13, margin: '12px 0 0' }}>
           {error}
         </p>
       )}
@@ -266,6 +314,7 @@ export function BatchMode({
         balance={balance}
         maxBatchJobs={DEFAULT_MAX_BATCH_JOBS}
         invalidRowCount={invalidRowIds.length}
+        aspectSupported={BATCH_ASPECTS.includes(aspectRatio)}
         submitting={submitting}
         onSubmit={handleSubmit}
       />

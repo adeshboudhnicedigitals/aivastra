@@ -121,7 +121,7 @@ export function BatchRow({
           alignItems: narrow ? 'stretch' : 'center',
           padding: 8,
           borderRadius: 10,
-          border: `1px solid ${invalid ? C.pink : narrow ? C.border : 'transparent'}`,
+          border: `1px solid ${invalid ? C.danger : narrow ? C.border : 'transparent'}`,
           marginBottom: narrow ? 12 : 0,
         }}
       >
@@ -176,8 +176,11 @@ export function BatchRow({
         </div>
       </div>
 
-      {invalid && (
-        <p style={{ margin: '0 0 8px 40px', fontSize: 12, color: C.pink }}>
+      {/* `invalid` also covers a row the server rejected, which has no client-side
+          issues to list — in that case the general error message carries the
+          reason and the border alone marks the row. */}
+      {invalid && issues.length > 0 && (
+        <p style={{ margin: '0 0 8px 40px', fontSize: 12, color: C.danger }}>
           Missing: {issues.join(', ')}
         </p>
       )}
