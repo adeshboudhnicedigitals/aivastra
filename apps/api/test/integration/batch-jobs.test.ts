@@ -539,6 +539,55 @@ describe('POST /v1/jobs/batch', () => {
     expect(jobs).toHaveLength(0);
   });
 
+  it('accepts a past-upload garment key from the caller’s own job history after the 24h binding expired', async () => {
+    await seedCreditPlan();
+    const { token, userId } = await registerUser('batch-past-upload@x.com');
+    await grantCredits(userId, 1000);
+    const cat = await seedCatalog();
+    const pastKey = await uploadKey(userId, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+
+    // The tray's "Past uploads" tab sources keys from GET /v1/assets, i.e. this
+    // user's own job_inputs rows — seed one so the key has that provenance.
+    const [pastJob] = await app.db
+      .insert(schema.jobs)
+      .values({ userId, status: 'COMPLETED' })
+      .returning();
+    await app.db.insert(schema.jobInputs).values({
+      jobId: pastJob.id,
+      upperGarmentKey: pastKey,
+      faceId: cat.faceId,
+      backgroundId: cat.bgId,
+      poseId: cat.poseAId,
+      garmentTypeId: cat.garmentTypeId,
+    });
+
+    // Simulate the 24h upload:owner TTL lapsing — the key is still demonstrably
+    // the caller's, but the Redis binding is gone.
+    await app.redis.del(`upload:owner:${pastKey}`);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/batch',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        garmentTypeId: cat.garmentTypeId,
+        aspectRatio: '1:1',
+        resolution: '2K',
+        rows: [
+          {
+            upperGarmentKey: pastKey,
+            faceId: cat.faceId,
+            backgroundId: cat.bgId,
+            poseIds: [cat.poseAId],
+          },
+        ],
+      },
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.json().totalJobs).toBe(1);
+  });
+
   it('rejects a row that repeats the same pose', async () => {
     await seedCreditPlan();
     const { token, userId } = await registerUser('batch-duppose@x.com');

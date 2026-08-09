@@ -97,9 +97,29 @@ export function useBatchState(defaultFaceId: string) {
     );
   }, []);
 
+  /**
+   * Removing a tray tile must not leave rows pointing at it. rowIssues only asks
+   * whether a row *has* a garmentId, so a dangling id would keep the row looking
+   * complete and let submit fire — which then fails with a misleading
+   * "still uploading" message and no row attribution. Clearing the reference
+   * puts the row back into the normal "Missing: garment" state instead.
+   */
+  const clearGarmentFromRows = useCallback((garmentId: string) => {
+    setRows((prev) => prev.map((r) => (r.garmentId === garmentId ? { ...r, garmentId: null } : r)));
+  }, []);
+
   const resetRows = useCallback(() => {
     setRows([newRow(defaultFaceId)]);
   }, [defaultFaceId]);
 
-  return { rows, addRow, duplicateRow, removeRow, patchRow, setPoses, resetRows };
+  return {
+    rows,
+    addRow,
+    duplicateRow,
+    removeRow,
+    patchRow,
+    setPoses,
+    clearGarmentFromRows,
+    resetRows,
+  };
 }

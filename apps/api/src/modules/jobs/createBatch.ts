@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { type DB, schema } from '@aivastra/db';
 import { jobsCreatedTotal } from '@aivastra/observability';
 import { type CreateBatchJobBody, countBatchJobs, JOB_SOURCE } from '@aivastra/types';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { getMaxBatchJobs } from '../../lib/batch-config.js';
 import { AppError, withRowIndex } from '../../lib/errors.js';
@@ -100,9 +100,43 @@ export async function createBatchJobs(
       keyFirstRow.set(row.lowerGarmentKey, index);
     }
   });
+  // The garment tray's "Past uploads" tab offers every key from this user's own
+  // job history (GET /v1/assets), which is arbitrarily old — far older than the
+  // 24h `upload:owner:{key}` Redis binding assertOwnsUploadKey checks. Resolve
+  // which of the requested keys already sit on this caller's own job_inputs rows
+  // and trust those, exactly as regenerate.ts does: ownership is proven by the
+  // job row, so the expired binding is not evidence of anything. Keys that are
+  // not in the caller's history still go through the full Redis check.
+  const requestedKeys = [...keyFirstRow.keys()];
+  const ownedKeyRows = await app.db
+    .select({
+      upperGarmentKey: schema.jobInputs.upperGarmentKey,
+      lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
+    })
+    .from(schema.jobInputs)
+    .innerJoin(schema.jobs, eq(schema.jobInputs.jobId, schema.jobs.id))
+    .where(
+      and(
+        eq(schema.jobs.userId, userId),
+        or(
+          inArray(schema.jobInputs.upperGarmentKey, requestedKeys),
+          inArray(schema.jobInputs.lowerGarmentKey, requestedKeys),
+        ),
+      ),
+    );
+  const trustedGarmentKeys = new Set<string>();
+  for (const owned of ownedKeyRows) {
+    if (owned.upperGarmentKey && keyFirstRow.has(owned.upperGarmentKey)) {
+      trustedGarmentKeys.add(owned.upperGarmentKey);
+    }
+    if (owned.lowerGarmentKey && keyFirstRow.has(owned.lowerGarmentKey)) {
+      trustedGarmentKeys.add(owned.lowerGarmentKey);
+    }
+  }
+
   for (const [key, rowIndex] of keyFirstRow) {
     try {
-      await verifyGarmentKey(app, userId, key);
+      await verifyGarmentKey(app, userId, key, trustedGarmentKeys);
     } catch (err) {
       throw withRowIndex(err, rowIndex);
     }
@@ -135,7 +169,7 @@ export async function createBatchJobs(
             resolution: body.resolution,
             platform: body.platform,
           },
-          { resolvedUpperGarmentKey: row.upperGarmentKey, cache },
+          { resolvedUpperGarmentKey: row.upperGarmentKey, trustedGarmentKeys, cache },
         ),
       );
     } catch (err) {
