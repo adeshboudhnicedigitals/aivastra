@@ -7,7 +7,7 @@ import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
-import { atomicDeduct, refund } from '../credits/ledger.js';
+import { atomicDeduct, refundAndMarkFailed } from '../credits/ledger.js';
 
 /**
  * Shared insert/deduct/enqueue/refund-on-fail core for every dev-API job kind.
@@ -75,11 +75,17 @@ export async function createDevJobCore(
       { err, jobId: job.id },
       `redis xadd failed — dev ${params.source} job will be refunded`,
     );
-    await refund(app.db, params.merchantUserId, params.cost, job.id, 'REFUND_ENQUEUE_FAIL');
-    await app.db
-      .update(schema.jobs)
-      .set({ status: 'FAILED', errorCode: 'ENQUEUE_FAIL' })
-      .where(eq(schema.jobs.id, job.id));
+    // refundAndMarkFailed does the refund + FAILED transition as one atomic,
+    // idempotent operation (guarded on status='QUEUED') — closes the crash-
+    // between-two-calls gap a separate refund() + UPDATE would leave open.
+    await refundAndMarkFailed(
+      app.db,
+      params.merchantUserId,
+      params.cost,
+      job.id,
+      'REFUND_ENQUEUE_FAIL',
+      'ENQUEUE_FAIL',
+    );
     throw new AppError('ENQUEUE_FAIL', 503, 'queue unavailable');
   }
 
