@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:unit": "vitest run --exclude 'test/integration/**'",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "lint": "biome check src/",
     "cleanup:kiosk-inputs": "tsx --env-file=../../.env src/scripts/cleanup-kiosk-inputs.ts"
   },

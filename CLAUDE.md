@@ -229,7 +229,7 @@ Supports subdirectory deployment (e.g. `/app`). All internal asset references an
 |--------|-----------|
 | `auth/` | `/v1/auth/register`, `/login`, `/refresh`, `/logout`, `/verify-email`, `/forgot-password`, `/reset-password`, `/request-admin`; mobile variants (`login-mobile`, `refresh-body`, `logout-mobile`) |
 | `credits/` | `/v1/credits` balance + ledger; helpers: `atomicDeduct`, `refund`, `adminGrant` |
-| `jobs/` | `/v1/jobs/tryon`, `/v1/jobs/*`, `/v1/catalogues`, `/v1/assets`, SSE streams |
+| `jobs/` | `/v1/jobs/tryon`, `/v1/jobs/batch`, `/v1/jobs/*`, `/v1/batches/:id`, `/v1/catalogues`, `/v1/assets`, SSE streams |
 | `catalog/` | `/v1/catalog/:type` category tree + items |
 | `models/` | `/v1/models/faces`, `/backgrounds`, `/poses`, `/garment-types` |
 | `uploads/` | `/v1/uploads/presign` — records `upload:owner:{key}` in Redis (24h TTL) for H2 ownership binding |
