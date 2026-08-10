@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AssetThumb } from '../../components/AssetThumb';
 import { BackgroundUploadModal } from '../../components/BackgroundUploadModal';
 import { EditBackgroundModal } from '../../components/EditBackgroundModal';
+import { EditDrawer } from '../../components/EditDrawer';
 import { Icon } from '../../components/Icons';
 import { SearchableSelect } from '../../components/SearchableSelect';
 import { Switch } from '../../components/Switch';
@@ -1045,391 +1046,326 @@ export function BackgroundsTab() {
 
       {/* Add category modal */}
       {showAddCategory && (
-        <div
-          className="modal-overlay"
-          onClick={catSaving ? undefined : () => setShowAddCategory(false)}
+        <EditDrawer
+          onClose={() => {
+            setShowAddCategory(false);
+            setCatImageFile(null);
+          }}
+          title="Add background category"
+          width="min(420px, calc(100vw - 40px))"
+          saving={catSaving}
+          saveDisabled={!catForm.label.trim() || !catForm.slug.trim()}
+          saveLabel="Create category"
+          onSave={async () => {
+            if (!backgroundTypeId) {
+              toast({ kind: 'error', title: 'Background catalog type not found' });
+              return;
+            }
+            setCatSaving(true);
+            try {
+              let thumbnailKey: string | undefined;
+              if (catImageFile) {
+                const presign = await apiFetch<{ uploadUrl: string; thumbnailKey: string }>(
+                  '/admin/catalog/categories/presign',
+                  { method: 'POST', body: JSON.stringify({ typeSlug: 'background' }) },
+                );
+                const thumb = await makeThumbnail(catImageFile);
+                await fetch(presign.uploadUrl, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': thumb.type },
+                  body: thumb,
+                });
+                thumbnailKey = presign.thumbnailKey;
+              }
+              const cat = await apiFetch<CatalogCategory>('/admin/catalog/categories', {
+                method: 'POST',
+                body: JSON.stringify({
+                  typeId: backgroundTypeId,
+                  parentId: null,
+                  slug: catForm.slug,
+                  label: catForm.label,
+                  genderSlug: catForm.genderSlug || undefined,
+                  sortOrder: catForm.sortOrder,
+                  ...(thumbnailKey ? { thumbnailKey } : {}),
+                }),
+              });
+              setCategories((prev) => [...prev, cat]);
+              setShowAddCategory(false);
+              setCatImageFile(null);
+              toast({ title: `Category "${cat.label}" created` });
+            } catch (e) {
+              toast({
+                kind: 'error',
+                title: e instanceof Error ? e.message : 'Create failed',
+              });
+            } finally {
+              setCatSaving(false);
+            }
+          }}
         >
-          <div
-            className="modal"
-            onClick={(e) => e.stopPropagation()}
-            style={{ width: 'min(420px, calc(100vw - 40px))' }}
-          >
-            <div className="modal-head">
-              <h3>Add background category</h3>
-              <button
-                className="btn sm ghost"
-                onClick={() => setShowAddCategory(false)}
-                disabled={catSaving}
-                style={{ marginLeft: 'auto' }}
-              >
-                <Icon.Close />
-              </button>
-            </div>
-            <div
-              className="modal-body"
-              style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+          <div className="field">
+            <label>Label</label>
+            <input
+              className="input"
+              value={catForm.label}
+              placeholder="e.g. Outdoor"
+              onChange={(e) => {
+                const label = e.target.value;
+                setCatForm((f) => ({
+                  ...f,
+                  label,
+                  slug: label
+                    .toLowerCase()
+                    .replace(/[^a-z0-9]+/g, '-')
+                    .replace(/^-|-$/g, ''),
+                }));
+              }}
+            />
+          </div>
+          <div className="field">
+            <label>Slug</label>
+            <input
+              className="input"
+              value={catForm.slug}
+              placeholder="e.g. outdoor"
+              onChange={(e) => setCatForm((f) => ({ ...f, slug: e.target.value }))}
+            />
+          </div>
+          <div className="field">
+            <label>Gender</label>
+            <select
+              className="select"
+              value={catForm.genderSlug}
+              onChange={(e) =>
+                setCatForm((f) => ({ ...f, genderSlug: e.target.value as GenderSlug | '' }))
+              }
             >
-              <div className="field">
-                <label>Label</label>
-                <input
-                  className="input"
-                  value={catForm.label}
-                  placeholder="e.g. Outdoor"
-                  onChange={(e) => {
-                    const label = e.target.value;
-                    setCatForm((f) => ({
-                      ...f,
-                      label,
-                      slug: label
-                        .toLowerCase()
-                        .replace(/[^a-z0-9]+/g, '-')
-                        .replace(/^-|-$/g, ''),
-                    }));
+              <option value="">All Gender</option>
+              <option value="men">Men</option>
+              <option value="women">Women</option>
+              <option value="girls">Girls</option>
+              <option value="boys">Boys</option>
+            </select>
+          </div>
+          <div className="field">
+            <label>Sort order</label>
+            <input
+              className="input"
+              type="number"
+              min={0}
+              value={catForm.sortOrder}
+              onChange={(e) => setCatForm((f) => ({ ...f, sortOrder: Number(e.target.value) }))}
+              style={{ width: 100 }}
+            />
+          </div>
+          <div className="field">
+            <label>
+              Display image{' '}
+              <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {catImageFile ? (
+                // biome-ignore lint/performance/noImgElement: admin panel
+                <img
+                  src={URL.createObjectURL(catImageFile)}
+                  alt="preview"
+                  style={{
+                    width: 48,
+                    height: 48,
+                    objectFit: 'cover',
+                    borderRadius: 6,
+                    flexShrink: 0,
                   }}
                 />
-              </div>
-              <div className="field">
-                <label>Slug</label>
-                <input
-                  className="input"
-                  value={catForm.slug}
-                  placeholder="e.g. outdoor"
-                  onChange={(e) => setCatForm((f) => ({ ...f, slug: e.target.value }))}
-                />
-              </div>
-              <div className="field">
-                <label>Gender</label>
-                <select
-                  className="select"
-                  value={catForm.genderSlug}
-                  onChange={(e) =>
-                    setCatForm((f) => ({ ...f, genderSlug: e.target.value as GenderSlug | '' }))
-                  }
+              ) : (
+                <div
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 6,
+                    background: 'var(--subtle)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
                 >
-                  <option value="">All Gender</option>
-                  <option value="men">Men</option>
-                  <option value="women">Women</option>
-                  <option value="girls">Girls</option>
-                  <option value="boys">Boys</option>
-                </select>
-              </div>
-              <div className="field">
-                <label>Sort order</label>
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  value={catForm.sortOrder}
-                  onChange={(e) => setCatForm((f) => ({ ...f, sortOrder: Number(e.target.value) }))}
-                  style={{ width: 100 }}
-                />
-              </div>
-              <div className="field">
-                <label>
-                  Display image{' '}
-                  <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
-                </label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  {catImageFile ? (
-                    // biome-ignore lint/performance/noImgElement: admin panel
-                    <img
-                      src={URL.createObjectURL(catImageFile)}
-                      alt="preview"
-                      style={{
-                        width: 48,
-                        height: 48,
-                        objectFit: 'cover',
-                        borderRadius: 6,
-                        flexShrink: 0,
-                      }}
-                    />
-                  ) : (
-                    <div
-                      style={{
-                        width: 48,
-                        height: 48,
-                        borderRadius: 6,
-                        background: 'var(--subtle)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0,
-                      }}
-                    >
-                      <Icon.Image />
-                    </div>
-                  )}
-                  <label className="btn sm ghost" style={{ cursor: 'pointer' }}>
-                    {catImageFile ? 'Change image' : 'Upload image'}
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      style={{ display: 'none' }}
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) setCatImageFile(f);
-                      }}
-                    />
-                  </label>
-                  {catImageFile && (
-                    <button className="btn sm ghost" onClick={() => setCatImageFile(null)}>
-                      <Icon.Close />
-                    </button>
-                  )}
+                  <Icon.Image />
                 </div>
-              </div>
-            </div>
-            <div className="modal-foot">
-              <button
-                className="btn ghost"
-                onClick={() => {
-                  setShowAddCategory(false);
-                  setCatImageFile(null);
-                }}
-                disabled={catSaving}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn primary"
-                disabled={catSaving || !catForm.label.trim() || !catForm.slug.trim()}
-                onClick={async () => {
-                  if (!backgroundTypeId) {
-                    toast({ kind: 'error', title: 'Background catalog type not found' });
-                    return;
-                  }
-                  setCatSaving(true);
-                  try {
-                    let thumbnailKey: string | undefined;
-                    if (catImageFile) {
-                      const presign = await apiFetch<{ uploadUrl: string; thumbnailKey: string }>(
-                        '/admin/catalog/categories/presign',
-                        { method: 'POST', body: JSON.stringify({ typeSlug: 'background' }) },
-                      );
-                      const thumb = await makeThumbnail(catImageFile);
-                      await fetch(presign.uploadUrl, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': thumb.type },
-                        body: thumb,
-                      });
-                      thumbnailKey = presign.thumbnailKey;
-                    }
-                    const cat = await apiFetch<CatalogCategory>('/admin/catalog/categories', {
-                      method: 'POST',
-                      body: JSON.stringify({
-                        typeId: backgroundTypeId,
-                        parentId: null,
-                        slug: catForm.slug,
-                        label: catForm.label,
-                        genderSlug: catForm.genderSlug || undefined,
-                        sortOrder: catForm.sortOrder,
-                        ...(thumbnailKey ? { thumbnailKey } : {}),
-                      }),
-                    });
-                    setCategories((prev) => [...prev, cat]);
-                    setShowAddCategory(false);
-                    setCatImageFile(null);
-                    toast({ title: `Category "${cat.label}" created` });
-                  } catch (e) {
-                    toast({
-                      kind: 'error',
-                      title: e instanceof Error ? e.message : 'Create failed',
-                    });
-                  } finally {
-                    setCatSaving(false);
-                  }
-                }}
-              >
-                Create category
-              </button>
+              )}
+              <label className="btn sm ghost" style={{ cursor: 'pointer' }}>
+                {catImageFile ? 'Change image' : 'Upload image'}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) setCatImageFile(f);
+                  }}
+                />
+              </label>
+              {catImageFile && (
+                <button className="btn sm ghost" onClick={() => setCatImageFile(null)}>
+                  <Icon.Close />
+                </button>
+              )}
             </div>
           </div>
-        </div>
+        </EditDrawer>
       )}
 
       {/* Edit category modal */}
       {editingCategory && (
-        <div
-          className="modal-overlay"
-          onClick={editCatSaving ? undefined : () => setEditingCategory(null)}
+        <EditDrawer
+          onClose={() => {
+            setEditingCategory(null);
+            setEditCatImageFile(null);
+          }}
+          title="Edit category"
+          width="min(380px, calc(100vw - 40px))"
+          saving={editCatSaving}
+          saveDisabled={!editCatLabel.trim()}
+          saveLabel="Save"
+          onSave={async () => {
+            setEditCatSaving(true);
+            try {
+              let thumbnailKey: string | null | undefined;
+              if (editCatImageFile) {
+                const presign = await apiFetch<{ uploadUrl: string; thumbnailKey: string }>(
+                  '/admin/catalog/categories/presign',
+                  { method: 'POST', body: JSON.stringify({ typeSlug: 'background' }) },
+                );
+                const thumb = await makeThumbnail(editCatImageFile);
+                await fetch(presign.uploadUrl, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': thumb.type },
+                  body: thumb,
+                });
+                thumbnailKey = presign.thumbnailKey;
+              }
+              const patch: Record<string, unknown> = {
+                label: editCatLabel.trim(),
+              };
+              if (thumbnailKey !== undefined) patch.thumbnailKey = thumbnailKey;
+              await apiFetch(`/admin/catalog/categories/${editingCategory.id}`, {
+                method: 'PATCH',
+                body: JSON.stringify(patch),
+              });
+              const newThumbUrl =
+                thumbnailKey && editCatImageFile
+                  ? URL.createObjectURL(editCatImageFile)
+                  : editingCategory.thumbnailUrl;
+              setCategories((prev) =>
+                prev.map((c) =>
+                  c.id === editingCategory.id
+                    ? {
+                        ...c,
+                        label: editCatLabel.trim(),
+                        ...(thumbnailKey !== undefined
+                          ? { thumbnailKey, thumbnailUrl: newThumbUrl }
+                          : {}),
+                      }
+                    : c,
+                ),
+              );
+              if (bgView.kind === 'category' && bgView.cat.id === editingCategory.id) {
+                setBgView({
+                  kind: 'category',
+                  cat: { ...bgView.cat, label: editCatLabel.trim() },
+                });
+              }
+              setEditingCategory(null);
+              setEditCatImageFile(null);
+              toast({ title: 'Category updated' });
+            } catch (e) {
+              toast({
+                kind: 'error',
+                title: 'Update failed',
+                body: apiErrorMessage(e, 'Please try again.'),
+              });
+            } finally {
+              setEditCatSaving(false);
+            }
+          }}
         >
-          <div
-            className="modal"
-            onClick={(e) => e.stopPropagation()}
-            style={{ width: 'min(380px, calc(100vw - 40px))' }}
-          >
-            <div className="modal-head">
-              <h3>Edit category</h3>
-              <button
-                className="btn sm ghost"
-                onClick={() => setEditingCategory(null)}
-                disabled={editCatSaving}
-                style={{ marginLeft: 'auto' }}
-              >
-                <Icon.Close />
-              </button>
-            </div>
-            <div className="modal-body">
-              <div className="field">
-                <label>Label</label>
-                <input
-                  className="input"
-                  value={editCatLabel}
-                  onChange={(e) => setEditCatLabel(e.target.value)}
-                  disabled={editCatSaving}
+          <div className="field">
+            <label>Label</label>
+            <input
+              className="input"
+              value={editCatLabel}
+              onChange={(e) => setEditCatLabel(e.target.value)}
+              disabled={editCatSaving}
+            />
+          </div>
+          <div className="field">
+            <label>
+              Display image{' '}
+              <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {editCatImageFile ? (
+                // biome-ignore lint/performance/noImgElement: admin panel
+                <img
+                  src={URL.createObjectURL(editCatImageFile)}
+                  alt="preview"
+                  style={{
+                    width: 48,
+                    height: 48,
+                    objectFit: 'cover',
+                    borderRadius: 6,
+                    flexShrink: 0,
+                  }}
                 />
-              </div>
-              <div className="field">
-                <label>
-                  Display image{' '}
-                  <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
-                </label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  {editCatImageFile ? (
-                    // biome-ignore lint/performance/noImgElement: admin panel
-                    <img
-                      src={URL.createObjectURL(editCatImageFile)}
-                      alt="preview"
-                      style={{
-                        width: 48,
-                        height: 48,
-                        objectFit: 'cover',
-                        borderRadius: 6,
-                        flexShrink: 0,
-                      }}
-                    />
-                  ) : editingCategory.thumbnailUrl ? (
-                    // biome-ignore lint/performance/noImgElement: admin panel
-                    <img
-                      src={editingCategory.thumbnailUrl}
-                      alt="current"
-                      style={{
-                        width: 48,
-                        height: 48,
-                        objectFit: 'cover',
-                        borderRadius: 6,
-                        flexShrink: 0,
-                      }}
-                    />
-                  ) : (
-                    <div
-                      style={{
-                        width: 48,
-                        height: 48,
-                        borderRadius: 6,
-                        background: 'var(--subtle)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0,
-                      }}
-                    >
-                      <Icon.Image />
-                    </div>
-                  )}
-                  <label className="btn sm ghost" style={{ cursor: 'pointer' }}>
-                    {editCatImageFile || editingCategory.thumbnailUrl
-                      ? 'Change image'
-                      : 'Upload image'}
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      style={{ display: 'none' }}
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) setEditCatImageFile(f);
-                      }}
-                    />
-                  </label>
-                  {(editCatImageFile || editingCategory.thumbnailUrl) && (
-                    <button className="btn sm ghost" onClick={() => setEditCatImageFile(null)}>
-                      <Icon.Close />
-                    </button>
-                  )}
+              ) : editingCategory.thumbnailUrl ? (
+                // biome-ignore lint/performance/noImgElement: admin panel
+                <img
+                  src={editingCategory.thumbnailUrl}
+                  alt="current"
+                  style={{
+                    width: 48,
+                    height: 48,
+                    objectFit: 'cover',
+                    borderRadius: 6,
+                    flexShrink: 0,
+                  }}
+                />
+              ) : (
+                <div
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 6,
+                    background: 'var(--subtle)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  <Icon.Image />
                 </div>
-              </div>
-            </div>
-            <div className="modal-foot">
-              <button
-                className="btn ghost"
-                onClick={() => {
-                  setEditingCategory(null);
-                  setEditCatImageFile(null);
-                }}
-                disabled={editCatSaving}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn primary"
-                disabled={editCatSaving || !editCatLabel.trim()}
-                onClick={async () => {
-                  setEditCatSaving(true);
-                  try {
-                    let thumbnailKey: string | null | undefined;
-                    if (editCatImageFile) {
-                      const presign = await apiFetch<{ uploadUrl: string; thumbnailKey: string }>(
-                        '/admin/catalog/categories/presign',
-                        { method: 'POST', body: JSON.stringify({ typeSlug: 'background' }) },
-                      );
-                      const thumb = await makeThumbnail(editCatImageFile);
-                      await fetch(presign.uploadUrl, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': thumb.type },
-                        body: thumb,
-                      });
-                      thumbnailKey = presign.thumbnailKey;
-                    }
-                    const patch: Record<string, unknown> = {
-                      label: editCatLabel.trim(),
-                    };
-                    if (thumbnailKey !== undefined) patch.thumbnailKey = thumbnailKey;
-                    await apiFetch(`/admin/catalog/categories/${editingCategory.id}`, {
-                      method: 'PATCH',
-                      body: JSON.stringify(patch),
-                    });
-                    const newThumbUrl =
-                      thumbnailKey && editCatImageFile
-                        ? URL.createObjectURL(editCatImageFile)
-                        : editingCategory.thumbnailUrl;
-                    setCategories((prev) =>
-                      prev.map((c) =>
-                        c.id === editingCategory.id
-                          ? {
-                              ...c,
-                              label: editCatLabel.trim(),
-                              ...(thumbnailKey !== undefined
-                                ? { thumbnailKey, thumbnailUrl: newThumbUrl }
-                                : {}),
-                            }
-                          : c,
-                      ),
-                    );
-                    if (bgView.kind === 'category' && bgView.cat.id === editingCategory.id) {
-                      setBgView({
-                        kind: 'category',
-                        cat: { ...bgView.cat, label: editCatLabel.trim() },
-                      });
-                    }
-                    setEditingCategory(null);
-                    setEditCatImageFile(null);
-                    toast({ title: 'Category updated' });
-                  } catch (e) {
-                    toast({
-                      kind: 'error',
-                      title: 'Update failed',
-                      body: apiErrorMessage(e, 'Please try again.'),
-                    });
-                  } finally {
-                    setEditCatSaving(false);
-                  }
-                }}
-              >
-                Save
-              </button>
+              )}
+              <label className="btn sm ghost" style={{ cursor: 'pointer' }}>
+                {editCatImageFile || editingCategory.thumbnailUrl ? 'Change image' : 'Upload image'}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) setEditCatImageFile(f);
+                  }}
+                />
+              </label>
+              {(editCatImageFile || editingCategory.thumbnailUrl) && (
+                <button className="btn sm ghost" onClick={() => setEditCatImageFile(null)}>
+                  <Icon.Close />
+                </button>
+              )}
             </div>
           </div>
-        </div>
+        </EditDrawer>
       )}
     </>
   );

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { apiErrorMessage, apiFetch } from '../lib/data';
@@ -589,138 +590,107 @@ export default function DevApiPage({ toast }: Props) {
 
       {/* Create / Edit modal */}
       {modalMode && (
-        <div className="modal-overlay" onClick={closeModal}>
-          <div
-            className="modal"
-            onClick={(e) => e.stopPropagation()}
-            style={{ width: 'min(480px, calc(100vw - 40px))' }}
-          >
-            <div className="modal-head">
-              <h3>
-                {modalMode === 'create'
-                  ? 'Add category'
-                  : `Edit: ${categories.find((c) => c.id === editingCategoryId)?.name ?? ''}`}
-              </h3>
-              <button
-                className="btn sm ghost"
-                onClick={closeModal}
-                disabled={formSaving}
-                style={{ marginLeft: 'auto' }}
-              >
-                <Icon.Close />
-              </button>
-            </div>
-
-            <div
-              className="modal-body"
-              style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
-            >
-              {/* Name */}
-              <div className="field">
-                <label>Name</label>
-                <input
-                  className="input"
-                  value={formName}
-                  disabled={formSaving}
-                  placeholder="e.g. Upper Body"
-                  onChange={(e) => handleNameChange(e.target.value)}
-                />
-              </div>
-
-              {/* Slug */}
-              <div className="field">
-                <label>
-                  Slug{' '}
-                  <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 400 }}>
-                    (auto-derived, editable)
-                  </span>
-                </label>
-                <input
-                  className="input"
-                  value={formSlug}
-                  disabled={formSaving || modalMode === 'edit'}
-                  placeholder="kebab-case"
-                  onChange={(e) => {
-                    setSlugEdited(true);
-                    setFormSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'));
-                  }}
-                />
-              </div>
-
-              {/* Workflow */}
-              <div className="field">
-                <label>Workflow template</label>
-                <SearchableSelect
-                  options={tryonWorkflows.map((wf) => ({
-                    id: wf.id,
-                    label: `${wf.label}${!wf.isActive ? ' (inactive)' : ''}`,
-                  }))}
-                  value={formWorkflowId}
-                  disabled={formSaving}
-                  emptyLabel="— none —"
-                  placeholder="— search workflow —"
-                  onChange={setFormWorkflowId}
-                />
-              </div>
-
-              {/* Sort order */}
-              <div className="field">
-                <label>
-                  Sort order{' '}
-                  <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 400 }}>
-                    (lower = first)
-                  </span>
-                </label>
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  step={1}
-                  value={formSortOrder}
-                  disabled={formSaving}
-                  onChange={(e) => setFormSortOrder(Number(e.target.value))}
-                  style={{ width: 120 }}
-                />
-              </div>
-
-              {/* Active */}
-              <div
-                className="field"
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
-              >
-                <input
-                  type="checkbox"
-                  id="dev-cat-is-active"
-                  checked={formIsActive}
-                  disabled={formSaving}
-                  onChange={(e) => setFormIsActive(e.target.checked)}
-                  style={{
-                    accentColor: 'var(--pink, #ec4899)',
-                    width: 16,
-                    height: 16,
-                    flexShrink: 0,
-                  }}
-                />
-                <label htmlFor="dev-cat-is-active" style={{ margin: 0, cursor: 'pointer' }}>
-                  Active
-                </label>
-              </div>
-            </div>
-
-            <div className="modal-foot">
-              <button className="btn ghost" onClick={closeModal} disabled={formSaving}>
-                Cancel
-              </button>
-              <button
-                className="btn primary"
-                disabled={formSaving || !formName.trim() || !formSlug.trim()}
-                onClick={() => void handleSaveCategory()}
-              >
-                {formSaving ? 'Saving…' : modalMode === 'create' ? 'Create' : 'Save'}
-              </button>
-            </div>
+        <EditDrawer
+          onClose={closeModal}
+          title={
+            modalMode === 'create'
+              ? 'Add category'
+              : `Edit: ${categories.find((c) => c.id === editingCategoryId)?.name ?? ''}`
+          }
+          width="min(480px, calc(100vw - 40px))"
+          saving={formSaving}
+          onSave={() => void handleSaveCategory()}
+          saveLabel={formSaving ? 'Saving…' : modalMode === 'create' ? 'Create' : 'Save'}
+          saveDisabled={formSaving || !formName.trim() || !formSlug.trim()}
+        >
+          {/* Name */}
+          <div className="field">
+            <label>Name</label>
+            <input
+              className="input"
+              value={formName}
+              disabled={formSaving}
+              placeholder="e.g. Upper Body"
+              onChange={(e) => handleNameChange(e.target.value)}
+            />
           </div>
-        </div>
+
+          {/* Slug */}
+          <div className="field">
+            <label>
+              Slug{' '}
+              <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 400 }}>
+                (auto-derived, editable)
+              </span>
+            </label>
+            <input
+              className="input"
+              value={formSlug}
+              disabled={formSaving || modalMode === 'edit'}
+              placeholder="kebab-case"
+              onChange={(e) => {
+                setSlugEdited(true);
+                setFormSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'));
+              }}
+            />
+          </div>
+
+          {/* Workflow */}
+          <div className="field">
+            <label>Workflow template</label>
+            <SearchableSelect
+              options={tryonWorkflows.map((wf) => ({
+                id: wf.id,
+                label: `${wf.label}${!wf.isActive ? ' (inactive)' : ''}`,
+              }))}
+              value={formWorkflowId}
+              disabled={formSaving}
+              emptyLabel="— none —"
+              placeholder="— search workflow —"
+              onChange={setFormWorkflowId}
+            />
+          </div>
+
+          {/* Sort order */}
+          <div className="field">
+            <label>
+              Sort order{' '}
+              <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 400 }}>
+                (lower = first)
+              </span>
+            </label>
+            <input
+              className="input"
+              type="number"
+              min={0}
+              step={1}
+              value={formSortOrder}
+              disabled={formSaving}
+              onChange={(e) => setFormSortOrder(Number(e.target.value))}
+              style={{ width: 120 }}
+            />
+          </div>
+
+          {/* Active */}
+          <div className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <input
+              type="checkbox"
+              id="dev-cat-is-active"
+              checked={formIsActive}
+              disabled={formSaving}
+              onChange={(e) => setFormIsActive(e.target.checked)}
+              style={{
+                accentColor: 'var(--pink, #ec4899)',
+                width: 16,
+                height: 16,
+                flexShrink: 0,
+              }}
+            />
+            <label htmlFor="dev-cat-is-active" style={{ margin: 0, cursor: 'pointer' }}>
+              Active
+            </label>
+          </div>
+        </EditDrawer>
       )}
 
       {/* Delete confirmation modal */}
