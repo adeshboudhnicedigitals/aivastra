@@ -1,6 +1,7 @@
 import { schema } from '@aivastra/db';
 import { eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { getShopifyTrialCredits } from '../../lib/resolution-config.js';
 import { creditsForPlanName, normalizePlanName } from './billing-plans.js';
 import {
   type ActiveSubscription,
@@ -154,6 +155,47 @@ export async function syncStoreSubscription(
     .where(eq(schema.shopifyStores.id, store.id));
 
   return { planHandle, subscriptionStatus, creditsGranted };
+}
+
+/**
+ * Grants a one-time, admin-configured number of free trial credits to a
+ * store's owner the moment the store first gets linked to an AiVastra
+ * account (POST /v1/shopify/store/account/link). Independent of Shopify's
+ * own day-based trialDays billing trial and of any paid subscription — this
+ * exists so a merchant can try the feature before picking a plan.
+ *
+ * Idempotent via the same external_ref partial unique index (migration 0148)
+ * syncStoreSubscription relies on above, keyed on store id alone so this is
+ * strictly one-time per store: unlinking and relinking the same store does
+ * not re-grant, but a different store linked to the same owner does.
+ */
+export async function grantShopifyTrialCredits(
+  app: FastifyInstance,
+  store: Store,
+  userId: string,
+): Promise<{ creditsGranted: number }> {
+  const amount = await getShopifyTrialCredits(app);
+  if (amount <= 0) return { creditsGranted: 0 };
+
+  const externalRef = `shopify_trial:${store.id}`;
+  const granted = await app.db.transaction(async (tx) => {
+    const inserted = await tx
+      .insert(schema.creditLedger)
+      .values({ userId, delta: amount, reason: 'SHOPIFY_TRIAL', externalRef })
+      .onConflictDoNothing()
+      .returning({ id: schema.creditLedger.id });
+    if (!inserted.length) return false;
+    await tx
+      .insert(schema.userCredits)
+      .values({ userId, balance: amount })
+      .onConflictDoUpdate({
+        target: schema.userCredits.userId,
+        set: { balance: sql`${schema.userCredits.balance} + ${amount}`, updatedAt: new Date() },
+      });
+    return true;
+  });
+
+  return { creditsGranted: granted ? amount : 0 };
 }
 
 /**

@@ -1,7 +1,11 @@
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { buildPlanSelectionUrl, syncStoreSubscription } from '../../src/modules/shopify/billing.js';
+import {
+  buildPlanSelectionUrl,
+  grantShopifyTrialCredits,
+  syncStoreSubscription,
+} from '../../src/modules/shopify/billing.js';
 import type { ActiveSubscription } from '../../src/modules/shopify/subscription-client.js';
 import { buildTestApp, type TestApp } from '../helpers/api.js';
 import { type Containers, startContainers } from '../helpers/containers.js';
@@ -325,6 +329,119 @@ describe('syncStoreSubscription', () => {
       .from(schema.userCredits)
       .where(eq(schema.userCredits.userId, user.id));
     expect(balanceRow?.balance).toBe(6250);
+  });
+});
+
+describe('grantShopifyTrialCredits', () => {
+  let c: Containers;
+  let app: TestApp;
+  beforeAll(async () => {
+    c = await startContainers();
+    app = await buildTestApp(c);
+  }, 60000);
+  afterAll(async () => {
+    await app?.close();
+    await c?.stop();
+  });
+
+  async function seedOwnerAndStore() {
+    const [user] = await app.db
+      .insert(schema.users)
+      .values({
+        email: `trial-owner-${Date.now()}-${Math.random()}@example.com`,
+        passwordHash: null,
+        displayName: 'Trial Store Owner',
+        companyName: null,
+        emailVerified: true,
+        tier: 'free',
+      })
+      .returning();
+    const [store] = await app.db
+      .insert(schema.shopifyStores)
+      .values({
+        shopDomain: `trial-${Date.now()}-${Math.random()}.myshopify.com`,
+        shopifyShopId: Date.now(),
+        accessToken: 'enc',
+        scope: 'read_products',
+        ownerUserId: user.id,
+      })
+      .returning();
+    return { user, store };
+  }
+
+  it('grants the configured trial credits on first call', async () => {
+    const { user, store } = await seedOwnerAndStore();
+
+    const result = await grantShopifyTrialCredits(app, store, user.id);
+
+    expect(result.creditsGranted).toBe(25);
+    const [balanceRow] = await app.db
+      .select({ balance: schema.userCredits.balance })
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, user.id));
+    expect(balanceRow?.balance).toBe(25);
+    const [ledgerRow] = await app.db
+      .select({ reason: schema.creditLedger.reason, externalRef: schema.creditLedger.externalRef })
+      .from(schema.creditLedger)
+      .where(eq(schema.creditLedger.userId, user.id));
+    expect(ledgerRow?.reason).toBe('SHOPIFY_TRIAL');
+    expect(ledgerRow?.externalRef).toBe(`shopify_trial:${store.id}`);
+  });
+
+  it('does not re-grant on a second call for the same store', async () => {
+    const { user, store } = await seedOwnerAndStore();
+    await grantShopifyTrialCredits(app, store, user.id);
+
+    const second = await grantShopifyTrialCredits(app, store, user.id);
+
+    expect(second.creditsGranted).toBe(0);
+    const [balanceRow] = await app.db
+      .select({ balance: schema.userCredits.balance })
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, user.id));
+    expect(balanceRow?.balance).toBe(25); // only granted once
+  });
+
+  it('grants again for a second, different store linked to the same owner', async () => {
+    const { user, store: firstStore } = await seedOwnerAndStore();
+    await grantShopifyTrialCredits(app, firstStore, user.id);
+
+    const [secondStore] = await app.db
+      .insert(schema.shopifyStores)
+      .values({
+        shopDomain: `trial-2nd-${Date.now()}-${Math.random()}.myshopify.com`,
+        shopifyShopId: Date.now() + 1,
+        accessToken: 'enc',
+        scope: 'read_products',
+        ownerUserId: user.id,
+      })
+      .returning();
+
+    const result = await grantShopifyTrialCredits(app, secondStore!, user.id);
+
+    expect(result.creditsGranted).toBe(25);
+    const [balanceRow] = await app.db
+      .select({ balance: schema.userCredits.balance })
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, user.id));
+    expect(balanceRow?.balance).toBe(50); // 25 + 25, one per store
+  });
+
+  it('short-circuits without a DB write when the admin sets trial credits to 0', async () => {
+    const { user, store } = await seedOwnerAndStore();
+    await app.redis.set('config:system', JSON.stringify({ shopify: { trialCredits: 0 } }));
+
+    try {
+      const result = await grantShopifyTrialCredits(app, store, user.id);
+      expect(result.creditsGranted).toBe(0);
+      const ledgerRows = await app.db
+        .select()
+        .from(schema.creditLedger)
+        .where(eq(schema.creditLedger.userId, user.id));
+      expect(ledgerRows).toHaveLength(0);
+    } finally {
+      await app.redis.del('config:system');
+    }
   });
 });
 
