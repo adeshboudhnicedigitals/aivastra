@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
+import aivastra.nice.interactive.utils.CrashReporter
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -112,7 +113,7 @@ fun PhotoEditView(
                     sourceBitmap = BitmapFactory.decodeStream(input)
                 }
             } catch (t: Throwable) {
-                t.printStackTrace()
+                CrashReporter.recordException(t, "PhotoEditView")
             }
         }
     }
@@ -424,7 +425,7 @@ private fun processAndSaveEditedBitmap(
                 onResult(Uri.fromFile(file))
             }
         } catch (t: Throwable) {
-            t.printStackTrace()
+            CrashReporter.recordException(t, "PhotoEditView")
             withContext(Dispatchers.Main) {
                 onResult(null)
             }
