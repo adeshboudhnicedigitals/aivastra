@@ -78,6 +78,57 @@ describe('GET /v1/shopify/billing/confirm', () => {
     syncSpy.mockRestore();
   });
 
+  it('ignores merchant-editable plan_handle/shop query params and returns the real synced state', async () => {
+    // Shopify appends plan_handle/shop as query params on this redirect, but
+    // they're editable in the URL bar before the request ever reaches us.
+    // A spoofed plan_handle here must not leak into the response — only the
+    // real value syncStoreSubscription reads from the Partner API should.
+    const [user] = await app.db
+      .insert(schema.users)
+      .values({
+        email: `owner-${Date.now()}@example.com`,
+        passwordHash: null,
+        displayName: 'Owner',
+        companyName: null,
+        emailVerified: true,
+        tier: 'free',
+      })
+      .returning();
+    await app.db.insert(schema.userCredits).values({ userId: user.id, balance: 0 });
+    const [store] = await app.db
+      .insert(schema.shopifyStores)
+      .values({
+        shopDomain: 'confirm-spoof-test.myshopify.com',
+        shopifyShopId: 424244,
+        accessToken: 'enc',
+        scope: 'read_products',
+        ownerUserId: user.id,
+      })
+      .returning();
+
+    const syncSpy = vi.spyOn(billing, 'syncStoreSubscription').mockResolvedValue({
+      planHandle: 'pro',
+      subscriptionStatus: 'active',
+      creditsGranted: 0,
+    });
+
+    const token = signSessionToken(store.shopDomain, API_SECRET, API_KEY);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/billing/confirm?plan_handle=enterprise&shop=something-else.myshopify.com',
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      planHandle: 'pro',
+      subscriptionStatus: 'active',
+      creditBalance: 0,
+    });
+
+    syncSpy.mockRestore();
+  });
+
   it('rejects a request with no session token', async () => {
     const res = await app.inject({ method: 'GET', url: '/v1/shopify/billing/confirm' });
     expect(res.statusCode).toBe(401);
