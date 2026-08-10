@@ -330,6 +330,29 @@ describe('syncStoreSubscription', () => {
       .where(eq(schema.userCredits.userId, user.id));
     expect(balanceRow?.balance).toBe(5000);
   });
+
+  it('grants the admin-overridden amount when a planCredits override is configured', async () => {
+    const { user, store } = await seedOwnerAndStore();
+    await app.redis.set(
+      'config:system',
+      JSON.stringify({ shopify: { planCredits: { growth: 9000 } } }),
+    );
+
+    try {
+      const result = await syncStoreSubscription(app, store, {
+        getActiveSubscription: async () => sub({ name: 'growth' }),
+      });
+
+      expect(result.creditsGranted).toBe(9000);
+      const [balanceRow] = await app.db
+        .select({ balance: schema.userCredits.balance })
+        .from(schema.userCredits)
+        .where(eq(schema.userCredits.userId, user.id));
+      expect(balanceRow?.balance).toBe(9000);
+    } finally {
+      await app.redis.del('config:system');
+    }
+  });
 });
 
 describe('grantShopifyTrialCredits', () => {
