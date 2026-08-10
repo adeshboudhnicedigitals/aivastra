@@ -12,6 +12,7 @@ import {
   DEFAULT_TRYON_CONFIG,
 } from '../../lib/resolution-config.js';
 import { DEFAULT_UPLOAD_LIMITS } from '../../lib/upload-limits-config.js';
+import { DEFAULT_CREDITS_BY_PLAN_HANDLE } from '../shopify/billing-plans.js';
 import { requireAdmin } from './guard.js';
 
 const KEY = 'config:system';
@@ -50,7 +51,10 @@ export async function adminConfigRoutes(app: FastifyInstance) {
       cfg.tryon = cfg.tryon ?? DEFAULT_TRYON_CONFIG;
       cfg.sareeMannequinDev = cfg.sareeMannequinDev ?? DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG;
       cfg.pixverse = cfg.pixverse ?? DEFAULT_PIXVERSE_CONFIG;
-      cfg.shopify = cfg.shopify ?? DEFAULT_SHOPIFY_TRIAL_CONFIG;
+      cfg.shopify = {
+        trialCredits: cfg.shopify?.trialCredits ?? DEFAULT_SHOPIFY_TRIAL_CONFIG.trialCredits,
+        planCredits: { ...DEFAULT_CREDITS_BY_PLAN_HANDLE, ...cfg.shopify?.planCredits },
+      };
       cfg.uploadLimits = { ...DEFAULT_UPLOAD_LIMITS, ...cfg.uploadLimits };
       return cfg;
     },
