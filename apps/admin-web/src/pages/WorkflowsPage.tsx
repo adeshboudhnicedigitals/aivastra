@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { WorkflowUploadModal } from '../components/WorkflowUploadModal';
@@ -1015,147 +1016,112 @@ export default function WorkflowsPage({ toast }: Props) {
 
       {/* Edit label/slug modal */}
       {editingWf && (
-        <div className="modal-overlay" onClick={editSaving ? undefined : () => setEditingWf(null)}>
-          <div
-            className="modal"
-            onClick={(e) => e.stopPropagation()}
-            style={{ width: 'min(640px, calc(100vw - 40px))' }}
-          >
-            <div className="modal-head">
-              <h3>Edit workflow</h3>
-              <button
-                className="btn sm ghost"
-                onClick={() => setEditingWf(null)}
+        <EditDrawer
+          onClose={() => setEditingWf(null)}
+          title="Edit workflow"
+          width="min(640px, calc(100vw - 40px))"
+          saving={editSaving}
+          onSave={handleEditSave}
+          saveLabel="Save"
+          saveDisabled={
+            !editForm.label.trim() ||
+            !editForm.slug.trim() ||
+            !editForm.garmentPhasePrompt.trim() ||
+            (editingWf?.ksamplerSteps !== null &&
+              (Number.isNaN(Number(editForm.ksamplerSteps)) ||
+                Number(editForm.ksamplerSteps) < 1 ||
+                Number.isNaN(Number(editForm.ksamplerCfg)) ||
+                Number(editForm.ksamplerCfg) < 0 ||
+                Number.isNaN(Number(editForm.ksamplerDenoise)) ||
+                Number(editForm.ksamplerDenoise) < 0 ||
+                Number(editForm.ksamplerDenoise) > 1))
+          }
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="field">
+              <label>Label</label>
+              <input
+                className="input"
+                value={editForm.label}
                 disabled={editSaving}
-                style={{ marginLeft: 'auto' }}
-              >
-                <Icon.Close />
-              </button>
+                onChange={(e) => setEditForm((f) => ({ ...f, label: e.target.value }))}
+              />
             </div>
-            <div
-              className="modal-body"
-              style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
-            >
+            <div className="field">
+              <label>Slug</label>
+              <input
+                className="input"
+                value={editForm.slug}
+                disabled={editSaving}
+                placeholder="snake_case"
+                onChange={(e) =>
+                  setEditForm((f) => ({
+                    ...f,
+                    slug: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'),
+                  }))
+                }
+              />
+            </div>
+            <div className="field">
+              <label>Garment-phase prompt</label>
+              <textarea
+                className="input"
+                rows={4}
+                value={editForm.garmentPhasePrompt}
+                disabled={editSaving}
+                onChange={(e) => setEditForm((f) => ({ ...f, garmentPhasePrompt: e.target.value }))}
+              />
+            </div>
+            {editingWf?.facePhasePromptNode && (
               <div className="field">
-                <label>Label</label>
-                <input
-                  className="input"
-                  value={editForm.label}
-                  disabled={editSaving}
-                  onChange={(e) => setEditForm((f) => ({ ...f, label: e.target.value }))}
-                />
-              </div>
-              <div className="field">
-                <label>Slug</label>
-                <input
-                  className="input"
-                  value={editForm.slug}
-                  disabled={editSaving}
-                  placeholder="snake_case"
-                  onChange={(e) =>
-                    setEditForm((f) => ({
-                      ...f,
-                      slug: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'),
-                    }))
-                  }
-                />
-              </div>
-              <div className="field">
-                <label>Garment-phase prompt</label>
+                <label>Face-phase (negative) prompt</label>
                 <textarea
                   className="input"
                   rows={4}
-                  value={editForm.garmentPhasePrompt}
+                  value={editForm.facePhasePrompt}
                   disabled={editSaving}
-                  onChange={(e) =>
-                    setEditForm((f) => ({ ...f, garmentPhasePrompt: e.target.value }))
-                  }
+                  onChange={(e) => setEditForm((f) => ({ ...f, facePhasePrompt: e.target.value }))}
                 />
               </div>
-              {editingWf?.facePhasePromptNode && (
-                <div className="field">
-                  <label>Face-phase (negative) prompt</label>
-                  <textarea
+            )}
+            {editingWf?.ksamplerSteps !== null && (
+              <div style={{ display: 'flex', gap: 14 }}>
+                <div className="field" style={{ flex: 1 }}>
+                  <label>Steps</label>
+                  <input
                     className="input"
-                    rows={4}
-                    value={editForm.facePhasePrompt}
+                    type="number"
+                    value={editForm.ksamplerSteps}
+                    disabled={editSaving}
+                    onChange={(e) => setEditForm((f) => ({ ...f, ksamplerSteps: e.target.value }))}
+                  />
+                </div>
+                <div className="field" style={{ flex: 1 }}>
+                  <label>CFG</label>
+                  <input
+                    className="input"
+                    type="number"
+                    value={editForm.ksamplerCfg}
+                    disabled={editSaving}
+                    onChange={(e) => setEditForm((f) => ({ ...f, ksamplerCfg: e.target.value }))}
+                  />
+                </div>
+                <div className="field" style={{ flex: 1 }}>
+                  <label>Denoise</label>
+                  <input
+                    className="input"
+                    type="number"
+                    value={editForm.ksamplerDenoise}
                     disabled={editSaving}
                     onChange={(e) =>
-                      setEditForm((f) => ({ ...f, facePhasePrompt: e.target.value }))
+                      setEditForm((f) => ({ ...f, ksamplerDenoise: e.target.value }))
                     }
                   />
                 </div>
-              )}
-              {editingWf?.ksamplerSteps !== null && (
-                <div style={{ display: 'flex', gap: 14 }}>
-                  <div className="field" style={{ flex: 1 }}>
-                    <label>Steps</label>
-                    <input
-                      className="input"
-                      type="number"
-                      value={editForm.ksamplerSteps}
-                      disabled={editSaving}
-                      onChange={(e) =>
-                        setEditForm((f) => ({ ...f, ksamplerSteps: e.target.value }))
-                      }
-                    />
-                  </div>
-                  <div className="field" style={{ flex: 1 }}>
-                    <label>CFG</label>
-                    <input
-                      className="input"
-                      type="number"
-                      value={editForm.ksamplerCfg}
-                      disabled={editSaving}
-                      onChange={(e) => setEditForm((f) => ({ ...f, ksamplerCfg: e.target.value }))}
-                    />
-                  </div>
-                  <div className="field" style={{ flex: 1 }}>
-                    <label>Denoise</label>
-                    <input
-                      className="input"
-                      type="number"
-                      value={editForm.ksamplerDenoise}
-                      disabled={editSaving}
-                      onChange={(e) =>
-                        setEditForm((f) => ({ ...f, ksamplerDenoise: e.target.value }))
-                      }
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="modal-foot">
-              <button
-                className="btn ghost"
-                onClick={() => setEditingWf(null)}
-                disabled={editSaving}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn primary"
-                disabled={
-                  editSaving ||
-                  !editForm.label.trim() ||
-                  !editForm.slug.trim() ||
-                  !editForm.garmentPhasePrompt.trim() ||
-                  (editingWf?.ksamplerSteps !== null &&
-                    (Number.isNaN(Number(editForm.ksamplerSteps)) ||
-                      Number(editForm.ksamplerSteps) < 1 ||
-                      Number.isNaN(Number(editForm.ksamplerCfg)) ||
-                      Number(editForm.ksamplerCfg) < 0 ||
-                      Number.isNaN(Number(editForm.ksamplerDenoise)) ||
-                      Number(editForm.ksamplerDenoise) < 0 ||
-                      Number(editForm.ksamplerDenoise) > 1))
-                }
-                onClick={handleEditSave}
-              >
-                {editSaving ? 'Saving…' : 'Save'}
-              </button>
-            </div>
+              </div>
+            )}
           </div>
-        </div>
+        </EditDrawer>
       )}
 
       {/* Upload modal */}
@@ -1181,81 +1147,38 @@ export default function WorkflowsPage({ toast }: Props) {
 
       {/* Reassign modal */}
       {reassigning && (
-        <div
-          className="modal-overlay"
-          onClick={
-            reassignSaving
-              ? undefined
-              : () => {
-                  setReassigning(null);
-                  setReassignTargetId('');
-                }
-          }
+        <EditDrawer
+          onClose={() => {
+            setReassigning(null);
+            setReassignTargetId('');
+          }}
+          title="Reassign workflow"
+          width="380px"
+          saving={reassignSaving}
+          onSave={handleReassign}
+          saveLabel="Reassign"
+          saveDisabled={!reassignTargetId}
         >
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 380 }}>
-            <div className="modal-head">
-              <h3>Reassign workflow</h3>
-              <button
-                className="btn sm ghost"
-                onClick={
-                  reassignSaving
-                    ? undefined
-                    : () => {
-                        setReassigning(null);
-                        setReassignTargetId('');
-                      }
-                }
-                style={{ marginLeft: 'auto' }}
-              >
-                <Icon.Close />
-              </button>
-            </div>
-            <div
-              className="modal-body"
-              style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
-            >
-              <p style={{ margin: 0 }}>
-                Poses use <strong>{reassigning.label}</strong>. Choose a target workflow to move
-                them to.
-              </p>
-              <div className="field">
-                <label>Target workflow</label>
-                <SearchableSelect
-                  options={workflows
-                    .filter((w) => w.id !== reassigning.id)
-                    .map((w) => ({ id: w.id, label: `${w.label} (${w.slug})` }))}
-                  value={reassignTargetId}
-                  disabled={reassignSaving}
-                  onChange={setReassignTargetId}
-                  placeholder="— search workflow —"
-                  emptyLabel="— Select —"
-                />
-              </div>
-            </div>
-            <div className="modal-foot">
-              <button
-                className="btn ghost"
-                onClick={
-                  reassignSaving
-                    ? undefined
-                    : () => {
-                        setReassigning(null);
-                        setReassignTargetId('');
-                      }
-                }
-              >
-                Cancel
-              </button>
-              <button
-                className="btn primary"
-                disabled={reassignSaving || !reassignTargetId}
-                onClick={handleReassign}
-              >
-                {reassignSaving ? 'Reassigning…' : 'Reassign'}
-              </button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <p style={{ margin: 0 }}>
+              Poses use <strong>{reassigning.label}</strong>. Choose a target workflow to move them
+              to.
+            </p>
+            <div className="field">
+              <label>Target workflow</label>
+              <SearchableSelect
+                options={workflows
+                  .filter((w) => w.id !== reassigning.id)
+                  .map((w) => ({ id: w.id, label: `${w.label} (${w.slug})` }))}
+                value={reassignTargetId}
+                disabled={reassignSaving}
+                onChange={setReassignTargetId}
+                placeholder="— search workflow —"
+                emptyLabel="— Select —"
+              />
             </div>
           </div>
-        </div>
+        </EditDrawer>
       )}
     </div>
   );
