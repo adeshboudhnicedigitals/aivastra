@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AddFaceModal } from '../../components/AddFaceModal';
 import { AssetThumb } from '../../components/AssetThumb';
 import { EditFaceModal } from '../../components/EditFaceModal';
 import { Icon } from '../../components/Icons';
 import { Pager } from '../../components/Pager';
 import { Switch } from '../../components/Switch';
+import { CONTINENTS, continentLabel } from '../../lib/continents';
 import { apiErrorMessage, apiFetch } from '../../lib/data';
-import type { ModelFace } from '../../types';
+import type { Continent, ModelFace } from '../../types';
 import { useAssetsContext } from './AssetsContext';
 
 const GENDER_TABS = [
@@ -16,6 +17,8 @@ const GENDER_TABS = [
   { k: 'boys' as const, l: 'Boys' },
   { k: 'girls' as const, l: 'Girls' },
 ];
+
+type ContinentFilter = 'all' | 'unassigned' | Continent;
 
 const FACES_PAGE_SIZE = 75;
 
@@ -61,6 +64,29 @@ export function FacesTab() {
   const [facesPage, setFacesPage] = useState(1);
   const [bulkSortStart, setBulkSortStart] = useState(0);
   const [bulkSortSaving, setBulkSortSaving] = useState(false);
+  const [continentFilter, setContinentFilter] = useState<ContinentFilter>('all');
+  const [bulkContinent, setBulkContinent] = useState<Continent | ''>('');
+  const [bulkContinentSaving, setBulkContinentSaving] = useState(false);
+
+  // Presets plus any continent an admin has already typed in — so custom
+  // continents show up as filter tabs / dropdown options everywhere too.
+  const knownContinents = useMemo(() => {
+    const seen = new Set(CONTINENTS.map((c) => c.value));
+    const extra = Array.from(
+      new Set(faces.map((f) => f.continent).filter((c): c is string => !!c && !seen.has(c))),
+    ).map((value) => ({ value, label: continentLabel(value) }));
+    extra.sort((a, b) => a.label.localeCompare(b.label));
+    return [...CONTINENTS, ...extra];
+  }, [faces]);
+
+  const CONTINENT_TABS = useMemo(
+    () => [
+      { k: 'all' as ContinentFilter, l: 'All continents' },
+      ...knownContinents.map((c) => ({ k: c.value as ContinentFilter, l: c.label })),
+      { k: 'unassigned' as ContinentFilter, l: 'Unassigned' },
+    ],
+    [knownContinents],
+  );
 
   useEffect(() => {
     loadFaces();
@@ -154,8 +180,44 @@ export function FacesTab() {
     }
   };
 
+  const doBulkSetContinent = async () => {
+    if (selectedFaceIds.length === 0) return;
+    setBulkContinentSaving(true);
+    const value = bulkContinent || null;
+    try {
+      await Promise.all(
+        selectedFaceIds.map((id) =>
+          apiFetch(`/admin/assets/faces/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ continent: value }),
+          }),
+        ),
+      );
+      setFaces((prev) =>
+        prev.map((f) => (selectedFaceIds.includes(f.id) ? { ...f, continent: value } : f)),
+      );
+      toast({
+        title: `Continent set for ${selectedFaceIds.length} face${selectedFaceIds.length !== 1 ? 's' : ''}`,
+      });
+      setSelectedFaceIds([]);
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to set continent',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setBulkContinentSaving(false);
+    }
+  };
+
   const filteredFaces = faces
     .filter((f) => genderFilter === 'all' || f.gender === genderFilter)
+    .filter((f) => {
+      if (continentFilter === 'all') return true;
+      if (continentFilter === 'unassigned') return !f.continent;
+      return f.continent === continentFilter;
+    })
     .sort((a, b) => a.sortOrder - b.sortOrder);
   const facesTotalPages = Math.max(1, Math.ceil(filteredFaces.length / FACES_PAGE_SIZE));
   const facesClampedPage = Math.min(facesPage, facesTotalPages);
@@ -184,6 +246,18 @@ export function FacesTab() {
             key={t.k}
             className={`tab ${genderFilter === t.k ? 'active' : ''}`}
             onClick={() => setGenderFilter(t.k)}
+          >
+            {t.l}
+          </button>
+        ))}
+      </div>
+
+      <div className="tabs">
+        {CONTINENT_TABS.map((t) => (
+          <button
+            key={t.k}
+            className={`tab ${continentFilter === t.k ? 'active' : ''}`}
+            onClick={() => setContinentFilter(t.k)}
           >
             {t.l}
           </button>
@@ -221,6 +295,29 @@ export function FacesTab() {
             )}
             {selectedFaceIds.length > 0 && (
               <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <select
+                    className="select"
+                    value={bulkContinent}
+                    disabled={bulkContinentSaving}
+                    onChange={(e) => setBulkContinent(e.target.value as Continent | '')}
+                    style={{ fontSize: 12, height: 28, padding: '3px 6px' }}
+                  >
+                    <option value="">Unassigned</option>
+                    {knownContinents.map((c) => (
+                      <option key={c.value} value={c.value}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    className="btn sm"
+                    disabled={bulkContinentSaving}
+                    onClick={() => void doBulkSetContinent()}
+                  >
+                    {bulkContinentSaving ? 'Saving…' : `Set continent (${selectedFaceIds.length})`}
+                  </button>
+                </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
                     Sort from
@@ -301,8 +398,11 @@ export function FacesTab() {
                   />
                   <div style={{ marginTop: 4 }}>
                     <span className="semi">{face.label}</span>
-                    <div style={{ marginTop: 4 }}>
+                    <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                       <span className="badge dot accent">{face.gender}</span>
+                      <span className="badge dot">
+                        {face.continent ? continentLabel(face.continent) : 'Unassigned'}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -468,6 +568,7 @@ export function FacesTab() {
 
       {showFaceUpload && (
         <AddFaceModal
+          knownContinents={knownContinents}
           onDone={(newFaces) => {
             setShowFaceUpload(false);
             setFaces((prev) => [...prev, ...newFaces]);
@@ -481,6 +582,7 @@ export function FacesTab() {
         <EditFaceModal
           face={editingFace}
           storagePublicUrl={storagePublicUrl}
+          knownContinents={knownContinents}
           onSaved={(updated) => {
             setFaces((prev) => prev.map((f) => (f.id === updated.id ? updated : f)));
             setEditingFace(null);

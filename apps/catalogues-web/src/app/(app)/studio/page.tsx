@@ -38,6 +38,29 @@ interface FaceItem {
   label: string;
   thumbnailUrl: string;
   gender: string;
+  continent?: string | null;
+}
+const CONTINENT_LABELS: Record<string, string> = {
+  asia: 'Asia',
+  africa: 'Africa',
+  europe: 'Europe',
+  north_america: 'North America',
+  south_america: 'South America',
+  oceania: 'Oceania',
+};
+const CONTINENT_ORDER = ['asia', 'africa', 'europe', 'north_america', 'south_america', 'oceania'];
+// Continents are admin-defined slugs (see ContinentSlug in @aivastra/types), not a
+// fixed set -- fall back to a title-cased label for any slug an admin added that
+// isn't in CONTINENT_LABELS above.
+function continentLabel(slug: string): string {
+  return (
+    CONTINENT_LABELS[slug] ??
+    slug
+      .split('_')
+      .filter(Boolean)
+      .map((w) => w.slice(0, 1).toUpperCase() + w.slice(1))
+      .join(' ')
+  );
 }
 interface BackgroundItem {
   id: string;
@@ -571,6 +594,7 @@ export default function StudioPage(): React.ReactElement {
   const lowerVisibleCount = categoryVisibleCount;
   const shoeVisibleCount = categoryVisibleCount;
   const [modelModalOpen, setModelModalOpen] = useState(false);
+  const [modelContinentFilter, setModelContinentFilter] = useState<string>('');
   const [backgroundModalOpen, setBackgroundModalOpen] = useState(false);
   const [backgroundItemFilter, setBackgroundItemFilter] = useState<number | ''>('');
   const [backgroundTagFilter, setBackgroundTagFilter] = useState<string>('');
@@ -650,6 +674,27 @@ export default function StudioPage(): React.ReactElement {
     refetchOnWindowFocus: true,
   });
   const filteredFaces = useMemo(() => faces?.items ?? [], [faces?.items]);
+  const faceContinents = useMemo(() => {
+    const present = new Set(filteredFaces.map((f) => f.continent || 'global'));
+    const known = CONTINENT_ORDER.filter((c) => present.has(c)).map((c) => ({
+      id: c,
+      label: continentLabel(c),
+    }));
+    const extra = Array.from(present)
+      .filter((c) => c !== 'global' && !CONTINENT_ORDER.includes(c))
+      .map((c) => ({ id: c, label: continentLabel(c) }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    const ordered = [...known, ...extra];
+    if (present.has('global')) ordered.push({ id: 'global', label: 'Global' });
+    return ordered;
+  }, [filteredFaces]);
+  const modelPickerFaces = useMemo(
+    () =>
+      modelContinentFilter === ''
+        ? filteredFaces
+        : filteredFaces.filter((f) => (f.continent || 'global') === modelContinentFilter),
+    [filteredFaces, modelContinentFilter],
+  );
   useEffect(() => {
     if (!filteredFaces.length) return;
     if (!filteredFaces.some((f) => f.id === faceId)) {
@@ -2685,7 +2730,10 @@ export default function StudioPage(): React.ReactElement {
                   filteredFaces.length > modelVisibleCount && (
                     <button
                       type="button"
-                      onClick={() => setModelModalOpen(true)}
+                      onClick={() => {
+                        setModelContinentFilter('');
+                        setModelModalOpen(true);
+                      }}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -2755,18 +2803,110 @@ export default function StudioPage(): React.ReactElement {
                 </div>
               )}
               {modelModalOpen && faces && (
-                <SelectGridModal
-                  title="Choose your model"
-                  items={filteredFaces}
-                  selectedIds={faceId ? [faceId] : []}
-                  aspect={1}
-                  columns={5}
-                  onSelect={(id) => {
-                    handleFaceSelect(id);
-                    setModelModalOpen(false);
+                // biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop; click outside dismisses
+                <div
+                  role="presentation"
+                  style={{
+                    position: 'fixed',
+                    inset: 0,
+                    background: 'rgba(0,0,0,0.4)',
+                    zIndex: 1000,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                   }}
-                  onClose={() => setModelModalOpen(false)}
-                />
+                  onClick={() => setModelModalOpen(false)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') setModelModalOpen(false);
+                  }}
+                >
+                  {/* biome-ignore lint/a11y/noStaticElementInteractions: modal panel; click swallowed to prevent backdrop dismiss */}
+                  <div
+                    style={{
+                      background: C.white,
+                      borderRadius: 12,
+                      padding: 24,
+                      width: 1180,
+                      height: 857,
+                      maxWidth: '90vw',
+                      maxHeight: '90vh',
+                      overflowY: 'auto',
+                      boxSizing: 'border-box',
+                      boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={() => {}}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: 16,
+                      }}
+                    >
+                      <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>
+                        Choose your model
+                      </h2>
+                      <button
+                        type="button"
+                        onClick={() => setModelModalOpen(false)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: C.mid,
+                        }}
+                      >
+                        <XIcon size={20} />
+                      </button>
+                    </div>
+                    {faceContinents.length > 1 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
+                        <button
+                          type="button"
+                          onClick={() => setModelContinentFilter('')}
+                          style={pill(modelContinentFilter === '')}
+                        >
+                          All continents
+                        </button>
+                        {faceContinents.map((c) => (
+                          <button
+                            type="button"
+                            key={c.id}
+                            onClick={() => setModelContinentFilter(c.id)}
+                            style={pill(modelContinentFilter === c.id)}
+                          >
+                            {c.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {modelPickerFaces.length === 0 ? (
+                      <p style={{ fontSize: 14, color: C.mid }}>No models in this continent yet.</p>
+                    ) : (
+                      <div className="studio-5col-grid">
+                        {modelPickerFaces.map((f) => (
+                          <SelCard
+                            key={f.id}
+                            selected={faceId === f.id}
+                            onClick={() => {
+                              handleFaceSelect(f.id);
+                              setModelModalOpen(false);
+                            }}
+                            imageUrl={f.thumbnailUrl}
+                            label={f.label}
+                            w="100%"
+                            ratio={215.2 / 212.67}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
             </section>
 
