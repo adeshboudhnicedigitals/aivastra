@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Icon } from './Icons';
+import { EditDrawer } from './EditDrawer';
 
 export interface DemoSetEditData {
   id: string;
@@ -33,62 +33,43 @@ export function DemoSetModal({
 
   if (!open) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSave = () => {
     if (name.trim() && !isSaving) onSave(name.trim(), description.trim());
   };
 
   return (
-    <div className="modal-overlay" onClick={isSaving ? undefined : onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <form onSubmit={handleSubmit}>
-          <div className="modal-head">
-            <h3>{initialData ? 'Edit demo set' : 'Add demo set'}</h3>
-            <button
-              type="button"
-              className="btn sm ghost"
-              onClick={onClose}
-              disabled={isSaving}
-              style={{ marginLeft: 'auto' }}
-            >
-              <Icon.Close />
-            </button>
-          </div>
-          <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div className="field">
-              <label>Name</label>
-              <input
-                className="input"
-                required
-                maxLength={160}
-                value={name}
-                disabled={isSaving}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Summer Demo Set"
-              />
-            </div>
-            <div className="field">
-              <label>Description</label>
-              <textarea
-                className="input"
-                maxLength={500}
-                value={description}
-                disabled={isSaving}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Optional"
-              />
-            </div>
-          </div>
-          <div className="modal-foot">
-            <button type="button" className="btn ghost" onClick={onClose} disabled={isSaving}>
-              Cancel
-            </button>
-            <button type="submit" className="btn primary" disabled={isSaving || !name.trim()}>
-              {isSaving ? 'Saving…' : 'Save'}
-            </button>
-          </div>
-        </form>
+    <EditDrawer
+      onClose={onClose}
+      title={initialData ? 'Edit demo set' : 'Add demo set'}
+      width="min(480px, calc(100vw - 40px))"
+      saving={isSaving}
+      onSave={handleSave}
+      saveLabel={isSaving ? 'Saving…' : 'Save'}
+      saveDisabled={isSaving || !name.trim()}
+    >
+      <div className="field">
+        <label>Name</label>
+        <input
+          className="input"
+          required
+          maxLength={160}
+          value={name}
+          disabled={isSaving}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. Summer Demo Set"
+        />
       </div>
-    </div>
+      <div className="field">
+        <label>Description</label>
+        <textarea
+          className="input"
+          maxLength={500}
+          value={description}
+          disabled={isSaving}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Optional"
+        />
+      </div>
+    </EditDrawer>
   );
 }
