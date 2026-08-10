@@ -15,6 +15,7 @@ import android.util.Size
 import android.view.Surface
 import android.view.WindowManager
 import android.hardware.camera2.CaptureRequest
+import aivastra.nice.interactive.utils.CrashReporter
 import androidx.annotation.OptIn
 import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
@@ -821,7 +822,7 @@ fun hasUsbCamera(context: Context): Boolean {
         }
         return false
     } catch (e: Exception) {
-        e.printStackTrace()
+        CrashReporter.recordException(e, "InternalCameraView")
         return false
     }
 }
@@ -967,7 +968,7 @@ suspend fun fixImageRotationFromUri(
         )
 
     } catch (t: Throwable) {
-        t.printStackTrace()
+        CrashReporter.recordException(t, "InternalCameraView")
         imageUri
     }
 }
