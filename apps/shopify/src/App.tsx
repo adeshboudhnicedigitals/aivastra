@@ -15,6 +15,7 @@ import AnalyticsPage from './pages/AnalyticsPage';
 import BillingCallbackPage from './pages/BillingCallbackPage';
 import DashboardPage from './pages/DashboardPage';
 import ManagePage from './pages/ManagePage';
+import PricingPage from './pages/PricingPage';
 import SettingsPage from './pages/SettingsPage';
 import SupportPage from './pages/SupportPage';
 import WidgetDesignPage from './pages/WidgetDesignPage';
@@ -129,6 +130,7 @@ export default function App() {
           <Route path="/" element={<DashboardPage />} />
           <Route path="/manage" element={<ManagePage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route path="/pricing" element={<PricingPage />} />
           <Route path="/widget-design" element={<WidgetDesignPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/support" element={<SupportPage />} />
