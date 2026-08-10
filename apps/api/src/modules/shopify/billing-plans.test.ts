@@ -3,17 +3,17 @@ import { creditsForPlanName, normalizePlanName, SHOPIFY_PLAN_HANDLES } from './b
 
 describe('creditsForPlanName', () => {
   it('maps each known plan name to its credit grant', () => {
-    expect(creditsForPlanName('starter')).toBe(2500);
-    expect(creditsForPlanName('growth')).toBe(6250);
-    expect(creditsForPlanName('pro')).toBe(25000);
+    expect(creditsForPlanName('starter')).toBe(1925);
+    expect(creditsForPlanName('growth')).toBe(5000);
+    expect(creditsForPlanName('pro')).toBe(22000);
   });
 
   it('matches case-insensitively and ignores surrounding whitespace', () => {
     // Shopify echoes back the plan's Partner Dashboard display name verbatim,
     // and we do not control how it gets capitalized there.
-    expect(creditsForPlanName('Starter')).toBe(2500);
-    expect(creditsForPlanName('GROWTH')).toBe(6250);
-    expect(creditsForPlanName('  Pro  ')).toBe(25000);
+    expect(creditsForPlanName('Starter')).toBe(1925);
+    expect(creditsForPlanName('GROWTH')).toBe(5000);
+    expect(creditsForPlanName('  Pro  ')).toBe(22000);
   });
 
   it('returns null for an unknown name rather than guessing a tier', () => {
