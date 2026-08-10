@@ -137,6 +137,52 @@
 ### Open Questions / Decisions
 - None.
 
+## 2026-08-06 — Local seed images added
+
+**Done**
+- Seeded 1,539 model images (faces, poses, footwear, lower garments, backgrounds) into PostgreSQL & MinIO via pnpm seed:model-images.
+- Seeded 51 garment subcategories (men, women, boys, girls) into PostgreSQL & MinIO via pnpm seed:garment-types.
+
+**Failed / Not Done**
+- None.
+
+**Open Questions / Decisions**
+- None.
+
+## 2026-08-06 — Initial codebase setup & dev environment launched
+
+**Done**
+- Cloned repository into D:\\AI vastra.
+- Copied .env.example to .env and initialized workspace configuration.
+- Installed dependencies across all workspace packages (pnpm install).
+- Started local Docker infrastructure (aivastra-postgres, aivastra-redis, aivastra-minio).
+- Applied database schema migrations (pnpm db:migrate).
+- Compiled @aivastra/* workspace packages.
+- Started dev servers (pnpm dev): api (4000), catalogues-web (3000), admin-web (5173), shopify (5174), dispatcher (4100).
+
+**Failed / Not Done**
+- pnpm db:seed skipped due to tier constraint in seed script.
+
+**Open Questions / Decisions**
+- None.
+
+## 2026-08-06 — Initial codebase setup & dev environment launched
+
+**Done**
+- Cloned repository into `D:\AI vastra`.
+- Copied `.env.example` to `.env` and initialized workspace configuration.
+- Installed dependencies across all workspace packages (`pnpm install`).
+- Started local Docker infrastructure (`aivastra-postgres`, `aivastra-redis`, `aivastra-minio`).
+- Applied database schema migrations (`pnpm db:migrate`).
+- Compiled `@aivastra/*` workspace packages (`pnpm --filter './packages/*' -r run build`).
+- Started dev servers (`pnpm dev`): `api` (4000), `catalogues-web` (3000), `admin-web` (5173), `shopify` (5174), `dispatcher` (4100).
+
+**Failed / Not Done**
+- `pnpm db:seed` failed on seed data tier constraint — skipped for local run.
+
+**Open Questions / Decisions**
+- None.
+
 ## 2026-08-06 — Duplicate pose images, catalog-video thumbnail bug, upload-your-own-image source
 
 **Done**

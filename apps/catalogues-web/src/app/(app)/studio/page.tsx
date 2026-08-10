@@ -39,7 +39,30 @@ interface FaceItem {
   label: string;
   thumbnailUrl: string;
   gender: string;
+  continent?: string | null;
   tags: string[];
+}
+const CONTINENT_LABELS: Record<string, string> = {
+  asia: 'Asia',
+  africa: 'Africa',
+  europe: 'Europe',
+  north_america: 'North America',
+  south_america: 'South America',
+  oceania: 'Oceania',
+};
+const CONTINENT_ORDER = ['asia', 'africa', 'europe', 'north_america', 'south_america', 'oceania'];
+// Continents are admin-defined slugs (see ContinentSlug in @aivastra/types), not a
+// fixed set -- fall back to a title-cased label for any slug an admin added that
+// isn't in CONTINENT_LABELS above.
+function continentLabel(slug: string): string {
+  return (
+    CONTINENT_LABELS[slug] ??
+    slug
+      .split('_')
+      .filter(Boolean)
+      .map((w) => w.slice(0, 1).toUpperCase() + w.slice(1))
+      .join(' ')
+  );
 }
 interface BackgroundItem {
   id: string;
@@ -610,6 +633,7 @@ export default function StudioPage(): React.ReactElement {
   const [backgroundItemFilter, setBackgroundItemFilter] = useState<number | ''>('');
   const [backgroundTagFilter, setBackgroundTagFilter] = useState<string>('');
   const [modelTagFilter, setModelTagFilter] = useState<string>('');
+  const [modelContinentFilter, setModelContinentFilter] = useState<string>('');
   const [catalogueTemplateId, setCatalogueTemplateId] = useState('custom');
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [poseModalOpen, setPoseModalOpen] = useState(false);
@@ -686,13 +710,20 @@ export default function StudioPage(): React.ReactElement {
     refetchOnWindowFocus: true,
   });
   const filteredFaces = useMemo(() => faces?.items ?? [], [faces?.items]);
-  const modalFaces = useMemo(
-    () =>
-      modelTagFilter === ''
-        ? filteredFaces
-        : filteredFaces.filter((f) => (f.tags ?? []).includes(modelTagFilter)),
-    [filteredFaces, modelTagFilter],
-  );
+  const faceContinents = useMemo(() => {
+    const present = new Set(filteredFaces.map((f) => f.continent || 'global'));
+    const known = CONTINENT_ORDER.filter((c) => present.has(c)).map((c) => ({
+      id: c,
+      label: continentLabel(c),
+    }));
+    const extra = Array.from(present)
+      .filter((c) => c !== 'global' && !CONTINENT_ORDER.includes(c))
+      .map((c) => ({ id: c, label: continentLabel(c) }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    const ordered = [...known, ...extra];
+    if (present.has('global')) ordered.push({ id: 'global', label: 'Global' });
+    return ordered;
+  }, [filteredFaces]);
   useEffect(() => {
     if (!filteredFaces.length) return;
     if (!filteredFaces.some((f) => f.id === faceId)) {
@@ -2980,7 +3011,7 @@ export default function StudioPage(): React.ReactElement {
                 {modelModalOpen && faces && (
                   <SelectGridModal
                     title="Choose your model"
-                    items={modalFaces}
+                    items={filteredFaces}
                     selectedIds={faceId ? [faceId] : []}
                     aspect={1}
                     columns={5}
@@ -2988,6 +3019,11 @@ export default function StudioPage(): React.ReactElement {
                     tagOptions={faceTags}
                     activeTag={modelTagFilter}
                     onTagChange={setModelTagFilter}
+                    groupOptions={faceContinents.length > 1 ? faceContinents : undefined}
+                    activeGroup={modelContinentFilter}
+                    onGroupChange={setModelContinentFilter}
+                    groupOf={(f) => f.continent || 'global'}
+                    allGroupsLabel="continents"
                     onSelect={(id) => {
                       handleFaceSelect(id);
                       setModelModalOpen(false);

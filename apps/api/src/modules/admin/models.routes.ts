@@ -77,6 +77,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       const body = req.body as {
         label: string;
         gender: string;
+        continent?: string | null;
         r2Key: string;
         thumbnailKey: string;
         faceSideR2Key?: string;
@@ -88,6 +89,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         .values({
           label: body.label,
           gender: body.gender,
+          continent: body.continent ?? null,
           r2Key: body.r2Key,
           thumbnailKey: body.thumbnailKey,
           faceSideR2Key: body.faceSideR2Key ?? null,
