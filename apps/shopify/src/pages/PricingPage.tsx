@@ -26,14 +26,16 @@ const APP_HANDLE = import.meta.env.VITE_SHOPIFY_APP_HANDLE ?? '';
 
 function FeatureRow({ label, included }: { label: string; included: boolean }) {
   return (
-    <InlineStack gap="200" blockAlign="center">
-      {included ? (
-        <Icon source={CheckIcon} tone="success" />
-      ) : (
-        <Text as="span" tone="subdued">
-          —
-        </Text>
-      )}
+    <InlineStack gap="200" blockAlign="center" wrap={false}>
+      <Box width="20px">
+        {included ? (
+          <Icon source={CheckIcon} tone="success" />
+        ) : (
+          <Text as="span" tone="subdued">
+            —
+          </Text>
+        )}
+      </Box>
       <Text as="span" tone={included ? undefined : 'subdued'}>
         {label}
       </Text>
@@ -73,7 +75,7 @@ export default function PricingPage() {
   }
 
   return (
-    <Page title="Plans & pricing" subtitle="Choose the plan that fits your store.">
+    <Page title="Billing" subtitle="Choose the plan that fits your store.">
       <BlockStack gap="400">
         {error && <Banner tone="critical">{error}</Banner>}
 
