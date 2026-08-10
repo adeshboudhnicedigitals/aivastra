@@ -1,11 +1,12 @@
 import { schema } from '@aivastra/db';
+import { JOB_SOURCE } from '@aivastra/types';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildTestApp, type TestApp } from './helpers/api.js';
 import { type Containers, startContainers } from './helpers/containers.js';
 import {
   createTestApiKey,
+  createTestDevTryonCategory,
   createTestMerchant,
-  createTestTryonCategory,
 } from './helpers/merchant.js';
 
 let c: Containers;
@@ -32,8 +33,8 @@ beforeAll(async () => {
   const other = await createTestMerchant(app);
   ({ key: otherKey } = await createTestApiKey(app, other.merchantId));
 
-  await createTestTryonCategory(app, { slug: 'upper', name: 'Upper', sortOrder: 1 });
-  await createTestTryonCategory(app, {
+  await createTestDevTryonCategory(app, { slug: 'upper', name: 'Upper', sortOrder: 1 });
+  await createTestDevTryonCategory(app, {
     slug: 'hidden',
     name: 'Hidden',
     isActive: false,
@@ -56,7 +57,7 @@ async function makeJob(status: string, opts: { withOutput?: boolean; errorCode?:
       userId,
       apiKeyId,
       status,
-      source: 'api',
+      source: JOB_SOURCE.API_TRYON,
       creditsCharged: 1,
       errorCode: opts.errorCode ?? null,
     })

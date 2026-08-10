@@ -1,12 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import { encryptToken } from '../../lib/crypto.js';
 import { AppError } from '../../lib/errors.js';
 import { resolveAccountLinkCode } from './customer-auth.js';
 import { writeWidgetKeyMetafield } from './metafields.js';
-import { SHOPIFY_API_VERSION, verifyQueryHmac } from './service.js';
+import { numericIdFromGid, shopifyGraphQL, verifyQueryHmac } from './service.js';
+import { type TokenGrant, toTokenGrant } from './token.js';
+import { markWidgetConfigUnsynced, publishLatestConfig } from './widget-config.routes.js';
 
 export interface ShopDetails {
   shopifyShopId: number;
@@ -18,6 +20,7 @@ export interface ShopDetails {
   email: string;
   phone?: string;
   address?: string;
+  ianaTimezone?: string;
 }
 
 export async function upsertShopifyStore(
@@ -25,10 +28,19 @@ export async function upsertShopifyStore(
   shop: ShopDetails,
   accessToken: string,
   scope: string,
+  grant?: TokenGrant,
 ) {
   const encKey = app.env.SHOPIFY_TOKEN_ENC_KEY;
   if (!encKey) throw new AppError('CONFIG', 500, 'SHOPIFY_TOKEN_ENC_KEY missing');
   const enc = encryptToken(accessToken, encKey);
+  // Absent grant means a caller that predates expiring tokens (tests, mostly).
+  // Null out the refresh half rather than leaving a previous install's values
+  // behind, where they would point at a rotated-away token.
+  const refreshCols = {
+    refreshToken: grant?.refreshToken ? encryptToken(grant.refreshToken, encKey) : null,
+    tokenExpiresAt: grant?.expiresAt ?? null,
+    refreshTokenExpiresAt: grant?.refreshTokenExpiresAt ?? null,
+  };
   const origins = [
     `https://${shop.myshopifyDomain}`,
     ...(shop.primaryDomain ? [`https://${shop.primaryDomain}`] : []),
@@ -46,7 +58,9 @@ export async function upsertShopifyStore(
         .update(schema.shopifyStores)
         .set({
           accessToken: enc,
+          ...refreshCols,
           scope,
+          ianaTimezone: shop.ianaTimezone ?? null,
           allowedOrigins: origins,
           uninstalledAt: null,
           updatedAt: new Date(),
@@ -62,7 +76,9 @@ export async function upsertShopifyStore(
         shopDomain: shop.shopDomain,
         shopifyShopId: shop.shopifyShopId,
         accessToken: enc,
+        ...refreshCols,
         scope,
+        ianaTimezone: shop.ianaTimezone ?? null,
         allowedOrigins: origins,
       })
       .returning();
@@ -70,7 +86,122 @@ export async function upsertShopifyStore(
   });
 }
 
+/**
+ * Where to send the merchant once OAuth completes.
+ *
+ * This must hand control back to Shopify rather than point at our own SPA. Only
+ * Shopify can mint the `host` and `id_token` query params that App Bridge needs
+ * to reach the parent admin frame, and it only supplies them when it opens the
+ * app itself. Redirecting straight at the SPA leaves App Bridge with no parent
+ * coordinates, and every call into it — `idToken()` included — then hangs
+ * forever: no resolve, no reject, no console error, just a permanent loading
+ * spinner for the merchant.
+ */
+export function buildPostInstallRedirect(shop: string, apiKey: string): string {
+  const storeHandle = shop.replace(/\.myshopify\.com$/, '');
+  return `https://admin.shopify.com/store/${storeHandle}/apps/${apiKey}`;
+}
+
+const SHOP_DETAILS = `
+  query ShopDetails {
+    shop {
+      id
+      name
+      email
+      myshopifyDomain
+      primaryDomain { host }
+      shopOwnerName
+      billingAddress { phone address1 city country }
+      ianaTimezone
+    }
+  }
+`;
+
+interface ShopDetailsData {
+  shop: {
+    id: string;
+    name: string;
+    email: string;
+    myshopifyDomain: string;
+    primaryDomain?: { host?: string | null } | null;
+    shopOwnerName?: string | null;
+    billingAddress?: {
+      phone?: string | null;
+      address1?: string | null;
+      city?: string | null;
+      country?: string | null;
+    } | null;
+    ianaTimezone?: string | null;
+  };
+}
+
+/**
+ * Everything that turns a freshly-issued access token into a usable install.
+ *
+ * Shared by the two ways a token can arrive: the authorization-code callback
+ * below, and the managed-installation token exchange in the
+ * `requireShopifySession` plugin. Both need the identical follow-on work, and
+ * an install provisioned by one path must be indistinguishable from the other
+ * — so this lives in one place rather than being mirrored.
+ *
+ * Post-upsert steps are deliberately tolerant: a metafield mirror or webhook
+ * registration that fails must not discard a valid token and leave the store
+ * with no row at all. Postgres stays authoritative; those mirrors reconcile
+ * later.
+ */
+export async function provisionShopifyStore(
+  app: FastifyInstance,
+  shop: string,
+  accessToken: string,
+  scope: string,
+  grant: TokenGrant | undefined,
+  log: FastifyBaseLogger,
+) {
+  const { shop: s } = await shopifyGraphQL<ShopDetailsData>(shop, accessToken, SHOP_DETAILS);
+  const details: ShopDetails = {
+    shopifyShopId: numericIdFromGid(s.id),
+    shopDomain: s.myshopifyDomain,
+    myshopifyDomain: s.myshopifyDomain,
+    primaryDomain: s.primaryDomain?.host ?? undefined,
+    name: s.name,
+    shopOwner: s.shopOwnerName ?? undefined,
+    email: s.email,
+    phone: s.billingAddress?.phone ?? undefined,
+    address: [s.billingAddress?.address1, s.billingAddress?.city, s.billingAddress?.country]
+      .filter(Boolean)
+      .join(', '),
+    ianaTimezone: s.ianaTimezone ?? undefined,
+  };
+
+  const store = await upsertShopifyStore(app, details, accessToken, scope, grant);
+  await writeWidgetKeyMetafield(shop, accessToken, details.shopifyShopId, store.storeKey, log);
+  // Reauthorization can be reached only after a widget-config PATCH has
+  // already committed Postgres and Shopify rejected the old token. Publish
+  // that authoritative row with the newly issued token before returning to
+  // the app; otherwise the reloaded design page looks clean while Liquid is
+  // still rendering the previous metafield value.
+  await markWidgetConfigUnsynced(app, store.id);
+  await publishLatestConfig(app, store.id, log).catch((err) => {
+    // Match widget-key/webhook installation tolerance. A post-install mirror
+    // problem must not consume a valid grant without provisioning the store;
+    // the saved Postgres config remains authoritative.
+    log.error(
+      { err, storeId: store.id, shop },
+      'failed to republish widget config after shopify authorization',
+    );
+    return false;
+  });
+  await app.shopifyRegisterWebhooks?.(shop, accessToken);
+
+  log.info({ storeId: store.id, shop }, 'shopify store installed');
+  return store;
+}
+
 export async function shopifyAuthRoutes(app: FastifyInstance) {
+  // Kept for token recovery (SHOPIFY_REAUTH_REQUIRED), not for installation.
+  // Managed installation means Shopify installs the app itself and the store is
+  // provisioned from the first session token — nothing in the app should route
+  // a fresh install through here.
   app.get('/v1/shopify/auth', async (req, reply) => {
     const shop = (req.query as { shop?: string }).shop;
     if (!shop || !/^[a-z0-9-]+\.myshopify\.com$/.test(shop)) {
@@ -94,6 +225,13 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
     const savedShop = await app.redis.get(`shopify:nonce:${q.state}`);
     if (!savedShop || savedShop !== q.shop) throw new AppError('FORBIDDEN', 403, 'bad state');
     await app.redis.del(`shopify:nonce:${q.state}`);
+    // q.shop is already pinned to the value /v1/shopify/auth validated and stored
+    // under this nonce, but it is interpolated into Shopify API URLs and the
+    // return-to-admin redirect below — assert the format here so that safety is
+    // local rather than inferred through a Redis round-trip.
+    if (!/^[a-z0-9-]+\.myshopify\.com$/.test(q.shop)) {
+      throw new AppError('BAD_REQUEST', 400, 'invalid shop');
+    }
 
     // Exchange code → token
     const tokenRes = await fetch(`https://${q.shop}/admin/oauth/access_token`, {
@@ -107,50 +245,25 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
       }),
     });
     if (!tokenRes.ok) throw new AppError('SHOPIFY', 502, 'token exchange failed');
-    const { access_token, scope } = (await tokenRes.json()) as {
+    const tokenBody = (await tokenRes.json()) as {
       access_token: string;
       scope: string;
+      refresh_token?: string;
+      expires_in?: number;
+      refresh_token_expires_in?: number;
     };
+    const { access_token, scope } = tokenBody;
+    // `expiring: 1` above makes access_token die in ~1h; the refresh half is
+    // the only way back without sending the merchant through OAuth again, so
+    // it has to be captured here — this is the one place Shopify hands it over.
+    const grant = toTokenGrant(tokenBody);
 
-    // Fetch shop details
-    const shopRes = await fetch(`https://${q.shop}/admin/api/${SHOPIFY_API_VERSION}/shop.json`, {
-      headers: { 'X-Shopify-Access-Token': access_token },
-    });
-    if (!shopRes.ok) throw new AppError('SHOPIFY', 502, 'shop fetch failed');
-    const { shop: s } = (await shopRes.json()) as {
-      shop: {
-        id: number;
-        myshopify_domain: string;
-        domain?: string;
-        name: string;
-        shop_owner?: string;
-        email: string;
-        phone?: string;
-        address1?: string;
-        city?: string;
-        country?: string;
-      };
-    };
-    const details: ShopDetails = {
-      shopifyShopId: s.id,
-      shopDomain: s.myshopify_domain,
-      myshopifyDomain: s.myshopify_domain,
-      primaryDomain: s.domain,
-      name: s.name,
-      shopOwner: s.shop_owner,
-      email: s.email,
-      phone: s.phone,
-      address: [s.address1, s.city, s.country].filter(Boolean).join(', '),
-    };
+    await provisionShopifyStore(app, q.shop, access_token, scope, grant, req.log);
 
-    const store = await upsertShopifyStore(app, details, access_token, scope);
-    await writeWidgetKeyMetafield(q.shop, access_token, store.storeKey, req.log);
-    // Webhook registration is Task 7; call registerWebhooks(app, q.shop, access_token) here once it exists.
-    await app.shopifyRegisterWebhooks?.(q.shop, access_token);
-
-    req.log.info({ storeId: store.id, shop: q.shop }, 'shopify store installed');
-    const adminUrl = app.env.SHOPIFY_ADMIN_URL ?? app.env.SHOPIFY_APP_URL;
-    return reply.redirect(`${adminUrl}/embedded?shop=${q.shop}`);
+    // Not `?? ''`: a missing key would build a silently malformed redirect, which
+    // is the exact failure mode this redirect exists to avoid.
+    if (!app.env.SHOPIFY_API_KEY) throw new AppError('CONFIG', 500, 'SHOPIFY_API_KEY missing');
+    return reply.redirect(buildPostInstallRedirect(q.shop, app.env.SHOPIFY_API_KEY));
   });
 
   app.post(

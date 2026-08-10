@@ -18,6 +18,7 @@ const fieldWrap: React.CSSProperties = {
 };
 const inputStyle: React.CSSProperties = {
   flex: 1,
+  minWidth: 0,
   background: 'transparent',
   border: 'none',
   outline: 'none',
@@ -57,12 +58,14 @@ export default function ForgotPasswordPage(): React.ReactElement {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
+        padding: '24px 16px',
       }}
     >
       <div
         style={{
-          width: 420,
-          padding: 40,
+          width: '100%',
+          maxWidth: 420,
+          padding: 'clamp(24px, 8vw, 40px)',
           background: C.card,
           borderRadius: 16,
           border: `1px solid ${C.border}`,
@@ -90,10 +93,12 @@ export default function ForgotPasswordPage(): React.ReactElement {
                 color: '#00a860',
                 marginBottom: 24,
                 lineHeight: 1.6,
+                overflowWrap: 'anywhere',
               }}
             >
-              If an account exists for <strong>{email}</strong>, you&apos;ll receive a reset link
-              shortly.
+              If an account exists for{' '}
+              <strong style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{email}</strong>
+              , you&apos;ll receive a reset link shortly.
             </div>
             <Link
               href="/login"

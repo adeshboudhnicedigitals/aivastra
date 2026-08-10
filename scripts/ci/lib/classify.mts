@@ -59,6 +59,11 @@ export function classify(input: ClassifyInput): DetectResult {
 
   if (input.fallbackReason) {
     result.fallbackToAll = true;
+    // No diff range means no visibility into whether a migration was added —
+    // mirrors the force_all and detector-crash fallbacks in detect-affected.mts,
+    // which both already force this for the same reason: a deploy must never
+    // skip `db:migrate` just because the detector couldn't compute a diff.
+    result.migrationChanged = true;
     addReason('ALL', input.fallbackReason);
   }
 
@@ -97,9 +102,16 @@ export function classify(input: ClassifyInput): DetectResult {
       continue;
     }
 
+    // Infra covers the prod compose file, the cloudflared configs and the Alloy
+    // config — all of which govern how the running containers are wired, so a
+    // change here only reaches production once every service is recreated.
+    // Selecting all services (rather than merely flagging) keeps prod from
+    // drifting away from the repo: previously this `continue`d without picking
+    // any target, so an infra-only merge went green and deployed nothing.
     if (matchAny(file, config.infraPaths)) {
       result.infrastructureChanged = true;
-      addReason('infra', file);
+      result.fallbackToAll = true;
+      addReason('ALL', file);
       continue;
     }
 

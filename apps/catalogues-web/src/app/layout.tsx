@@ -15,7 +15,7 @@ export const metadata: Metadata = {
   description:
     'Generate premium ecommerce model shoots from your garment photos in minutes. No studio, no shoot day.',
   icons: {
-    icon: '/favicon.svg',
+    icon: [{ url: '/favicon.svg?v=3', type: 'image/svg+xml', sizes: '32x32' }],
   },
 };
 
@@ -31,7 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }}
         />
       </head>
-      <body className={poppins.variable}>
+      <body className={poppins.variable} suppressHydrationWarning>
         <Providers>{children}</Providers>
       </body>
     </html>

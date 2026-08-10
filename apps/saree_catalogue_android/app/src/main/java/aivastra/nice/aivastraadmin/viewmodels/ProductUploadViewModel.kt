@@ -85,6 +85,7 @@ class ProductUploadViewModel : ViewModel() {
     val subcategories: LiveData<List<MerchantCatalogSubcategory>> get() = _subcategories
     private val _catalogItems = MutableLiveData<List<MerchantCatalogItem>>()
     val catalogItems: LiveData<List<MerchantCatalogItem>> get() = _catalogItems
+
     fun fetchSareeStyles() { viewModelScope.launch { try { _sareeStyles.postValue(MerchantCatalogRepository.fetchSareeStyles()) } catch (e: Exception) { _error.postValue(AuthRepository.errorMessage(e)) } } }
     fun fetchSubcategories(category: String = "women") { viewModelScope.launch { try { _subcategories.postValue(MerchantCatalogRepository.fetchSubcategories(category)) } catch (e: Exception) { _error.postValue(AuthRepository.errorMessage(e)) } } }
     fun fetchItems(subcategoryId: String) { viewModelScope.launch { try { _catalogItems.postValue(MerchantCatalogRepository.fetchItems(subcategoryId = subcategoryId)) } catch (e: Exception) { _error.postValue(AuthRepository.errorMessage(e)) } } }
@@ -119,7 +120,7 @@ class ProductUploadViewModel : ViewModel() {
     fun generateProduct(
         file: java.io.File,
         subcategoryId: String,
-        style: String = "Nivi",
+        sareeStyleId: String? = null,
         secondaryFile: java.io.File? = null
     ) {
         _generateState.postValue(null)
@@ -144,7 +145,7 @@ class ProductUploadViewModel : ViewModel() {
                 } else null
 
                 _generateState.postValue(GenerateState.Generating)
-                val jobId = MerchantCatalogRepository.generate(subcategoryId, presign.r2Key, presign2?.r2Key, style)
+                val jobId = MerchantCatalogRepository.generate(subcategoryId, presign.r2Key, presign2?.r2Key, sareeStyleId)
 
                 val startedAt = System.currentTimeMillis()
                 var status: MerchantCatalogGenerateStatus

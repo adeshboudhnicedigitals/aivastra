@@ -32,7 +32,7 @@ import java.util.UUID
 class UploadPhotoDialog(
     private val selectedPhotoPath: String,
     private val subcategoryId: String,
-    private val style: String = "Nivi",
+    private val sareeStyleId: String? = null,
     private val secondaryPhotoPath: String? = null,
     private val onCompleted: (String) -> Unit
 ) : BottomSheetDialogFragment() {
@@ -210,7 +210,6 @@ class UploadPhotoDialog(
         val act = activity ?: return
         if (!isAdded) return
         keepScreenOn()
-
         val decorView = (dialog?.window?.decorView as? ViewGroup)
             ?: (act.findViewById<ViewGroup>(android.R.id.content))
         if (decorView != null) {
@@ -219,13 +218,12 @@ class UploadPhotoDialog(
         }
 
         val secondaryFile = activeSecondaryPath?.takeIf { it.isNotEmpty() }?.let { File(it) }
-        productUploadViewmodel.generateProduct(File(activeSelectedPath), subcategoryId, style, secondaryFile)
+        productUploadViewmodel.generateProduct(File(activeSelectedPath), subcategoryId, sareeStyleId, secondaryFile)
 
         productUploadViewmodel.generateState.observe(viewLifecycleOwner) { state ->
             if (state == null) return@observe
             val currentAct = activity ?: return@observe
             if (!isAdded) return@observe
-
             when (state) {
                 is ProductUploadViewModel.GenerateState.Completed -> {
                     productUploadViewmodel.resetGenerateState()

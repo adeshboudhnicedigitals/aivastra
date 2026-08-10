@@ -1,12 +1,13 @@
 import { schema } from '@aivastra/db';
+import { JOB_SOURCE } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { buildTestApp, type TestApp } from './helpers/api.js';
 import { type Containers, startContainers } from './helpers/containers.js';
 import {
   createTestApiKey,
+  createTestDevSareeMannequinConfig,
   createTestMerchant,
-  createTestSareeMannequinGarmentType,
 } from './helpers/merchant.js';
 
 let c: Containers;
@@ -54,7 +55,7 @@ beforeAll(async () => {
   setCredits = m.credits;
   ({ key } = await createTestApiKey(app, m.merchantId));
 
-  await createTestSareeMannequinGarmentType(app);
+  await createTestDevSareeMannequinConfig(app);
 });
 
 afterAll(async () => {
@@ -79,7 +80,7 @@ describe('POST /v1/dev/saree-mannequin', () => {
     expect(body.status).toBe('QUEUED');
 
     const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, body.jobId));
-    expect(job?.source).toBe('api');
+    expect(job?.source).toBe(JOB_SOURCE.API_SAREE_MANNEQUIN);
     expect(job?.apiKeyId).toBeTruthy();
     expect(job?.watermark).toBe(false);
     expect(await balance()).toBe(before - job!.creditsCharged);
@@ -89,12 +90,13 @@ describe('POST /v1/dev/saree-mannequin', () => {
       .from(schema.jobInputs)
       .where(eq(schema.jobInputs.jobId, body.jobId));
     expect(inputs!.upperGarmentKey).toBeTruthy();
-    expect(inputs!.garmentTypeId).toBeTruthy();
+    expect(inputs!.garmentTypeId).toBeNull();
     expect(inputs!.faceId).toBeNull();
     expect(inputs!.backgroundId).toBeNull();
     expect(inputs!.poseId).toBeNull();
     const params = inputs!.params as Record<string, unknown>;
     expect(params.kind).toBe('saree_mannequin');
+    expect(params.workflowTemplateId).toBeTruthy();
   });
 
   it('enqueues the job on jobs:normal', async () => {
@@ -137,6 +139,20 @@ describe('POST /v1/dev/saree-mannequin', () => {
   });
 });
 
+describe('POST /v1/dev/saree-mannequin upload limit', () => {
+  afterEach(async () => {
+    await app.redis.del('config:system');
+  });
+
+  it('rejects a garment file above the admin-configured limit', async () => {
+    await app.redis.set('config:system', JSON.stringify({ uploadLimits: { devApiMaxBytes: 10 } }));
+    const res = await post(form({ garment: Buffer.alloc(1024) }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.message).toContain('MB limit');
+  });
+});
+
 describe('POST /v1/dev/saree-mannequin (JSON/base64 body)', () => {
   it('creates a queued job', async () => {
     const before = await balance();
@@ -160,8 +176,8 @@ describe('POST /v1/dev/saree-mannequin (JSON/base64 body)', () => {
 });
 
 describe('POST /v1/dev/saree-mannequin (unconfigured)', () => {
-  it('rejects with 400 and does not move credits when no mannequin garment type is active', async () => {
-    // Fresh merchant/app instance with no createTestSareeMannequinGarmentType call.
+  it('rejects with 400 and does not move credits when no dev saree mannequin config is active', async () => {
+    // Fresh merchant/app instance with no createTestDevSareeMannequinConfig call.
     const c2 = await startContainers();
     const app2 = await buildTestApp(c2);
     try {

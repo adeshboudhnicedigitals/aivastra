@@ -1,6 +1,7 @@
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import {
+  CreateCatalogVideoJobRequest,
   CreateSareeJobRequest,
   CreateSareeMannequinJobRequest,
   CreateSimpleTryonRequest,
@@ -10,10 +11,11 @@ import {
 import { and, asc, desc, eq, isNotNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { getSareeSettings } from '../saree/settings.js';
-import { createJob, createSimpleTryonJob } from './create.js';
+import { createCatalogVideoJob, createJob, createSimpleTryonJob } from './create.js';
 import { createSareeJob } from './createSaree.js';
 import { createSareeMannequinJob } from './createSareeMannequin.js';
 import { regenerateJob } from './regenerate.js';
@@ -38,6 +40,65 @@ async function withIdempotency<T>(
 }
 
 export async function jobsRoutes(app: FastifyInstance) {
+  app.get('/v1/catalog-videos', { preHandler: app.requireUser }, async (req) => {
+    const [caller] = await app.db
+      .select({ email: schema.users.email })
+      .from(schema.users)
+      .where(eq(schema.users.id, req.userId));
+    if (!isCatalogVideoAllowed(app.env, caller?.email ?? null)) {
+      throw new AppError('FORBIDDEN', 403, 'catalog video is not enabled for this account');
+    }
+    const rows = await app.db
+      .select({
+        id: schema.jobs.id,
+        status: schema.jobs.status,
+        createdAt: schema.jobs.createdAt,
+        params: schema.jobInputs.params,
+      })
+      .from(schema.jobs)
+      .innerJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+      .where(
+        and(eq(schema.jobs.userId, req.userId), sql`${schema.jobInputs.params}->>'kind' = 'video'`),
+      )
+      .orderBy(desc(schema.jobs.createdAt))
+      .limit(200);
+
+    return Promise.all(
+      rows.map(async (row) => {
+        const [output] = await app.db
+          .select({
+            resultKey: schema.jobOutputs.resultKey,
+            thumbnailKey: schema.jobOutputs.thumbnailKey,
+          })
+          .from(schema.jobOutputs)
+          .where(eq(schema.jobOutputs.jobId, row.id));
+        let videoUrl: string | null = null;
+        let thumbnailUrl: string | null = null;
+        if (output?.resultKey) {
+          try {
+            const [video, thumb] = await Promise.all([
+              app.storage.presignGet(output.resultKey, 3600),
+              output.thumbnailKey ? app.storage.presignGet(output.thumbnailKey, 3600) : null,
+            ]);
+            videoUrl = video.url;
+            thumbnailUrl = thumb?.url ?? null;
+          } catch {
+            // Missing result object: leave URLs null so the UI shows its placeholder.
+          }
+        }
+        const params = row.params as Record<string, unknown> | null;
+        return {
+          id: row.id,
+          status: row.status,
+          createdAt: row.createdAt,
+          sampleVideoId: params?.sampleVideoId ?? null,
+          videoUrl,
+          thumbnailUrl,
+        };
+      }),
+    );
+  });
+
   app.post(
     '/v1/jobs/tryon',
     { preHandler: app.requireUser, schema: { body: CreateTryOnJobRequest } },
@@ -47,6 +108,26 @@ export async function jobsRoutes(app: FastifyInstance) {
         req.userId,
         req.headers['idempotency-key'] as string | undefined,
         () => createJob(app, req.userId, req.body as z.infer<typeof CreateTryOnJobRequest>),
+      );
+      reply.code(201);
+      return result;
+    },
+  );
+
+  app.post(
+    '/v1/jobs/catalog-video',
+    { preHandler: app.requireUser, schema: { body: CreateCatalogVideoJobRequest } },
+    async (req, reply) => {
+      const result = await withIdempotency(
+        app,
+        req.userId,
+        req.headers['idempotency-key'] as string | undefined,
+        () =>
+          createCatalogVideoJob(
+            app,
+            req.userId,
+            req.body as z.infer<typeof CreateCatalogVideoJobRequest>,
+          ),
       );
       reply.code(201);
       return result;
@@ -203,6 +284,7 @@ export async function jobsRoutes(app: FastifyInstance) {
         .select({
           jobId: schema.jobs.id,
           thumbnailKey: schema.jobOutputs.thumbnailKey,
+          resultKey: schema.jobOutputs.resultKey,
           garmentTypeName: schema.garmentSubcategories.label,
           tryonCategoryName: schema.tryonCategories.name,
           createdAt: schema.jobs.createdAt,
@@ -239,6 +321,7 @@ export async function jobsRoutes(app: FastifyInstance) {
         .select({
           jobId: schema.jobs.id,
           thumbnailKey: schema.jobOutputs.thumbnailKey,
+          resultKey: schema.jobOutputs.resultKey,
           garmentTypeName: sql<string>`'Saree'`.as('garment_type_name'),
           tryonCategoryName: sql<string>`'Saree Catalogue'`.as('tryon_category_name'),
           createdAt: schema.jobs.createdAt,
@@ -265,17 +348,28 @@ export async function jobsRoutes(app: FastifyInstance) {
     return Promise.all(
       merged.map(async (r) => {
         const thumbKey = r.thumbnailKey ?? keys.output(r.jobId);
+        // Legacy rows (predating job_outputs.resultKey being populated for every job)
+        // fall back to the PNG convention — mirrors createSimpleTryonJob's garmentKey.
+        const fullKey = r.resultKey ?? keys.output(r.jobId);
         let thumbnailUrl: string | null = null;
+        let imageUrl: string | null = null;
         try {
           thumbnailUrl = (await app.storage.presignGet(thumbKey, 3600)).url;
         } catch {
           /* missing object — leave null, client shows placeholder */
         }
+        try {
+          imageUrl = (await app.storage.presignGet(fullKey, 3600)).url;
+        } catch {
+          /* missing object — leave null, client falls back to thumbnailUrl */
+        }
         return {
           jobId: r.jobId,
           thumbnailUrl,
+          imageUrl,
           garmentTypeName: r.garmentTypeName,
           tryonCategoryName: r.tryonCategoryName,
+          createdAt: r.createdAt.toISOString(),
         };
       }),
     );
@@ -306,6 +400,12 @@ export async function jobsRoutes(app: FastifyInstance) {
           eq(schema.jobs.userId, req.userId),
           sql`${schema.jobInputs.params}->>'sourceJobId' is null`,
           sql`${schema.jobInputs.params}->>'kind' is distinct from 'saree_mannequin'`,
+          // Catalog-video jobs always set kind='video' regardless of source
+          // (an existing AI Vastra job vs. a fresh upload) — the sourceJobId-is-null
+          // check above only excludes them by coincidence (today sourceJobId is
+          // always set on these jobs) and stops working once sourceJobId becomes
+          // optional for the upload path. Exclude by kind explicitly instead.
+          sql`${schema.jobInputs.params}->>'kind' is distinct from 'video'`,
         ),
       )
       .orderBy(desc(schema.jobs.createdAt))
@@ -591,7 +691,16 @@ export async function jobsRoutes(app: FastifyInstance) {
         .where(and(eq(schema.jobs.id, id), eq(schema.jobs.userId, req.userId)));
       if (!job) throw new AppError('NOT_FOUND', 404, 'job not found');
       if (job.status !== 'COMPLETED') throw new AppError('NOT_READY', 409, 'job not complete');
-      const { url, expiresIn } = await app.storage.presignGet(keys.output(id), 3600);
+
+      // Tryon-direct results (source='tryon'/'api_tryon') are stored WebP-encoded,
+      // not PNG (see apps/dispatcher/src/workflow/finalize.ts) — the actual
+      // uploaded key must come from job_outputs, not a reconstructed keys.output(id).
+      const [output] = await app.db
+        .select({ resultKey: schema.jobOutputs.resultKey })
+        .from(schema.jobOutputs)
+        .where(eq(schema.jobOutputs.jobId, id));
+      const r2Key = output?.resultKey ?? keys.output(id);
+      const { url, expiresIn } = await app.storage.presignGet(r2Key, 3600);
       return { url, expiresIn };
     },
   );
@@ -612,12 +721,18 @@ export async function jobsRoutes(app: FastifyInstance) {
       if (job.status !== 'COMPLETED') throw new AppError('NOT_READY', 409, 'job not complete');
 
       const [output] = await app.db
-        .select({ thumbnailKey: schema.jobOutputs.thumbnailKey })
+        .select({
+          thumbnailKey: schema.jobOutputs.thumbnailKey,
+          resultKey: schema.jobOutputs.resultKey,
+        })
         .from(schema.jobOutputs)
         .where(eq(schema.jobOutputs.jobId, id));
 
-      // Fall back to full result if no thumbnail generated yet (e.g. backfill pending)
-      const r2Key = output?.thumbnailKey ?? keys.output(id);
+      // Fall back to the full result if no thumbnail generated yet (e.g. backfill
+      // pending) — use the job's actual stored resultKey (tryon-direct results are
+      // WebP, not PNG; see apps/dispatcher/src/workflow/finalize.ts), only falling
+      // back further to the reconstructed PNG key for legacy rows with no output row.
+      const r2Key = output?.thumbnailKey ?? output?.resultKey ?? keys.output(id);
       const { url, expiresIn } = await app.storage.presignGet(r2Key, 3600);
       return { url, expiresIn };
     },
@@ -724,10 +839,18 @@ export async function jobsRoutes(app: FastifyInstance) {
       if (!TERMINAL.includes(job.status)) {
         throw new AppError('CONFLICT', 409, 'cannot delete an active job');
       }
-      // Delete R2 output object if it exists
+      // Delete R2 output object if it exists. Tryon-direct results
+      // (source='tryon'/'api_tryon') are stored WebP-encoded, not PNG (see
+      // apps/dispatcher/src/workflow/finalize.ts) — the actual uploaded key
+      // must come from job_outputs, not a reconstructed keys.output(id), or
+      // this silently no-ops (catch below) and leaks the real object forever.
       if (job.status === 'COMPLETED') {
         try {
-          await app.storage.deleteObject(keys.output(id));
+          const [output] = await app.db
+            .select({ resultKey: schema.jobOutputs.resultKey })
+            .from(schema.jobOutputs)
+            .where(eq(schema.jobOutputs.jobId, id));
+          await app.storage.deleteObject(output?.resultKey ?? keys.output(id));
         } catch {
           /* ignore if missing */
         }

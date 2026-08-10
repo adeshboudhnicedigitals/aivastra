@@ -2,12 +2,15 @@ import { schema } from '@aivastra/db';
 import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
+import { AppError } from '../../lib/errors.js';
+import { getPixverseCreditCost } from '../../lib/resolution-config.js';
 
 export async function modelsRoutes(app: FastifyInstance) {
   app.get(
     '/v1/models/garment-types',
     {
-      preHandler: app.requireUser,
+      preHandler: app.requireUserOrCatalogApp,
       schema: { querystring: z.object({ gender: z.enum(['men', 'women', 'boys', 'girls']) }) },
     },
     async (req) => {
@@ -28,6 +31,8 @@ export async function modelsRoutes(app: FastifyInstance) {
           defaultLowerCatalogId: schema.garmentSubcategories.defaultLowerCatalogId,
           defaultShoeCatalogId: schema.garmentSubcategories.defaultShoeCatalogId,
           requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep,
+          mannequinTwoInputWorkflowTemplateId:
+            schema.garmentSubcategories.mannequinTwoInputWorkflowTemplateId,
         })
         .from(schema.garmentSubcategories)
         .where(
@@ -51,6 +56,45 @@ export async function modelsRoutes(app: FastifyInstance) {
       };
     },
   );
+
+  app.get('/v1/models/sample-videos', { preHandler: app.requireUser }, async (req) => {
+    const [caller] = await app.db
+      .select({ email: schema.users.email })
+      .from(schema.users)
+      .where(eq(schema.users.id, req.userId));
+    if (!isCatalogVideoAllowed(app.env, caller?.email ?? null)) {
+      throw new AppError('FORBIDDEN', 403, 'catalog video is not enabled for this account');
+    }
+    const rows = await app.db
+      .select({
+        id: schema.sampleVideos.id,
+        title: schema.sampleVideos.title,
+        thumbnailR2Key: schema.sampleVideos.thumbnailR2Key,
+        videoR2Key: schema.sampleVideos.videoR2Key,
+      })
+      .from(schema.sampleVideos)
+      .where(and(eq(schema.sampleVideos.isActive, true), isNull(schema.sampleVideos.deletedAt)))
+      .orderBy(asc(schema.sampleVideos.sortOrder));
+    const creditCost = await getPixverseCreditCost(app);
+    return {
+      creditCost,
+      items: await Promise.all(
+        rows.map(async (row) => {
+          const [thumbnail, video] = await Promise.all([
+            app.storage.presignGet(row.thumbnailR2Key, 3_600),
+            app.storage.presignGet(row.videoR2Key, 3_600),
+          ]);
+
+          return {
+            id: row.id,
+            title: row.title,
+            thumbnailUrl: thumbnail.url,
+            previewVideoUrl: video.url,
+          };
+        }),
+      ),
+    };
+  });
 
   app.get(
     '/v1/models/faces',
@@ -79,7 +123,8 @@ export async function modelsRoutes(app: FastifyInstance) {
             eq(schema.modelFaces.isActive, true),
             isNull(schema.modelFaces.deletedAt),
           ),
-        );
+        )
+        .orderBy(asc(schema.modelFaces.sortOrder), asc(schema.modelFaces.label));
 
       return {
         items: items.map((i) => ({ ...i, thumbnailUrl: app.storage.publicUrl(i.thumbnailUrl) })),
@@ -393,6 +438,16 @@ export async function modelsRoutes(app: FastifyInstance) {
             eq(schema.catalogueTemplateSubcategories.subcategoryId, garmentTypeId),
           ),
         )
+        .leftJoin(
+          schema.catalogueTemplateLookExclusions,
+          and(
+            eq(
+              schema.catalogueTemplateLookExclusions.mappingId,
+              schema.catalogueTemplateSubcategories.id,
+            ),
+            eq(schema.catalogueTemplateLookExclusions.lookId, schema.catalogueTemplateLooks.id),
+          ),
+        )
         .innerJoin(
           schema.catalogueTemplatePoseWorkflows,
           and(
@@ -416,7 +471,12 @@ export async function modelsRoutes(app: FastifyInstance) {
             eq(schema.workflowTemplates.isActive, true),
           ),
         )
-        .where(inArray(schema.catalogueTemplateLooks.templateId, templateIds))
+        .where(
+          and(
+            inArray(schema.catalogueTemplateLooks.templateId, templateIds),
+            isNull(schema.catalogueTemplateLookExclusions.id),
+          ),
+        )
         .orderBy(asc(schema.catalogueTemplateLooks.sortOrder));
 
       const looksByTemplate = new Map<string, typeof lookRows>();

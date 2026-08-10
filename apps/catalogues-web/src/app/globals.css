@@ -349,3 +349,23 @@ html.dark .dark-logo-bg {
   padding: 2px 6px;
   border-radius: 4px;
 }
+
+/* Sidebar drawer — respect reduced-motion preference (Task 5, App Shell responsive sidebar) */
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-drawer-panel {
+    /* biome-ignore lint/complexity/noImportantStyles: overrides inline style */
+    transition: none !important;
+  }
+}
+
+/* Responsive button text helpers for TopBar and mobile/tablet headers */
+@media (max-width: 1023px) {
+  .hide-mobile-tablet {
+    display: none !important;
+  }
+}
+@media (min-width: 1024px) {
+  .show-mobile-tablet-only {
+    display: none !important;
+  }
+}

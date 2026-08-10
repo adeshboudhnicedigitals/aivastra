@@ -18,7 +18,7 @@ Read `docs/virtual-tryon-system-design.md` before changing architecture. See `do
 - **Runtime:** Node 20+, TypeScript 5.6, ESM only (`"type": "module"` everywhere).
 - **API:** Fastify 5 + `fastify-type-provider-zod`. All routes wired in `apps/api/src/server.ts`.
 - **DB:** PostgreSQL 16 via Drizzle ORM. Schema in `packages/db/src/schema/`. Migrations in `packages/db/src/migrations/`.
-- **Cache/Queue:** Redis 7 Streams (`jobs:priority`, `jobs:normal`). Consumer group: `dispatcher-cg`.
+- **Cache/Queue:** Redis 7 Streams (`jobs:priority`, `jobs:normal`, `jobs:low`, `jobs:video`). Consumer group: `dispatcher-cg`. The three GPU streams are capped by the worker-registry size; `jobs:video` is a separate lane capped by `VIDEO_CONCURRENCY` (PixVerse jobs need no GPU).
 - **Storage:** S3-compatible (Cloudflare R2 in prod, MinIO locally). `StorageProvider` interface in `packages/storage`.
 - **Logger:** pino via `@aivastra/logger` (`createLogger(service)`). No `console.log` in committed code. Use child loggers with `jobId`/`userId` bindings.
 - **Tests:** Vitest. No testcontainers — see Testing section below.
@@ -107,6 +107,21 @@ To remove a worker: mark it inactive in the admin panel, then restart the dispat
 
 Input model: 1 user-uploaded garment + `faceId` + `backgroundId` + `poseId` (all admin-curated) + optional `lowerCatalogId` / `shoeCatalogId`. All IDs must resolve to active catalog/asset rows before credits deduct.
 
+### Shopify theme extension
+
+`apps/shopify-extension/extensions/tryon-theme-extension` ships one **app
+block** (`blocks/tryon-button.liquid`, `target: "section"`), which the merchant
+drags into their product template. It is not an app embed — an earlier version
+was, and it had to relocate itself via guessed CSS selectors, which broke on
+every theme switch. App blocks require an Online Store 2.0 (JSON) template;
+vintage themes are unsupported.
+
+Modal copy, accent color, and result-step actions come from the
+`aivastra.widget_config` shop metafield, written by
+`PATCH /v1/shopify/widget-config` and edited on the app's Widget Design page.
+Postgres (`shopify_stores.settings.widget`) is authoritative; the metafield is a
+cache, and a failed mirror surfaces as `synced: false`.
+
 ## Web App Architecture (apps/catalogues-web)
 
 ### Auth Flow
@@ -167,7 +182,7 @@ Supports subdirectory deployment (e.g. `/app`). All internal asset references an
 
 | Table | Purpose |
 |-------|---------|
-| `jobs` | Status, worker, priority, credits charged, attempts, `catalogueId`, `widgetClientId` |
+| `jobs` | Status, worker, priority, credits charged, attempts, `catalogueId` |
 | `job_inputs` | Per-job inputs: garment keys, face/bg/pose IDs, lower/shoe catalogs, `params` JSONB (aspectRatio, resolution, platform) |
 | `job_outputs` | Result image key + thumbnail key |
 | `job_events` | Debug/audit events (COMFY_DISPATCH, status transitions) |
@@ -197,9 +212,10 @@ Supports subdirectory deployment (e.g. `/app`). All internal asset references an
 
 | Table | Purpose |
 |-------|---------|
-| `widget_clients` | Merchant signup records, widget key, allowed origins |
-| `widget_client_credits` | Per-merchant credit balance |
-| `widget_credit_ledger` | Merchant credit delta history |
+| `merchants` | Merchant profile attached to a `users` row (company, kiosk config, catalogue settings, webhook). One per user; login lives on `users`. No credit balance of its own — merchant spend draws from `user_credits` |
+| `merchant_payments` | Merchant-portal Razorpay orders, priced by `MERCHANT_PLAN_BILLING`. Credits land in `user_credits` |
+| `kiosk_devices` | Per-merchant kiosk device registrations |
+| `shopify_widget_events` | Append-only storefront interaction log (clicks, uploads, result views, add-to-carts, shares, and server-written refusals). Advisory only — never read by a credit, limit, or authorization decision. Swept at a fixed 400 days |
 
 ## API Route Modules (`apps/api/src/modules/`)
 
@@ -214,15 +230,18 @@ Supports subdirectory deployment (e.g. `/app`). All internal asset references an
 | `results/` | `/v1/results/:id` public result access |
 | `payments/` | Razorpay order creation + webhook |
 | `merchant/` | Merchant self-serve (API key regen, webhook config, credits) |
-| `widget/` | Widget job creation, cancellation, ledger |
+| `kiosk/` | `/v1/kiosk/auth/*` (claim/refresh/logout), `/v1/kiosk/catalog`, `/v1/kiosk/presign`, `/v1/kiosk/jobs*`, `/v1/kiosk/results/:jobId/*` — kiosk-device-authed customer-facing tryon |
+| `support/` | `/v1/support/presign`, `/v1/support` — customer support contact form |
+| `backgrounds/` | `/v1/backgrounds/mine*` — user-uploaded custom background management |
 | `dev/` | `/v1/dev/tryon`, `/v1/dev/jobs/:id`, `/v1/dev/categories`, `/v1/dev/me` — public developer API, API-key authed |
-| `admin/` | Full CRUD under `/admin/*` — users, credits, catalog, assets, jobs, workers, config, workflows, widget clients, saree settings |
+| `shopify/` | OAuth install/callback, merchant `/me` + `/settings` + `/shoppers`, catalog generate/publish, widget-config + republish, onboarding, product sync, customer-facing job creation (`/customer/presign`, `/customer/jobs`), GDPR webhooks; `POST /v1/shopify/customer/event` (public ingest), `GET /v1/shopify/analytics` |
+| `admin/` | Full CRUD under `/admin/*` — users, credits, catalog, assets, jobs, workers, config, workflows, merchants, kiosk devices, saree settings |
 
 ## Dispatcher Modules (`apps/dispatcher/src/`)
 
 | Module | Files | Purpose |
 |--------|-------|---------|
-| `stream/` | `consumer.ts`, `recovery.ts` | `XREADGROUP` consumer group `dispatcher-cg`; startup `XPENDING` recovery |
+| `stream/` | `loop.ts`, `consumer.ts`, `video-consumer.ts`, `recovery.ts`, `sweeper.ts` | `runStreamLoop` (shared read→dispatch loop); GPU consumer over `jobs:priority\|normal\|low` capped by worker-registry size; video consumer over `jobs:video` capped by `VIDEO_CONCURRENCY`; startup `XPENDING` recovery; stuck-job sweeper |
 | `job/` | `processor.ts`, `state.ts` | Main job processor; status transitions; `processTryonJob`, `processSareeJob`, `processWidgetJob` |
 | `workflow/` | `patcher.ts`, `resize-to-max.ts` | Clone + patch workflow templates; aspect-ratio sizing; dual-size group support |
 | `comfyui/` | `client.ts`, `progress.ts` | ComfyUI HTTP client, WebSocket progress, `/history` polling |
@@ -273,6 +292,7 @@ Admin mobile development is paused until the product is finalised. Treat `apps/a
 - All `/admin/*` routes double-check admin role: JWT claim AND `admin_users` row lookup.
 - User hint field (300 char max) goes through sanitization before reaching the workflow prompt.
 - `@aivastra/db` exports `* as schema` from `packages/db/src/index.ts` — do not add a duplicate `schema` re-export.
+- Never run schema/migration work (`pnpm db:generate`, manual `drizzle-kit` snapshot surgery, one-off `psql`/`ts-node` data fixes) directly against the production VPS or `tryon_prod`. Do it against a local/staging DB and ship it through the normal push → CI/CD → `db:migrate:prod` path. An incident on 2026-07-27 wiped `garment_subcategories.default_lower_catalog_id`/`default_shoe_catalog_id` for ~89 of 90 rows during exactly this kind of ad-hoc live-production session; the trigger was never conclusively identified because there was no audit trail. `PATCH /admin/assets/garment-types/:id` now logs `adminUserId`/`garmentTypeId`/changed field keys (`apps/api/src/modules/admin/subcategories.routes.ts`) so a repeat is traceable via Grafana/Loki — that only covers requests through the API, not direct DB access.
 
 ## Environment Variables
 
@@ -289,6 +309,8 @@ Key vars (see `.env.production.example` for full list):
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_CALLBACK_URL` | api (optional OAuth) |
 | `RESEND_API_KEY` / `EMAIL_FROM` | api (transactional email) |
 | `WORKER_API_KEY` | dispatcher |
+| `PIXVERSE_API_KEY`, `PIXVERSE_API_BASE_URL`, `PIXVERSE_POLL_INTERVAL_MS`, `PIXVERSE_POLL_TIMEOUT_MS` | dispatcher (catalog video) |
+| `VIDEO_CONCURRENCY` | dispatcher — in-flight cap for `jobs:video`, independent of GPU worker count; match the PixVerse plan limit (default 5) |
 | `NEXT_PUBLIC_API_URL` | web (Fastify API base URL, default `http://localhost:4000`) |
 | `NEXT_PUBLIC_BASE_PATH` | web (subdirectory prefix, e.g. `/app`; empty in root deploy) |
 

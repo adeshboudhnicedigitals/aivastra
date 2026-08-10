@@ -7,11 +7,13 @@ import {
   jobProcessingDuration,
   jobsProcessedTotal,
 } from '@aivastra/observability';
-import type { StorageProvider } from '@aivastra/storage';
+import { keys, type StorageProvider } from '@aivastra/storage';
+import { WORKER_POOL } from '@aivastra/types';
 import type { S3Client } from '@aws-sdk/client-s3';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { and, eq, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
+import sharp from 'sharp';
 
 import {
   downloadOutputImage,
@@ -20,6 +22,8 @@ import {
   uploadImageToComfy,
 } from '../comfyui/client.js';
 import { waitForCompletion } from '../comfyui/progress.js';
+import { loadEnv } from '../env.js';
+import { createVideoTask, pollVideoTask } from '../pixverse/client.js';
 import { setWorkerStatus } from '../worker/registry.js';
 import { selectWorker } from '../worker/selector.js';
 import { finalizeOutput } from '../workflow/finalize.js';
@@ -30,12 +34,73 @@ import { transitionJob } from './state.js';
 const MAX_ATTEMPTS = 2;
 const MAX_QUEUE_WAIT_MS = 3 * 60 * 60 * 1000; // 3 h — dead-letter if no worker found this long
 
+// Redis Streams have no reinsert-at-position primitive — a re-XADD after finding no
+// free worker always lands at the tail of its lane, so a job can in principle be
+// leapfrogged forever by every job that arrives after it. After this many failed
+// claim attempts (~3 min at the 10s backoff below) we age it into the priority lane
+// so sustained starvation is bounded, without disturbing lane semantics for the
+// common case of a brief worker-busy moment.
+const PROMOTE_TO_PRIORITY_AFTER_RETRIES = 18;
+const PRIORITY_STREAM = 'jobs:priority';
+const REQUEUE_BACKOFF_MS = 10_000;
+
 type JobOutcome = 'success' | 'failed' | 'retried';
 
 /** Record the terminal (or retry) outcome of a processing attempt with its duration. */
 function recordJobOutcome(outcome: JobOutcome, startedAt: number): void {
   jobsProcessedTotal.inc({ outcome });
   jobProcessingDuration.observe({ outcome }, (Date.now() - startedAt) / 1000);
+}
+
+interface RequeueForNoWorkerArgs {
+  db: DB;
+  redis: Redis;
+  jobId: string;
+  stream: string;
+  messageId: string;
+  retryCount: number;
+  /** Extra XADD field/value pairs beyond 'jobId' — e.g. ['userId', userId], or [] when
+   *  the job type re-derives its identity from the DB row instead (merchant/shopify). */
+  extraFields: string[];
+  jobLog: Logger;
+  startedAt: number;
+}
+
+/**
+ * Requeues a job that found no free worker this attempt. Retries on the same
+ * priority lane it arrived on (so normal/low jobs never jump ahead of priority
+ * jobs), but promotes it to jobs:priority after PROMOTE_TO_PRIORITY_AFTER_RETRIES
+ * consecutive misses — see the constant's comment for why that's needed at all.
+ */
+async function requeueForNoWorker(args: RequeueForNoWorkerArgs): Promise<void> {
+  const { db, redis, jobId, stream, messageId, retryCount, extraFields, jobLog, startedAt } = args;
+  const nextRetryCount = retryCount + 1;
+  const targetStream =
+    stream !== PRIORITY_STREAM && nextRetryCount >= PROMOTE_TO_PRIORITY_AFTER_RETRIES
+      ? PRIORITY_STREAM
+      : stream;
+  if (targetStream !== stream) {
+    jobLog.warn(
+      { fromStream: stream, retryCount: nextRetryCount },
+      'job starved of a worker for too long — promoting to priority lane',
+    );
+  }
+  await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
+  await new Promise((resolve) => setTimeout(resolve, REQUEUE_BACKOFF_MS));
+  await redis.xadd(
+    targetStream,
+    'MAXLEN',
+    '~',
+    10000,
+    '*',
+    'jobId',
+    jobId,
+    'retryCount',
+    String(nextRetryCount),
+    ...extraFields,
+  );
+  await redis.xack(stream, 'dispatcher-cg', messageId);
+  recordJobOutcome('retried', startedAt);
 }
 
 export interface ProcessorConfig {
@@ -54,6 +119,7 @@ export async function processJob(
   userId: string,
   stream: string,
   messageId: string,
+  retryCount = 0,
 ): Promise<void> {
   const { db, redis, pub, s3, r2Bucket, log } = cfg;
   const jobLog = log.child({ jobId, userId });
@@ -71,6 +137,7 @@ export async function processJob(
       creditsCharged: schema.jobs.creditsCharged,
       attempts: schema.jobs.attempts,
       createdAt: schema.jobs.createdAt,
+      queuedAt: schema.jobs.queuedAt,
       watermark: schema.jobs.watermark,
     })
     .from(schema.jobs)
@@ -120,7 +187,7 @@ export async function processJob(
 
   // Widget jobs: merchantId/shopifyStoreId set, faceId/bgId/poseId are null — route to dedicated processor.
   if (job.merchantId || job.shopifyStoreId) {
-    await processWidgetJob(cfg, job, inputs, stream, messageId, jobLog, startedAt);
+    await processWidgetJob(cfg, job, inputs, stream, messageId, jobLog, startedAt, retryCount);
     return;
   }
 
@@ -129,6 +196,12 @@ export async function processJob(
     typeof inputs.params === 'string'
       ? (JSON.parse(inputs.params) as Record<string, unknown>)
       : ((inputs.params ?? {}) as Record<string, unknown>);
+
+  // Catalog-video jobs use PixVerse image-to-video and never require a ComfyUI worker.
+  if (!inputs.faceId && !inputs.backgroundId && !inputs.poseId && rawParams.kind === 'video') {
+    await processVideoJob(cfg, jobId, rawParams, userId, stream, messageId, jobLog, startedAt);
+    return;
+  }
 
   if (!inputs.faceId && !inputs.backgroundId && !inputs.poseId && rawParams.personKey) {
     await processTryonDirectJob(
@@ -141,6 +214,7 @@ export async function processJob(
       messageId,
       jobLog,
       startedAt,
+      retryCount,
     );
     return;
   }
@@ -153,7 +227,18 @@ export async function processJob(
   // selected model), null for dev-API jobs whose template bakes the face in via
   // a fixed URL node instead (see processSareeMannequinJob's tryonPersonNodeId check).
   if (!inputs.backgroundId && !inputs.poseId && rawParams.kind === 'saree_mannequin') {
-    await processSareeMannequinJob(cfg, job, inputs, userId, stream, messageId, jobLog, startedAt);
+    await processSareeMannequinJob(
+      cfg,
+      job,
+      inputs,
+      rawParams,
+      userId,
+      stream,
+      messageId,
+      jobLog,
+      startedAt,
+      retryCount,
+    );
     return;
   }
 
@@ -175,6 +260,7 @@ export async function processJob(
       messageId,
       jobLog,
       startedAt,
+      retryCount,
     );
     return;
   }
@@ -401,9 +487,16 @@ export async function processJob(
 
   // 3. Claim a worker
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
-  const worker = await selectWorker(redis, 'catalogue');
+  const worker = await selectWorker(redis, WORKER_POOL.CATALOGUE);
   if (!worker) {
-    if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
+    // Released held jobs (queuedAt set) can legitimately wait far longer than
+    // MAX_QUEUE_WAIT_MS measured from createdAt would allow — createdAt is
+    // days old by the time an admin releases a batch. Mirror the sweeper's own
+    // queuedAt-first fallback (apps/dispatcher/src/stream/sweeper.ts) so this
+    // budget is measured from when the job actually entered the queue, not
+    // when it was originally created.
+    const queueWaitBaseline = (job.queuedAt ?? job.createdAt).getTime();
+    if (Date.now() - queueWaitBaseline > MAX_QUEUE_WAIT_MS) {
       jobLog.warn('no idle worker — job exceeded max queue wait, terminating with refund');
       await terminateJob(
         cfg,
@@ -418,11 +511,17 @@ export async function processJob(
       );
     } else {
       jobLog.warn('no idle worker — re-enqueuing with backoff');
-      await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
-      await new Promise((resolve) => setTimeout(resolve, 10_000));
-      await redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId, 'userId', userId);
-      await redis.xack(stream, 'dispatcher-cg', messageId);
-      recordJobOutcome('retried', startedAt);
+      await requeueForNoWorker({
+        db,
+        redis,
+        jobId,
+        stream,
+        messageId,
+        retryCount,
+        extraFields: ['userId', userId],
+        jobLog,
+        startedAt,
+      });
     }
     return;
   }
@@ -582,7 +681,12 @@ export async function processJob(
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images');
 
-    const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
+    const imageBytes = await downloadOutputImage(
+      w.url,
+      w.apiKey,
+      firstImage.filename,
+      firstImage.subfolder,
+    );
 
     // 9. Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
     await finalizeOutput({
@@ -628,6 +732,89 @@ export async function processJob(
 
 // ── Tryon direct job processor ────────────────────────────────────────────
 
+async function processVideoJob(
+  cfg: ProcessorConfig,
+  jobId: string,
+  rawParams: Record<string, unknown>,
+  userId: string,
+  stream: string,
+  messageId: string,
+  jobLog: Logger,
+  startedAt: number,
+): Promise<void> {
+  const { db, redis, pub, storage, s3, r2Bucket } = cfg;
+  const sourceImageKey = rawParams.sourceImageKey as string;
+  const prompt = rawParams.prompt as string;
+
+  const env = loadEnv();
+  // Fail fast rather than sending an empty key: PixVerse would 401, handleFailure
+  // would retry, and the job would burn both attempts (~5 min) before refunding.
+  if (!env.PIXVERSE_API_KEY) {
+    jobLog.error('PIXVERSE_API_KEY is not configured — cannot process catalog-video job');
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'PIXVERSE_NOT_CONFIGURED',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
+  await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
+
+  try {
+    const { url: imageUrl } = await storage.presignGet(sourceImageKey, 900);
+
+    await transitionJob(db, pub, jobId, userId, 'GENERATING', {}, jobLog);
+    const { taskId } = await createVideoTask(
+      env.PIXVERSE_API_BASE_URL,
+      env.PIXVERSE_API_KEY,
+      imageUrl,
+      prompt,
+      jobLog,
+    );
+    await db.insert(schema.jobEvents).values({
+      jobId,
+      eventType: 'PIXVERSE_DISPATCH',
+      payload: { taskId },
+    });
+
+    const videoUrl = await pollVideoTask(
+      env.PIXVERSE_API_BASE_URL,
+      env.PIXVERSE_API_KEY,
+      taskId,
+      env.PIXVERSE_POLL_INTERVAL_MS,
+      env.PIXVERSE_POLL_TIMEOUT_MS,
+    );
+
+    await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
+    const videoRes = await fetch(videoUrl, { signal: AbortSignal.timeout(120_000) });
+    if (!videoRes.ok) throw new Error(`failed to download PixVerse video: ${videoRes.status}`);
+    const videoBytes = new Uint8Array(await videoRes.arrayBuffer());
+
+    const resultKey = keys.videoOutput(jobId);
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: r2Bucket,
+        Key: resultKey,
+        Body: videoBytes,
+        ContentType: 'video/mp4',
+      }),
+    );
+
+    await transitionJob(db, pub, jobId, userId, 'COMPLETED', { resultKey }, jobLog);
+    await redis.xack(stream, 'dispatcher-cg', messageId);
+    recordJobOutcome('success', startedAt);
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
+  }
+}
+
 type TryonDirectJob = {
   id: string;
   creditsCharged: number;
@@ -646,6 +833,7 @@ async function processTryonDirectJob(
   messageId: string,
   jobLog: Logger,
   startedAt: number,
+  retryCount: number,
 ): Promise<void> {
   const { db, redis, pub, s3, r2Bucket } = cfg;
   const jobId = job.id;
@@ -714,9 +902,8 @@ async function processTryonDirectJob(
     );
     return;
   }
-
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
-  const worker = await selectWorker(redis, 'tryon');
+  const worker = await selectWorker(redis, WORKER_POOL.TRYON);
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn('no idle tryon worker — job exceeded max queue wait, terminating with refund');
@@ -733,11 +920,17 @@ async function processTryonDirectJob(
       );
     } else {
       jobLog.warn('no idle worker — re-enqueuing tryon direct job with backoff');
-      await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
-      await new Promise((resolve) => setTimeout(resolve, 10_000));
-      await redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId, 'userId', userId);
-      await redis.xack(stream, 'dispatcher-cg', messageId);
-      recordJobOutcome('retried', startedAt);
+      await requeueForNoWorker({
+        db,
+        redis,
+        jobId,
+        stream,
+        messageId,
+        retryCount,
+        extraFields: ['userId', userId],
+        jobLog,
+        startedAt,
+      });
     }
     return;
   }
@@ -814,14 +1007,22 @@ async function processTryonDirectJob(
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images for tryon direct job');
 
-    const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
+    const imageBytes = await downloadOutputImage(
+      w.url,
+      w.apiKey,
+      firstImage.filename,
+      firstImage.subfolder,
+    );
 
     // Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
+    // outputFormat: 'webp' — tryon-direct is the only job kind (source='tryon' /
+    // 'api_tryon') whose result is WebP-encoded; see finalize.ts's doc comment.
     await finalizeOutput({
       imageBytes,
       jobId,
       userId,
       jobWatermark: job.watermark,
+      outputFormat: 'webp',
       db,
       pub,
       s3,
@@ -852,11 +1053,13 @@ async function processSareeMannequinJob(
   cfg: ProcessorConfig,
   job: SareeMannequinJob,
   inputs: typeof schema.jobInputs.$inferSelect,
+  rawParams: Record<string, unknown>,
   userId: string,
   stream: string,
   messageId: string,
   jobLog: Logger,
   startedAt: number,
+  retryCount: number,
 ): Promise<void> {
   const { db, redis, pub, s3, r2Bucket } = cfg;
   const jobId = job.id;
@@ -865,7 +1068,14 @@ async function processSareeMannequinJob(
   const faceId = inputs.faceId;
   const garmentTypeId = inputs.garmentTypeId;
 
-  if (!garmentKey || !garmentTypeId) {
+  // Dev-API saree-mannequin jobs snapshot their resolved workflow template
+  // directly into params and set garmentTypeId to null (they never touch
+  // garment_subcategories) — see createDevSareeMannequinJob. garmentTypeId is
+  // only needed as a fallback lookup key when no snapshot is present, so it
+  // must not be required here when a snapshot already exists.
+  const hasSnapshottedWorkflow = typeof rawParams.workflowTemplateId === 'string';
+
+  if (!garmentKey || (!garmentTypeId && !hasSnapshottedWorkflow)) {
     await markFailed(
       cfg,
       jobId,
@@ -879,13 +1089,39 @@ async function processSareeMannequinJob(
     return;
   }
 
-  const [garmentType] = await db
-    .select({
-      mannequinWorkflowTemplateId: schema.garmentSubcategories.mannequinWorkflowTemplateId,
-    })
-    .from(schema.garmentSubcategories)
-    .where(eq(schema.garmentSubcategories.id, garmentTypeId));
-  const workflowTemplateId = garmentType?.mannequinWorkflowTemplateId;
+  // A saree style, if the merchant picked one, snapshots its own mannequin
+  // workflow template ID directly into params — takes precedence over the
+  // garment type's default. See createMerchantSareeMannequinJob.
+  const snapshottedWorkflowTemplateId =
+    typeof rawParams.workflowTemplateId === 'string' ? rawParams.workflowTemplateId : null;
+
+  let workflowTemplateId = snapshottedWorkflowTemplateId;
+  if (!workflowTemplateId) {
+    // No snapshot present — the guard above only allows this when
+    // garmentTypeId is non-null, so this is the garment-type-default lookup
+    // path. Re-checked explicitly (rather than relying on the guard above)
+    // both to narrow the type for TS and as a defensive belt-and-braces check.
+    if (!garmentTypeId) {
+      await markFailed(
+        cfg,
+        jobId,
+        userId,
+        stream,
+        messageId,
+        'MANNEQUIN_INPUTS_MISSING',
+        jobLog,
+        startedAt,
+      );
+      return;
+    }
+    const [garmentType] = await db
+      .select({
+        mannequinWorkflowTemplateId: schema.garmentSubcategories.mannequinWorkflowTemplateId,
+      })
+      .from(schema.garmentSubcategories)
+      .where(eq(schema.garmentSubcategories.id, garmentTypeId));
+    workflowTemplateId = garmentType?.mannequinWorkflowTemplateId ?? null;
+  }
   if (!workflowTemplateId) {
     await markFailed(
       cfg,
@@ -905,6 +1141,7 @@ async function processSareeMannequinJob(
       jsonContent: schema.workflowTemplates.jsonContent,
       tryonPersonNodeId: schema.workflowTemplates.tryonPersonNodeId,
       tryonGarmentNodeId: schema.workflowTemplates.tryonGarmentNodeId,
+      tryonGarmentNodeId2: schema.workflowTemplates.tryonGarmentNodeId2,
       tryonOutputNodeId: schema.workflowTemplates.tryonOutputNodeId,
     })
     .from(schema.workflowTemplates)
@@ -925,6 +1162,7 @@ async function processSareeMannequinJob(
 
   const personNodeId = template.tryonPersonNodeId;
   const garmentNodeId = template.tryonGarmentNodeId;
+  const palluNodeId = template.tryonGarmentNodeId2;
   const outputNodeId = template.tryonOutputNodeId;
   if (!garmentNodeId || !outputNodeId) {
     await markFailed(
@@ -934,6 +1172,33 @@ async function processSareeMannequinJob(
       stream,
       messageId,
       'MANNEQUIN_NODES_NOT_CONFIGURED',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
+  if (inputs.thirdGarmentKey && !palluNodeId) {
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'MANNEQUIN_NODES_NOT_CONFIGURED',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+  if (palluNodeId && !inputs.thirdGarmentKey) {
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'MANNEQUIN_INPUTS_MISSING',
       jobLog,
       startedAt,
     );
@@ -979,18 +1244,24 @@ async function processSareeMannequinJob(
 
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
 
-  const worker = await selectWorker(redis, 'saree');
+  const worker = await selectWorker(redis, WORKER_POOL.SAREE);
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn('no idle saree worker — mannequin job exceeded max queue wait, terminating');
       await terminateJob(cfg, jobId, userId, stream, messageId, 'NO_WORKER', 0, jobLog, startedAt);
     } else {
       jobLog.warn('no idle saree worker — re-enqueuing with backoff');
-      await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
-      await new Promise((resolve) => setTimeout(resolve, 10_000));
-      await redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId, 'userId', userId);
-      await redis.xack(stream, 'dispatcher-cg', messageId);
-      recordJobOutcome('retried', startedAt);
+      await requeueForNoWorker({
+        db,
+        redis,
+        jobId,
+        stream,
+        messageId,
+        retryCount,
+        extraFields: ['userId', userId],
+        jobLog,
+        startedAt,
+      });
     }
     return;
   }
@@ -1013,11 +1284,14 @@ async function processSareeMannequinJob(
     }
 
     jobLog.info('uploading mannequin inputs to ComfyUI');
-    const [personFile, garmentFile] = await Promise.all([
+    const [personFile, garmentFile, palluFile] = await Promise.all([
       personKey ? uploadToComfy(personKey, 'mannequin_person') : Promise.resolve(undefined),
       uploadToComfy(garmentKey, 'mannequin_garment'),
+      inputs.thirdGarmentKey
+        ? uploadToComfy(inputs.thirdGarmentKey, 'mannequin_pallu')
+        : Promise.resolve(undefined),
     ]);
-    jobLog.info({ personFile, garmentFile }, 'mannequin inputs uploaded');
+    jobLog.info({ personFile, garmentFile, palluFile }, 'mannequin inputs uploaded');
 
     const workflow = structuredClone(template.jsonContent) as Record<
       string,
@@ -1030,6 +1304,10 @@ async function processSareeMannequinJob(
     if (workflow[garmentNodeId]?.inputs) {
       // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
       workflow[garmentNodeId].inputs!.image = garmentFile;
+    }
+    if (palluNodeId && palluFile && workflow[palluNodeId]?.inputs) {
+      // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
+      workflow[palluNodeId].inputs!.image = palluFile;
     }
 
     await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);
@@ -1046,7 +1324,14 @@ async function processSareeMannequinJob(
         workerId: w.id,
         workerUrl: w.url,
         workflowTemplateId,
-        inputs: { garmentKey, personKey, personFile, garmentFile },
+        inputs: {
+          garmentKey,
+          personKey,
+          personFile,
+          garmentFile,
+          palluKey: inputs.thirdGarmentKey,
+          palluFile,
+        },
       },
     });
 
@@ -1066,7 +1351,12 @@ async function processSareeMannequinJob(
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images for mannequin job');
 
-    const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
+    const imageBytes = await downloadOutputImage(
+      w.url,
+      w.apiKey,
+      firstImage.filename,
+      firstImage.subfolder,
+    );
 
     // Mannequin images are never delivered to the user — no watermark applies.
     await finalizeOutput({
@@ -1113,6 +1403,7 @@ async function processSareeJob(
   messageId: string,
   jobLog: Logger,
   startedAt: number,
+  retryCount: number,
 ): Promise<void> {
   const { db, redis, pub, s3, r2Bucket } = cfg;
   const jobId = job.id;
@@ -1183,7 +1474,7 @@ async function processSareeJob(
 
   // Saree jobs route to workers with 'saree' in their allowedJobTypes. Workers
   // self-declare this in the workers table (admin can edit from the Workers page).
-  const worker = await selectWorker(redis, 'saree');
+  const worker = await selectWorker(redis, WORKER_POOL.SAREE);
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn('no idle saree worker — job exceeded max queue wait, terminating with refund');
@@ -1200,11 +1491,17 @@ async function processSareeJob(
       );
     } else {
       jobLog.warn('no idle saree worker — re-enqueuing with backoff');
-      await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
-      await new Promise((resolve) => setTimeout(resolve, 10_000));
-      await redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId, 'userId', userId);
-      await redis.xack(stream, 'dispatcher-cg', messageId);
-      recordJobOutcome('retried', startedAt);
+      await requeueForNoWorker({
+        db,
+        redis,
+        jobId,
+        stream,
+        messageId,
+        retryCount,
+        extraFields: ['userId', userId],
+        jobLog,
+        startedAt,
+      });
     }
     return;
   }
@@ -1281,7 +1578,12 @@ async function processSareeJob(
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images for saree job');
 
-    const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
+    const imageBytes = await downloadOutputImage(
+      w.url,
+      w.apiKey,
+      firstImage.filename,
+      firstImage.subfolder,
+    );
 
     // Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
     await finalizeOutput({
@@ -1328,6 +1630,7 @@ async function processWidgetJob(
   messageId: string,
   jobLog: Logger,
   startedAt: number,
+  retryCount: number,
 ): Promise<void> {
   const { db, redis, pub, s3, r2Bucket } = cfg;
   const jobId = job.id;
@@ -1345,7 +1648,17 @@ async function processWidgetJob(
       ? (JSON.parse(inputs.params) as Record<string, unknown>)
       : ((inputs.params ?? {}) as Record<string, unknown>);
   if (rawParams.kind === 'shopify') {
-    await processShopifyJob(cfg, job, inputs, rawParams, stream, messageId, jobLog, startedAt);
+    await processShopifyJob(
+      cfg,
+      job,
+      inputs,
+      rawParams,
+      stream,
+      messageId,
+      jobLog,
+      startedAt,
+      retryCount,
+    );
     return;
   }
 
@@ -1463,7 +1776,7 @@ async function processWidgetJob(
   // (or an empty allowedJobTypes, i.e. "accepts any") — the same admin-managed pool the
   // main studio flow and Shopify jobs use, via selectWorker. See processShopifyJob for
   // the precedent this mirrors.
-  const worker = await selectWorker(redis, 'merchant');
+  const worker = await selectWorker(redis, WORKER_POOL.MERCHANT);
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn(
@@ -1482,11 +1795,17 @@ async function processWidgetJob(
       );
     } else {
       jobLog.warn('no idle merchant worker — re-enqueuing with backoff');
-      await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
-      await new Promise((resolve) => setTimeout(resolve, 10_000));
-      await redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId);
-      await redis.xack(stream, 'dispatcher-cg', messageId);
-      recordJobOutcome('retried', startedAt);
+      await requeueForNoWorker({
+        db,
+        redis,
+        jobId,
+        stream,
+        messageId,
+        retryCount,
+        extraFields: [],
+        jobLog,
+        startedAt,
+      });
     }
     return;
   }
@@ -1560,16 +1879,22 @@ async function processWidgetJob(
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images for merchant widget job');
 
-    const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
+    const imageBytes = await downloadOutputImage(
+      w.url,
+      w.apiKey,
+      firstImage.filename,
+      firstImage.subfolder,
+    );
 
-    // Upload result to R2
-    const resultKey = `widget-outputs/${jobId}/result.png`;
+    // Upload result to R2 as WebP (q90) — smaller payload for the merchant/kiosk clients.
+    const resultKey = `widget-outputs/${jobId}/result.webp`;
+    const webpBuffer = await sharp(imageBytes).webp({ quality: 90 }).toBuffer();
     await s3.send(
       new PutObjectCommand({
         Bucket: r2Bucket,
         Key: resultKey,
-        Body: imageBytes,
-        ContentType: 'image/png',
+        Body: webpBuffer,
+        ContentType: 'image/webp',
       }),
     );
 
@@ -1638,6 +1963,7 @@ async function processShopifyJob(
   messageId: string,
   jobLog: Logger,
   startedAt: number,
+  retryCount: number,
 ): Promise<void> {
   const { db, redis, pub, s3, r2Bucket } = cfg;
   const jobId = job.id;
@@ -1650,25 +1976,11 @@ async function processShopifyJob(
   const garmentKey = inputs.upperGarmentKey;
   const customerPhotoKey = job.customerPhotoKey;
 
-  const [garmentRow] = await db
-    .select({
-      funnelTemplateId: schema.shopifyProductGarments.funnelTemplateId,
-    })
-    .from(schema.shopifyProductGarments)
-    .where(eq(schema.shopifyProductGarments.r2Key, garmentKey ?? ''))
-    .limit(1);
-
-  let workflowTemplateId: string | undefined;
-  if (garmentRow?.funnelTemplateId) {
-    const [funnelTemplate] = await db
-      .select({ workflowTemplateId: schema.shopifyFunnelTemplates.workflowTemplateId })
-      .from(schema.shopifyFunnelTemplates)
-      .where(eq(schema.shopifyFunnelTemplates.id, garmentRow.funnelTemplateId));
-    workflowTemplateId = funnelTemplate?.workflowTemplateId;
-  }
-  if (!workflowTemplateId) {
-    workflowTemplateId = params.workflowTemplateId as string | undefined;
-  }
+  // The API resolves the workflow at creation and pins it onto params. Looking it
+  // up again here would reintroduce the split-brain the funnel removal closed: a
+  // default promoted after this job was charged would silently run a different
+  // workflow than the one the merchant was billed for.
+  const workflowTemplateId = params.workflowTemplateId as string | undefined;
 
   if (!workflowTemplateId || !garmentKey || !customerPhotoKey) {
     await markShopifyFailed(
@@ -1739,7 +2051,7 @@ async function processShopifyJob(
   // Shopify jobs route to workers with 'shopify' in their allowedJobTypes. An admin
   // must configure at least one such worker (or one with an empty allowedJobTypes,
   // i.e. "accepts any") for these jobs to ever be picked up — see selectWorker.
-  const worker = await selectWorker(redis, 'shopify');
+  const worker = await selectWorker(redis, WORKER_POOL.SHOPIFY);
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn(
@@ -1759,11 +2071,17 @@ async function processShopifyJob(
       );
     } else {
       jobLog.warn('no idle shopify worker — re-enqueuing with backoff');
-      await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
-      await new Promise((resolve) => setTimeout(resolve, 10_000));
-      await redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId);
-      await redis.xack(stream, 'dispatcher-cg', messageId);
-      recordJobOutcome('retried', startedAt);
+      await requeueForNoWorker({
+        db,
+        redis,
+        jobId,
+        stream,
+        messageId,
+        retryCount,
+        extraFields: [],
+        jobLog,
+        startedAt,
+      });
     }
     return;
   }
@@ -1840,7 +2158,12 @@ async function processShopifyJob(
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images for shopify job');
 
-    const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
+    const imageBytes = await downloadOutputImage(
+      w.url,
+      w.apiKey,
+      firstImage.filename,
+      firstImage.subfolder,
+    );
 
     const { resultKey } = await finalizeOutput({
       imageBytes,
@@ -1890,25 +2213,40 @@ async function markWidgetFailed(
 ): Promise<void> {
   const { db, redis, pub } = cfg;
 
-  // Refund widget credits (idempotent)
+  // Refund to the merchant's owning user — one credit pool per human. Kiosk jobs
+  // carry jobs.user_id = null (the shopper is anonymous), so the billing owner is
+  // resolved through the merchants row rather than read off the job.
   await db.transaction(async (tx) => {
+    const [owner] = await tx
+      .select({ userId: schema.merchants.userId })
+      .from(schema.merchants)
+      .where(eq(schema.merchants.id, merchantId))
+      .limit(1);
+    if (!owner?.userId) {
+      // Throwing aborts the transaction AND this function before the caller
+      // transitions the job to FAILED or ACKs the stream message — a job that
+      // silently loses its refund is worse than one that stays pending for
+      // recovery/XPENDING redelivery. merchants.userId is NOT NULL in the
+      // schema, so this only fires on a genuine data-integrity anomaly.
+      throw new Error(`markWidgetFailed: merchant ${merchantId} has no owning user (job ${jobId})`);
+    }
     const existing = await tx
       .select()
-      .from(schema.merchantCreditLedger)
+      .from(schema.creditLedger)
       .where(
         and(
-          eq(schema.merchantCreditLedger.jobId, jobId),
-          eq(schema.merchantCreditLedger.reason, 'JOB_FAIL_REFUND'),
+          eq(schema.creditLedger.jobId, jobId),
+          eq(schema.creditLedger.reason, 'JOB_FAIL_REFUND'),
         ),
       );
     if (existing.length) return;
     await tx
-      .update(schema.merchantCredits)
-      .set({ balance: sql`${schema.merchantCredits.balance} + ${creditsCharged}` })
-      .where(eq(schema.merchantCredits.merchantId, merchantId));
+      .update(schema.userCredits)
+      .set({ balance: sql`${schema.userCredits.balance} + ${creditsCharged}` })
+      .where(eq(schema.userCredits.userId, owner.userId));
     await tx
-      .insert(schema.merchantCreditLedger)
-      .values({ merchantId, delta: creditsCharged, reason: 'JOB_FAIL_REFUND', jobId });
+      .insert(schema.creditLedger)
+      .values({ userId: owner.userId, delta: creditsCharged, reason: 'JOB_FAIL_REFUND', jobId });
   });
 
   await transitionJob(db, pub, jobId, '', 'FAILED', { errorCode }, log);
@@ -1933,7 +2271,7 @@ async function markWidgetFailed(
   );
   await redis.xack(stream, 'dispatcher-cg', messageId);
   recordJobOutcome('failed', startedAt);
-  log.warn({ jobId, errorCode }, 'widget job FAILED — widget credits refunded');
+  log.warn({ jobId, errorCode }, 'widget job FAILED — credits refunded');
 }
 
 async function markShopifyFailed(

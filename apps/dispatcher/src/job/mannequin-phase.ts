@@ -3,6 +3,7 @@ import { type DB, schema } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
 import { comfyRequestDuration } from '@aivastra/observability';
 import { keys } from '@aivastra/storage';
+import { WORKER_POOL } from '@aivastra/types';
 import type { S3Client } from '@aws-sdk/client-s3';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { eq } from 'drizzle-orm';
@@ -63,7 +64,7 @@ export async function runMannequinPhase(
     if (!faceRow) throw new Error('MANNEQUIN_NO_FACE_IMAGE');
     personKey = faceRow.faceSideR2Key ?? faceRow.r2Key;
   }
-  const worker = await selectWorker(redis, 'saree');
+  const worker = await selectWorker(redis, WORKER_POOL.SAREE);
   if (!worker) throw new Error('MANNEQUIN_NO_WORKER');
   const w = worker;
 
@@ -126,7 +127,12 @@ export async function runMannequinPhase(
     comfyRequestDuration.observe((Date.now() - comfyStartedAt) / 1000);
     const [firstImage] = await fetchHistory(w.url, w.apiKey, promptId, jobLog, outputNodeId);
     if (!firstImage) throw new Error('ComfyUI returned no output images for mannequin phase');
-    const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
+    const imageBytes = await downloadOutputImage(
+      w.url,
+      w.apiKey,
+      firstImage.filename,
+      firstImage.subfolder,
+    );
     const intermediateKey = keys.mannequinIntermediate(jobId);
     await s3.send(
       new PutObjectCommand({

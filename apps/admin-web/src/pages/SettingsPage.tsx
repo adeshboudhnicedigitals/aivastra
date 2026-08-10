@@ -5,18 +5,39 @@ import { Icon } from '../components/Icons';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { Switch } from '../components/Switch';
 import { useAuth } from '../context/AuthContext';
-import { apiErrorMessage, apiFetch } from '../lib/data';
+import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
+
+function uploadFile(url: string, file: Blob, contentType: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', url);
+    xhr.setRequestHeader('Content-Type', contentType);
+    xhr.onload = () =>
+      xhr.status >= 200 && xhr.status < 300
+        ? resolve()
+        : reject(new Error(uploadErrorMessage(xhr.status)));
+    xhr.onerror = () => reject(new Error(UPLOAD_NETWORK_ERROR));
+    xhr.send(file);
+  });
+}
 
 type Theme = 'light' | 'dark' | 'system';
 
-import type { CreditPlan } from '../types';
+import type { CreditPlan, SignupCampaign } from '../types';
 
-type SettingsSection = 'appearance' | 'notifications' | 'credit-plans' | 'system' | 'session';
+type SettingsSection =
+  | 'appearance'
+  | 'notifications'
+  | 'credit-plans'
+  | 'signup-campaigns'
+  | 'system'
+  | 'session';
 
 const SETTING_SECTIONS: { k: SettingsSection; label: string }[] = [
   { k: 'appearance', label: 'Appearance' },
   { k: 'notifications', label: 'Notifications' },
   { k: 'credit-plans', label: 'Credit Plans' },
+  { k: 'signup-campaigns', label: 'Signup Campaigns' },
   { k: 'system', label: 'System' },
   { k: 'session', label: 'Session' },
 ];
@@ -359,6 +380,205 @@ function PlanModal({
   );
 }
 
+const EMPTY_CAMPAIGN_FORM = {
+  code: '',
+  name: '',
+  bonusPercent: 25,
+  startAt: '',
+  endAt: '',
+  isActive: true,
+};
+
+// Converts an ISO instant to the local wall time required by <input type="datetime-local">.
+function toDatetimeLocal(iso: string): string {
+  const date = new Date(iso);
+  const pad = (value: number) => value.toString().padStart(2, '0');
+
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
+    date.getHours(),
+  )}:${pad(date.getMinutes())}`;
+}
+
+function serializeCampaignDatetime(datetimeLocal: string, originalIso?: string): string {
+  // datetime-local has minute precision, so preserve the API instant when its displayed value is unchanged.
+  return originalIso && datetimeLocal === toDatetimeLocal(originalIso)
+    ? originalIso
+    : new Date(datetimeLocal).toISOString();
+}
+
+function CampaignModal({
+  campaign,
+  onSaved,
+  onClose,
+  toast,
+}: {
+  campaign: SignupCampaign | null;
+  onSaved: (c: SignupCampaign) => void;
+  onClose: () => void;
+  toast: Props['toast'];
+}) {
+  const [form, setForm] = useState(
+    campaign
+      ? {
+          code: campaign.code,
+          name: campaign.name,
+          bonusPercent: campaign.bonusPercent,
+          startAt: toDatetimeLocal(campaign.startAt),
+          endAt: toDatetimeLocal(campaign.endAt),
+          isActive: campaign.isActive,
+        }
+      : EMPTY_CAMPAIGN_FORM,
+  );
+  const [saving, setSaving] = useState(false);
+
+  const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) =>
+    setForm((f) => ({ ...f, [k]: v }));
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const body = {
+        ...form,
+        startAt: serializeCampaignDatetime(form.startAt, campaign?.startAt),
+        endAt: serializeCampaignDatetime(form.endAt, campaign?.endAt),
+      };
+      const saved = campaign
+        ? await apiFetch<SignupCampaign>(`/admin/signup-campaigns/${campaign.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify(body),
+          })
+        : await apiFetch<SignupCampaign>('/admin/signup-campaigns', {
+            method: 'POST',
+            body: JSON.stringify(body),
+          });
+      onSaved(saved);
+      toast({ title: campaign ? `${saved.name} updated` : `${saved.name} created` });
+      onClose();
+    } catch (err) {
+      toast({
+        kind: 'error',
+        title: campaign ? 'Failed to update campaign' : 'Failed to create campaign',
+        body: apiErrorMessage(err, 'Please try again.'),
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const valid =
+    form.code.trim().length > 0 &&
+    form.name.trim().length > 0 &&
+    form.bonusPercent >= 0 &&
+    form.bonusPercent <= 100 &&
+    form.startAt.length > 0 &&
+    form.endAt.length > 0 &&
+    new Date(form.endAt) > new Date(form.startAt);
+
+  return (
+    <div className="modal-overlay" onClick={saving ? undefined : onClose}>
+      <div className="drawer" onClick={(e) => e.stopPropagation()}>
+        <div className="drawer-head">
+          <h2>{campaign ? 'Edit campaign' : 'Add campaign'}</h2>
+          <button
+            className="btn sm ghost"
+            onClick={onClose}
+            disabled={saving}
+            style={{ marginLeft: 'auto' }}
+          >
+            <Icon.Close />
+          </button>
+        </div>
+
+        <div className="drawer-body" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <div style={{ display: 'flex', gap: 16 }}>
+            <div className="field" style={{ flex: 1 }}>
+              <label>Code</label>
+              <input
+                className="input"
+                value={form.code}
+                disabled={saving || !!campaign}
+                placeholder="e.g. gartex2026"
+                onChange={(e) =>
+                  set('code', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))
+                }
+              />
+              {!campaign && (
+                <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                  Matches the ?src= value on the signup link. Cannot change later.
+                </span>
+              )}
+            </div>
+            <div className="field" style={{ flex: 1.5 }}>
+              <label>Name</label>
+              <input
+                className="input"
+                value={form.name}
+                disabled={saving}
+                placeholder="e.g. Gartex Expo Delhi 2026"
+                onChange={(e) => set('name', e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="field">
+            <label>Bonus % (applied to first purchase and signup free credits)</label>
+            <input
+              className="input"
+              type="number"
+              min={0}
+              max={100}
+              value={form.bonusPercent}
+              disabled={saving}
+              onChange={(e) => set('bonusPercent', Number(e.target.value))}
+            />
+          </div>
+
+          <div style={{ display: 'flex', gap: 16 }}>
+            <div className="field" style={{ flex: 1 }}>
+              <label>Starts</label>
+              <input
+                className="input"
+                type="datetime-local"
+                value={form.startAt}
+                disabled={saving}
+                onChange={(e) => set('startAt', e.target.value)}
+              />
+            </div>
+            <div className="field" style={{ flex: 1 }}>
+              <label>Ends</label>
+              <input
+                className="input"
+                type="datetime-local"
+                value={form.endAt}
+                disabled={saving}
+                onChange={(e) => set('endAt', e.target.value)}
+              />
+            </div>
+          </div>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Switch
+              checked={form.isActive}
+              onChange={(v) => set('isActive', v)}
+              disabled={saving}
+            />
+            Active
+          </label>
+        </div>
+
+        <div className="drawer-foot">
+          <button className="btn ghost" onClick={onClose} disabled={saving}>
+            Cancel
+          </button>
+          <button className="btn primary" onClick={handleSave} disabled={saving || !valid}>
+            {saving ? 'Saving…' : campaign ? 'Save changes' : 'Create campaign'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: Props) {
   const { logout } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -376,8 +596,14 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   });
   const [maxOutputPx, setMaxOutputPx] = useState(2048);
   const [merchantCatalogDefaults, setMerchantCatalogDefaults] = useState<
-    Record<string, { faceId: string; backgroundId: string }>
+    Record<
+      string,
+      { faceId: string; backgroundId: string; lowerCatalogId?: string; shoeCatalogId?: string }
+    >
   >({});
+  const [catalogItemsList, setCatalogItemsList] = useState<
+    Array<{ id: string; label: string; type: 'lower' | 'shoe'; genderSlug: string | null }>
+  >([]);
   const [merchantCatalogAspectRatio, setMerchantCatalogAspectRatio] = useState('2:3');
   const [modelFacesList, setModelFacesList] = useState<
     Array<{ id: string; label: string; gender: string }>
@@ -386,8 +612,26 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
     Array<{ id: string; label: string }>
   >([]);
   const [tryonCreditCost, setTryonCreditCost] = useState(5);
+  const [sareeMannequinDevCreditCost, setSareeMannequinDevCreditCost] = useState(10);
+  const [pixverseCreditCost, setPixverseCreditCost] = useState(150);
+  const [uploadLimitsMb, setUploadLimitsMb] = useState({
+    merchantCatalogMaxBytes: 20,
+    webGarmentMaxBytes: 20,
+    merchantTryonMaxBytes: 20,
+    kioskUploadMaxBytes: 20,
+    devApiMaxBytes: 20,
+    shopifyCatalogSourceMaxBytes: 20,
+    shopifyCustomerPhotoMaxBytes: 20,
+    shopifyProductImageMaxBytes: 20,
+    shopifyProductSyncMaxBytes: 20,
+  });
+  const [bulkImportMaxGb, setBulkImportMaxGb] = useState(2.5);
+  const [uploadLimitsExpanded, setUploadLimitsExpanded] = useState(false);
   const [sysLoading, setSysLoading] = useState(true);
   const [sysSaving, setSysSaving] = useState(false);
+  const [appVideoUrl, setAppVideoUrl] = useState<string | null>(null);
+  const [appVideoLoading, setAppVideoLoading] = useState(true);
+  const [appVideoUploading, setAppVideoUploading] = useState(false);
 
   const [plans, setPlans] = useState<CreditPlan[]>([]);
   const [plansLoading, setPlansLoading] = useState(true);
@@ -398,13 +642,28 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   const [confirmDelete, setConfirmDelete] = useState<CreditPlan | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  const [campaigns, setCampaigns] = useState<SignupCampaign[]>([]);
+  const [campaignsLoading, setCampaignsLoading] = useState(true);
+  const [campaignModal, setCampaignModal] = useState<{
+    open: boolean;
+    campaign: SignupCampaign | null;
+  }>({ open: false, campaign: null });
+  const [confirmDeleteCampaign, setConfirmDeleteCampaign] = useState<SignupCampaign | null>(null);
+  const [deletingCampaign, setDeletingCampaign] = useState(false);
+
   useEffect(() => {
     apiFetch<{
       resolutions?: Record<string, { enabled: boolean; creditCost: number }>;
       maxOutputPx?: number;
-      merchantCatalogDefaults?: Record<string, { faceId: string; backgroundId: string }>;
+      merchantCatalogDefaults?: Record<
+        string,
+        { faceId: string; backgroundId: string; lowerCatalogId?: string; shoeCatalogId?: string }
+      >;
       merchantCatalogAspectRatio?: string;
       tryon?: { creditCost: number };
+      sareeMannequinDev?: { creditCost: number };
+      pixverse?: { creditCost: number };
+      uploadLimits?: Record<string, number>;
     }>('/admin/config')
       .then((cfg) => {
         if (cfg.resolutions) setResolutions(cfg.resolutions);
@@ -413,6 +672,40 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
         if (cfg.merchantCatalogAspectRatio)
           setMerchantCatalogAspectRatio(cfg.merchantCatalogAspectRatio);
         if (cfg.tryon) setTryonCreditCost(cfg.tryon.creditCost);
+        if (cfg.sareeMannequinDev) setSareeMannequinDevCreditCost(cfg.sareeMannequinDev.creditCost);
+        if (cfg.pixverse) setPixverseCreditCost(cfg.pixverse.creditCost);
+        if (cfg.uploadLimits) {
+          const bytesToMb = (b: number) => Math.round((b / (1024 * 1024)) * 100) / 100;
+          setUploadLimitsMb({
+            merchantCatalogMaxBytes: bytesToMb(
+              cfg.uploadLimits.merchantCatalogMaxBytes ?? 20 * 1024 * 1024,
+            ),
+            webGarmentMaxBytes: bytesToMb(cfg.uploadLimits.webGarmentMaxBytes ?? 20 * 1024 * 1024),
+            merchantTryonMaxBytes: bytesToMb(
+              cfg.uploadLimits.merchantTryonMaxBytes ?? 20 * 1024 * 1024,
+            ),
+            kioskUploadMaxBytes: bytesToMb(
+              cfg.uploadLimits.kioskUploadMaxBytes ?? 20 * 1024 * 1024,
+            ),
+            devApiMaxBytes: bytesToMb(cfg.uploadLimits.devApiMaxBytes ?? 20 * 1024 * 1024),
+            shopifyCatalogSourceMaxBytes: bytesToMb(
+              cfg.uploadLimits.shopifyCatalogSourceMaxBytes ?? 20 * 1024 * 1024,
+            ),
+            shopifyCustomerPhotoMaxBytes: bytesToMb(
+              cfg.uploadLimits.shopifyCustomerPhotoMaxBytes ?? 20 * 1024 * 1024,
+            ),
+            shopifyProductImageMaxBytes: bytesToMb(
+              cfg.uploadLimits.shopifyProductImageMaxBytes ?? 20 * 1024 * 1024,
+            ),
+            shopifyProductSyncMaxBytes: bytesToMb(
+              cfg.uploadLimits.shopifyProductSyncMaxBytes ?? 20 * 1024 * 1024,
+            ),
+          });
+          const bytesToGb = (b: number) => Math.round((b / (1024 * 1024 * 1024)) * 100) / 100;
+          setBulkImportMaxGb(
+            bytesToGb(cfg.uploadLimits.bulkImportMaxBytes ?? 2.5 * 1024 * 1024 * 1024),
+          );
+        }
       })
       .catch((e) =>
         toast({
@@ -425,25 +718,89 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   }, [toast]);
 
   useEffect(() => {
+    apiFetch<{ videoUrl: string | null }>('/admin/config/app-video')
+      .then((res) => setAppVideoUrl(res.videoUrl))
+      .catch(() => {})
+      .finally(() => setAppVideoLoading(false));
+  }, []);
+
+  const handleAppVideoUpload = async (file: File) => {
+    setAppVideoUploading(true);
+    try {
+      const presign = await apiFetch<{ uploadUrl: string; key: string }>(
+        '/admin/config/app-video/presign',
+        { method: 'POST', body: JSON.stringify({ contentType: 'video/mp4' }) },
+      );
+      await uploadFile(presign.uploadUrl, file, 'video/mp4');
+      const confirmed = await apiFetch<{ videoUrl: string; updatedAt: string }>(
+        '/admin/config/app-video/confirm',
+        { method: 'POST' },
+      );
+      setAppVideoUrl(confirmed.videoUrl);
+      toast({ title: 'App video updated' });
+    } catch (err) {
+      toast({
+        kind: 'error',
+        title: 'Failed to upload video',
+        body: apiErrorMessage(err, 'Please try again.'),
+      });
+    } finally {
+      setAppVideoUploading(false);
+    }
+  };
+
+  useEffect(() => {
     apiFetch<{ items: Array<{ id: string; label: string; gender: string }> }>('/admin/assets/faces')
       .then((res) => setModelFacesList(res.items))
       .catch(() => {});
     apiFetch<{ items: Array<{ id: string; label: string }> }>('/admin/assets/backgrounds')
       .then((res) => setModelBackgroundsList(res.items))
       .catch(() => {});
+    apiFetch<
+      Array<{ id: string; label: string; type: 'lower' | 'shoe'; genderSlug: string | null }>
+    >('/admin/catalog/items')
+      .then(setCatalogItemsList)
+      .catch(() => {});
   }, []);
 
   const saveSysConfig = async () => {
     setSysSaving(true);
     try {
+      const mbToBytes = (mb: number) => Math.round(mb * 1024 * 1024);
+      const gbToBytes = (gb: number) => Math.round(gb * 1024 * 1024 * 1024);
+      const sanitizedMerchantCatalogDefaults = Object.fromEntries(
+        Object.entries(merchantCatalogDefaults).map(([cat, v]) => [
+          cat,
+          {
+            faceId: v.faceId,
+            backgroundId: v.backgroundId,
+            ...(v.lowerCatalogId ? { lowerCatalogId: v.lowerCatalogId } : {}),
+            ...(v.shoeCatalogId ? { shoeCatalogId: v.shoeCatalogId } : {}),
+          },
+        ]),
+      );
       await apiFetch('/admin/config', {
         method: 'PATCH',
         body: JSON.stringify({
           resolutions,
           maxOutputPx,
-          merchantCatalogDefaults,
+          merchantCatalogDefaults: sanitizedMerchantCatalogDefaults,
           merchantCatalogAspectRatio,
           tryon: { creditCost: tryonCreditCost },
+          sareeMannequinDev: { creditCost: sareeMannequinDevCreditCost },
+          pixverse: { creditCost: pixverseCreditCost },
+          uploadLimits: {
+            merchantCatalogMaxBytes: mbToBytes(uploadLimitsMb.merchantCatalogMaxBytes),
+            webGarmentMaxBytes: mbToBytes(uploadLimitsMb.webGarmentMaxBytes),
+            merchantTryonMaxBytes: mbToBytes(uploadLimitsMb.merchantTryonMaxBytes),
+            kioskUploadMaxBytes: mbToBytes(uploadLimitsMb.kioskUploadMaxBytes),
+            devApiMaxBytes: mbToBytes(uploadLimitsMb.devApiMaxBytes),
+            shopifyCatalogSourceMaxBytes: mbToBytes(uploadLimitsMb.shopifyCatalogSourceMaxBytes),
+            shopifyCustomerPhotoMaxBytes: mbToBytes(uploadLimitsMb.shopifyCustomerPhotoMaxBytes),
+            shopifyProductImageMaxBytes: mbToBytes(uploadLimitsMb.shopifyProductImageMaxBytes),
+            shopifyProductSyncMaxBytes: mbToBytes(uploadLimitsMb.shopifyProductSyncMaxBytes),
+            bulkImportMaxBytes: gbToBytes(bulkImportMaxGb),
+          },
         }),
       });
       toast({ title: 'System config saved' });
@@ -469,6 +826,19 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
         }),
       )
       .finally(() => setPlansLoading(false));
+  }, [toast]);
+
+  useEffect(() => {
+    apiFetch<SignupCampaign[]>('/admin/signup-campaigns')
+      .then(setCampaigns)
+      .catch((e) =>
+        toast({
+          kind: 'error',
+          title: 'Failed to load signup campaigns',
+          body: apiErrorMessage(e, 'Please try again.'),
+        }),
+      )
+      .finally(() => setCampaignsLoading(false));
   }, [toast]);
 
   const handlePlanSaved = (saved: CreditPlan) => {
@@ -499,6 +869,37 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
     } finally {
       setDeleting(false);
       setConfirmDelete(null);
+    }
+  };
+
+  const handleCampaignSaved = (saved: SignupCampaign) => {
+    setCampaigns((prev) => {
+      const idx = prev.findIndex((c) => c.id === saved.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = saved;
+        return next;
+      }
+      return [...prev, saved];
+    });
+  };
+
+  const handleDeleteCampaign = async () => {
+    if (!confirmDeleteCampaign) return;
+    setDeletingCampaign(true);
+    try {
+      await apiFetch(`/admin/signup-campaigns/${confirmDeleteCampaign.id}`, { method: 'DELETE' });
+      setCampaigns((prev) => prev.filter((c) => c.id !== confirmDeleteCampaign.id));
+      toast({ title: `${confirmDeleteCampaign.name} deleted` });
+    } catch (err) {
+      toast({
+        kind: 'error',
+        title: 'Failed to delete campaign',
+        body: apiErrorMessage(err, 'Please try again.'),
+      });
+    } finally {
+      setDeletingCampaign(false);
+      setConfirmDeleteCampaign(null);
     }
   };
 
@@ -966,6 +1367,111 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
         </>
       )}
 
+      {/* Signup Campaigns */}
+      {section === 'signup-campaigns' && (
+        <>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: 20,
+            }}
+          >
+            <h3
+              style={{
+                margin: 0,
+                fontSize: 18,
+                fontWeight: 500,
+                color: 'var(--ink)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <Icon.Coin /> Signup Campaigns
+            </h3>
+            <button
+              className="btn sm primary"
+              onClick={() => setCampaignModal({ open: true, campaign: null })}
+            >
+              <Icon.Add /> Add campaign
+            </button>
+          </div>
+
+          {campaignsLoading ? (
+            <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+          ) : campaigns.length === 0 ? (
+            <div
+              style={{
+                textAlign: 'center',
+                padding: '40px 20px',
+                color: 'var(--muted)',
+                background: 'var(--surface-2)',
+                borderRadius: 'var(--r-lg)',
+                border: '1px dashed var(--border)',
+              }}
+            >
+              No signup campaigns yet — click "Add campaign" to create one.
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Code</th>
+                    <th>Name</th>
+                    <th>Bonus %</th>
+                    <th>Window</th>
+                    <th>Status</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {campaigns.map((c) => (
+                    <tr key={c.id} style={{ opacity: c.isActive ? 1 : 0.55 }}>
+                      <td className="mono">{c.code}</td>
+                      <td>{c.name}</td>
+                      <td>{c.bonusPercent}%</td>
+                      <td style={{ fontSize: 12, color: 'var(--muted)' }}>
+                        {new Date(c.startAt).toLocaleDateString()} –{' '}
+                        {new Date(c.endAt).toLocaleDateString()}
+                      </td>
+                      <td>
+                        {c.isActive ? (
+                          <span className="badge">Active</span>
+                        ) : (
+                          <span className="badge dot">Inactive</span>
+                        )}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            className="btn sm ghost"
+                            onClick={() => setCampaignModal({ open: true, campaign: c })}
+                            title="Edit"
+                          >
+                            <Icon.Edit />
+                          </button>
+                          <button
+                            className="btn sm ghost"
+                            onClick={() => setConfirmDeleteCampaign(c)}
+                            title="Delete"
+                            style={{ color: 'var(--danger)' }}
+                          >
+                            <Icon.Trash />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+
       {/* System */}
       {section === 'system' && (
         <div className="card settings-card">
@@ -1126,18 +1632,325 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
 
                 <div style={{ marginTop: 24, marginBottom: 8 }}>
                   <div className="setting-lbl" style={{ marginBottom: 4 }}>
+                    Dev API — Saree Mannequin
+                  </div>
+                  <div className="setting-desc" style={{ marginBottom: 12 }}>
+                    Credit cost per saree-mannequin (step-1) job created via the developer API (
+                    <code>/v1/dev/saree-mannequin</code>). Independent of the Virtual Try-On cost
+                    above.
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: '10px 12px',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--r)',
+                      background: 'var(--surface-2)',
+                    }}
+                  >
+                    <span className="setting-lbl">Saree Mannequin (Dev API)</span>
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}
+                    >
+                      <input
+                        className="input"
+                        type="number"
+                        min={1}
+                        max={1000}
+                        style={{ width: 80, textAlign: 'right' }}
+                        value={sareeMannequinDevCreditCost}
+                        disabled={sysSaving}
+                        onChange={(e) => setSareeMannequinDevCreditCost(Number(e.target.value))}
+                      />
+                      <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                        credits / job
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 24, marginBottom: 8 }}>
+                  <div className="setting-lbl" style={{ marginBottom: 4 }}>
+                    Catalog Video (PixVerse)
+                  </div>
+                  <div className="setting-desc" style={{ marginBottom: 12 }}>
+                    Credit cost per catalog-video generation (image-to-video via PixVerse).
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: '10px 12px',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--r)',
+                      background: 'var(--surface-2)',
+                    }}
+                  >
+                    <span className="setting-lbl">Catalog Video</span>
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}
+                    >
+                      <input
+                        className="input"
+                        type="number"
+                        min={1}
+                        max={1000}
+                        style={{ width: 80, textAlign: 'right' }}
+                        value={pixverseCreditCost}
+                        disabled={sysSaving}
+                        onChange={(e) => setPixverseCreditCost(Number(e.target.value))}
+                      />
+                      <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                        credits / video
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 24, marginBottom: 8 }}>
+                  <div className="setting-lbl" style={{ marginBottom: 4 }}>
+                    App Video
+                  </div>
+                  <div className="setting-desc" style={{ marginBottom: 12 }}>
+                    Intro/promo clip served to the Android app via{' '}
+                    <code>GET /v1/config/app-video</code>. Uploading a new file replaces the current
+                    one immediately — no separate save step.
+                  </div>
+                  {appVideoLoading ? (
+                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+                  ) : (
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 16,
+                        padding: 14,
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--r)',
+                        background: 'var(--surface-2)',
+                      }}
+                    >
+                      {appVideoUrl ? (
+                        // biome-ignore lint/a11y/useMediaCaption: admin preview of an uploaded clip, not end-user content
+                        <video
+                          key={appVideoUrl}
+                          src={appVideoUrl}
+                          controls
+                          style={{
+                            width: 220,
+                            aspectRatio: '9 / 16',
+                            borderRadius: 6,
+                            background: '#000',
+                            flexShrink: 0,
+                          }}
+                        />
+                      ) : (
+                        <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+                          No video uploaded yet.
+                        </div>
+                      )}
+                      <div>
+                        <input
+                          id="app-video-file-input"
+                          type="file"
+                          accept="video/mp4"
+                          style={{ display: 'none' }}
+                          disabled={appVideoUploading}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            e.target.value = '';
+                            if (file) handleAppVideoUpload(file);
+                          }}
+                        />
+                        <label
+                          htmlFor="app-video-file-input"
+                          className={`btn sm ${appVideoUploading ? '' : 'primary'}`}
+                          style={{
+                            cursor: appVideoUploading ? 'default' : 'pointer',
+                            opacity: appVideoUploading ? 0.6 : 1,
+                            pointerEvents: appVideoUploading ? 'none' : 'auto',
+                          }}
+                        >
+                          <Icon.Upload />
+                          {appVideoUploading
+                            ? 'Uploading…'
+                            : appVideoUrl
+                              ? 'Upload new video'
+                              : 'Upload video'}
+                        </label>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ marginTop: 24, marginBottom: 8 }}>
+                  <div className="setting-lbl" style={{ marginBottom: 4 }}>
+                    Upload Limits
+                    <button
+                      type="button"
+                      aria-expanded={uploadLimitsExpanded}
+                      aria-controls="upload-limits-options"
+                      aria-label={
+                        uploadLimitsExpanded ? 'Collapse upload limits' : 'Expand upload limits'
+                      }
+                      onClick={() => setUploadLimitsExpanded((expanded) => !expanded)}
+                      style={{
+                        width: 26,
+                        height: 26,
+                        marginLeft: 8,
+                        padding: 0,
+                        border: '1px solid var(--border)',
+                        borderRadius: 6,
+                        background: 'var(--surface-2)',
+                        color: 'var(--text)',
+                        fontSize: 20,
+                        lineHeight: 1,
+                        cursor: 'pointer',
+                        verticalAlign: 'middle',
+                      }}
+                    >
+                      <span aria-hidden="true">{uploadLimitsExpanded ? '−' : '+'}</span>
+                    </button>
+                  </div>
+                  {uploadLimitsExpanded && (
+                    <div id="upload-limits-options">
+                      <div className="setting-desc" style={{ marginBottom: 12 }}>
+                        Maximum accepted file size per upload surface. Existing uploads already in
+                        progress are unaffected; this only applies to uploads made after saving.
+                      </div>
+                      {(
+                        [
+                          ['merchantCatalogMaxBytes', 'Merchant catalogue (Android flat photo)'],
+                          ['webGarmentMaxBytes', 'Studio / web garment upload'],
+                          ['merchantTryonMaxBytes', 'Merchant try-on customer photo'],
+                          ['kioskUploadMaxBytes', 'Kiosk customer photo'],
+                          ['devApiMaxBytes', 'Dev API upload'],
+                          ['shopifyCatalogSourceMaxBytes', 'Shopify catalogue source image'],
+                          ['shopifyCustomerPhotoMaxBytes', 'Shopify storefront customer photo'],
+                          ['shopifyProductImageMaxBytes', 'Shopify product-image import'],
+                          ['shopifyProductSyncMaxBytes', 'Shopify webhook product sync'],
+                        ] as const
+                      ).map(([key, label]) => (
+                        <div
+                          key={key}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 12,
+                            padding: '10px 12px',
+                            marginBottom: 8,
+                            border: '1px solid var(--border)',
+                            borderRadius: 'var(--r)',
+                            background: 'var(--surface-2)',
+                          }}
+                        >
+                          <span className="setting-lbl">{label}</span>
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              marginLeft: 'auto',
+                            }}
+                          >
+                            <input
+                              className="input"
+                              type="number"
+                              min={0}
+                              max={50}
+                              step={0.1}
+                              style={{ width: 80, textAlign: 'right' }}
+                              value={uploadLimitsMb[key]}
+                              disabled={sysSaving}
+                              onChange={(e) =>
+                                setUploadLimitsMb((prev) => ({
+                                  ...prev,
+                                  [key]: Number(e.target.value),
+                                }))
+                              }
+                            />
+                            <span style={{ fontSize: 13, color: 'var(--muted)' }}>MB</span>
+                          </div>
+                        </div>
+                      ))}
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 12,
+                          padding: '10px 12px',
+                          border: '1px solid var(--border)',
+                          borderRadius: 'var(--r)',
+                          background: 'var(--surface-2)',
+                        }}
+                      >
+                        <span className="setting-lbl">Admin bulk-import ZIP</span>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            marginLeft: 'auto',
+                          }}
+                        >
+                          <input
+                            className="input"
+                            type="number"
+                            min={0}
+                            max={3}
+                            step={0.1}
+                            style={{ width: 80, textAlign: 'right' }}
+                            value={bulkImportMaxGb}
+                            disabled={sysSaving}
+                            onChange={(e) => setBulkImportMaxGb(Number(e.target.value))}
+                          />
+                          <span style={{ fontSize: 13, color: 'var(--muted)' }}>GB</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ marginTop: 24, marginBottom: 8 }}>
+                  <div className="setting-lbl" style={{ marginBottom: 4 }}>
                     Merchant Catalogue Defaults
                   </div>
                   <div className="setting-desc" style={{ marginBottom: 12 }}>
                     Fixed model/background used when a merchant generates a catalogue image from a
                     flat garment photo — guarantees every generated image is try-on-suitable.
+                    <br />
+                    Lower garment and shoe defaults are only applied when the assigned pose's
+                    workflow needs one.
+                  </div>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '80px 1fr 1fr 1fr 1fr',
+                      gap: 12,
+                      alignItems: 'end',
+                      marginBottom: 6,
+                    }}
+                  >
+                    <span aria-hidden="true" />
+                    {['Face', 'Background', 'Lower garment', 'Shoe'].map((heading) => (
+                      <div
+                        key={heading}
+                        className="setting-lbl"
+                        style={{ marginBottom: 0, paddingInline: 2 }}
+                      >
+                        {heading}
+                      </div>
+                    ))}
                   </div>
                   {(['men', 'women', 'boys', 'girls'] as const).map((cat) => (
                     <div
                       key={cat}
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: '80px 1fr 1fr',
+                        gridTemplateColumns: '80px 1fr 1fr 1fr 1fr',
                         gap: 12,
                         alignItems: 'center',
                         marginBottom: 10,
@@ -1168,7 +1981,53 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                         onChange={(backgroundId) =>
                           setMerchantCatalogDefaults((prev) => ({
                             ...prev,
-                            [cat]: { faceId: prev[cat]?.faceId ?? '', backgroundId },
+                            [cat]: {
+                              ...prev[cat],
+                              faceId: prev[cat]?.faceId ?? '',
+                              backgroundId,
+                            },
+                          }))
+                        }
+                      />
+                      <SearchableSelect
+                        options={catalogItemsList.filter(
+                          (c) =>
+                            c.type === 'lower' && (c.genderSlug == null || c.genderSlug === cat),
+                        )}
+                        value={merchantCatalogDefaults[cat]?.lowerCatalogId ?? ''}
+                        disabled={sysSaving}
+                        placeholder={'\u2014 search lower garment \u2014'}
+                        emptyLabel={'\u2014 none / not needed \u2014'}
+                        onChange={(lowerCatalogId) =>
+                          setMerchantCatalogDefaults((prev) => ({
+                            ...prev,
+                            [cat]: {
+                              ...prev[cat],
+                              faceId: prev[cat]?.faceId ?? '',
+                              backgroundId: prev[cat]?.backgroundId ?? '',
+                              lowerCatalogId,
+                            },
+                          }))
+                        }
+                      />
+                      <SearchableSelect
+                        options={catalogItemsList.filter(
+                          (c) =>
+                            c.type === 'shoe' && (c.genderSlug == null || c.genderSlug === cat),
+                        )}
+                        value={merchantCatalogDefaults[cat]?.shoeCatalogId ?? ''}
+                        disabled={sysSaving}
+                        placeholder={'\u2014 search shoe \u2014'}
+                        emptyLabel={'\u2014 none / not needed \u2014'}
+                        onChange={(shoeCatalogId) =>
+                          setMerchantCatalogDefaults((prev) => ({
+                            ...prev,
+                            [cat]: {
+                              ...prev[cat],
+                              faceId: prev[cat]?.faceId ?? '',
+                              backgroundId: prev[cat]?.backgroundId ?? '',
+                              shoeCatalogId,
+                            },
                           }))
                         }
                       />
@@ -1252,6 +2111,27 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
           confirmLabel={deleting ? 'Deleting…' : 'Delete'}
           onConfirm={handleDelete}
           onClose={() => setConfirmDelete(null)}
+        />
+      )}
+
+      {campaignModal.open && (
+        <CampaignModal
+          campaign={campaignModal.campaign}
+          onSaved={handleCampaignSaved}
+          onClose={() => setCampaignModal({ open: false, campaign: null })}
+          toast={toast}
+        />
+      )}
+
+      {confirmDeleteCampaign && (
+        <ConfirmModal
+          title="Delete campaign"
+          body={`Are you sure you want to delete "${confirmDeleteCampaign.name}"? This cannot be undone.`}
+          what={`code: ${confirmDeleteCampaign.code}`}
+          danger
+          confirmLabel={deletingCampaign ? 'Deleting…' : 'Delete'}
+          onConfirm={handleDeleteCampaign}
+          onClose={() => setConfirmDeleteCampaign(null)}
         />
       )}
     </>

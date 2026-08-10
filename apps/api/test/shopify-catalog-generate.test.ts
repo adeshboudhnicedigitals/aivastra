@@ -108,11 +108,11 @@ beforeAll(async () => {
     .returning();
   poseId = pose.id;
 
-  // Stub the outbound fetch to (a) the Shopify Admin REST images.json endpoint the
+  // Stub the outbound fetch to (a) the Shopify Admin GraphQL endpoint the
   // route now calls to confirm sourceImageUrl belongs to the product (fetchLiveProductImages,
   // products.routes.ts), and (b) the Shopify CDN image download itself — so the test
   // doesn't depend on network access. createJob only needs the object to exist in R2
-  // with a readable size, not real image bytes. The images.json stub returns every
+  // with a readable size, not real image bytes. The GraphQL stub returns every
   // sourceImageUrl used across this file's tests as "live" images of the product, so
   // each test's legitimate sourceImageUrl matches.
   const LIVE_IMAGE_URLS = [
@@ -122,9 +122,20 @@ beforeAll(async () => {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) => {
-      if (typeof url === 'string' && url.includes('/images.json')) {
+      if (typeof url === 'string' && url.includes('/graphql.json')) {
         return new Response(
-          JSON.stringify({ images: LIVE_IMAGE_URLS.map((src, id) => ({ id, src })) }),
+          JSON.stringify({
+            data: {
+              product: {
+                images: {
+                  nodes: LIVE_IMAGE_URLS.map((imageUrl, i) => ({
+                    id: `gid://shopify/ProductImage/${i}`,
+                    url: imageUrl,
+                  })),
+                },
+              },
+            },
+          }),
           { status: 200, headers: { 'content-type': 'application/json' } },
         );
       }
@@ -264,5 +275,31 @@ describe('POST /v1/shopify/catalog/generate', () => {
     const body = res.json() as { error: { code: string; message: string } };
     expect(body.error.code).toBe('BAD_REQUEST');
     expect(body.error.message).toContain("not one of this product's current images");
+  });
+
+  it('rejects a source image above the admin-configured Shopify catalogue limit', async () => {
+    await app.redis.set(
+      'config:system',
+      JSON.stringify({ uploadLimits: { shopifyCatalogSourceMaxBytes: 5 } }),
+    );
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/shopify/catalog/generate',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        payload: JSON.stringify({
+          shopifyProductId: 1,
+          sourceImageUrl: 'https://cdn.shopify.com/s/files/1/0/0/products/shirt.jpg',
+          faceId,
+          looks: [{ poseId, backgroundId }],
+          aspectRatio: '3:4',
+          resolution: 'HD',
+        }),
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.message).toContain('MB');
+    } finally {
+      await app.redis.del('config:system');
+    }
   });
 });

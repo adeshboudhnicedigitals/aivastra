@@ -31,6 +31,8 @@ export interface FinalizeOutputOpts {
   userId: string;
   /** Whether this job has the watermark flag set (snapshotted at creation). */
   jobWatermark: boolean;
+  /** Result image encoding — defaults to 'png'. 'webp' re-encodes at q90 (smaller payload). */
+  outputFormat?: 'png' | 'webp';
   db: DB;
   pub: Redis;
   s3: S3Client;
@@ -76,13 +78,18 @@ export async function finalizeOutput(opts: FinalizeOutputOpts): Promise<{
   }
 
   // Upload result to R2
-  const resultKey = keys.output(jobId);
+  const outputFormat = opts.outputFormat ?? 'png';
+  const resultKey = keys.output(jobId, outputFormat);
+  const resultBuffer =
+    outputFormat === 'webp'
+      ? await sharp(finalBuffer).webp({ quality: 90 }).toBuffer()
+      : finalBuffer;
   await s3.send(
     new PutObjectCommand({
       Bucket: r2Bucket,
       Key: resultKey,
-      Body: finalBuffer,
-      ContentType: 'image/png',
+      Body: resultBuffer,
+      ContentType: outputFormat === 'webp' ? 'image/webp' : 'image/png',
     }),
   );
 

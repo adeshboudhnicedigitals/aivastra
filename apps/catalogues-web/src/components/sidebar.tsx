@@ -17,6 +17,7 @@ const NAV: {
   badge?: string;
   devOnly?: boolean;
   merchantOnly?: boolean;
+  catalogVideoOnly?: boolean;
 }[] = [
   { id: 'studio', href: '/studio', label: 'Studio', icon: `${BASE}/assets/studio-icon.svg` },
   {
@@ -39,14 +40,21 @@ const NAV: {
   {
     id: 'catalogues',
     href: '/catalogues',
-    label: 'Catalogues',
+    label: 'Catalogs',
     icon: `${BASE}/assets/catalog-icon.svg`,
+  },
+  {
+    id: 'catalog-video',
+    href: '/catalog-video',
+    label: 'Catalog Video',
+    icon: `${BASE}/assets/catalog-video-icon.svg`,
+    catalogVideoOnly: true,
   },
   { id: 'assets', href: '/assets', label: 'My Products', icon: `${BASE}/assets/asset-icon.svg` },
   {
     id: 'catalogue-manager',
     href: '/catalogue-manager',
-    label: 'My Catalogue',
+    label: 'Try On Library',
     icon: 'package',
     merchantOnly: true,
   },
@@ -57,27 +65,35 @@ const NAV: {
     icon: 'key',
     merchantOnly: true,
   },
-  {
-    id: 'sellio',
-    href: '/sellio',
-    label: 'Sellio',
-    icon: 'store',
-    merchantOnly: true,
-  },
+  // Sellio preview — not ready for real users. Not removed (page still fully
+  // functional), just hidden from the sidebar; the route itself is also
+  // blocked in every environment, see middleware.ts's ALWAYS_BLOCKED_PATHS.
+  // {
+  //   id: 'sellio',
+  //   href: '/sellio',
+  //   label: 'Sellio',
+  //   icon: 'store',
+  //   merchantOnly: true,
+  // },
   { id: 'pricing', href: '/pricing', label: 'Pricing', icon: `${BASE}/assets/pricing-icon.svg` },
   {
     id: 'tutorials',
     href: '/tutorials',
     label: 'Tutorials',
     icon: 'monitor-play',
-    devOnly: true,
   },
   { id: 'contact', href: '/contact-us', label: 'Contact Us', icon: 'phone' },
 ];
 
 const SIDEBAR_WIDTH = 200;
 
-export function Sidebar() {
+export function Sidebar({
+  onNavigate,
+  fillWidth,
+}: {
+  onNavigate?: () => void;
+  fillWidth?: boolean;
+}) {
   const pathname = usePathname();
   const qc = useQueryClient();
   const [darkMode, setDarkMode] = useState(false);
@@ -85,12 +101,16 @@ export function Sidebar() {
   // shared 'me' key, so this doesn't add an extra network request. Default to
   // not-a-merchant while loading so merchant-only links never flash for
   // non-merchants before the check resolves.
-  const { data: me } = useQuery<{ isMerchant?: boolean }>({
+  const { data: me } = useQuery<{ isMerchant?: boolean; catalogVideoEnabled?: boolean }>({
     queryKey: ['me'],
     queryFn: () => api.get('/v1/me'),
     retry: false,
   });
   const isMerchant = me?.isMerchant ?? false;
+  // Same default-hidden-until-confirmed pattern as isMerchant above — the
+  // server may restrict this feature to a soft-launch cohort, so don't flash
+  // the nav item before the check resolves.
+  const catalogVideoEnabled = me?.catalogVideoEnabled ?? false;
 
   useEffect(() => {
     setDarkMode(document.documentElement.classList.contains('dark'));
@@ -106,6 +126,11 @@ export function Sidebar() {
   function prefetchRoute(id: string) {
     if (id === 'catalogues') {
       qc.prefetchQuery({ queryKey: ['catalogues'], queryFn: () => api.get('/v1/catalogues') });
+    } else if (id === 'catalog-video') {
+      qc.prefetchQuery({
+        queryKey: ['catalog-videos'],
+        queryFn: () => api.get('/v1/catalog-videos'),
+      });
     } else if (id === 'pricing') {
       qc.prefetchQuery({
         queryKey: ['credit-plans'],
@@ -130,6 +155,7 @@ export function Sidebar() {
   const visibleNav = NAV.filter((item) => {
     if (item.devOnly && process.env.NODE_ENV === 'production') return false;
     if (item.merchantOnly && !isMerchant) return false;
+    if (item.catalogVideoOnly && !catalogVideoEnabled) return false;
     return true;
   });
 
@@ -137,12 +163,20 @@ export function Sidebar() {
     {
       title: 'CREATE',
       items: visibleNav.filter((item) =>
-        ['studio', 'tryon', 'saree', 'catalogues', 'assets', 'catalogue-manager'].includes(item.id),
+        [
+          'studio',
+          'tryon',
+          'saree',
+          'catalogues',
+          'catalog-video',
+          'assets',
+          'catalogue-manager',
+        ].includes(item.id),
       ),
     },
     {
       title: 'BUSINESS',
-      items: visibleNav.filter((item) => ['pricing', 'developers', 'sellio'].includes(item.id)),
+      items: visibleNav.filter((item) => ['pricing', 'developers'].includes(item.id)),
     },
     {
       title: 'HELP',
@@ -153,8 +187,8 @@ export function Sidebar() {
   return (
     <div
       style={{
-        width: SIDEBAR_WIDTH,
-        minWidth: SIDEBAR_WIDTH,
+        width: fillWidth ? '100%' : SIDEBAR_WIDTH,
+        minWidth: fillWidth ? 0 : SIDEBAR_WIDTH,
         height: '100vh',
         background: '#080C18',
         display: 'flex',
@@ -209,20 +243,24 @@ export function Sidebar() {
           flexShrink: 0,
         }}
       >
-        <Link href="/studio" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Link
+          href="/studio"
+          onClick={() => onNavigate?.()}
+          style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+        >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           {/* biome-ignore lint/performance/noImgElement: logo */}
           <img
             src={`${BASE}/assets/logo.svg`}
             alt="Ai Vastra"
-            style={{ height: 28, width: 'auto', flexShrink: 0 }}
+            style={{ height: 24, width: 'auto', flexShrink: 0 }}
           />
           {/* eslint-disable-next-line @next/next/no-img-element */}
           {/* biome-ignore lint/performance/noImgElement: logo */}
           <img
             src={`${BASE}/assets/logo-text.svg`}
             alt="Ai Vastra"
-            style={{ height: 20, width: 'auto', flexShrink: 0 }}
+            style={{ height: 28, width: 'auto', flexShrink: 0 }}
           />
         </Link>
       </div>
@@ -342,6 +380,7 @@ export function Sidebar() {
                         }}
                         onMouseEnter={() => prefetchRoute(item.id)}
                         onFocus={() => prefetchRoute(item.id)}
+                        onClick={() => onNavigate?.()}
                       >
                         {linkContent}
                       </Link>
@@ -370,6 +409,7 @@ export function Sidebar() {
                       }}
                       onMouseEnter={() => prefetchRoute(item.id)}
                       onFocus={() => prefetchRoute(item.id)}
+                      onClick={() => onNavigate?.()}
                     >
                       {linkContent}
                     </Link>
@@ -387,6 +427,7 @@ export function Sidebar() {
       >
         <Link
           href="/pricing"
+          onClick={() => onNavigate?.()}
           style={{
             textDecoration: 'none',
             display: 'flex',
@@ -425,19 +466,9 @@ export function Sidebar() {
               color: '#FFFFFF',
             }}
           >
-            <svg
-              aria-hidden="true"
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="#BD2587"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
-            </svg>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {/* biome-ignore lint/performance/noImgElement: compact static UI icon */}
+            <img src={`${BASE}/assets/add_credits.png`} alt="" width={14} height={14} />
             View Plans
           </div>
         </Link>

@@ -2,87 +2,68 @@ import {
   Badge,
   Banner,
   BlockStack,
+  Box,
   Button,
   Card,
+  InlineGrid,
   InlineStack,
-  Layout,
   Modal,
   Page,
+  ProgressBar,
   SkeletonBodyText,
+  SkeletonPage,
   Text,
+  Toast,
 } from '@shopify/polaris';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../lib/api';
-import { STATUS_DOT_COLOR } from '../lib/statusColors';
-import type { ShopifyMe, ShopifyOnboardingConfirmResponse } from '../types';
+import type { ShopifyMe, ShopifyOnboardingConfirmResponse, ShopifyStats } from '../types';
 
-function ChevronDownIcon({ expanded }: { expanded: boolean }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{
-        transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
-        transition: 'transform 150ms ease',
-      }}
-      aria-hidden="true"
-    >
-      <title>{expanded ? 'Collapse' : 'Expand'}</title>
-      <path d="m6 9 6 6 6-6" />
-    </svg>
-  );
-}
+type StatusKey = keyof ShopifyStats['statusCounts'];
 
-function StepDot({ done }: { done: boolean }) {
-  return (
-    <span
-      style={{
-        display: 'inline-block',
-        width: '8px',
-        height: '8px',
-        borderRadius: '50%',
-        background: done ? STATUS_DOT_COLOR.active : STATUS_DOT_COLOR.disabled,
-        flexShrink: 0,
-      }}
-    />
-  );
-}
+const STATUS_TONE: Record<StatusKey, 'success' | 'attention' | 'critical' | 'info'> = {
+  active: 'success',
+  processing: 'attention',
+  failed: 'critical',
+  disabled: 'info',
+};
 
-function StatusDotRow({
-  label,
-  count,
-  dotColor,
+const STATUS_LABEL: Record<StatusKey, string> = {
+  active: 'Active',
+  processing: 'Processing',
+  failed: 'Failed',
+  disabled: 'Disabled',
+};
+
+function StepRow({
+  done,
+  title,
+  description,
+  children,
 }: {
-  label: string;
-  count: number;
-  dotColor: string;
+  done: boolean;
+  title: string;
+  description: string;
+  children: React.ReactNode;
 }) {
   return (
-    <InlineStack align="space-between">
-      <InlineStack gap="200" blockAlign="center">
-        <span
-          style={{
-            display: 'inline-block',
-            width: '8px',
-            height: '8px',
-            borderRadius: '50%',
-            background: dotColor,
-          }}
-        />
-        <Text as="p">{label}</Text>
-      </InlineStack>
-      <Text as="p" fontWeight="semibold">
-        {count}
-      </Text>
-    </InlineStack>
+    <Box paddingBlockEnd="400" borderBlockEndWidth="025" borderColor="border">
+      <BlockStack gap="200">
+        <InlineStack align="space-between" blockAlign="start" gap="200">
+          <InlineStack gap="200" blockAlign="center">
+            <Badge tone={done ? 'success' : undefined}>{done ? 'Done' : 'To do'}</Badge>
+            <Text as="p" variant="bodyMd" fontWeight="semibold">
+              {title}
+            </Text>
+          </InlineStack>
+          <InlineStack gap="200">{children}</InlineStack>
+        </InlineStack>
+        <Text as="p" tone="subdued">
+          {description}
+        </Text>
+      </BlockStack>
+    </Box>
   );
 }
 
@@ -96,6 +77,7 @@ export default function DashboardPage() {
   const [expanded, setExpanded] = useState(false);
   const [showDisconnect, setShowDisconnect] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const navigate = useNavigate();
 
   const load = useCallback(() => {
@@ -115,6 +97,7 @@ export default function DashboardPage() {
     setError(null);
     try {
       await apiFetch('/v1/shopify/products/sync', { method: 'POST' });
+      setToastMessage('Products synced from Shopify.');
       load();
     } catch (err) {
       setError((err as Error).message);
@@ -159,6 +142,7 @@ export default function DashboardPage() {
         { method: 'POST' },
       );
       setMe((prev) => (prev ? { ...prev, store: { ...prev.store, settings } } : prev));
+      setToastMessage('Got it — Try It On block confirmed.');
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -168,271 +152,196 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <Page title="Home">
-        <Layout>
-          <Layout.Section>
-            <Card>
-              <SkeletonBodyText lines={6} />
-            </Card>
-          </Layout.Section>
-        </Layout>
-      </Page>
+      <SkeletonPage primaryAction>
+        <SkeletonBodyText />
+      </SkeletonPage>
     );
   }
 
   const synced = (me?.stats.syncedProductCount ?? 0) > 0;
-  const enabled = (me?.stats.enabledProductCount ?? 0) > 0;
+  // Global mode alone satisfies "enable try-on on a product" — under global
+  // mode literally every synced product is enabled except exclusions, so the
+  // gate must not depend on `enabledProductCount`'s precision (e.g. zero
+  // synced products yet, or an edge case where every product is individually
+  // excluded) to reflect that. See apps/api/src/modules/shopify/me.routes.ts.
+  const globalModeOn = me?.store.settings.activation?.mode === 'global';
+  const enabled = globalModeOn || (me?.stats.enabledProductCount ?? 0) > 0;
   const themeBlockDone = me?.store.settings.themeBlockConfirmed ?? false;
-  const funnelConfigured = me?.stats.funnelConfigured ?? false;
-  const doneCount = [synced, enabled, themeBlockDone, funnelConfigured].filter(Boolean).length;
-  const allDone = doneCount === 4;
+  const doneCount = [synced, enabled, themeBlockDone].filter(Boolean).length;
+  const allDone = doneCount === 3;
   const collapsed = allDone && !expanded;
 
   return (
-    <Page title="Home" subtitle="Your AiVastra try-on overview">
-      <Layout>
-        <Layout.Section>
-          {error && (
-            <Banner tone="critical" title="Something went wrong">
-              {error}
-            </Banner>
-          )}
+    <Page title="Dashboard" subtitle="Here's how virtual try-on is performing on your store.">
+      <BlockStack gap="400">
+        {error && <Banner tone="critical">{error}</Banner>}
 
+        <Card>
+          <BlockStack gap="400">
+            <ProgressBar progress={(doneCount / 3) * 100} size="small" />
+            <InlineStack align="space-between" blockAlign="center">
+              <Text as="h2" variant="headingMd">
+                Getting started ({doneCount}/3)
+              </Text>
+              <Button variant="plain" onClick={() => setExpanded((v) => !v)}>
+                {collapsed ? 'Show steps' : 'Hide steps'}
+              </Button>
+            </InlineStack>
+
+            {collapsed ? (
+              <Text as="p" tone="success">
+                All set — virtual try-on is live on your store.
+              </Text>
+            ) : (
+              <BlockStack gap="400">
+                <StepRow
+                  done={synced}
+                  title="Sync your products"
+                  description="Import your Shopify catalog so AiVastra can generate try-on images."
+                >
+                  <Button variant="primary" onClick={syncProducts} loading={syncing}>
+                    Sync products now
+                  </Button>
+                </StepRow>
+                <StepRow
+                  done={enabled}
+                  title="Enable try-on on a product"
+                  description="Turn on virtual try-on for at least one product."
+                >
+                  <Button variant="primary" onClick={() => navigate('/manage')}>
+                    Go to Manage
+                  </Button>
+                </StepRow>
+                <StepRow
+                  done={themeBlockDone}
+                  title="Add the Try It On block to your product page"
+                  description="Required — the try-on button only appears where you place this block. Open the theme editor, drag it directly above the Buy Buttons block, then save."
+                >
+                  <Button onClick={openThemeEditor} loading={openingEditor}>
+                    Open theme editor
+                  </Button>
+                  <Button variant="primary" onClick={confirmThemeBlock} loading={confirming}>
+                    I've added it
+                  </Button>
+                </StepRow>
+              </BlockStack>
+            )}
+          </BlockStack>
+        </Card>
+
+        <InlineGrid columns={{ xs: 1, sm: 3 }} gap="400">
           <Card>
-            <BlockStack gap="300">
-              <InlineStack align="space-between" blockAlign="center">
-                <Text as="h2" variant="headingMd">
-                  Getting Started
-                </Text>
-                <InlineStack gap="200" blockAlign="center">
-                  <Badge tone={allDone ? 'success' : 'info'}>{`${doneCount}/4`}</Badge>
-                  {allDone && (
-                    <button
-                      type="button"
-                      onClick={() => setExpanded((v) => !v)}
-                      aria-label={expanded ? 'Hide details' : 'Show details'}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        border: 'none',
-                        background: 'transparent',
-                        padding: '2px',
-                        cursor: 'pointer',
-                        color: 'var(--p-color-text-secondary)',
-                      }}
-                    >
-                      <ChevronDownIcon expanded={expanded} />
-                    </button>
-                  )}
-                </InlineStack>
-              </InlineStack>
-
-              {!collapsed && (
-                <>
-                  <InlineStack align="space-between" blockAlign="center">
-                    <InlineStack gap="200" blockAlign="center">
-                      <StepDot done={synced} />
-                      <Text as="p">Sync your products</Text>
-                    </InlineStack>
-                    <div style={{ width: '180px', flexShrink: 0 }}>
-                      <Button
-                        onClick={syncProducts}
-                        loading={syncing}
-                        disabled={synced}
-                        variant="primary"
-                        fullWidth
-                      >
-                        Sync products now
-                      </Button>
-                    </div>
-                  </InlineStack>
-
-                  <InlineStack align="space-between" blockAlign="center">
-                    <InlineStack gap="200" blockAlign="center">
-                      <StepDot done={enabled} />
-                      <Text as="p">Enable try-on on a product</Text>
-                    </InlineStack>
-                    <div style={{ width: '180px', flexShrink: 0 }}>
-                      <Button onClick={() => navigate('/products')} fullWidth>
-                        Go to Products
-                      </Button>
-                    </div>
-                  </InlineStack>
-
-                  <InlineStack align="space-between" blockAlign="center">
-                    <InlineStack gap="200" blockAlign="center">
-                      <StepDot done={themeBlockDone} />
-                      <Text as="p">Add the Try It On block to your theme</Text>
-                    </InlineStack>
-                    {!themeBlockDone && (
-                      <InlineStack gap="200">
-                        <div style={{ width: '170px', flexShrink: 0 }}>
-                          <Button onClick={openThemeEditor} loading={openingEditor} fullWidth>
-                            Open theme editor
-                          </Button>
-                        </div>
-                        <div style={{ width: '130px', flexShrink: 0 }}>
-                          <Button
-                            variant="primary"
-                            onClick={confirmThemeBlock}
-                            loading={confirming}
-                            fullWidth
-                          >
-                            I've added it
-                          </Button>
-                        </div>
-                      </InlineStack>
-                    )}
-                  </InlineStack>
-
-                  <InlineStack align="space-between" blockAlign="center">
-                    <InlineStack gap="200" blockAlign="center">
-                      <StepDot done={funnelConfigured} />
-                      <Text as="p">Set up your funnel templates</Text>
-                    </InlineStack>
-                    <div style={{ width: '180px', flexShrink: 0 }}>
-                      <Button onClick={() => navigate('/funnel-setup')} fullWidth>
-                        Go to Funnel Setup
-                      </Button>
-                    </div>
-                  </InlineStack>
-                </>
-              )}
-            </BlockStack>
-          </Card>
-
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(3, 1fr)',
-              gap: '16px',
-              marginTop: '16px',
-              marginBottom: '16px',
-            }}
-          >
-            <Card>
-              <Text as="h3" variant="headingSm">
+            <BlockStack gap="200">
+              <Text as="p" tone="subdued">
                 Try-Ons
               </Text>
               <Text as="p" variant="heading2xl">
                 {me?.stats.totalTryOns ?? 0}
               </Text>
-            </Card>
-            <Card>
-              <Text as="h3" variant="headingSm">
+            </BlockStack>
+          </Card>
+          <Card>
+            <BlockStack gap="200">
+              <Text as="p" tone="subdued">
                 Products Synced
               </Text>
               <Text as="p" variant="heading2xl">
                 {me?.stats.syncedProductCount ?? 0}
               </Text>
-            </Card>
-            <Card>
-              <Text as="h3" variant="headingSm">
-                Products Enabled
+            </BlockStack>
+          </Card>
+          <Card>
+            <BlockStack gap="200">
+              <Text as="p" tone="subdued">
+                Try-On Enabled
               </Text>
               <Text as="p" variant="heading2xl">
                 {me?.stats.enabledProductCount ?? 0}
               </Text>
-            </Card>
-          </div>
+              <Text as="p" tone="subdued">
+                of {me?.stats.syncedProductCount ?? 0} synced
+              </Text>
+            </BlockStack>
+          </Card>
+        </InlineGrid>
 
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1.1fr 1fr',
-              gap: '16px',
-              marginTop: '16px',
-              marginBottom: '16px',
-            }}
-          >
-            <div
-              style={{
-                position: 'relative',
-                height: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-              }}
-            >
-              <div style={{ flex: 1, display: 'grid' }}>
-                <Card>
-                  <BlockStack gap="200">
-                    <Text as="h3" variant="headingSm">
-                      Credit Balance
-                    </Text>
-                    <Text as="p" variant="heading2xl">
-                      {me?.creditBalance ?? 0}
-                    </Text>
-                  </BlockStack>
-                  <div
-                    style={{ position: 'absolute', bottom: '16px', left: '16px', right: '16px' }}
-                  >
-                    <Button
-                      variant="primary"
-                      fullWidth
-                      onClick={() =>
-                        window.open('https://app.aivastra.com/pricing', '_blank', 'noopener')
-                      }
-                    >
-                      Top up on aivastra.com
-                    </Button>
-                  </div>
-                </Card>
-              </div>
-            </div>
-
-            <Card>
-              <BlockStack gap="200">
-                <Text as="h3" variant="headingSm">
-                  Product sync status
-                </Text>
-                <StatusDotRow
-                  label="Active"
-                  count={me?.stats.statusCounts.active ?? 0}
-                  dotColor={STATUS_DOT_COLOR.active}
-                />
-                <StatusDotRow
-                  label="Processing"
-                  count={me?.stats.statusCounts.processing ?? 0}
-                  dotColor={STATUS_DOT_COLOR.processing}
-                />
-                <StatusDotRow
-                  label="Failed"
-                  count={me?.stats.statusCounts.failed ?? 0}
-                  dotColor={STATUS_DOT_COLOR.failed}
-                />
-                <StatusDotRow
-                  label="Disabled"
-                  count={me?.stats.statusCounts.disabled ?? 0}
-                  dotColor={STATUS_DOT_COLOR.disabled}
-                />
-              </BlockStack>
-            </Card>
-          </div>
+        <InlineGrid columns={{ xs: 1, sm: 3 }} gap="400">
+          <Card>
+            <BlockStack gap="300">
+              <Text as="p" tone="subdued">
+                Credit balance
+              </Text>
+              <Text as="p" variant="heading2xl">
+                {me?.creditBalance ?? 0}
+              </Text>
+              <Box>
+                <Button url="https://app.aivastra.com/pricing" target="_blank">
+                  Top up on aivastra.com
+                </Button>
+              </Box>
+            </BlockStack>
+          </Card>
 
           <Card>
-            <InlineStack align="space-between" blockAlign="center">
-              <InlineStack gap="200" blockAlign="center">
-                <Button onClick={() => navigate('/products')}>Manage Products</Button>
-                {me?.store.connectedSince && (
-                  <Text as="p" tone="subdued">
-                    Connected since {new Date(me.store.connectedSince).toLocaleDateString()}
-                  </Text>
+            <BlockStack gap="200">
+              <Text as="h2" variant="headingMd">
+                Today's try-ons
+              </Text>
+              <Text as="p" variant="heading2xl">
+                {me?.stats.storeDailyCap
+                  ? `${me.stats.todayTryOns} / ${me.stats.storeDailyCap}`
+                  : (me?.stats.todayTryOns ?? 0)}
+              </Text>
+              {me?.stats.storeDailyCap != null &&
+                me.stats.todayTryOns >= me.stats.storeDailyCap && (
+                  <Banner tone="warning">
+                    Your daily limit is reached. Try-on is paused until tomorrow.
+                  </Banner>
                 )}
-              </InlineStack>
-              <Button variant="plain" tone="critical" onClick={() => setShowDisconnect(true)}>
-                Disconnect account
-              </Button>
-            </InlineStack>
+              <Text as="p" tone="subdued">
+                {me?.stats.capturedEmailCount ?? 0} emails collected
+              </Text>
+            </BlockStack>
           </Card>
-        </Layout.Section>
-      </Layout>
+
+          <Card>
+            <BlockStack gap="300">
+              <Text as="p" tone="subdued">
+                Sync status
+              </Text>
+              {(['active', 'processing', 'failed', 'disabled'] as const).map((key) => (
+                <InlineStack key={key} align="space-between" blockAlign="center">
+                  <Text as="span">{STATUS_LABEL[key]}</Text>
+                  <Badge tone={STATUS_TONE[key]}>{String(me?.stats.statusCounts[key] ?? 0)}</Badge>
+                </InlineStack>
+              ))}
+            </BlockStack>
+          </Card>
+        </InlineGrid>
+
+        <InlineStack align="space-between" blockAlign="center">
+          <Button variant="plain" onClick={() => navigate('/manage')}>
+            Manage Products
+          </Button>
+          <InlineStack gap="400" blockAlign="center">
+            {me?.store.connectedSince && (
+              <Text as="span" tone="subdued">
+                Connected since {new Date(me.store.connectedSince).toLocaleDateString()}
+              </Text>
+            )}
+            <Button variant="plain" tone="critical" onClick={() => setShowDisconnect(true)}>
+              Disconnect account
+            </Button>
+          </InlineStack>
+        </InlineStack>
+      </BlockStack>
 
       <Modal
         open={showDisconnect}
         onClose={() => setShowDisconnect(false)}
-        title="Disconnect your AiVastra account"
+        title="Disconnect AiVastra?"
         primaryAction={{
-          content: disconnecting ? 'Disconnecting…' : 'Disconnect',
+          content: 'Disconnect',
           destructive: true,
           loading: disconnecting,
           onAction: disconnectAccount,
@@ -441,12 +350,13 @@ export default function DashboardPage() {
       >
         <Modal.Section>
           <Text as="p">
-            This unlinks the current AiVastra account from this store. You'll be asked to link an
-            account again before you can use try-on. Your products, sync status, and funnel setup
-            aren't affected.
+            Shoppers will stop seeing the Try It On button on your storefront until you reconnect.
+            Your AiVastra account, credits, and history stay safe at app.aivastra.com.
           </Text>
         </Modal.Section>
       </Modal>
+
+      {toastMessage && <Toast content={toastMessage} onDismiss={() => setToastMessage(null)} />}
     </Page>
   );
 }

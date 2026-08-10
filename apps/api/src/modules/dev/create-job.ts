@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { DB } from '@aivastra/db';
 import { schema } from '@aivastra/db';
 import { jobsCreatedTotal } from '@aivastra/observability';
+import { JOB_SOURCE, type JobSource } from '@aivastra/types';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
@@ -20,7 +21,7 @@ export async function createDevJobCore(
     apiKeyId: string;
     cost: number;
     watermark: boolean;
-    metricKind: string;
+    source: JobSource;
     buildJobInputs: () => Omit<typeof schema.jobInputs.$inferInsert, 'jobId'>;
   },
 ): Promise<{ jobId: string }> {
@@ -37,7 +38,7 @@ export async function createDevJobCore(
         queueStream: 'normal',
         watermark: params.watermark,
         creditsCharged: params.cost,
-        source: 'api',
+        source: params.source,
       })
       .returning();
     if (!newJob) throw new AppError('INTERNAL', 500, 'failed to create job');
@@ -68,11 +69,11 @@ export async function createDevJobCore(
       'userId',
       params.merchantUserId,
     );
-    jobsCreatedTotal.inc({ priority: 'normal', kind: params.metricKind });
+    jobsCreatedTotal.inc({ priority: 'normal', kind: params.source });
   } catch (err) {
     app.log.error(
       { err, jobId: job.id },
-      `redis xadd failed — dev ${params.metricKind} job will be refunded`,
+      `redis xadd failed — dev ${params.source} job will be refunded`,
     );
     await refund(app.db, params.merchantUserId, params.cost, job.id, 'REFUND_ENQUEUE_FAIL');
     await app.db
@@ -93,7 +94,9 @@ export async function createDevJobCore(
  * requires the garment to be a prior COMPLETED job of the caller (sourceJobId)
  * and resolves the workflow through a garment-type → tryon-category chain. A
  * third-party developer has neither, so this resolves the workflow straight off
- * tryon_categories.slug. Same reasoning merchant/create-job.ts documents at its top.
+ * dev_tryon_categories.slug — a dedicated table decoupled from the internal
+ * tryon_categories table used by Studio/kiosk/merchant flows. Same reasoning
+ * merchant/create-job.ts documents at its top.
  *
  * The job row is userId-owned (the merchant's user) so the dispatcher's existing
  * transactional refund-on-terminal-failure path applies with no changes.
@@ -111,23 +114,24 @@ export async function createDevTryonJob(
 ): Promise<{ jobId: string }> {
   const cost = await getTryonCreditCost(app);
 
-  // Kill-switch parity: a category an admin deactivated, or one whose workflow
-  // template is inactive, must not resolve. This runs before any credit
-  // movement, so a rejected request is always free.
+  // Resolve off the DEDICATED dev table, not tryon_categories — the public API
+  // surface is controlled independent of the internal Studio catalog. Kill-switch
+  // parity: an inactive dev category, or one whose workflow template is inactive,
+  // must not resolve. Runs before any credit movement, so a rejected request is free.
   const [category] = await app.db
     .select({
-      workflowTemplateId: schema.tryonCategories.workflowTemplateId,
+      workflowTemplateId: schema.devTryonCategories.workflowTemplateId,
       templateIsActive: schema.workflowTemplates.isActive,
     })
-    .from(schema.tryonCategories)
+    .from(schema.devTryonCategories)
     .leftJoin(
       schema.workflowTemplates,
-      eq(schema.workflowTemplates.id, schema.tryonCategories.workflowTemplateId),
+      eq(schema.workflowTemplates.id, schema.devTryonCategories.workflowTemplateId),
     )
     .where(
       and(
-        eq(schema.tryonCategories.slug, params.categorySlug),
-        eq(schema.tryonCategories.isActive, true),
+        eq(schema.devTryonCategories.slug, params.categorySlug),
+        eq(schema.devTryonCategories.isActive, true),
       ),
     )
     .limit(1);
@@ -148,7 +152,7 @@ export async function createDevTryonJob(
     apiKeyId: params.apiKeyId,
     cost,
     watermark: false,
-    metricKind: 'tryon',
+    source: JOB_SOURCE.API_TRYON,
     buildJobInputs: () => ({
       upperGarmentKey: params.garmentKey,
       params: { personKey: params.personKey, workflowTemplateId: category.workflowTemplateId },

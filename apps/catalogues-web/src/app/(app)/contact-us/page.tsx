@@ -1,15 +1,63 @@
 'use client';
-import { Mail, MapPinned, Phone } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Loader2, Mail, MapPinned, Phone } from 'lucide-react';
 import { useState } from 'react';
 import { FaFacebookF, FaInstagram, FaLinkedin, FaYoutube } from 'react-icons/fa';
 import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
+import { api } from '@/lib/api';
 
 export default function ContactUsPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [message, setMessage] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) {
+      setError('Please enter your full name.');
+      return;
+    }
+    if (!email.trim() || !email.includes('@')) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+    if (!phone.trim() || phone.length < 10) {
+      setError('Please enter a valid 10-digit phone number.');
+      return;
+    }
+
+    setError(null);
+    setSubmitting(true);
+    try {
+      await api.post('/v1/contact', {
+        name: name.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        source: 'contact-us',
+        message: message.trim() || undefined,
+      });
+      setSubmitted(true);
+      setName('');
+      setEmail('');
+      setPhone('');
+      setMessage('');
+    } catch (err: unknown) {
+      console.error('Failed to submit contact message:', err);
+      const msg =
+        err && typeof err === 'object' && 'error' in err
+          ? (err as { error?: { message?: string } }).error?.message
+          : err instanceof Error
+            ? err.message
+            : undefined;
+      setError(msg || 'Failed to send message. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div
@@ -21,6 +69,195 @@ export default function ContactUsPage() {
       }}
     >
       <style>{`
+        .contact-content-area {
+          flex: 1;
+          overflow-y: auto;
+          background: ${C.bg};
+          padding: 40px 24px;
+          box-sizing: border-box;
+        }
+
+        .contact-container {
+          width: 100%;
+          max-width: 1156px;
+          margin: 0 auto;
+          display: flex;
+          flex-direction: row;
+          justify-content: space-between;
+          align-items: stretch;
+          gap: 32px;
+        }
+
+        .contact-info-card {
+          box-sizing: border-box;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          align-items: flex-start;
+          padding: 32px 36px;
+          gap: 28px;
+          flex: 1 1 500px;
+          min-width: 320px;
+          max-width: 651px;
+          width: 100%;
+          background: #FEFEFE;
+          border: 1px solid #EEEEEE;
+          box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.08);
+          border-radius: 24px;
+        }
+
+        .contact-form-card {
+          box-sizing: border-box;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          align-items: flex-start;
+          padding: 32px;
+          gap: 20px;
+          width: 460px;
+          max-width: 100%;
+          flex-shrink: 0;
+          background: #FEFEFE;
+          border: 1px solid #EEEEEE;
+          box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.08);
+          border-radius: 24px;
+        }
+
+        .contact-card-title {
+          font-size: 26px;
+          font-weight: 600;
+          color: #1A1A2E;
+        }
+
+        .contact-card-subtitle {
+          font-size: 14px;
+          color: ${C.mid};
+          line-height: 1.5;
+        }
+
+        .contact-item-label {
+          font-size: 13px;
+          font-weight: 600;
+          color: #1A1A2E;
+          margin-bottom: 4px;
+        }
+
+        .contact-item-val {
+          font-size: 14px;
+          color: ${C.mid};
+          line-height: 1.5;
+        }
+
+        .contact-icon-box {
+          width: 45px;
+          height: 45px;
+          min-width: 45px;
+          border-radius: 10px;
+          border: 1px solid #DDDDDD;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .contact-form-label {
+          font-size: 12px;
+          font-weight: 600;
+          color: #1A1A2E;
+          margin-bottom: 6px;
+          display: block;
+        }
+
+        .contact-submit-btn {
+          width: 100%;
+          height: 44px;
+          background: ${grad};
+          color: #fff;
+          border: none;
+          border-radius: 8px;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          font-family: inherit;
+        }
+
+        @media (max-width: 1200px) {
+          .contact-content-area {
+            padding: 24px 20px;
+          }
+          .contact-container {
+            flex-direction: column;
+            align-items: center;
+            gap: 24px;
+          }
+          .contact-info-card {
+            width: 100%;
+            max-width: 650px;
+            padding: 28px 28px;
+            gap: 24px;
+          }
+          .contact-form-card {
+            width: 100%;
+            max-width: 650px;
+            padding: 28px 28px;
+            gap: 20px;
+          }
+          .contact-card-title {
+            font-size: 22px;
+          }
+          .contact-card-subtitle {
+            font-size: 13px;
+          }
+          .contact-item-val {
+            font-size: 13px;
+          }
+          .contact-icon-box {
+            width: 40px;
+            height: 40px;
+            min-width: 40px;
+          }
+        }
+
+        @media (max-width: 639px) {
+          .contact-content-area {
+            padding: 16px 16px;
+          }
+          .contact-container {
+            gap: 16px;
+          }
+          .contact-info-card {
+            padding: 20px 16px;
+            border-radius: 16px;
+            gap: 20px;
+          }
+          .contact-form-card {
+            padding: 20px 16px;
+            border-radius: 16px;
+            gap: 16px;
+          }
+          .contact-card-title {
+            font-size: 20px;
+          }
+          .contact-card-subtitle {
+            font-size: 12px;
+          }
+          .contact-item-label {
+            font-size: 12.5px;
+          }
+          .contact-item-val {
+            font-size: 12px;
+            line-height: 1.4;
+          }
+          .contact-icon-box {
+            width: 36px;
+            height: 36px;
+            min-width: 36px;
+          }
+          .contact-submit-btn {
+            height: 40px;
+            font-size: 13px;
+          }
+        }
+
         .contact-input::placeholder {
           color: #E2E8F0 !important;
           opacity: 1 !important;
@@ -28,54 +265,13 @@ export default function ContactUsPage() {
         }
       `}</style>
       <TopBar title="Contact Us" subtitle="" />
-      <div
-        style={{
-          flex: 1,
-          overflowY: 'auto',
-          background: C.bg,
-          position: 'relative',
-        }}
-      >
-        <div
-          style={{
-            position: 'absolute',
-            width: 1156,
-            height: 562,
-            left: '48%',
-            top: '48%',
-            transform: 'translate(-50%, -50%)',
-            display: 'flex',
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: 80,
-          }}
-        >
+      <div className="contact-content-area">
+        <div className="contact-container">
           {/* Left - Contact Info */}
-          <div
-            style={{
-              boxSizing: 'border-box',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'center',
-              alignItems: 'flex-start',
-              padding: '20px 40px',
-              gap: 32,
-              width: 651,
-              height: 562,
-              background: '#FEFEFE',
-              border: '1px solid #EEEEEE',
-              boxShadow: '0px 4px 15px rgba(0, 0, 0, 0.08)',
-              borderRadius: 24,
-              flex: 'none',
-              order: 0,
-              alignSelf: 'stretch',
-              flexGrow: 0,
-            }}
-          >
+          <div className="contact-info-card">
             <div>
-              <div style={{ fontSize: 26, fontWeight: 600, color: '#1A1A2E' }}>Let's Connect</div>
-              <div style={{ fontSize: 14, color: C.mid, lineHeight: 1.5 }}>
+              <div className="contact-card-title">Let's Connect</div>
+              <div className="contact-card-subtitle">
                 Reach out to us through any of the following channels.
               </div>
             </div>
@@ -83,73 +279,34 @@ export default function ContactUsPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16, width: '100%' }}>
               {/* Email */}
               <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                <div
-                  style={{
-                    width: 45,
-                    height: 45,
-                    minWidth: 45,
-                    borderRadius: 10,
-                    border: '1px solid #DDDDDD',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Mail size={20} color={C.mid} />
+                <div className="contact-icon-box">
+                  <Mail size={18} color={C.mid} />
                 </div>
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1A2E', marginBottom: 4 }}>
-                    Email
-                  </div>
-                  <div style={{ fontSize: 14, color: C.mid }}>support@aivastra.com</div>
+                  <div className="contact-item-label">Email</div>
+                  <div className="contact-item-val">support@aivastra.com</div>
                 </div>
               </div>
 
               {/* Phone */}
               <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                <div
-                  style={{
-                    width: 45,
-                    height: 45,
-                    minWidth: 45,
-                    borderRadius: 10,
-                    border: '1px solid #DDDDDD',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Phone size={20} color={C.mid} />
+                <div className="contact-icon-box">
+                  <Phone size={18} color={C.mid} />
                 </div>
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1A2E', marginBottom: 4 }}>
-                    Phone
-                  </div>
-                  <div style={{ fontSize: 14, color: C.mid }}>+91 7729883692</div>
+                  <div className="contact-item-label">Phone</div>
+                  <div className="contact-item-val">+91 7729883692</div>
                 </div>
               </div>
 
               {/* Corporate Office */}
               <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                <div
-                  style={{
-                    width: 45,
-                    height: 45,
-                    minWidth: 45,
-                    borderRadius: 10,
-                    border: '1px solid #DDDDDD',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <MapPinned size={20} color={C.mid} />
+                <div className="contact-icon-box">
+                  <MapPinned size={18} color={C.mid} />
                 </div>
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1A2E', marginBottom: 4 }}>
-                    Corporate Office
-                  </div>
-                  <div style={{ fontSize: 14, color: C.mid, lineHeight: 1.5 }}>
+                  <div className="contact-item-label">Corporate Office</div>
+                  <div className="contact-item-val">
                     #904, 9th Floor Asian Sun City Commercial Beside Sarath City Capital Mall
                     Kondapur, Hyderabad, 500084.
                   </div>
@@ -158,25 +315,12 @@ export default function ContactUsPage() {
 
               {/* Head Office */}
               <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                <div
-                  style={{
-                    width: 45,
-                    height: 45,
-                    minWidth: 45,
-                    borderRadius: 10,
-                    border: '1px solid #DDDDDD',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <MapPinned size={20} color={C.mid} />
+                <div className="contact-icon-box">
+                  <MapPinned size={18} color={C.mid} />
                 </div>
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1A2E', marginBottom: 4 }}>
-                    Head Office
-                  </div>
-                  <div style={{ fontSize: 14, color: C.mid, lineHeight: 1.5 }}>
+                  <div className="contact-item-label">Head Office</div>
+                  <div className="contact-item-val">
                     3rd Floor, Salumuri Vari St, above Ishita Mini Function Hall, Innespeta,
                     Rajamahendravaram, Andhra Pradesh, 533101.
                   </div>
@@ -271,203 +415,211 @@ export default function ContactUsPage() {
           </div>
 
           {/* Right - Contact Form */}
-          <div
-            style={{
-              boxSizing: 'border-box',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'flex-start',
-              padding: 20,
-              gap: 24,
-              width: 480,
-              height: 562,
-              background: '#FEFEFE',
-              border: '1px solid #EEEEEE',
-              boxShadow: '0px 4px 15px rgba(0, 0, 0, 0.08)',
-              borderRadius: 24,
-              flex: 'none',
-              order: 1,
-              flexGrow: 0,
-            }}
-          >
-            <div>
-              <div style={{ fontSize: 26, fontWeight: 600, color: '#1A1A2E' }}>
-                Send Us a Message
-              </div>
-              <div style={{ fontSize: 14, color: C.mid, lineHeight: 1.5 }}>
-                Share few details, and we&apos;ll contact you soon.
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16, width: '100%' }}>
-              {/* Full Name */}
-              <div>
-                <label
-                  htmlFor="contact-name"
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: '#1A1A2E',
-                    marginBottom: 6,
-                    display: 'block',
-                  }}
-                >
-                  Full Name<span style={{ color: '#DC2626' }}>*</span>
-                </label>
-                <input
-                  id="contact-name"
-                  className="contact-input"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Matt Borris"
-                  style={{
-                    width: '100%',
-                    boxSizing: 'border-box',
-                    height: 42,
-                    border: '1px solid #D1D5DB',
-                    borderRadius: 8,
-                    padding: '0 12px',
-                    fontSize: 13,
-                    color: C.text,
-                    background: '#FEFEFE',
-                    outline: 'none',
-                    fontFamily: 'inherit',
-                  }}
-                />
-              </div>
-
-              {/* Email */}
-              <div>
-                <label
-                  htmlFor="contact-email"
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: '#1A1A2E',
-                    marginBottom: 6,
-                    display: 'block',
-                  }}
-                >
-                  Email<span style={{ color: '#DC2626' }}>*</span>
-                </label>
-                <input
-                  id="contact-email"
-                  className="contact-input"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="mattborris@email.com"
-                  style={{
-                    width: '100%',
-                    boxSizing: 'border-box',
-                    height: 42,
-                    border: '1px solid #D1D5DB',
-                    borderRadius: 8,
-                    padding: '0 12px',
-                    fontSize: 13,
-                    color: C.text,
-                    background: '#FEFEFE',
-                    outline: 'none',
-                    fontFamily: 'inherit',
-                  }}
-                />
-              </div>
-
-              {/* Phone */}
-              <div>
-                <label
-                  htmlFor="contact-phone"
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: '#1A1A2E',
-                    marginBottom: 6,
-                    display: 'block',
-                  }}
-                >
-                  Phone Number<span style={{ color: '#DC2626' }}>*</span>
-                </label>
-                <input
-                  id="contact-phone"
-                  className="contact-input"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                  placeholder="9874563210"
-                  inputMode="numeric"
-                  maxLength={10}
-                  style={{
-                    width: '100%',
-                    boxSizing: 'border-box',
-                    height: 42,
-                    border: '1px solid #D1D5DB',
-                    borderRadius: 8,
-                    padding: '0 12px',
-                    fontSize: 13,
-                    color: C.text,
-                    background: '#FEFEFE',
-                    outline: 'none',
-                    fontFamily: 'inherit',
-                  }}
-                />
-              </div>
-
-              {/* Message */}
-              <div>
-                <label
-                  htmlFor="contact-message"
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: '#1A1A2E',
-                    marginBottom: 6,
-                    display: 'block',
-                  }}
-                >
-                  Your Message
-                </label>
-                <textarea
-                  id="contact-message"
-                  className="contact-input"
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  placeholder="Tell us about your requirements, business, or any questions you have..."
-                  rows={3}
-                  style={{
-                    width: '100%',
-                    boxSizing: 'border-box',
-                    border: '1px solid #D1D5DB',
-                    borderRadius: 8,
-                    padding: '10px 12px',
-                    fontSize: 13,
-                    color: C.text,
-                    background: '#FEFEFE',
-                    resize: 'vertical',
-                    outline: 'none',
-                    fontFamily: 'inherit',
-                    lineHeight: 1.5,
-                  }}
-                />
-              </div>
-            </div>
-
-            {/* Submit */}
-            <button
-              type="button"
+          {submitted ? (
+            <div
+              className="contact-form-card"
               style={{
-                width: '100%',
-                height: 44,
-                background: grad,
-                color: '#fff',
-                border: 'none',
-                borderRadius: 8,
-                fontSize: 14,
-                fontWeight: 600,
-                cursor: 'pointer',
-                fontFamily: 'inherit',
+                justifyContent: 'center',
+                alignItems: 'center',
+                textAlign: 'center',
+                padding: '48px 32px',
               }}
             >
-              Submit Message
-            </button>
-          </div>
+              <div
+                style={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: '50%',
+                  background: '#DEF7EC',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: 16,
+                }}
+              >
+                <CheckCircle2 size={32} color="#0E9F6E" />
+              </div>
+              <div className="contact-card-title" style={{ fontSize: 22, marginBottom: 8 }}>
+                Message Sent Successfully!
+              </div>
+              <div className="contact-card-subtitle" style={{ maxWidth: 340, marginBottom: 24 }}>
+                Thank you for reaching out. We&apos;ve received your message and will get back to
+                you shortly.
+              </div>
+              <button
+                type="button"
+                className="contact-submit-btn"
+                onClick={() => setSubmitted(false)}
+                style={{ width: 'auto', padding: '0 24px' }}
+              >
+                Send Another Message
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="contact-form-card">
+              <div>
+                <div className="contact-card-title">Send Us a Message</div>
+                <div className="contact-card-subtitle">
+                  Share few details, and we&apos;ll contact you soon.
+                </div>
+              </div>
+
+              {error && (
+                <div
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    padding: '10px 14px',
+                    borderRadius: 8,
+                    background: '#FDE8E8',
+                    border: '1px solid #F8B4B4',
+                    color: '#9B1C1C',
+                    fontSize: 13,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <AlertCircle size={16} style={{ flexShrink: 0 }} />
+                  <span>{error}</span>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16, width: '100%' }}>
+                {/* Full Name */}
+                <div>
+                  <label htmlFor="contact-name" className="contact-form-label">
+                    Full Name<span style={{ color: '#DC2626' }}>*</span>
+                  </label>
+                  <input
+                    id="contact-name"
+                    className="contact-input"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Matt Borris"
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      height: 42,
+                      border: '1px solid #D1D5DB',
+                      borderRadius: 8,
+                      padding: '0 12px',
+                      fontSize: 13,
+                      color: C.text,
+                      background: '#FEFEFE',
+                      outline: 'none',
+                      fontFamily: 'inherit',
+                    }}
+                  />
+                </div>
+
+                {/* Email */}
+                <div>
+                  <label htmlFor="contact-email" className="contact-form-label">
+                    Email<span style={{ color: '#DC2626' }}>*</span>
+                  </label>
+                  <input
+                    id="contact-email"
+                    className="contact-input"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="mattborris@email.com"
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      height: 42,
+                      border: '1px solid #D1D5DB',
+                      borderRadius: 8,
+                      padding: '0 12px',
+                      fontSize: 13,
+                      color: C.text,
+                      background: '#FEFEFE',
+                      outline: 'none',
+                      fontFamily: 'inherit',
+                    }}
+                  />
+                </div>
+
+                {/* Phone */}
+                <div>
+                  <label htmlFor="contact-phone" className="contact-form-label">
+                    Phone Number<span style={{ color: '#DC2626' }}>*</span>
+                  </label>
+                  <input
+                    id="contact-phone"
+                    className="contact-input"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    placeholder="9874563210"
+                    inputMode="numeric"
+                    maxLength={10}
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      height: 42,
+                      border: '1px solid #D1D5DB',
+                      borderRadius: 8,
+                      padding: '0 12px',
+                      fontSize: 13,
+                      color: C.text,
+                      background: '#FEFEFE',
+                      outline: 'none',
+                      fontFamily: 'inherit',
+                    }}
+                  />
+                </div>
+
+                {/* Message */}
+                <div>
+                  <label htmlFor="contact-message" className="contact-form-label">
+                    Your Message
+                  </label>
+                  <textarea
+                    id="contact-message"
+                    className="contact-input"
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    placeholder="Tell us about your requirements, business, or any questions you have..."
+                    rows={3}
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      border: '1px solid #D1D5DB',
+                      borderRadius: 8,
+                      padding: '10px 12px',
+                      fontSize: 13,
+                      color: C.text,
+                      background: '#FEFEFE',
+                      resize: 'vertical',
+                      outline: 'none',
+                      fontFamily: 'inherit',
+                      lineHeight: 1.5,
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Submit */}
+              <button
+                type="submit"
+                disabled={submitting}
+                className="contact-submit-btn"
+                style={{
+                  opacity: submitting ? 0.7 : 1,
+                  cursor: submitting ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {submitting ? (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <Loader2 size={16} className="av-spin" />
+                    Sending...
+                  </span>
+                ) : (
+                  'Submit Message'
+                )}
+              </button>
+            </form>
+          )}
         </div>
       </div>
     </div>

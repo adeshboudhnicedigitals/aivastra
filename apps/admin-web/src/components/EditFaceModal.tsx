@@ -3,6 +3,7 @@ import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } f
 import { makeThumbnail } from '../lib/thumbnail';
 import type { GenderSlug, ModelFace } from '../types';
 import { Icon } from './Icons';
+import { PublicApiSlugField } from './PublicApiSlugField';
 
 interface Props {
   face: ModelFace;
@@ -17,17 +18,13 @@ export function EditFaceModal({ face, storagePublicUrl, onSaved, onClose, toast 
     label: face.label,
     gender: face.gender,
     sortOrder: face.sortOrder,
+    publicApiSlug: face.publicApiSlug ?? '',
   });
   const [saving, setSaving] = useState(false);
   const [replaceFile, setReplaceFile] = useState<File | null>(null);
   const [replacePreview, setReplacePreview] = useState<string | null>(null);
   const [replaceUploading, setReplaceUploading] = useState(false);
   const replaceRef = useRef<HTMLInputElement>(null);
-  const [sideFile, setSideFile] = useState<File | null>(null);
-  const [sidePreview, setSidePreview] = useState<string | null>(null);
-  const [sideUploading, setSideUploading] = useState(false);
-  const sideRef = useRef<HTMLInputElement>(null);
-  const [currentFaceSideKey, setCurrentFaceSideKey] = useState(face.faceSideR2Key);
 
   const handleSave = async () => {
     setSaving(true);
@@ -100,48 +97,8 @@ export function EditFaceModal({ face, storagePublicUrl, onSaved, onClose, toast 
     }
   };
 
-  const handleReplaceSideImage = async () => {
-    if (!sideFile) return;
-    setSideUploading(true);
-    try {
-      const presign = await apiFetch<{ uploadUrl: string; faceSideR2Key: string }>(
-        `/admin/assets/faces/${face.id}/presign-side`,
-        { method: 'POST' },
-      );
-      await new Promise<void>((res, rej) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('PUT', presign.uploadUrl);
-        xhr.setRequestHeader('Content-Type', sideFile.type);
-        xhr.onload = () =>
-          xhr.status < 300 ? res() : rej(new Error(uploadErrorMessage(xhr.status)));
-        xhr.onerror = () => rej(new Error(UPLOAD_NETWORK_ERROR));
-        xhr.send(sideFile);
-      });
-      await apiFetch(`/admin/assets/faces/${face.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ faceSideR2Key: presign.faceSideR2Key }),
-      });
-      setCurrentFaceSideKey(presign.faceSideR2Key);
-      onSaved({ ...face, faceSideR2Key: presign.faceSideR2Key });
-      setSideFile(null);
-      setSidePreview(null);
-      toast({ title: 'ComfyUI face image uploaded' });
-    } catch (e) {
-      toast({
-        kind: 'error',
-        title: 'ComfyUI face image upload failed',
-        body: apiErrorMessage(e, 'Please try again.'),
-      });
-    } finally {
-      setSideUploading(false);
-    }
-  };
-
   return (
-    <div
-      className="modal-overlay"
-      onClick={saving || replaceUploading || sideUploading ? undefined : onClose}
-    >
+    <div className="modal-overlay" onClick={saving || replaceUploading ? undefined : onClose}>
       <div
         className="modal"
         onClick={(e) => e.stopPropagation()}
@@ -196,6 +153,12 @@ export function EditFaceModal({ face, storagePublicUrl, onSaved, onClose, toast 
               onChange={(e) => setForm((f) => ({ ...f, sortOrder: Number(e.target.value) }))}
             />
           </div>
+          <PublicApiSlugField
+            value={form.publicApiSlug}
+            disabled={saving}
+            kind="model"
+            onChange={(v) => setForm((f) => ({ ...f, publicApiSlug: v }))}
+          />
           <div className="field">
             <label>Replace image</label>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -253,89 +216,16 @@ export function EditFaceModal({ face, storagePublicUrl, onSaved, onClose, toast 
               </div>
             </div>
           </div>
-          <div className="field">
-            <label>
-              ComfyUI face image{' '}
-              {!currentFaceSideKey && (
-                <span style={{ color: 'var(--danger, #e53)', fontWeight: 600 }}>
-                  (missing — jobs will fail)
-                </span>
-              )}
-            </label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              {(sidePreview ??
-                (storagePublicUrl && currentFaceSideKey
-                  ? `${storagePublicUrl}/${currentFaceSideKey}`
-                  : null)) && (
-                // biome-ignore lint/performance/noImgElement: face side thumbnail preview
-                <img
-                  src={sidePreview ?? `${storagePublicUrl}/${currentFaceSideKey}`}
-                  alt=""
-                  style={{
-                    width: 56,
-                    height: 56,
-                    objectFit: 'cover',
-                    borderRadius: 6,
-                    border: '1px solid var(--border)',
-                  }}
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = 'none';
-                  }}
-                />
-              )}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <input
-                  ref={sideRef}
-                  type="file"
-                  accept="image/*"
-                  style={{ display: 'none' }}
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    setSideFile(file);
-                    setSidePreview(URL.createObjectURL(file));
-                  }}
-                />
-                <button
-                  type="button"
-                  className="btn sm ghost"
-                  disabled={saving || sideUploading}
-                  onClick={() => sideRef.current?.click()}
-                >
-                  <Icon.Image />{' '}
-                  {sideFile
-                    ? sideFile.name
-                    : currentFaceSideKey
-                      ? 'Replace ComfyUI image'
-                      : 'Upload ComfyUI image'}
-                </button>
-                {sideFile && (
-                  <button
-                    type="button"
-                    className="btn sm primary"
-                    disabled={sideUploading}
-                    onClick={handleReplaceSideImage}
-                  >
-                    {sideUploading ? 'Uploading…' : 'Upload & save'}
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
         </div>
 
         <div className="modal-foot">
-          <button
-            className="btn ghost"
-            onClick={onClose}
-            disabled={saving || replaceUploading || sideUploading}
-          >
+          <button className="btn ghost" onClick={onClose} disabled={saving || replaceUploading}>
             Cancel
           </button>
           <button
             className="btn primary"
             onClick={handleSave}
-            disabled={saving || replaceUploading || sideUploading || !form.label.trim()}
+            disabled={saving || replaceUploading || !form.label.trim()}
           >
             {saving ? 'Saving…' : 'Save changes'}
           </button>

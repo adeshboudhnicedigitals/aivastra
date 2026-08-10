@@ -98,3 +98,77 @@ describe('PATCH /admin/workers/:id — registry status sync', () => {
     expect(await registryStatus(id)).toBe('BUSY');
   });
 });
+
+describe('POST /admin/workers — allowedJobTypes validation', () => {
+  let c: Containers;
+  let app: TestApp;
+  let authHeader: Record<string, string>;
+
+  beforeAll(async () => {
+    c = await startContainers();
+    app = await buildTestApp(c);
+    authHeader = await adminAuthHeader(app, 'SUPER_ADMIN');
+  }, 60000);
+  afterAll(async () => {
+    await app?.close();
+    await c?.stop();
+  });
+
+  it('accepts merchant as an allowed job type', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/workers',
+      headers: authHeader,
+      payload: {
+        id: 'test-worker-merchant-pool',
+        label: '',
+        url: 'https://example.com/',
+        apiKey: 'k'.repeat(8),
+        allowedJobTypes: ['merchant'],
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().allowedJobTypes).toEqual(['merchant']);
+  });
+
+  it('rejects an unknown job type', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/workers',
+      headers: authHeader,
+      payload: {
+        id: 'test-worker-bad-pool',
+        label: '',
+        url: 'https://example.com/',
+        apiKey: 'k'.repeat(8),
+        allowedJobTypes: ['not-a-real-pool'],
+      },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('accepts merchant as an allowed job type via PATCH', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workers',
+      headers: authHeader,
+      payload: {
+        id: 'test-worker-merchant-pool-patch',
+        label: '',
+        url: 'https://example.com/',
+        apiKey: 'k'.repeat(8),
+        allowedJobTypes: [],
+      },
+    });
+    expect(createRes.statusCode).toBe(201);
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: '/admin/workers/test-worker-merchant-pool-patch',
+      headers: authHeader,
+      payload: { allowedJobTypes: ['merchant'] },
+    });
+    expect(patchRes.statusCode).toBe(200);
+    expect(patchRes.json().allowedJobTypes).toEqual(['merchant']);
+  });
+});

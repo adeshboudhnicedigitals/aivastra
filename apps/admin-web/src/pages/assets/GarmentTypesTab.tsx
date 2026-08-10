@@ -9,6 +9,7 @@ import { makeThumbnail } from '../../lib/thumbnail';
 import type {
   GarmentType,
   GenderSlug,
+  MappedTemplateLook,
   MappedTemplatePoseWorkflow,
   PoseGarmentConfig,
   ShotTypeWorkflow,
@@ -104,6 +105,7 @@ export function GarmentTypesTab() {
   const [savingDefaultPose, setSavingDefaultPose] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<ConfirmDeleteGT | null>(null);
   const [tryonCategories, setTryonCategories] = useState<TryonCategory[]>([]);
+  const [expandedGarmentTypeId, setExpandedGarmentTypeId] = useState<string | null>(null);
 
   // Suggested "append at the end" position for a new garment type of this
   // gender - just a starting point shown in the field; picking a lower number
@@ -301,6 +303,13 @@ export function GarmentTypesTab() {
     if (!confirmDelete) return;
     const { id, label } = confirmDelete;
     setConfirmDelete(null);
+
+    if (id.startsWith('gt_demo_')) {
+      setGarmentTypes((prev) => prev.filter((s) => s.id !== id));
+      toast({ title: `${label} deleted` });
+      return;
+    }
+
     try {
       await apiFetch(`/admin/assets/garment-types/${id}`, { method: 'DELETE' });
       setGarmentTypes((prev) => prev.filter((s) => s.id !== id));
@@ -419,7 +428,7 @@ export function GarmentTypesTab() {
               </button>
             ))}
           </div>
-          <div className="table-wrap">
+          <div className="desktop-only table-wrap">
             <table>
               <thead>
                 <tr>
@@ -595,6 +604,235 @@ export function GarmentTypesTab() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile/Tablet Card List */}
+          <div className="mobile-only">
+            {filteredGarmentTypes.map((sub) => {
+              const isExpanded = expandedGarmentTypeId === sub.id;
+              const lowerItem = catalogItems.find((c) => c.id === sub.defaultLowerCatalogId);
+              const shoeItem = catalogItems.find((c) => c.id === sub.defaultShoeCatalogId);
+              const cat = tryonCategories.find((c) => c.id === sub.tryonCategoryId);
+
+              return (
+                <div
+                  key={sub.id}
+                  className="card"
+                  style={{
+                    padding: 0,
+                    overflow: 'hidden',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    background: 'var(--surface)',
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setExpandedGarmentTypeId(isExpanded ? null : sub.id)}
+                    style={{
+                      padding: '14px 16px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                      background: 'none',
+                      border: 'none',
+                      width: '100%',
+                      textAlign: 'left',
+                      color: 'inherit',
+                      fontFamily: 'inherit',
+                      fontSize: 'inherit',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        minWidth: 0,
+                        flex: 1,
+                      }}
+                    >
+                      <AssetThumb
+                        thumbnailKey={sub.thumbnailKey ?? undefined}
+                        label={sub.label}
+                        w={32}
+                        h={32}
+                        storageBase={storagePublicUrl}
+                      />
+                      <span
+                        className="semi"
+                        style={{
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          fontSize: 15,
+                          color: 'var(--ink)',
+                          fontWeight: 600,
+                        }}
+                      >
+                        {sub.label}
+                      </span>
+                    </div>
+                    <span
+                      style={{
+                        color: 'var(--muted-2)',
+                        transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                        transition: 'transform 0.2s',
+                        display: 'inline-flex',
+                        marginLeft: 8,
+                      }}
+                    >
+                      <Icon.Chevron />
+                    </span>
+                  </button>
+
+                  {isExpanded && (
+                    <div
+                      style={{
+                        padding: '16px',
+                        borderTop: '1px solid var(--border)',
+                        background: 'var(--surface-2)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 12,
+                        fontSize: 13,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Gender</span>
+                        <span className="badge dot accent">{sub.genderSlug}</span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>
+                          Tryon Category
+                        </span>
+                        <span className="sub">{cat ? cat.name : '—'}</span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>
+                          Default Lower
+                        </span>
+                        <span className="sub">{lowerItem ? lowerItem.label : '—'}</span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Default Shoe</span>
+                        <span className="sub">{shoeItem ? shoeItem.label : '—'}</span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Active</span>
+                        <Switch
+                          checked={sub.isActive}
+                          onChange={async () => {
+                            const next = !sub.isActive;
+                            setGarmentTypes((prev) =>
+                              prev.map((s) => (s.id === sub.id ? { ...s, isActive: next } : s)),
+                            );
+                            try {
+                              await apiFetch(`/admin/assets/garment-types/${sub.id}`, {
+                                method: 'PATCH',
+                                body: JSON.stringify({ isActive: next }),
+                              });
+                              toast({
+                                title: `${sub.label} ${sub.isActive ? 'deactivated' : 'activated'}`,
+                              });
+                            } catch (e) {
+                              setGarmentTypes((prev) =>
+                                prev.map((s) =>
+                                  s.id === sub.id ? { ...s, isActive: sub.isActive } : s,
+                                ),
+                              );
+                              toast({
+                                kind: 'error',
+                                title: 'Failed to update garment type',
+                                body: apiErrorMessage(e, 'Please try again.'),
+                              });
+                            }
+                          }}
+                        />
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'flex-end',
+                          gap: 8,
+                          marginTop: 6,
+                          borderTop: '1px solid var(--border)',
+                          paddingTop: 10,
+                        }}
+                      >
+                        <button
+                          className="btn sm ghost"
+                          onClick={() => setSubView({ kind: 'configs', sub })}
+                        >
+                          Setup Poses
+                        </button>
+                        <button className="btn sm ghost" onClick={() => setEditingSubcat(sub)}>
+                          <Icon.Edit /> Edit
+                        </button>
+                        <button
+                          className="btn sm ghost danger"
+                          onClick={() =>
+                            setConfirmDelete({ type: 'garment-type', id: sub.id, label: sub.label })
+                          }
+                        >
+                          <Icon.Trash /> Delete
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {filteredGarmentTypes.length === 0 && (
+              <div
+                style={{
+                  textAlign: 'center',
+                  color: 'var(--muted)',
+                  padding: '2.5rem',
+                  border: '1.5px dashed var(--border)',
+                  borderRadius: 8,
+                }}
+              >
+                No garment types found.
+              </div>
+            )}
           </div>
         </>
       )}
@@ -1007,9 +1245,12 @@ function GarmentTemplateMappingPanel({ sub, workflows, toast }: GarmentTemplateM
   const [items, setItems] = useState<TemplateGarmentTypeMapping[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([]);
+  const [batchSaving, setBatchSaving] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<TemplateGarmentTypeMapping | null>(null);
 
   const load = useCallback(async () => {
+    setSelectedTemplateIds([]);
     setLoading(true);
     try {
       const res = await apiFetch<{ items: TemplateGarmentTypeMapping[] }>(
@@ -1062,6 +1303,48 @@ function GarmentTemplateMappingPanel({ sub, workflows, toast }: GarmentTemplateM
     }
   };
 
+  const selectedItems = items.filter((item) => selectedTemplateIds.includes(item.id));
+  const allTemplatesSelected =
+    items.length > 0 && items.every((item) => selectedTemplateIds.includes(item.id));
+  const selectedAllMapped = selectedItems.length > 0 && selectedItems.every((item) => item.mapped);
+
+  const toggleTemplateSelection = (templateId: string) => {
+    setSelectedTemplateIds((current) =>
+      current.includes(templateId)
+        ? current.filter((id) => id !== templateId)
+        : [...current, templateId],
+    );
+  };
+
+  const setSelectedMapped = async (mapped: boolean) => {
+    const templates = selectedItems.filter((item) => item.mapped !== mapped);
+    if (templates.length === 0) return;
+
+    setBatchSaving(true);
+    try {
+      for (const template of templates) {
+        const response = await apiFetch<{ ok: true; mappingId: string | null }>(
+          `/admin/assets/garment-types/${sub.id}/templates/${template.id}`,
+          { method: 'PATCH', body: JSON.stringify({ mapped }) },
+        );
+        setItems((current) =>
+          current.map((item) =>
+            item.id === template.id ? { ...item, mapped, mappingId: response.mappingId } : item,
+          ),
+        );
+      }
+      setSelectedTemplateIds([]);
+    } catch (error) {
+      void load();
+      toast({
+        kind: 'error',
+        title: `Failed to ${mapped ? 'enable' : 'disable'} selected templates`,
+        body: (error as Error).message,
+      });
+    } finally {
+      setBatchSaving(false);
+    }
+  };
   return (
     <section>
       <SectionHeader
@@ -1076,7 +1359,44 @@ function GarmentTemplateMappingPanel({ sub, workflows, toast }: GarmentTemplateM
           )
         }
       />
-
+      {!loading && items.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+            gap: 14,
+            marginTop: 12,
+          }}
+        >
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={allTemplatesSelected}
+              disabled={batchSaving}
+              onChange={() =>
+                setSelectedTemplateIds(allTemplatesSelected ? [] : items.map((item) => item.id))
+              }
+              style={{ accentColor: 'var(--pink)' }}
+            />
+            <span style={{ fontSize: 12, fontWeight: 600 }}>Select all</span>
+          </label>
+          {selectedItems.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+              <span style={{ color: 'var(--muted)', fontSize: 12 }}>
+                {selectedItems.length} selected
+              </span>
+              <span style={{ fontSize: 12 }}>
+                {selectedAllMapped ? 'Enabled' : 'Enable selected'}
+              </span>
+              <Switch
+                checked={selectedAllMapped}
+                onChange={() => void setSelectedMapped(!selectedAllMapped)}
+              />
+            </div>
+          )}
+        </div>
+      )}
       {loading ? (
         <div style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--muted)' }}>
           Loading…
@@ -1101,15 +1421,51 @@ function GarmentTemplateMappingPanel({ sub, workflows, toast }: GarmentTemplateM
             <div
               key={item.id}
               className="card"
+              onClick={() => {
+                if (!batchSaving) toggleTemplateSelection(item.id);
+              }}
               style={{
                 padding: 0,
                 overflow: 'hidden',
                 display: 'flex',
                 flexDirection: 'column',
-                outline: item.mapped ? '2px solid var(--pink)' : undefined,
-                opacity: savingId === item.id ? 0.7 : 1,
+                position: 'relative',
+                cursor: batchSaving ? 'default' : 'pointer',
+                outline: selectedTemplateIds.includes(item.id)
+                  ? '2px solid var(--pink)'
+                  : item.mapped
+                    ? '2px solid var(--pink)'
+                    : undefined,
+                opacity: savingId === item.id || batchSaving ? 0.7 : 1,
               }}
             >
+              <label
+                style={{
+                  position: 'absolute',
+                  top: 8,
+                  right: 8,
+                  zIndex: 1,
+                  display: 'flex',
+                  width: 26,
+                  height: 26,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: 5,
+                  background: 'transparent',
+                  cursor: batchSaving ? 'default' : 'pointer',
+                }}
+                onClick={(event) => event.stopPropagation()}
+                title={`Select ${item.label}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedTemplateIds.includes(item.id)}
+                  disabled={batchSaving}
+                  onChange={() => toggleTemplateSelection(item.id)}
+                  aria-label={`Select ${item.label}`}
+                  style={{ accentColor: 'var(--pink)' }}
+                />
+              </label>
               <div
                 style={{
                   background: 'var(--surface2, #1a1a1a)',
@@ -1155,16 +1511,21 @@ function GarmentTemplateMappingPanel({ sub, workflows, toast }: GarmentTemplateM
                   <span style={{ fontSize: 11, color: 'var(--muted)' }}>
                     {item.mapped ? `${item.poseAssetIds.length} poses` : 'Not offered'}
                   </span>
-                  <Switch
-                    checked={item.mapped}
-                    onChange={() => void toggleMapped(item.id, !item.mapped)}
-                  />
+                  <div onClick={(event) => event.stopPropagation()}>
+                    <Switch
+                      checked={item.mapped}
+                      onChange={() => void toggleMapped(item.id, !item.mapped)}
+                    />
+                  </div>
                 </div>
                 {item.mapped && item.mappingId && (
                   <button
                     className="btn sm"
                     style={{ width: '100%', marginTop: 9, justifyContent: 'center' }}
-                    onClick={() => setEditingTemplate(item)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setEditingTemplate(item);
+                    }}
                   >
                     <Icon.Edit /> Configure workflows
                   </button>
@@ -1203,27 +1564,36 @@ function MappedTemplateWorkflowModal({
   onClose,
 }: MappedTemplateWorkflowModalProps) {
   const [items, setItems] = useState<MappedTemplatePoseWorkflow[]>([]);
+  const [looks, setLooks] = useState<MappedTemplateLook[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [savingLookId, setSavingLookId] = useState<string | null>(null);
   const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
   const [promptDraft, setPromptDraft] = useState('');
 
   useEffect(() => {
     setLoading(true);
-    void apiFetch<{ items: MappedTemplatePoseWorkflow[] }>(
-      `/admin/assets/catalogue-template-mappings/${mapping.mappingId}/poses`,
-    )
-      .then((response) => setItems(response.items))
+    void Promise.all([
+      apiFetch<{ items: MappedTemplatePoseWorkflow[] }>(
+        `/admin/assets/catalogue-template-mappings/${mapping.mappingId}/poses`,
+      ),
+      apiFetch<{ items: MappedTemplateLook[] }>(
+        `/admin/assets/catalogue-template-mappings/${mapping.mappingId}/looks`,
+      ),
+    ])
+      .then(([posesResponse, looksResponse]) => {
+        setItems(posesResponse.items);
+        setLooks(looksResponse.items);
+      })
       .catch((error) =>
         toast({
           kind: 'error',
-          title: 'Failed to load template poses',
+          title: 'Failed to load template configuration',
           body: (error as Error).message,
         }),
       )
       .finally(() => setLoading(false));
   }, [mapping.mappingId, toast]);
-
   const setWorkflow = async (poseAssetId: string, workflowTemplateId: string | null) => {
     const previous = items;
     const currentItem = items.find((i) => i.id === poseAssetId);
@@ -1332,9 +1702,37 @@ function MappedTemplateWorkflowModal({
     }
   };
 
+  const setLookEnabled = async (lookId: string, isEnabled: boolean) => {
+    const previous = looks;
+    setSavingLookId(lookId);
+    setLooks((current) =>
+      current.map((look) => (look.id === lookId ? { ...look, isEnabled } : look)),
+    );
+    try {
+      await apiFetch<{ ok: true; isEnabled: boolean }>(
+        `/admin/assets/catalogue-template-mappings/${mapping.mappingId}/looks/${lookId}`,
+        { method: 'PATCH', body: JSON.stringify({ isEnabled }) },
+      );
+    } catch (error) {
+      setLooks(previous);
+      toast({
+        kind: 'error',
+        title: 'Failed to update look visibility',
+        body: (error as Error).message,
+      });
+    } finally {
+      setSavingLookId(null);
+    }
+  };
+  const looksByPoseId = new Map<string, MappedTemplateLook[]>();
+  for (const look of looks) {
+    const poseLooks = looksByPoseId.get(look.poseAssetId) ?? [];
+    poseLooks.push(look);
+    looksByPoseId.set(look.poseAssetId, poseLooks);
+  }
   const configuredCount = items.filter((item) => item.workflowTemplateId).length;
   return (
-    <div className="modal-overlay" onClick={savingId ? undefined : onClose}>
+    <div className="modal-overlay" onClick={savingId || savingLookId ? undefined : onClose}>
       <div
         className="modal"
         onClick={(event) => event.stopPropagation()}
@@ -1347,7 +1745,11 @@ function MappedTemplateWorkflowModal({
               {garmentTypeLabel} / {configuredCount} of {items.length} poses ready
             </p>
           </div>
-          <button className="btn sm ghost" onClick={onClose} disabled={!!savingId}>
+          <button
+            className="btn sm ghost"
+            onClick={onClose}
+            disabled={!!savingId || !!savingLookId}
+          >
             <Icon.Close />
           </button>
         </div>
@@ -1418,15 +1820,32 @@ function MappedTemplateWorkflowModal({
                       placeholder="— search workflow —"
                       ariaLabel={`Workflow for ${item.displayName ?? item.label}`}
                     />
-                    <button
-                      className="btn sm ghost"
-                      disabled={!item.workflowTemplateId || savingId === item.id}
-                      onClick={() =>
-                        editingPromptId === item.id ? closePromptEditor() : openPromptEditor(item)
-                      }
-                    >
-                      <Icon.MessageSquare /> Prompt
-                    </button>
+                    <div style={{ display: 'grid', justifyItems: 'end', gap: 7 }}>
+                      <button
+                        className="btn sm ghost"
+                        disabled={!item.workflowTemplateId || savingId === item.id}
+                        onClick={() =>
+                          editingPromptId === item.id ? closePromptEditor() : openPromptEditor(item)
+                        }
+                      >
+                        <Icon.MessageSquare /> Prompt
+                      </button>
+                      {(looksByPoseId.get(item.id) ?? []).map((look) => (
+                        <div
+                          key={look.id}
+                          style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                          title={`Visible for ${garmentTypeLabel}: ${look.backgroundLabel}`}
+                        >
+                          <span style={{ color: 'var(--muted)', fontSize: 10 }}>
+                            {look.isEnabled ? 'Visible' : 'Hidden'}
+                          </span>
+                          <Switch
+                            checked={look.isEnabled}
+                            onChange={() => void setLookEnabled(look.id, !look.isEnabled)}
+                          />
+                        </div>
+                      ))}
+                    </div>
                   </div>
                   {editingPromptId === item.id && (
                     <div className="card" style={{ padding: 10 }}>
@@ -1483,7 +1902,7 @@ function MappedTemplateWorkflowModal({
           >
             Mapping {mapping.mappingId}
           </span>
-          <button className="btn" onClick={onClose} disabled={!!savingId}>
+          <button className="btn" onClick={onClose} disabled={!!savingId || !!savingLookId}>
             Close
           </button>
         </div>

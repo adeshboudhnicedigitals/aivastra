@@ -9,26 +9,55 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { signupCampaigns } from './campaigns.js';
 import { kioskDevices } from './kiosk.js';
 import { merchants } from './merchant.js';
 
-export const users = pgTable('users', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  email: text('email').notNull().unique(),
-  passwordHash: text('password_hash'), // nullable — Google-only users have no password
-  displayName: text('display_name'),
-  phone: text('phone'), // nullable — user-provided, no format enforcement
-  companyName: text('company_name'),
-  // FK to credit_plans.slug added in migration 0080 (ON DELETE RESTRICT) — not
-  // declared via .references() here to avoid a circular import with credits.ts.
-  tier: text('tier').notNull().default('free'),
-  emailVerified: boolean('email_verified').notNull().default(false),
-  isBanned: boolean('is_banned').notNull().default(false),
-  maxActiveDevices: integer('max_active_devices').notNull().default(1),
-  banReason: text('ban_reason'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const users = pgTable(
+  'users',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    // Nullable -- admin-created accounts (see /admin/users) may have no email at
+    // creation time and log in via `username` instead. Self-registration and
+    // Google OAuth always set this.
+    email: text('email').unique(),
+    passwordHash: text('password_hash'), // nullable — Google-only users have no password
+    displayName: text('display_name'),
+    phone: text('phone'), // nullable — user-provided, no format enforcement
+    companyName: text('company_name'),
+    // FK to credit_plans.slug added in migration 0080 (ON DELETE RESTRICT) — not
+    // declared via .references() here to avoid a circular import with credits.ts.
+    tier: text('tier').notNull().default('free'),
+    emailVerified: boolean('email_verified').notNull().default(false),
+    isBanned: boolean('is_banned').notNull().default(false),
+    maxActiveDevices: integer('max_active_devices').notNull().default(1),
+    banReason: text('ban_reason'),
+    defaultResolution: text('default_resolution').notNull().default('HD'),
+    defaultAspectRatio: text('default_aspect_ratio').notNull().default('1:1'),
+    defaultPlatform: text('default_platform').notNull().default('Amazon'),
+    // Nullable -- only set by admin-created accounts (see POST /admin/users), as an
+    // alternate login identifier alongside email. ALWAYS lowercase (both here and
+    // wherever it's written or looked up). Restricted to [a-z0-9_.] so it can never
+    // contain '@' -- that's what guarantees `WHERE email = $1 OR username = $1` in
+    // findUserByIdentifier() (apps/api/src/modules/auth/routes.ts) can never match
+    // two different rows. Do not loosen this charset without re-checking that
+    // invariant.
+    username: text('username').unique(),
+    // Set once at signup (email/password register or Google OAuth new-account
+    // branch), never updated afterward â€” see docs/superpowers/specs/2026-08-01-gartex-expo-qr-campaign-design.md Â§3.1.
+    signupCampaignId: uuid('signup_campaign_id').references(() => signupCampaigns.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check(
+      'users_username_format',
+      sql`${t.username} IS NULL OR ${t.username} ~ '^[a-z0-9_.]{3,32}$'`,
+    ),
+  ],
+);
 
 export const refreshTokens = pgTable(
   'refresh_tokens',

@@ -1,62 +1,54 @@
 import { schema } from '@aivastra/db';
-import { eq } from 'drizzle-orm';
+import { hashPassword, signAccess } from '../../src/modules/auth/service.js';
 import type { TestApp } from './api.js';
 
 let counter = 0;
 
 /**
- * Registers + verifies a fresh user, promotes them to an admin_users row with the
- * given role (copying `users.passwordHash` into `admin_users.passwordHash`, exactly
- * as the real approval flow does in src/modules/admin/users.routes.ts around the
- * `/admin/admin-requests/:userId/approve` and direct-promote handlers), logs in via
- * the dedicated `/admin/auth/login` route, and returns the Authorization header the
- * real admin routes (guarded by `requireAdmin` in src/modules/admin/guard.ts, which
- * verifies the JWT with the `admin` audience) expect.
+ * Creates a verified user + admin_users row directly in the DB (mirroring the real
+ * shapes `/v1/auth/register` and the admin-request approval flow produce in
+ * src/modules/admin/users.routes.ts), then mints an admin-audience access token via
+ * `signAccess` directly — the same call `/admin/auth/login`
+ * (src/modules/admin/auth.routes.ts) makes internally.
  *
- * NOTE: this intentionally does NOT use `/v1/auth/login` — that route explicitly
- * rejects active SUPER_ADMIN accounts (see modules/auth/routes.ts) and, more
- * importantly, mints a token without the `admin` JWT audience claim, which
- * `requireAdminUser`/`verifyAdminAccess` require. Only `/admin/auth/login`
- * (src/modules/admin/auth.routes.ts) mints an admin-audience token.
+ * Deliberately bypasses both HTTP endpoints rather than calling them via app.inject:
+ * this helper is used across dozens of admin test calls in the same suite run, and
+ * both routes carry tight per-route rate limits (register: 10/min, admin login:
+ * 5/min) backed by the same Redis instance shared across every test file with no
+ * reset in between — enough admin tests clustering in one rolling minute trips a
+ * 429, which surfaced as "registered user not found" once the register call itself
+ * got rate-limited. Direct DB/JWT construction has no such ceiling.
  */
 export async function adminAuthHeader(
   app: TestApp,
   role: 'SUPER_ADMIN' | 'MODERATOR' | 'SUPPORT' | 'ADMIN' = 'SUPER_ADMIN',
 ): Promise<Record<string, string>> {
   const email = `admin-auth-${Date.now()}-${counter++}@x.com`;
-  const password = 'password123';
-
-  await app.inject({
-    method: 'POST',
-    url: '/v1/auth/register',
-    payload: { displayName: 'Test Admin', email, password },
-  });
+  const passwordHash = await hashPassword('password123');
 
   const [user] = await app.db
-    .select({ id: schema.users.id, passwordHash: schema.users.passwordHash })
-    .from(schema.users)
-    .where(eq(schema.users.email, email));
-  if (!user) throw new Error('adminAuthHeader: registered user not found');
+    .insert(schema.users)
+    .values({ email, passwordHash, displayName: 'Test Admin', emailVerified: true })
+    .returning();
+  if (!user) throw new Error('adminAuthHeader: failed to create test user');
 
-  await app.db
-    .update(schema.users)
-    .set({ emailVerified: true })
-    .where(eq(schema.users.id, user.id));
+  await app.db.insert(schema.userCredits).values({ userId: user.id, balance: 0 });
 
   await app.db.insert(schema.adminUsers).values({
     userId: user.id,
     role,
     status: 'active',
-    passwordHash: user.passwordHash,
+    passwordHash,
   });
 
-  const login = await app.inject({
-    method: 'POST',
-    url: '/admin/auth/login',
-    payload: { email, password },
-  });
-  const { accessToken } = login.json();
-  if (!accessToken) throw new Error('adminAuthHeader: admin login did not return accessToken');
+  const secret = new TextEncoder().encode(app.env.JWT_SECRET);
+  const accessToken = await signAccess(
+    secret,
+    user.id,
+    { kind: 'access' },
+    app.env.JWT_EXPIRY,
+    'admin',
+  );
 
   return { authorization: `Bearer ${accessToken}` };
 }

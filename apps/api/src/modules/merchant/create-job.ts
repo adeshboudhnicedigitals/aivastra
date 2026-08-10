@@ -1,7 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import { ASPECT_DIMENSIONS, type Resolution, resolutionFromDims } from '@aivastra/types';
-import { and, eq } from 'drizzle-orm';
+import {
+  ASPECT_DIMENSIONS,
+  JOB_SOURCE,
+  type Resolution,
+  resolutionFromDims,
+} from '@aivastra/types';
+import { aliasedTable, and, eq, ilike } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import {
@@ -16,7 +21,10 @@ const CONFIG_KEY = 'config:system';
 
 interface MerchantCatalogDefaults {
   merchantCatalogDefaults?: Partial<
-    Record<'men' | 'women' | 'boys' | 'girls', { faceId: string; backgroundId: string }>
+    Record<
+      'men' | 'women' | 'boys' | 'girls',
+      { faceId: string; backgroundId: string; lowerCatalogId?: string; shoeCatalogId?: string }
+    >
   >;
   merchantCatalogAspectRatio?: string;
 }
@@ -39,6 +47,11 @@ export async function createMerchantCatalogJob(
     flatImageKey: string;
     subcategoryId: string;
     merchantId: string;
+    // Bulk-flat batches are parked at status HELD and never enqueued here; an
+    // admin releases every merchant's held jobs at once during free-GPU hours
+    // (POST /admin/held-jobs/release). Credits are still deducted now, in the
+    // same transaction, so a released batch can never fail for lack of balance.
+    hold?: boolean;
   },
 ): Promise<{ jobId: string }> {
   const [garmentType] = await app.db
@@ -76,6 +89,59 @@ export async function createMerchantCatalogJob(
   }
   const aspectRatio = cfg.merchantCatalogAspectRatio ?? '2:3';
 
+  // Determine whether the fixed pose's workflow (honoring any per-garment-type
+  // override in pose_garment_configs) actually needs a lower garment / shoe --
+  // mirrors the pose-workflow resolution in jobs/create.ts so both paths agree
+  // on what a given pose+garment-type combo requires.
+  const defaultWorkflow = aliasedTable(schema.workflowTemplates, 'default_workflow');
+  const overrideWorkflow = aliasedTable(schema.workflowTemplates, 'override_workflow');
+  const [poseWorkflow] = await app.db
+    .select({
+      defaultLowerNodeId: defaultWorkflow.lowerNodeId,
+      defaultShoeNodeId: defaultWorkflow.shoeNodeId,
+      configWorkflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
+      overrideLowerNodeId: overrideWorkflow.lowerNodeId,
+      overrideShoeNodeId: overrideWorkflow.shoeNodeId,
+    })
+    .from(schema.modelPoseAssets)
+    .leftJoin(defaultWorkflow, eq(schema.modelPoseAssets.workflowTemplateId, defaultWorkflow.id))
+    .leftJoin(
+      schema.poseGarmentConfigs,
+      and(
+        eq(schema.poseGarmentConfigs.poseAssetId, schema.modelPoseAssets.id),
+        eq(schema.poseGarmentConfigs.subcategoryId, params.garmentSubcategoryId),
+      ),
+    )
+    .leftJoin(
+      overrideWorkflow,
+      eq(schema.poseGarmentConfigs.workflowTemplateId, overrideWorkflow.id),
+    )
+    .where(eq(schema.modelPoseAssets.id, garmentType.defaultPoseId))
+    .limit(1);
+  const needsLower =
+    (poseWorkflow?.configWorkflowTemplateId != null
+      ? poseWorkflow.overrideLowerNodeId
+      : poseWorkflow?.defaultLowerNodeId) != null;
+  const needsShoes =
+    (poseWorkflow?.configWorkflowTemplateId != null
+      ? poseWorkflow.overrideShoeNodeId
+      : poseWorkflow?.defaultShoeNodeId) != null;
+
+  if (needsLower && !categoryDefaults.lowerCatalogId) {
+    throw new AppError(
+      'VALIDATION',
+      400,
+      `admin has not configured a default lower garment for category "${params.category}"`,
+    );
+  }
+  if (needsShoes && !categoryDefaults.shoeCatalogId) {
+    throw new AppError(
+      'VALIDATION',
+      400,
+      `admin has not configured a default shoe for category "${params.category}"`,
+    );
+  }
+
   const [face] = await app.db
     .select({ id: schema.modelFaces.id })
     .from(schema.modelFaces)
@@ -100,12 +166,42 @@ export async function createMerchantCatalogJob(
         eq(schema.modelPoseAssets.isActive, true),
       ),
     );
+  const [lowerItem] = needsLower
+    ? await app.db
+        .select({ id: schema.catalogItems.id })
+        .from(schema.catalogItems)
+        .where(
+          and(
+            eq(schema.catalogItems.id, categoryDefaults.lowerCatalogId!),
+            eq(schema.catalogItems.isActive, true),
+          ),
+        )
+    : [];
+  const [shoeItem] = needsShoes
+    ? await app.db
+        .select({ id: schema.catalogItems.id })
+        .from(schema.catalogItems)
+        .where(
+          and(
+            eq(schema.catalogItems.id, categoryDefaults.shoeCatalogId!),
+            eq(schema.catalogItems.isActive, true),
+          ),
+        )
+    : [];
   if (!face)
     throw new AppError('BAD_CATALOG', 400, 'configured default face not found or inactive');
   if (!background)
     throw new AppError('BAD_CATALOG', 400, 'configured default background not found or inactive');
   if (!pose)
     throw new AppError('BAD_CATALOG', 400, 'configured default pose not found or inactive');
+  if (needsLower && !lowerItem)
+    throw new AppError(
+      'BAD_CATALOG',
+      400,
+      'configured default lower garment not found or inactive',
+    );
+  if (needsShoes && !shoeItem)
+    throw new AppError('BAD_CATALOG', 400, 'configured default shoe not found or inactive');
 
   await assertMerchantUploadKey(app, params.merchantId, params.flatImageKey, 'flat garment');
 
@@ -132,12 +228,15 @@ export async function createMerchantCatalogJob(
     await tx.insert(schema.jobs).values({
       id: jobId,
       userId: params.userId,
-      status: 'QUEUED',
+      status: params.hold ? 'HELD' : 'QUEUED',
       // Merchant-generated catalogue images are never watermarked, regardless of
       // the user's plan tier — merchants are paying customers of a distinct product.
       watermark: false,
-      queueStream: 'normal',
+      // A released batch is bulk backfill, not someone waiting on a screen — it
+      // must never sit in front of live customer traffic.
+      queueStream: params.hold ? 'low' : 'normal',
       creditsCharged: cost,
+      source: JOB_SOURCE.MERCHANT_CATALOG,
     });
     await atomicDeduct(tx as unknown as typeof app.db, params.userId, cost, jobId);
     await tx.insert(schema.jobInputs).values({
@@ -147,6 +246,8 @@ export async function createMerchantCatalogJob(
       backgroundId: background.id,
       poseId: pose.id,
       garmentTypeId: params.garmentSubcategoryId,
+      lowerCatalogId: lowerItem?.id ?? null,
+      shoeCatalogId: shoeItem?.id ?? null,
       params: {
         kind: 'merchant_catalog',
         subcategoryId: params.subcategoryId,
@@ -159,21 +260,28 @@ export async function createMerchantCatalogJob(
         // before the real generation. See apps/dispatcher/src/job/processor.ts's
         // requiresMannequinStep branch.
         needsMannequinStep: garmentType.requiresMannequinStep,
+        // Marks the job for POST /v1/merchant/catalog/reconcile-held, which turns
+        // it into a product row once it completes — the merchant is long gone by
+        // then and cannot call /import themselves.
+        ...(params.hold ? { heldBatch: true } : {}),
       },
     });
   });
 
-  await app.redis.xadd(
-    'jobs:normal',
-    'MAXLEN',
-    '~',
-    10000,
-    '*',
-    'jobId',
-    jobId,
-    'userId',
-    params.userId,
-  );
+  // Held jobs enter the stream only when an admin releases them.
+  if (!params.hold) {
+    await app.redis.xadd(
+      'jobs:normal',
+      'MAXLEN',
+      '~',
+      10000,
+      '*',
+      'jobId',
+      jobId,
+      'userId',
+      params.userId,
+    );
+  }
 
   return { jobId };
 }
@@ -196,12 +304,16 @@ export async function createMerchantSareeMannequinJob(
     garmentSubcategoryId: string;
     flatImageKey: string;
     merchantId: string;
+    sareeStyleId?: string;
+    secondFlatImageKey?: string;
   },
 ): Promise<{ jobId: string }> {
   const [garmentType] = await app.db
     .select({
       requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep,
       mannequinWorkflowTemplateId: schema.garmentSubcategories.mannequinWorkflowTemplateId,
+      mannequinTwoInputWorkflowTemplateId:
+        schema.garmentSubcategories.mannequinTwoInputWorkflowTemplateId,
       isActive: schema.garmentSubcategories.isActive,
     })
     .from(schema.garmentSubcategories)
@@ -210,11 +322,62 @@ export async function createMerchantSareeMannequinJob(
   if (!garmentType?.isActive) {
     throw new AppError('BAD_CATALOG', 400, 'garment type not found or inactive');
   }
-  if (!garmentType.requiresMannequinStep || !garmentType.mannequinWorkflowTemplateId) {
+  if (!garmentType.requiresMannequinStep) {
+    throw new AppError('VALIDATION', 400, 'this garment type does not use the mannequin step');
+  }
+  if (!params.secondFlatImageKey && !garmentType.mannequinWorkflowTemplateId) {
     throw new AppError('VALIDATION', 400, 'this garment type does not use the mannequin step');
   }
 
+  let styleWorkflowTemplateId: string | undefined;
+  if (params.sareeStyleId) {
+    // Matched by label (case-insensitive), not id — see MerchantCatalogGenerateBody.
+    const [style] = await app.db
+      .select({
+        isActive: schema.sareeMannequinStyles.isActive,
+        mannequinWorkflowTemplateId: schema.sareeMannequinStyles.mannequinWorkflowTemplateId,
+        mannequinTwoInputWorkflowTemplateId:
+          schema.sareeMannequinStyles.mannequinTwoInputWorkflowTemplateId,
+      })
+      .from(schema.sareeMannequinStyles)
+      .where(ilike(schema.sareeMannequinStyles.label, params.sareeStyleId))
+      .limit(1);
+    if (!style?.isActive) {
+      throw new AppError('BAD_STYLE', 400, 'saree style not found or inactive');
+    }
+    if (params.secondFlatImageKey) {
+      if (!style.mannequinTwoInputWorkflowTemplateId) {
+        throw new AppError(
+          'CONFIG',
+          400,
+          'saree style missing two-input step-1 workflow configuration',
+        );
+      }
+      styleWorkflowTemplateId = style.mannequinTwoInputWorkflowTemplateId;
+    } else {
+      styleWorkflowTemplateId = style.mannequinWorkflowTemplateId;
+    }
+  }
+
+  // A style able to supply a two-input workflow satisfies this requirement
+  // even when the garment type itself has none configured — mirrors how a
+  // style already overrides the garment type's single-input default above.
+  if (
+    params.secondFlatImageKey &&
+    !styleWorkflowTemplateId &&
+    !garmentType.mannequinTwoInputWorkflowTemplateId
+  ) {
+    throw new AppError(
+      'CONFIG',
+      400,
+      'garment type missing two-input step-1 workflow configuration',
+    );
+  }
+
   await assertMerchantUploadKey(app, params.merchantId, params.flatImageKey, 'flat garment');
+  if (params.secondFlatImageKey) {
+    await assertMerchantUploadKey(app, params.merchantId, params.secondFlatImageKey, 'pallu');
+  }
 
   const cost = await getTryonCreditCost(app);
 
@@ -227,14 +390,23 @@ export async function createMerchantSareeMannequinJob(
       watermark: false,
       queueStream: 'normal',
       creditsCharged: cost,
+      source: JOB_SOURCE.MERCHANT_CATALOG_SAREE_MANNEQUIN,
     });
     await atomicDeduct(tx as unknown as typeof app.db, params.userId, cost, jobId);
     await tx.insert(schema.jobInputs).values({
       jobId,
       upperGarmentKey: params.flatImageKey,
+      thirdGarmentKey: params.secondFlatImageKey ?? null,
       faceId: null,
       garmentTypeId: params.garmentSubcategoryId,
-      params: { kind: 'saree_mannequin' },
+      params: {
+        kind: 'saree_mannequin',
+        ...(styleWorkflowTemplateId
+          ? { workflowTemplateId: styleWorkflowTemplateId }
+          : params.secondFlatImageKey
+            ? { workflowTemplateId: garmentType.mannequinTwoInputWorkflowTemplateId }
+            : {}),
+      },
     });
   });
 

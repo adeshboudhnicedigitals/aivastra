@@ -11,11 +11,28 @@ const Env = z.object({
   R2_BUCKET: z.string(),
   R2_PUBLIC_URL: z.string().url(),
   R2_FORCE_PATH_STYLE: z.coerce.boolean().default(true),
+  /** Endpoint used for presigned URL signing (SigV4 Host header). Set to the public
+   *  domain when MinIO is behind a reverse proxy so the signed Host matches the
+   *  header forwarded by Nginx. Falls back to R2_ENDPOINT when omitted. */
+  R2_SIGN_ENDPOINT: z.string().url().optional(),
+  /** Public-facing base URL for presigned GET URLs handed to third parties (e.g.
+   *  PixVerse fetching a source image), e.g. https://app.aivastra.com/minio.
+   *  When set, the internal endpoint origin in the generated URL is replaced with
+   *  this value. Same var api's storage plugin already uses. */
+  R2_PUBLIC_PRESIGN_BASE: z.string().url().optional(),
   DISPATCHER_HEALTH_PORT: z.coerce.number().default(4100),
   // How long a pending stream entry must be idle before recovery claims it (ms)
   XPENDING_CLAIM_THRESHOLD_MS: z.coerce.number().default(60_000),
   SENTRY_DSN: z.string().url().optional(),
   ENABLE_WATERMARKING: z.coerce.boolean().default(true),
+  PIXVERSE_API_KEY: z.string().optional(),
+  PIXVERSE_API_BASE_URL: z.string().url().default('https://app-api.pixverse.ai'),
+  PIXVERSE_POLL_INTERVAL_MS: z.coerce.number().default(5_000),
+  PIXVERSE_POLL_TIMEOUT_MS: z.coerce.number().default(180_000),
+  /** In-flight cap for the PixVerse video lane (jobs:video). Independent of the GPU
+   *  worker registry — catalog-video jobs never touch ComfyUI. Should match the
+   *  concurrency limit of the PixVerse plan. Restart the dispatcher to change it. */
+  VIDEO_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(5),
 });
 
 export type Env = z.infer<typeof Env>;

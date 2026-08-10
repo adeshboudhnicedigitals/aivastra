@@ -3,6 +3,7 @@ import { AddFaceModal } from '../../components/AddFaceModal';
 import { AssetThumb } from '../../components/AssetThumb';
 import { EditFaceModal } from '../../components/EditFaceModal';
 import { Icon } from '../../components/Icons';
+import { Pager } from '../../components/Pager';
 import { Switch } from '../../components/Switch';
 import { apiErrorMessage, apiFetch } from '../../lib/data';
 import type { ModelFace } from '../../types';
@@ -15,6 +16,8 @@ const GENDER_TABS = [
   { k: 'boys' as const, l: 'Boys' },
   { k: 'girls' as const, l: 'Girls' },
 ];
+
+const FACES_PAGE_SIZE = 75;
 
 export function FacesTab() {
   const {
@@ -55,6 +58,9 @@ export function FacesTab() {
   const [showFaceUpload, setShowFaceUpload] = useState(false);
   const [editingFace, setEditingFace] = useState<ModelFace | null>(null);
   const [confirmDeleteFace, setConfirmDeleteFace] = useState<ModelFace | null>(null);
+  const [facesPage, setFacesPage] = useState(1);
+  const [bulkSortStart, setBulkSortStart] = useState(0);
+  const [bulkSortSaving, setBulkSortSaving] = useState(false);
 
   useEffect(() => {
     loadFaces();
@@ -112,7 +118,51 @@ export function FacesTab() {
     }
   };
 
-  const filteredFaces = faces.filter((f) => genderFilter === 'all' || f.gender === genderFilter);
+  const doBulkSortOrder = async () => {
+    if (selectedFaceIds.length === 0) return;
+    setBulkSortSaving(true);
+    const orderedSelected = filteredFaces
+      .filter((f) => selectedFaceIds.includes(f.id))
+      .map((f, i) => ({ id: f.id, sortOrder: bulkSortStart + i }));
+    try {
+      await Promise.all(
+        orderedSelected.map(({ id, sortOrder }) =>
+          apiFetch(`/admin/assets/faces/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ sortOrder }),
+          }),
+        ),
+      );
+      setFaces((prev) =>
+        prev.map((f) => {
+          const entry = orderedSelected.find((e) => e.id === f.id);
+          return entry ? { ...f, sortOrder: entry.sortOrder } : f;
+        }),
+      );
+      toast({
+        title: `Sort order updated for ${orderedSelected.length} face${orderedSelected.length !== 1 ? 's' : ''}`,
+      });
+      setSelectedFaceIds([]);
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to update sort order',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setBulkSortSaving(false);
+    }
+  };
+
+  const filteredFaces = faces
+    .filter((f) => genderFilter === 'all' || f.gender === genderFilter)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+  const facesTotalPages = Math.max(1, Math.ceil(filteredFaces.length / FACES_PAGE_SIZE));
+  const facesClampedPage = Math.min(facesPage, facesTotalPages);
+  const pagedFaces = filteredFaces.slice(
+    (facesClampedPage - 1) * FACES_PAGE_SIZE,
+    facesClampedPage * FACES_PAGE_SIZE,
+  );
 
   return (
     <>
@@ -170,12 +220,36 @@ export function FacesTab() {
               </button>
             )}
             {selectedFaceIds.length > 0 && (
-              <button
-                className="btn sm danger"
-                onClick={() => setConfirmBulkDeleteFaceIds([...selectedFaceIds])}
-              >
-                <Icon.Trash /> Move to recycle bin ({selectedFaceIds.length})
-              </button>
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                    Sort from
+                  </span>
+                  <input
+                    type="number"
+                    className="input"
+                    min={0}
+                    step={1}
+                    value={bulkSortStart}
+                    disabled={bulkSortSaving}
+                    onChange={(e) => setBulkSortStart(Number(e.target.value))}
+                    style={{ width: 64, padding: '3px 6px', fontSize: 12, height: 28 }}
+                  />
+                  <button
+                    className="btn sm"
+                    disabled={bulkSortSaving}
+                    onClick={() => void doBulkSortOrder()}
+                  >
+                    {bulkSortSaving ? 'Saving…' : `Apply (${selectedFaceIds.length})`}
+                  </button>
+                </div>
+                <button
+                  className="btn sm danger"
+                  onClick={() => setConfirmBulkDeleteFaceIds([...selectedFaceIds])}
+                >
+                  <Icon.Trash /> Move to recycle bin ({selectedFaceIds.length})
+                </button>
+              </>
             )}
           </div>
           <div
@@ -186,7 +260,7 @@ export function FacesTab() {
               marginTop: 10,
             }}
           >
-            {filteredFaces.map((face) => (
+            {pagedFaces.map((face) => (
               <div
                 key={face.id}
                 className="card"
@@ -269,6 +343,15 @@ export function FacesTab() {
               </div>
             )}
           </div>
+          {facesTotalPages > 1 && (
+            <Pager
+              page={facesClampedPage - 1}
+              totalPages={facesTotalPages}
+              onPage={(n) => setFacesPage(n + 1)}
+              totalItems={filteredFaces.length}
+              pageSize={FACES_PAGE_SIZE}
+            />
+          )}
         </>
       )}
 
@@ -295,6 +378,11 @@ export function FacesTab() {
                 onClick={async () => {
                   const { id, label } = confirmDeleteFace;
                   setConfirmDeleteFace(null);
+                  if (id.startsWith('face_demo_')) {
+                    setFaces((prev) => prev.filter((f) => f.id !== id));
+                    toast({ title: `${label} moved to recycle bin` });
+                    return;
+                  }
                   try {
                     await apiFetch(`/admin/assets/faces/${id}`, { method: 'DELETE' });
                     setFaces((prev) => prev.filter((f) => f.id !== id));
@@ -380,9 +468,9 @@ export function FacesTab() {
 
       {showFaceUpload && (
         <AddFaceModal
-          onDone={(face) => {
+          onDone={(newFaces) => {
             setShowFaceUpload(false);
-            setFaces((prev) => [...prev, face]);
+            setFaces((prev) => [...prev, ...newFaces]);
           }}
           onClose={() => setShowFaceUpload(false)}
           toast={toast}

@@ -1,5 +1,6 @@
 import { schema } from '@aivastra/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { bumpCatalogOptionsVersion } from '../src/lib/catalog-options-cache.js';
 import { upsertShopifyStore } from '../src/modules/shopify/auth.routes.js';
 import { buildTestApp, type TestApp } from './helpers/api.js';
 import { type Containers, startContainers } from './helpers/containers.js';
@@ -69,6 +70,17 @@ async function seedWorkflow(overrides: {
   return wf;
 }
 
+/**
+ * The options payload is Redis-cached and invalidated by an onResponse hook on
+ * /admin/assets and /admin/catalog writes (plugins/catalog-cache-invalidation.ts).
+ * These tests seed assets straight into Postgres, bypassing that hook entirely, so
+ * they must invalidate explicitly — otherwise a later assertion reads the payload an
+ * earlier test in this file already warmed.
+ */
+async function seeded() {
+  await bumpCatalogOptionsVersion(app);
+}
+
 describe('GET /v1/shopify/catalog/options', () => {
   it('rejects without a session token', async () => {
     const res = await app.inject({
@@ -129,6 +141,7 @@ describe('GET /v1/shopify/catalog/options', () => {
       scope: 'general',
       isActive: true,
     });
+    await seeded();
 
     const resWomen = await app.inject({
       method: 'GET',
@@ -200,6 +213,7 @@ describe('GET /v1/shopify/catalog/options', () => {
       subcategoryId: garmentType.id,
       isActive: false,
     });
+    await seeded();
 
     // Without garmentTypeId: both poses reflect their own default workflow (hasLower
     // true, hasShoes false) and the inactive-for-type pose is NOT excluded.

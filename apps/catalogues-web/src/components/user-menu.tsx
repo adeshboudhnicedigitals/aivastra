@@ -46,20 +46,22 @@ export function UserMenu() {
   }
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
       <Link
         href="/pricing"
+        className="user-menu-credits-btn"
         style={{
           display: 'flex',
           alignItems: 'center',
           gap: 6,
           textDecoration: 'none',
-          padding: '0 14px',
+          padding: '0 12px',
           height: 40,
           boxSizing: 'border-box',
           borderRadius: 8,
           background: C.bg,
           border: `1px solid ${C.border}`,
+          flexShrink: 0,
         }}
       >
         <span style={{ display: 'flex' }}>
@@ -67,7 +69,9 @@ export function UserMenu() {
           {/* biome-ignore lint/performance/noImgElement: credit icon */}
           <img src={`${BASE}/assets/credit.png`} alt="" width={16} height={16} />
         </span>
-        <span style={{ color: C.text, fontSize: 13, fontWeight: 500 }}>{balance} Credits</span>
+        <span style={{ color: C.text, fontSize: 13, fontWeight: 500 }}>
+          {balance} <span className="user-menu-credits-word">Credits</span>
+        </span>
       </Link>
 
       <div ref={popupRef} style={{ position: 'relative' }}>
@@ -89,7 +93,7 @@ export function UserMenu() {
               style={{
                 position: 'fixed',
                 top: popupRect ? popupRect.bottom + 8 : 80,
-                right: popupRect ? popupRect.right : 10,
+                right: popupRect ? Math.max(16, popupRect.right) : 16,
                 width: 240,
                 background: C.card,
                 border: `1px solid ${C.border}`,
@@ -99,29 +103,35 @@ export function UserMenu() {
                 boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
               }}
             >
-              <Link
-                href="/settings"
+              <button
+                type="button"
                 className="hover-bg"
                 onClick={(e) => {
                   e.stopPropagation();
                   setPopupOpen(false);
+                  router.push('/settings');
                 }}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: 10,
                   padding: '12px 16px',
-                  textDecoration: 'none',
+                  width: '100%',
+                  background: 'none',
+                  border: 'none',
+                  textAlign: 'left',
+                  cursor: 'pointer',
                   color: C.text,
                   fontSize: 13,
                   fontWeight: 500,
+                  fontFamily: 'inherit',
                 }}
               >
                 <span style={{ opacity: 0.6, display: 'flex' }}>
                   <SettingsIcon />
                 </span>
                 Settings
-              </Link>
+              </button>
               <div style={{ height: 1, background: C.border, margin: '0 16px' }} />
               <button
                 type="button"
@@ -162,7 +172,7 @@ export function UserMenu() {
             e.stopPropagation();
             if (!popupOpen && popupRef.current) {
               const r = popupRef.current.getBoundingClientRect();
-              setPopupRect({ bottom: r.bottom, right: window.innerWidth - r.right });
+              setPopupRect({ bottom: r.bottom, right: Math.max(16, window.innerWidth - r.right) });
             }
             setPopupOpen((v) => !v);
           }}

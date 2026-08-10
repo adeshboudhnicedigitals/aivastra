@@ -1,4 +1,4 @@
-import { Banner, BlockStack, Button, Text } from '@shopify/polaris';
+import { Banner, BlockStack, Button, Card, Page, Text } from '@shopify/polaris';
 import { useState } from 'react';
 import { apiFetch } from '../lib/api';
 
@@ -56,54 +56,34 @@ export function LinkAccountGate({ onLinked }: { onLinked: () => void }) {
   }
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '32px',
-      }}
-    >
-      <div
-        style={{
-          width: '420px',
-          maxWidth: '100%',
-          background: 'var(--p-color-bg-surface)',
-          borderRadius: 'var(--p-border-radius-300)',
-          boxShadow: 'var(--p-shadow-100)',
-          padding: '36px 32px',
-          textAlign: 'center',
-        }}
-      >
-        <div
-          style={{
-            width: '52px',
-            height: '52px',
-            borderRadius: '14px',
-            margin: '0 auto 20px',
-            background:
-              'linear-gradient(135deg, var(--p-color-bg-fill-brand), var(--p-color-bg-fill-brand-hover))',
-          }}
-        />
-        <BlockStack gap="300">
-          <Text as="h1" variant="headingLg" alignment="center">
-            Connect your AiVastra account
-          </Text>
-          <Text as="p" tone="subdued" alignment="center">
-            To use AiVastra Try-On, link this store to your aivastra account. Billing and credits
-            are managed on app.aivastra.com — nothing is charged through Shopify.
-          </Text>
+    <Page narrowWidth>
+      <Card>
+        <BlockStack gap="400">
+          <BlockStack gap="100">
+            <Text as="h1" variant="headingLg">
+              Connect your AiVastra account
+            </Text>
+            <Text as="p" tone="subdued">
+              Billing and credits live on app.aivastra.com — nothing is charged through Shopify.
+              Link your store to start offering virtual try-on.
+            </Text>
+          </BlockStack>
+
           {error && (
-            <Banner tone="critical" title="Linking failed">
-              {error}
+            <Banner tone="critical" title="Couldn't complete the connection">
+              Please try linking your account again.
             </Banner>
           )}
-          <Button onClick={link} loading={linking} variant="primary" fullWidth>
+
+          <Button variant="primary" size="large" loading={linking} onClick={link} fullWidth>
             Link account
           </Button>
+
+          <Text as="p" tone="subdued" alignment="center" variant="bodySm">
+            You'll be redirected to app.aivastra.com to sign in
+          </Text>
         </BlockStack>
-      </div>
-    </div>
+      </Card>
+    </Page>
   );
 }

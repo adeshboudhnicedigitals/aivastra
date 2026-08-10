@@ -40,15 +40,16 @@ export function GenderCard({
       }}
     >
       <div
+        className="gender-card-content"
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 10,
+          gap: 8,
           background: selected
             ? 'linear-gradient(135deg, rgba(189,37,135,0.06) 0%, rgba(255,91,148,0.04) 100%)'
             : C.card,
           borderRadius: 10,
-          padding: '0 12px',
+          padding: '0 10px',
           position: 'relative',
           height: '100%',
           width: '100%',
@@ -85,11 +86,12 @@ export function GenderCard({
         </div>
 
         <span
+          className="gender-card-label"
           style={{
-            fontFamily: 'Poppins, sans-serif',
+            fontFamily: 'inherit',
             fontWeight: 600,
             fontSize: 14,
-            lineHeight: '18px',
+            lineHeight: '1.3',
             letterSpacing: 0,
             color: C.text,
             flex: 1,

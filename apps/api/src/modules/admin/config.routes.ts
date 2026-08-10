@@ -1,12 +1,16 @@
 import { schema } from '@aivastra/db';
-import { SystemConfigBody } from '@aivastra/types';
+import { keys } from '@aivastra/storage';
+import { PresignAppVideoBody, SystemConfigBody } from '@aivastra/types';
 import { and, count, countDistinct, eq, gte, lt, lte, sql, sum } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import {
   DEFAULT_MAX_OUTPUT_PX,
+  DEFAULT_PIXVERSE_CONFIG,
   DEFAULT_RESOLUTION_CONFIG,
+  DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG,
   DEFAULT_TRYON_CONFIG,
 } from '../../lib/resolution-config.js';
+import { DEFAULT_UPLOAD_LIMITS } from '../../lib/upload-limits-config.js';
 import { requireAdmin } from './guard.js';
 
 const KEY = 'config:system';
@@ -22,6 +26,17 @@ export async function adminConfigRoutes(app: FastifyInstance) {
     };
   });
 
+  // Public — used by the login/register pages so the advertised signup bonus
+  // never drifts from what PATCH /v1/me actually grants (both read the same
+  // credit_plans row).
+  app.get('/v1/config/free-plan', async () => {
+    const [plan] = await app.db
+      .select({ credits: schema.creditPlans.credits })
+      .from(schema.creditPlans)
+      .where(eq(schema.creditPlans.slug, 'free'));
+    return { credits: plan?.credits ?? 0 };
+  });
+
   app.get(
     '/admin/config',
     { preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']) },
@@ -31,6 +46,9 @@ export async function adminConfigRoutes(app: FastifyInstance) {
       cfg.resolutions = cfg.resolutions ?? DEFAULT_RESOLUTION_CONFIG;
       cfg.maxOutputPx = cfg.maxOutputPx ?? DEFAULT_MAX_OUTPUT_PX;
       cfg.tryon = cfg.tryon ?? DEFAULT_TRYON_CONFIG;
+      cfg.sareeMannequinDev = cfg.sareeMannequinDev ?? DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG;
+      cfg.pixverse = cfg.pixverse ?? DEFAULT_PIXVERSE_CONFIG;
+      cfg.uploadLimits = { ...DEFAULT_UPLOAD_LIMITS, ...cfg.uploadLimits };
       return cfg;
     },
   );
@@ -48,6 +66,51 @@ export async function adminConfigRoutes(app: FastifyInstance) {
       return next;
     },
   );
+
+  // ── App video (single global clip, e.g. Android app intro/promo) ─────────
+
+  app.post(
+    '/admin/config/app-video/presign',
+    {
+      preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']),
+      schema: { body: PresignAppVideoBody },
+    },
+    async (req) => {
+      const { contentType } = req.body as { contentType: string };
+      const key = keys.appVideo();
+      const { url } = await app.storage.presignPut(key, contentType, 50_000_000, 300);
+      return { uploadUrl: url, key };
+    },
+  );
+
+  app.post(
+    '/admin/config/app-video/confirm',
+    { preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']) },
+    async () => {
+      const key = keys.appVideo();
+      const cur = JSON.parse((await app.redis.get(KEY)) ?? '{}') as Record<string, unknown>;
+      const updatedAt = new Date().toISOString();
+      cur.appVideo = { key, updatedAt };
+      await app.redis.set(KEY, JSON.stringify(cur));
+      return { videoUrl: appVideoUrl(app, key, updatedAt), updatedAt };
+    },
+  );
+
+  app.get(
+    '/admin/config/app-video',
+    { preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']) },
+    async () => {
+      const cfg = await readAppVideoConfig(app, KEY);
+      if (!cfg) return { videoUrl: null, updatedAt: null };
+      return { videoUrl: appVideoUrl(app, cfg.key, cfg.updatedAt), updatedAt: cfg.updatedAt };
+    },
+  );
+
+  // Public — used by the Android app to fetch the current intro/promo video (no auth)
+  app.get('/v1/config/app-video', async () => {
+    const cfg = await readAppVideoConfig(app, KEY);
+    return { videoUrl: cfg ? appVideoUrl(app, cfg.key, cfg.updatedAt) : null };
+  });
 
   app.get(
     '/admin/stats',
@@ -245,6 +308,21 @@ export async function adminConfigRoutes(app: FastifyInstance) {
       };
     },
   );
+}
+
+async function readAppVideoConfig(
+  app: FastifyInstance,
+  redisKey: string,
+): Promise<{ key: string; updatedAt: string } | null> {
+  const cur = JSON.parse((await app.redis.get(redisKey)) ?? '{}') as Record<string, unknown>;
+  const appVideo = cur.appVideo as { key: string; updatedAt: string } | undefined;
+  return appVideo ?? null;
+}
+
+// Cache-busting query param — the object key is fixed (re-uploads overwrite it in
+// place), so without this a CDN/client cache would keep serving the old clip.
+function appVideoUrl(app: FastifyInstance, key: string, updatedAt: string): string {
+  return `${app.storage.publicUrl(key)}?v=${new Date(updatedAt).getTime()}`;
 }
 
 function formatAge(d: Date | null): string {
