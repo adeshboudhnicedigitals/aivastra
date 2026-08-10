@@ -328,9 +328,17 @@ export default function SareePage({ toast, onNav }: Props) {
         className="card"
         style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 8,
+          }}
+        >
           <span style={{ fontSize: 14, fontWeight: 600 }}>1. ComfyUI Workflow</span>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {workflow && (
               <button className="btn ghost" onClick={handleDeactivateWorkflow}>
                 Deactivate
@@ -598,7 +606,15 @@ export default function SareePage({ toast, onNav }: Props) {
         className="card"
         style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 8,
+          }}
+        >
           <span style={{ fontSize: 14, fontWeight: 600 }}>5. Worker Selection</span>
           <button className="btn ghost sm" onClick={() => onNav('workers')}>
             Edit workers →
@@ -612,52 +628,54 @@ export default function SareePage({ toast, onNav }: Props) {
         {workers.length === 0 ? (
           <div style={{ fontSize: 12, color: 'var(--muted)' }}>No workers registered.</div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-            <thead>
-              <tr style={{ textAlign: 'left', color: 'var(--muted)' }}>
-                <th style={{ padding: '6px 8px' }}>Label</th>
-                <th style={{ padding: '6px 8px' }}>URL</th>
-                <th style={{ padding: '6px 8px' }}>Active</th>
-                <th style={{ padding: '6px 8px' }}>Job types</th>
-                <th style={{ padding: '6px 8px' }}>Saree-capable</th>
-              </tr>
-            </thead>
-            <tbody>
-              {workers.map((w) => {
-                const capable = w.allowedJobTypes.includes('saree');
-                return (
-                  <tr key={w.id} style={{ borderTop: '1px solid var(--border)' }}>
-                    <td style={{ padding: '6px 8px' }}>{w.label || w.id}</td>
-                    <td style={{ padding: '6px 8px' }}>
-                      <code style={{ fontSize: 10 }}>{w.url}</code>
-                    </td>
-                    <td style={{ padding: '6px 8px' }}>{w.isActive ? 'Yes' : 'No'}</td>
-                    <td style={{ padding: '6px 8px' }}>
-                      {(w.allowedJobTypes ?? []).join(', ') || '(any)'}
-                    </td>
-                    <td style={{ padding: '6px 8px' }}>
-                      {capable ? (
-                        <span
-                          style={{
-                            fontSize: 10,
-                            fontWeight: 600,
-                            padding: '2px 7px',
-                            borderRadius: 10,
-                            background: 'rgba(76,175,80,0.12)',
-                            color: '#4caf50',
-                          }}
-                        >
-                          Yes
-                        </span>
-                      ) : (
-                        <span style={{ fontSize: 10, color: 'var(--muted)' }}>No</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ textAlign: 'left', color: 'var(--muted)' }}>
+                  <th style={{ padding: '6px 8px' }}>Label</th>
+                  <th style={{ padding: '6px 8px' }}>URL</th>
+                  <th style={{ padding: '6px 8px' }}>Active</th>
+                  <th style={{ padding: '6px 8px' }}>Job types</th>
+                  <th style={{ padding: '6px 8px' }}>Saree-capable</th>
+                </tr>
+              </thead>
+              <tbody>
+                {workers.map((w) => {
+                  const capable = w.allowedJobTypes.includes('saree');
+                  return (
+                    <tr key={w.id} style={{ borderTop: '1px solid var(--border)' }}>
+                      <td style={{ padding: '6px 8px' }}>{w.label || w.id}</td>
+                      <td style={{ padding: '6px 8px' }}>
+                        <code style={{ fontSize: 10 }}>{w.url}</code>
+                      </td>
+                      <td style={{ padding: '6px 8px' }}>{w.isActive ? 'Yes' : 'No'}</td>
+                      <td style={{ padding: '6px 8px' }}>
+                        {(w.allowedJobTypes ?? []).join(', ') || '(any)'}
+                      </td>
+                      <td style={{ padding: '6px 8px' }}>
+                        {capable ? (
+                          <span
+                            style={{
+                              fontSize: 10,
+                              fontWeight: 600,
+                              padding: '2px 7px',
+                              borderRadius: 10,
+                              background: 'rgba(76,175,80,0.12)',
+                              color: '#4caf50',
+                            }}
+                          >
+                            Yes
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: 10, color: 'var(--muted)' }}>No</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 

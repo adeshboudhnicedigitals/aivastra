@@ -360,6 +360,19 @@ function CataloguesPageInner(): React.ReactElement {
     return ['All Garment Types', ...Array.from(seen).sort()];
   }, [catalogueSource]);
 
+  // Studio's publishing-platform list (BRAND_CONFIG in studio/page.tsx) has grown
+  // over time (AJIO, Nykaa Fashion added later) and a hardcoded list here silently
+  // drifted out of sync, making those platforms' catalogues unfilterable. Derive
+  // from what's actually present instead, same as garmentTypeOptions above.
+  // 'Other' covers jobs submitted without a platform (e.g. Amazon lifestyle mode).
+  const platformOptions = useMemo(() => {
+    const seen = new Set<string>();
+    for (const c of catalogueSource) {
+      seen.add(c.platform ?? 'Other');
+    }
+    return ['All Platforms', ...Array.from(seen).sort()];
+  }, [catalogueSource]);
+
   const filtered = useMemo(() => {
     return catalogueSource.filter((c) => {
       if (!c.catalogueId.toLowerCase().includes(search.toLowerCase())) return false;
@@ -1129,33 +1142,31 @@ function CataloguesPageInner(): React.ReactElement {
                         overflow: 'hidden',
                       }}
                     >
-                      {['All Platforms', 'Amazon', 'Myntra', 'Flipkart', 'Meesho', 'Shopify'].map(
-                        (p) => (
-                          <button
-                            key={p}
-                            type="button"
-                            onClick={() => {
-                              setPlatformFilter(p);
-                              setShowPlatformDropdown(false);
-                            }}
-                            style={{
-                              width: '100%',
-                              textAlign: 'left',
-                              padding: '10px 12px',
-                              fontSize: 13,
-                              fontWeight: 500,
-                              color: platformFilter === p ? C.pink : C.mid,
-                              cursor: 'pointer',
-                              background:
-                                platformFilter === p ? 'rgba(245,92,122,0.06)' : 'transparent',
-                              border: 'none',
-                              fontFamily: 'inherit',
-                            }}
-                          >
-                            {p}
-                          </button>
-                        ),
-                      )}
+                      {platformOptions.map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => {
+                            setPlatformFilter(p);
+                            setShowPlatformDropdown(false);
+                          }}
+                          style={{
+                            width: '100%',
+                            textAlign: 'left',
+                            padding: '10px 12px',
+                            fontSize: 13,
+                            fontWeight: 500,
+                            color: platformFilter === p ? C.pink : C.mid,
+                            cursor: 'pointer',
+                            background:
+                              platformFilter === p ? 'rgba(245,92,122,0.06)' : 'transparent',
+                            border: 'none',
+                            fontFamily: 'inherit',
+                          }}
+                        >
+                          {p}
+                        </button>
+                      ))}
                     </div>
                   )}
                 </div>

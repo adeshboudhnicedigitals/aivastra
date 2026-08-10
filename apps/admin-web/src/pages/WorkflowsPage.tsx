@@ -249,16 +249,14 @@ export default function WorkflowsPage({ toast }: Props) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Header */}
-      <div
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
-      >
+      <div className="page-head">
         <div>
           <h2 style={{ margin: 0, fontSize: '1.125rem', fontWeight: 600 }}>Workflows</h2>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
             ComfyUI workflow templates used for try-on generation. Each pose selects one workflow.
           </p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div className="head-tools">
           {workflows.length > 0 && (
             <div className="search">
               <Icon.Search />

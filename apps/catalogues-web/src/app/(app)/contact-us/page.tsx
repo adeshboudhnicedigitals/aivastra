@@ -100,8 +100,8 @@ export default function ContactUsPage() {
           min-width: 320px;
           max-width: 651px;
           width: 100%;
-          background: #FEFEFE;
-          border: 1px solid #EEEEEE;
+          background: ${C.card};
+          border: 1px solid ${C.border};
           box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.08);
           border-radius: 24px;
         }
@@ -117,8 +117,8 @@ export default function ContactUsPage() {
           width: 460px;
           max-width: 100%;
           flex-shrink: 0;
-          background: #FEFEFE;
-          border: 1px solid #EEEEEE;
+          background: ${C.card};
+          border: 1px solid ${C.border};
           box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.08);
           border-radius: 24px;
         }
@@ -126,7 +126,7 @@ export default function ContactUsPage() {
         .contact-card-title {
           font-size: 26px;
           font-weight: 600;
-          color: #1A1A2E;
+          color: ${C.text};
         }
 
         .contact-card-subtitle {
@@ -138,7 +138,7 @@ export default function ContactUsPage() {
         .contact-item-label {
           font-size: 13px;
           font-weight: 600;
-          color: #1A1A2E;
+          color: ${C.text};
           margin-bottom: 4px;
         }
 
@@ -153,7 +153,7 @@ export default function ContactUsPage() {
           height: 45px;
           min-width: 45px;
           border-radius: 10px;
-          border: 1px solid #DDDDDD;
+          border: 1px solid ${C.border};
           display: flex;
           align-items: center;
           justify-content: center;
@@ -162,7 +162,7 @@ export default function ContactUsPage() {
         .contact-form-label {
           font-size: 12px;
           font-weight: 600;
-          color: #1A1A2E;
+          color: ${C.text};
           margin-bottom: 6px;
           display: block;
         }
@@ -259,7 +259,7 @@ export default function ContactUsPage() {
         }
 
         .contact-input::placeholder {
-          color: #E2E8F0 !important;
+          color: ${C.light} !important;
           opacity: 1 !important;
           font-weight: 400 !important;
         }
@@ -330,7 +330,7 @@ export default function ContactUsPage() {
 
             {/* Follow Us */}
             <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1A2E', marginBottom: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 12 }}>
                 Follow Us On
               </div>
               <div style={{ display: 'flex', gap: 12 }}>
@@ -501,12 +501,12 @@ export default function ContactUsPage() {
                       width: '100%',
                       boxSizing: 'border-box',
                       height: 42,
-                      border: '1px solid #D1D5DB',
+                      border: `1px solid ${C.border}`,
                       borderRadius: 8,
                       padding: '0 12px',
                       fontSize: 13,
                       color: C.text,
-                      background: '#FEFEFE',
+                      background: C.field,
                       outline: 'none',
                       fontFamily: 'inherit',
                     }}
@@ -528,12 +528,12 @@ export default function ContactUsPage() {
                       width: '100%',
                       boxSizing: 'border-box',
                       height: 42,
-                      border: '1px solid #D1D5DB',
+                      border: `1px solid ${C.border}`,
                       borderRadius: 8,
                       padding: '0 12px',
                       fontSize: 13,
                       color: C.text,
-                      background: '#FEFEFE',
+                      background: C.field,
                       outline: 'none',
                       fontFamily: 'inherit',
                     }}
@@ -557,12 +557,12 @@ export default function ContactUsPage() {
                       width: '100%',
                       boxSizing: 'border-box',
                       height: 42,
-                      border: '1px solid #D1D5DB',
+                      border: `1px solid ${C.border}`,
                       borderRadius: 8,
                       padding: '0 12px',
                       fontSize: 13,
                       color: C.text,
-                      background: '#FEFEFE',
+                      background: C.field,
                       outline: 'none',
                       fontFamily: 'inherit',
                     }}
@@ -584,12 +584,12 @@ export default function ContactUsPage() {
                     style={{
                       width: '100%',
                       boxSizing: 'border-box',
-                      border: '1px solid #D1D5DB',
+                      border: `1px solid ${C.border}`,
                       borderRadius: 8,
                       padding: '10px 12px',
                       fontSize: 13,
                       color: C.text,
-                      background: '#FEFEFE',
+                      background: C.field,
                       resize: 'vertical',
                       outline: 'none',
                       fontFamily: 'inherit',

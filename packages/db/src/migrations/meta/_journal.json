@@ -1037,6 +1037,13 @@
       "when": 1786266000000,
       "tag": "0147_drop_orphaned_jobs_batch_id_fkey",
       "breakpoints": true
+    },
+    {
+      "idx": 148,
+      "version": "7",
+      "when": 1786266060000,
+      "tag": "0148_model_face_continent",
+      "breakpoints": true
     }
   ]
 }
