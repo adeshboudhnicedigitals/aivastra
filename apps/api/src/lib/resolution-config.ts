@@ -6,6 +6,12 @@ import {
   SIMPLE_TRYON_COST,
 } from '@aivastra/types';
 import type { FastifyInstance } from 'fastify';
+import {
+  DEFAULT_CREDITS_BY_PLAN_HANDLE,
+  normalizePlanName,
+  SHOPIFY_PLAN_HANDLES,
+  type ShopifyPlanHandle,
+} from '../modules/shopify/billing-plans.js';
 
 const CONFIG_KEY = 'config:system';
 
@@ -132,5 +138,30 @@ export async function getShopifyTrialCredits(app: FastifyInstance): Promise<numb
     return typeof credits === 'number' ? credits : DEFAULT_SHOPIFY_TRIAL_CONFIG.trialCredits;
   } catch {
     return DEFAULT_SHOPIFY_TRIAL_CONFIG.trialCredits;
+  }
+}
+
+/**
+ * Reads the admin-configured credit grant for one Shopify Managed Pricing
+ * plan (starter/growth/pro) from the same `config:system` Redis key the
+ * admin panel edits. Returns null for a plan name that doesn't match one of
+ * SHOPIFY_PLAN_HANDLES — same "unrecognized plan grants nothing" behavior
+ * creditsForPlanName had. Falls back to DEFAULT_CREDITS_BY_PLAN_HANDLE for a
+ * known handle if nothing is stored yet, or the entry is missing/malformed.
+ */
+export async function getShopifyPlanCredits(
+  app: FastifyInstance,
+  planName: string,
+): Promise<number | null> {
+  const handle = normalizePlanName(planName);
+  if (!(SHOPIFY_PLAN_HANDLES as readonly string[]).includes(handle)) return null;
+  const knownHandle = handle as ShopifyPlanHandle;
+  try {
+    const raw = await app.redis.get(CONFIG_KEY);
+    const cfg = raw ? JSON.parse(raw) : {};
+    const credits = cfg.shopify?.planCredits?.[knownHandle];
+    return typeof credits === 'number' ? credits : DEFAULT_CREDITS_BY_PLAN_HANDLE[knownHandle];
+  } catch {
+    return DEFAULT_CREDITS_BY_PLAN_HANDLE[knownHandle];
   }
 }
