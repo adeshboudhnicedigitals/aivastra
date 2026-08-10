@@ -79,6 +79,8 @@ export interface ShopifyMe {
     settings: ShopifyStoreSettings;
     ownerUserId: string | null;
     connectedSince: string;
+    planHandle: string | null;
+    subscriptionStatus: string | null;
   };
   creditBalance: number | null;
   stats: ShopifyStats;

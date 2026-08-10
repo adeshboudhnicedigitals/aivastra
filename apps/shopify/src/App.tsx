@@ -12,6 +12,7 @@ import {
 } from './lib/appBridge';
 import { runNavGuard } from './lib/navGuard';
 import AnalyticsPage from './pages/AnalyticsPage';
+import BillingCallbackPage from './pages/BillingCallbackPage';
 import DashboardPage from './pages/DashboardPage';
 import ManagePage from './pages/ManagePage';
 import SettingsPage from './pages/SettingsPage';
@@ -131,6 +132,7 @@ export default function App() {
           <Route path="/widget-design" element={<WidgetDesignPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/support" element={<SupportPage />} />
+          <Route path="/billing/callback" element={<BillingCallbackPage />} />
           {/* Merchants may have bookmarked the old path while it was the only
               product surface. */}
           <Route path="/products" element={<Navigate to="/manage" replace />} />
