@@ -75,14 +75,14 @@ describe('syncStoreSubscription', () => {
     expect(result).toEqual({
       planHandle: 'growth',
       subscriptionStatus: 'active',
-      creditsGranted: 6250,
+      creditsGranted: 5000,
     });
 
     const [balanceRow] = await app.db
       .select({ balance: schema.userCredits.balance })
       .from(schema.userCredits)
       .where(eq(schema.userCredits.userId, user.id));
-    expect(balanceRow?.balance).toBe(6250);
+    expect(balanceRow?.balance).toBe(5000);
 
     const [updatedStore] = await app.db
       .select()
@@ -103,12 +103,12 @@ describe('syncStoreSubscription', () => {
     });
 
     expect(result.planHandle).toBe('starter');
-    expect(result.creditsGranted).toBe(2500);
+    expect(result.creditsGranted).toBe(1925);
     const [balanceRow] = await app.db
       .select({ balance: schema.userCredits.balance })
       .from(schema.userCredits)
       .where(eq(schema.userCredits.userId, user.id));
-    expect(balanceRow?.balance).toBe(2500);
+    expect(balanceRow?.balance).toBe(1925);
   });
 
   it('does not re-grant credits on a second sync within the same billing cycle', async () => {
@@ -129,7 +129,7 @@ describe('syncStoreSubscription', () => {
       .select({ balance: schema.userCredits.balance })
       .from(schema.userCredits)
       .where(eq(schema.userCredits.userId, user.id));
-    expect(balanceRow?.balance).toBe(2500); // only granted once
+    expect(balanceRow?.balance).toBe(1925); // only granted once
   });
 
   it('grants again when the billing period advances (renewal)', async () => {
@@ -147,12 +147,12 @@ describe('syncStoreSubscription', () => {
         sub({ name: 'starter', currentPeriodEnd: '2026-09-30T00:00:00Z' }),
     });
 
-    expect(renewed.creditsGranted).toBe(2500);
+    expect(renewed.creditsGranted).toBe(1925);
     const [balanceRow] = await app.db
       .select({ balance: schema.userCredits.balance })
       .from(schema.userCredits)
       .where(eq(schema.userCredits.userId, user.id));
-    expect(balanceRow?.balance).toBe(5000); // 2500 + 2500
+    expect(balanceRow?.balance).toBe(3850); // 1925 + 1925
   });
 
   it('grants again when the subscription id changes even if the period end does not', async () => {
@@ -173,12 +173,12 @@ describe('syncStoreSubscription', () => {
         sub({ id: 'gid://shopify/AppSubscription/2', name: 'growth' }),
     });
 
-    expect(upgraded.creditsGranted).toBe(6250);
+    expect(upgraded.creditsGranted).toBe(5000);
     const [balanceRow] = await app.db
       .select({ balance: schema.userCredits.balance })
       .from(schema.userCredits)
       .where(eq(schema.userCredits.userId, user.id));
-    expect(balanceRow?.balance).toBe(8750); // 2500 + 6250
+    expect(balanceRow?.balance).toBe(6925); // 1925 + 5000
   });
 
   it('marks the store cancelled and grants nothing when there is no active subscription', async () => {
@@ -292,12 +292,12 @@ describe('syncStoreSubscription', () => {
       getActiveSubscription: async () => activeSub,
     });
 
-    expect(second.creditsGranted).toBe(2500);
+    expect(second.creditsGranted).toBe(1925);
     const [balanceRow] = await app.db
       .select({ balance: schema.userCredits.balance })
       .from(schema.userCredits)
       .where(eq(schema.userCredits.userId, user.id));
-    expect(balanceRow?.balance).toBe(2500);
+    expect(balanceRow?.balance).toBe(1925);
   });
 
   it('does not forfeit the cycle when the plan name is unrecognized', async () => {
@@ -323,12 +323,12 @@ describe('syncStoreSubscription', () => {
       getActiveSubscription: async () => sub({ name: 'Growth' }),
     });
 
-    expect(fixed.creditsGranted).toBe(6250);
+    expect(fixed.creditsGranted).toBe(5000);
     const [balanceRow] = await app.db
       .select({ balance: schema.userCredits.balance })
       .from(schema.userCredits)
       .where(eq(schema.userCredits.userId, user.id));
-    expect(balanceRow?.balance).toBe(6250);
+    expect(balanceRow?.balance).toBe(5000);
   });
 });
 
