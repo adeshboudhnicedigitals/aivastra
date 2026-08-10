@@ -286,8 +286,8 @@ export default function CataloguesPage(): React.ReactElement {
 
   // ── derived state ────────────────────────────────────────────────────────────
 
-  // Garment types are admin-curated and numerous (unlike the fixed GENDERS/platform
-  // lists) — build the option list from whatever actually appears in the loaded
+  // Garment types are admin-curated and numerous (unlike the fixed GENDERS
+  // list) — build the option list from whatever actually appears in the loaded
   // catalogues, rather than hardcoding one.
   const garmentTypeOptions = useMemo(() => {
     const seen = new Set<string>();
@@ -295,6 +295,19 @@ export default function CataloguesPage(): React.ReactElement {
       if (c.garmentType) seen.add(c.garmentType);
     }
     return ['All Garment Types', ...Array.from(seen).sort()];
+  }, [catalogues]);
+
+  // Studio's publishing-platform list (BRAND_CONFIG in studio/page.tsx) has grown
+  // over time (AJIO, Nykaa Fashion added later) and a hardcoded list here silently
+  // drifted out of sync, making those platforms' catalogues unfilterable. Derive
+  // from what's actually present instead, same as garmentTypeOptions above.
+  // 'Other' covers jobs submitted without a platform (e.g. Amazon lifestyle mode).
+  const platformOptions = useMemo(() => {
+    const seen = new Set<string>();
+    for (const c of catalogues ?? []) {
+      seen.add(c.platform ?? 'Other');
+    }
+    return ['All Platforms', ...Array.from(seen).sort()];
   }, [catalogues]);
 
   const filtered = useMemo(() => {
@@ -1066,33 +1079,31 @@ export default function CataloguesPage(): React.ReactElement {
                         overflow: 'hidden',
                       }}
                     >
-                      {['All Platforms', 'Amazon', 'Myntra', 'Flipkart', 'Meesho', 'Shopify'].map(
-                        (p) => (
-                          <button
-                            key={p}
-                            type="button"
-                            onClick={() => {
-                              setPlatformFilter(p);
-                              setShowPlatformDropdown(false);
-                            }}
-                            style={{
-                              width: '100%',
-                              textAlign: 'left',
-                              padding: '10px 12px',
-                              fontSize: 13,
-                              fontWeight: 500,
-                              color: platformFilter === p ? C.pink : C.mid,
-                              cursor: 'pointer',
-                              background:
-                                platformFilter === p ? 'rgba(245,92,122,0.06)' : 'transparent',
-                              border: 'none',
-                              fontFamily: 'inherit',
-                            }}
-                          >
-                            {p}
-                          </button>
-                        ),
-                      )}
+                      {platformOptions.map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => {
+                            setPlatformFilter(p);
+                            setShowPlatformDropdown(false);
+                          }}
+                          style={{
+                            width: '100%',
+                            textAlign: 'left',
+                            padding: '10px 12px',
+                            fontSize: 13,
+                            fontWeight: 500,
+                            color: platformFilter === p ? C.pink : C.mid,
+                            cursor: 'pointer',
+                            background:
+                              platformFilter === p ? 'rgba(245,92,122,0.06)' : 'transparent',
+                            border: 'none',
+                            fontFamily: 'inherit',
+                          }}
+                        >
+                          {p}
+                        </button>
+                      ))}
                     </div>
                   )}
                 </div>
