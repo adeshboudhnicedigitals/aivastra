@@ -17,10 +17,21 @@ import {
 } from '@shopify/polaris';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiFetch } from '../lib/api';
+import { apiFetch, navigateTopLevel } from '../lib/api';
+import { buildPlanSelectionUrl } from '../lib/billing';
 import type { ShopifyMe, ShopifyOnboardingConfirmResponse, ShopifyStats } from '../types';
 
 type StatusKey = keyof ShopifyStats['statusCounts'];
+
+const PLAN_LABELS: Record<string, string> = {
+  starter: 'Starter',
+  growth: 'Growth',
+  pro: 'Pro',
+};
+
+// Set at build time from Partner Dashboard's app handle — see
+// .env.production.example for VITE_SHOPIFY_APP_HANDLE.
+const APP_HANDLE = import.meta.env.VITE_SHOPIFY_APP_HANDLE ?? '';
 
 const STATUS_TONE: Record<StatusKey, 'success' | 'attention' | 'critical' | 'info'> = {
   active: 'success',
@@ -117,6 +128,11 @@ export default function DashboardPage() {
     } finally {
       setOpeningEditor(false);
     }
+  }
+
+  function openPlanSelection() {
+    if (!me) return;
+    navigateTopLevel(buildPlanSelectionUrl(me.store.shopDomain, APP_HANDLE));
   }
 
   async function disconnectAccount() {
@@ -274,9 +290,17 @@ export default function DashboardPage() {
               <Text as="p" variant="heading2xl">
                 {me?.creditBalance ?? 0}
               </Text>
+              {me?.store.planHandle ? (
+                <Text as="p" tone="subdued">
+                  {PLAN_LABELS[me.store.planHandle] ?? me.store.planHandle} plan
+                  {me.store.subscriptionStatus !== 'active'
+                    ? ` — ${me.store.subscriptionStatus}`
+                    : ''}
+                </Text>
+              ) : null}
               <Box>
-                <Button url="https://app.aivastra.com/pricing" target="_blank">
-                  Top up on aivastra.com
+                <Button onClick={openPlanSelection}>
+                  {me?.store.planHandle ? 'Manage plan' : 'Choose a plan'}
                 </Button>
               </Box>
             </BlockStack>

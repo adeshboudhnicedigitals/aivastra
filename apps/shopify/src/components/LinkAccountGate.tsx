@@ -64,7 +64,6 @@ export function LinkAccountGate({ onLinked }: { onLinked: () => void }) {
               Connect your AiVastra account
             </Text>
             <Text as="p" tone="subdued">
-              Billing and credits live on app.aivastra.com — nothing is charged through Shopify.
               Link your store to start offering virtual try-on.
             </Text>
           </BlockStack>
