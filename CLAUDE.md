@@ -319,6 +319,7 @@ Key vars (see `.env.production.example` for full list):
 | `VIDEO_CONCURRENCY` | dispatcher — in-flight cap for `jobs:video`, independent of GPU worker count; match the PixVerse plan limit (default 5) |
 | `NEXT_PUBLIC_API_URL` | web (Fastify API base URL, default `http://localhost:4000`) |
 | `NEXT_PUBLIC_BASE_PATH` | web (subdirectory prefix, e.g. `/app`; empty in root deploy) |
+| `SHOPIFY_PARTNER_API_TOKEN`, `SHOPIFY_PARTNER_ORG_ID`, `SHOPIFY_PARTNER_APP_GID`, `SHOPIFY_APP_HANDLE` | api — Shopify App Pricing subscription polling (Partner API, org-scoped, separate from the per-store Admin API token) |
 
 In dev, `R2_*` vars point to MinIO at `http://127.0.0.1:9000`.
 
