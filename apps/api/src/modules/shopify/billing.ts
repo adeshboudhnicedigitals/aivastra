@@ -101,12 +101,21 @@ export async function syncStoreSubscription(
     }
   }
 
+  // Only advance the stored cycle marker when there was actually an owner to
+  // grant to. If ownerUserId is null, this cycle was never billed — leaving
+  // currentBillingCycleStart at its previous value (possibly still null)
+  // means a later sync, once the store gets linked to an owner, still sees
+  // isNewCycle === true for this same cycle and grants it. Advancing it
+  // unconditionally here would silently mark an unbilled cycle as "seen" and
+  // the merchant would never receive credits for it.
+  const cycleStartToPersist = store.ownerUserId ? cycleStart : store.currentBillingCycleStart;
+
   await db
     .update(schema.shopifyStores)
     .set({
       planHandle,
       subscriptionStatus: 'active',
-      currentBillingCycleStart: cycleStart,
+      currentBillingCycleStart: cycleStartToPersist,
       lastBillingSyncAt: new Date(),
       updatedAt: new Date(),
     })

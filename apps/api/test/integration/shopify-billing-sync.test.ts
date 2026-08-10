@@ -183,6 +183,68 @@ describe('syncStoreSubscription', () => {
 
     expect(result.creditsGranted).toBe(0);
   });
+
+  it('grants credits for the still-unbilled cycle once an owner-less store gets linked to an owner', async () => {
+    // Regression: the trailing store update used to advance
+    // currentBillingCycleStart unconditionally, even when ownerUserId was
+    // null and no grant could happen. That permanently marked the cycle
+    // "seen," so a later sync after the store got linked to an owner would
+    // see isNewCycle === false and never grant credits the merchant actually
+    // paid for. currentBillingCycleStart must only advance when there was an
+    // owner to grant to.
+    const [store] = await app.db
+      .insert(schema.shopifyStores)
+      .values({
+        shopDomain: `unlinked-renewal-${Date.now()}.myshopify.com`,
+        shopifyShopId: Date.now(),
+        accessToken: 'enc',
+        scope: 'read_products',
+      })
+      .returning();
+    const activeSub = {
+      billingPeriod: 'EVERY_30_DAYS',
+      cancelAtEndOfCycle: false,
+      currentBillingCycle: { startTime: '2026-08-01T00:00:00Z', endTime: '2026-08-31T00:00:00Z' },
+      items: [{ handle: 'starter' }],
+    };
+
+    const first = await syncStoreSubscription(app.db, partnerEnv, store!, {
+      getActiveSubscription: async () => activeSub,
+    });
+    expect(first.creditsGranted).toBe(0);
+
+    const [user] = await app.db
+      .insert(schema.users)
+      .values({
+        email: `owner-${Date.now()}-${Math.random()}@example.com`,
+        passwordHash: null,
+        displayName: 'Store Owner',
+        companyName: null,
+        emailVerified: true,
+        tier: 'free',
+      })
+      .returning();
+    await app.db.insert(schema.userCredits).values({ userId: user.id, balance: 0 });
+    await app.db
+      .update(schema.shopifyStores)
+      .set({ ownerUserId: user.id })
+      .where(eq(schema.shopifyStores.id, store!.id));
+    const [linked] = await app.db
+      .select()
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, store!.id));
+
+    const second = await syncStoreSubscription(app.db, partnerEnv, linked!, {
+      getActiveSubscription: async () => activeSub,
+    });
+
+    expect(second.creditsGranted).toBe(2500);
+    const [balanceRow] = await app.db
+      .select({ balance: schema.userCredits.balance })
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, user.id));
+    expect(balanceRow?.balance).toBe(2500);
+  });
 });
 
 describe('buildPlanSelectionUrl', () => {
