@@ -13,15 +13,15 @@
  * grants nothing rather than guessing which tier the merchant paid for.
  *
  * Draft launch prices (set in Partner Dashboard, not here — this file only
- * owns credits, never price): starter $29, growth $59, pro $219/month.
+ * owns credits, never price): starter $29, growth $59, pro $229/month.
  */
 export const SHOPIFY_PLAN_HANDLES = ['starter', 'growth', 'pro'] as const;
 export type ShopifyPlanHandle = (typeof SHOPIFY_PLAN_HANDLES)[number];
 
 const CREDITS_BY_PLAN_HANDLE: Record<ShopifyPlanHandle, number> = {
-  starter: 2500,
-  growth: 6250,
-  pro: 25000,
+  starter: 1925,
+  growth: 5000,
+  pro: 22000,
 };
 
 /**
