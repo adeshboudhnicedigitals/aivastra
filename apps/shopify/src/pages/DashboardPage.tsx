@@ -17,8 +17,7 @@ import {
 } from '@shopify/polaris';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiFetch, navigateTopLevel } from '../lib/api';
-import { buildPlanSelectionUrl } from '../lib/billing';
+import { apiFetch } from '../lib/api';
 import type { ShopifyMe, ShopifyOnboardingConfirmResponse, ShopifyStats } from '../types';
 
 type StatusKey = keyof ShopifyStats['statusCounts'];
@@ -28,10 +27,6 @@ const PLAN_LABELS: Record<string, string> = {
   growth: 'Growth',
   pro: 'Pro',
 };
-
-// Set at build time from Partner Dashboard's app handle — see
-// .env.production.example for VITE_SHOPIFY_APP_HANDLE.
-const APP_HANDLE = import.meta.env.VITE_SHOPIFY_APP_HANDLE ?? '';
 
 const STATUS_TONE: Record<StatusKey, 'success' | 'attention' | 'critical' | 'info'> = {
   active: 'success',
@@ -128,21 +123,6 @@ export default function DashboardPage() {
     } finally {
       setOpeningEditor(false);
     }
-  }
-
-  function openPlanSelection() {
-    if (!me) return;
-    // Without the build arg the URL collapses to .../charges//pricing_plans,
-    // which Shopify answers with a 404 — a dead-end the merchant cannot
-    // diagnose. Fail loudly here instead of navigating them off the app.
-    if (!APP_HANDLE) {
-      setError(
-        'Plan selection is unavailable — this build is missing its Shopify app handle. Contact support@aivastra.com.',
-      );
-      return;
-    }
-    setError(null);
-    navigateTopLevel(buildPlanSelectionUrl(me.store.shopDomain, APP_HANDLE));
   }
 
   async function disconnectAccount() {
@@ -309,7 +289,7 @@ export default function DashboardPage() {
                 </Text>
               ) : null}
               <Box>
-                <Button onClick={openPlanSelection}>
+                <Button onClick={() => navigate('/pricing')}>
                   {me?.store.planHandle ? 'Manage plan' : 'Choose a plan'}
                 </Button>
               </Box>
