@@ -76,6 +76,21 @@ const Env = z.object({
   SHOPIFY_SCOPES: z.string().default('read_products'),
   // 32-byte key, base64-encoded (44 chars). Required only when Shopify is enabled.
   SHOPIFY_TOKEN_ENC_KEY: z.string().optional(),
+  // Shopify Partner API — a separate API/token from the per-store Admin API
+  // access token above. Used only by billing.ts/partner-client.ts to read
+  // Shopify App Pricing subscription state, since Shopify App Pricing sends no
+  // webhooks for subscription changes. Org-scoped: only a Partner Dashboard
+  // organization owner can mint this token (Settings → API clients).
+  SHOPIFY_PARTNER_API_TOKEN: z.string().optional(),
+  // From the Partner Dashboard URL: partners.shopify.com/<this>/...
+  SHOPIFY_PARTNER_ORG_ID: z.string().optional(),
+  // This app's Partner API global id, e.g. "gid://shopify/App/1234" — distinct
+  // from SHOPIFY_API_KEY (the OAuth client_id).
+  SHOPIFY_PARTNER_APP_GID: z.string().optional(),
+  // The app's handle as configured in Partner Dashboard, used to build the
+  // Shopify-hosted plan-selection page URL:
+  // https://admin.shopify.com/store/:store_handle/charges/:app_handle/pricing_plans
+  SHOPIFY_APP_HANDLE: z.string().optional(),
   // Comma-separated email allowlist for the Catalog Video (PixVerse) feature.
   // Unset = open to everyone (dev default). Set in production to restrict the
   // feature to a soft-launch cohort without a code change.
