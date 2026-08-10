@@ -5,6 +5,7 @@ import android.content.Intent
 import android.media.MediaPlayer
 import android.net.Uri
 import android.widget.VideoView
+import aivastra.nice.interactive.utils.CrashReporter
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateFloatAsState
@@ -180,7 +181,7 @@ fun TryOnProcessingContent(
                                 mediaPlayer.setVolume(0f, 0f)
                                 mediaPlayer.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING)
                             } catch (e: Exception) {
-                                e.printStackTrace()
+                                CrashReporter.recordException(e, "TryOnProcessingPage")
                             }
                             mediaPlayer.start()
                         }
@@ -402,7 +403,7 @@ fun TryOnProcessingContent(
                         try {
                             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://app.aivastra.com")))
                         } catch (e: Exception) {
-                            e.printStackTrace()
+                            CrashReporter.recordException(e, "TryOnProcessingPage")
                         }
                     },
                     onDismiss = onCancel

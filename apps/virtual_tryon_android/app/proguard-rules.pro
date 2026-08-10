@@ -138,3 +138,12 @@
 
 # Keep Response API Models to prevent R8 serialization/deserialization crashes
 -keep class aivastra.nice.interactive.viewmodel.** { *; }
+
+##############################################
+# FIREBASE CRASHLYTICS
+# Keep line numbers for readable stack traces; the Crashlytics Gradle plugin
+# uploads mapping.txt on release builds to deobfuscate class/method names.
+##############################################
+-keepattributes SourceFile,LineNumberTable
+-keep public class * extends java.lang.Exception
+-renamesourcefileattribute SourceFile

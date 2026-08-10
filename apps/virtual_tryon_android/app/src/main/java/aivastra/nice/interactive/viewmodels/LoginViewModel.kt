@@ -83,6 +83,7 @@ class LoginViewModel(
                             SessionManager.save(
                                 accessToken = result.data.accessToken,
                                 refreshToken = result.data.refreshToken,
+                                userId = result.data.user.id,
                                 email = result.data.user.email,
                                 userName = result.data.user.displayName,
                                 logoUrl = result.data.effectiveLogoUrl
@@ -142,6 +143,7 @@ class LoginViewModel(
                                     SessionManager.save(
                                         accessToken = result.data.accessToken,
                                         refreshToken = result.data.refreshToken,
+                                        userId = result.data.user.id,
                                         email = result.data.user.email,
                                         userName = result.data.user.displayName,
                                         logoUrl = result.data.effectiveLogoUrl
@@ -189,6 +191,7 @@ class LoginViewModel(
                             SessionManager.save(
                                 accessToken = result.data.accessToken,
                                 refreshToken = result.data.refreshToken,
+                                userId = result.data.user.id,
                                 email = result.data.user.email,
                                 userName = result.data.user.displayName,
                                 logoUrl = result.data.effectiveLogoUrl
