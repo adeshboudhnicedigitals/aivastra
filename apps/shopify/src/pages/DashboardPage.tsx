@@ -132,6 +132,16 @@ export default function DashboardPage() {
 
   function openPlanSelection() {
     if (!me) return;
+    // Without the build arg the URL collapses to .../charges//pricing_plans,
+    // which Shopify answers with a 404 — a dead-end the merchant cannot
+    // diagnose. Fail loudly here instead of navigating them off the app.
+    if (!APP_HANDLE) {
+      setError(
+        'Plan selection is unavailable — this build is missing its Shopify app handle. Contact support@aivastra.com.',
+      );
+      return;
+    }
+    setError(null);
     navigateTopLevel(buildPlanSelectionUrl(me.store.shopDomain, APP_HANDLE));
   }
 
