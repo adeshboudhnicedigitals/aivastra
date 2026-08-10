@@ -64,6 +64,12 @@ describe('POST /v1/shopify/store/account/link', () => {
       .from(schema.shopifyStores)
       .where(eq(schema.shopifyStores.id, storeId));
     expect(store.ownerUserId).toBe(userId);
+
+    const [credits] = await app.db
+      .select({ balance: schema.userCredits.balance })
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, userId));
+    expect(credits?.balance).toBe(25);
   });
 
   it('rejects an invalid or expired code', async () => {
