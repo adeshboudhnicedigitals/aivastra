@@ -5,7 +5,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -19,7 +18,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -49,7 +47,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -111,8 +111,8 @@ fun PhotoEditView(
                 context.contentResolver.openInputStream(fixedUri)?.use { input ->
                     sourceBitmap = BitmapFactory.decodeStream(input)
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
+            } catch (t: Throwable) {
+                t.printStackTrace()
             }
         }
     }
@@ -138,20 +138,21 @@ fun PhotoEditView(
                         shape = RoundedCornerShape(0.dp)
                     )
                     .padding(top = statusBarH)
-                    .height(sdp(R.dimen._55sdp))
-                    .padding(horizontal = sdp(R.dimen._16sdp)),
+                    .height(sdp(R.dimen._60sdp))
+                    .padding(horizontal = sdp(R.dimen._12sdp)),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
                     onClick = onCancel,
-                    enabled = !isProcessing
+                    enabled = !isProcessing,
+                    modifier = Modifier.size(sdp(R.dimen._40sdp))
                 ) {
                     Icon(
                         Icons.Default.Close,
                         contentDescription = "Cancel Edit",
                         tint = Color.White,
-                        modifier = Modifier.size(sdp(R.dimen._22sdp))
+                        modifier = Modifier.size(sdp(R.dimen._32sdp))
                     )
                 }
 
@@ -165,12 +166,13 @@ fun PhotoEditView(
 
                 IconButton(
                     onClick = {
-                        if (!isProcessing && sourceBitmap != null) {
+                        val bitmap = sourceBitmap
+                        if (!isProcessing && bitmap != null) {
                             isProcessing = true
                             processAndSaveEditedBitmap(
                                 context = context,
                                 scope = scope,
-                                bitmap = sourceBitmap!!,
+                                bitmap = bitmap,
                                 rotation = rotationDegrees,
                                 scale = scale,
                                 offset = offset,
@@ -186,46 +188,59 @@ fun PhotoEditView(
                             )
                         }
                     },
-                    enabled = !isProcessing
+                    enabled = !isProcessing,
+                    modifier = Modifier.size(sdp(R.dimen._40sdp))
                 ) {
                     if (isProcessing) {
                         CircularProgressIndicator(
                             color = Color(0xFFF2B53F),
-                            strokeWidth = sdp(R.dimen._2sdp),
-                            modifier = Modifier.size(sdp(R.dimen._20sdp))
+                            strokeWidth = sdp(R.dimen._3sdp),
+                            modifier = Modifier.size(sdp(R.dimen._28sdp))
                         )
                     } else {
                         Icon(
                             Icons.Default.Check,
                             contentDescription = "Confirm Edit",
                             tint = Color(0xFFF2B53F),
-                            modifier = Modifier.size(sdp(R.dimen._26sdp))
+                            modifier = Modifier.size(sdp(R.dimen._34sdp))
                         )
                     }
                 }
             }
 
-            // Interactive Preview Area
+            // Interactive Preview Area. clipToBounds() keeps pinch-zoomed content (which
+            // scales via graphicsLayer, i.e. only in the draw phase, not layout) from
+            // painting outside this box and over the top bar / controls below.
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .background(Color.Black),
+                    .background(Color.Black)
+                    .clipToBounds(),
                 contentAlignment = Alignment.Center
             ) {
                 val bitmap = sourceBitmap
                 if (bitmap != null) {
+                    // Ambient backdrop: same photo, cropped to fill and blurred/dimmed, so a
+                    // photo whose aspect ratio doesn't match the screen has no bare black bars
+                    // beside it. Static (no pan/zoom/rotation) since it's out of focus anyway.
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .blur(sdp(R.dimen._24sdp))
+                    )
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(0.92f)
-                            .aspectRatio(3f / 4f)
-                            .clip(RoundedCornerShape(sdp(R.dimen._12sdp)))
-                            .background(Color(0xFF19110A))
-                            .border(
-                                width = sdp(R.dimen._1sdp),
-                                color = Color(0xFFB97A1E).copy(alpha = 0.50f),
-                                shape = RoundedCornerShape(sdp(R.dimen._12sdp))
-                            )
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.55f))
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
                             .onGloballyPositioned { coordinates ->
                                 containerSize = coordinates.size
                             }
@@ -245,7 +260,7 @@ fun PhotoEditView(
                         Image(
                             bitmap = bitmap.asImageBitmap(),
                             contentDescription = "Photo Preview",
-                            contentScale = ContentScale.Crop,
+                            contentScale = ContentScale.Fit,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .graphicsLayer {
@@ -256,39 +271,6 @@ fun PhotoEditView(
                                     translationY = offset.y
                                 }
                         )
-
-                        // 3x3 Grid Overlay
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            val w = size.width
-                            val h = size.height
-                            val strokeWidth = 1.dp.toPx()
-                            val lineColor = Color.White.copy(alpha = 0.45f)
-
-                            drawLine(
-                                color = lineColor,
-                                start = Offset(w / 3, 0f),
-                                end = Offset(w / 3, h),
-                                strokeWidth = strokeWidth
-                            )
-                            drawLine(
-                                color = lineColor,
-                                start = Offset(w * 2 / 3, 0f),
-                                end = Offset(w * 2 / 3, h),
-                                strokeWidth = strokeWidth
-                            )
-                            drawLine(
-                                color = lineColor,
-                                start = Offset(0f, h / 3),
-                                end = Offset(w, h / 3),
-                                strokeWidth = strokeWidth
-                            )
-                            drawLine(
-                                color = lineColor,
-                                start = Offset(0f, h * 2 / 3),
-                                end = Offset(w, h * 2 / 3),
-                                strokeWidth = strokeWidth
-                            )
-                        }
                     }
                 } else {
                     CircularProgressIndicator(color = Color(0xFFF2B53F))
@@ -412,8 +394,9 @@ private fun processAndSaveEditedBitmap(
                 val containerW = containerSize.width.toFloat()
                 val containerH = containerSize.height.toFloat()
 
-                // With ContentScale.Crop, baseScale fills the 3:4 container without empty bars
-                val baseScale = maxOf(containerW / srcW, containerH / srcH)
+                // Matches the preview's ContentScale.Fit: at rest (scale=1, offset=0) this
+                // keeps the whole source image, only cropping once the user pinch-zooms in.
+                val baseScale = minOf(containerW / srcW, containerH / srcH)
                 val totalScale = (baseScale * scale).coerceAtLeast(0.001f)
 
                 val cropLeftFloat = (srcW / 2f) - (containerW / 2f + offset.x) / totalScale
@@ -440,8 +423,8 @@ private fun processAndSaveEditedBitmap(
             withContext(Dispatchers.Main) {
                 onResult(Uri.fromFile(file))
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
+        } catch (t: Throwable) {
+            t.printStackTrace()
             withContext(Dispatchers.Main) {
                 onResult(null)
             }

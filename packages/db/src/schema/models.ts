@@ -26,6 +26,7 @@ export const modelFaces = pgTable('model_faces', {
   r2Key: text('r2_key').notNull(),
   thumbnailKey: text('thumbnail_key').notNull(),
   faceSideR2Key: text('face_side_r2_key'), // ComfyUI-specific face image (moved from model_pose_assets)
+  tags: text('tags').array().notNull().default(sql`ARRAY[]::text[]`), // free-form entity tags, e.g. "warm tone", "closeup"
   // Public developer-API exposure. NULL = not reachable from /v1/dev/*; non-null =
   // exposed to third-party API callers under this slug. Curation flag and public
   // identifier in one column so they cannot drift apart. Partial-unique among

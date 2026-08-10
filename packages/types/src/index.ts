@@ -1,6 +1,7 @@
 export * from './admin.js';
 export * from './auth.js';
 export * from './backgrounds.js';
+export * from './batch.js';
 export * from './catalog.js';
 export * from './chatbot.js';
 export * from './common.js';

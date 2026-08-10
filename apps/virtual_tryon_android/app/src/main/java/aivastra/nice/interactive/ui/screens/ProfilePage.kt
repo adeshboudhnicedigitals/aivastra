@@ -147,12 +147,25 @@ fun ProfilePage(
                             ),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = Color.White,
-                            modifier = Modifier.size(sdp(R.dimen._45sdp))
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(sdp(R.dimen._38sdp))
+                                .clip(CircleShape)
+                                .background(Brush.linearGradient(listOf(Color(0xFFE7A52C), Color(0xFF9B5100))))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = onBack
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = Color.White,
+                                modifier = Modifier.size(sdp(R.dimen._20sdp))
+                            )
+                        }
                     }
 
                     // Logo Center

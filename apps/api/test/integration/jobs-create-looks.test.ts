@@ -635,4 +635,55 @@ describe('createJob — atomic multi-background looks[] form', () => {
     expect(inputs?.upperGarmentKey).toBeNull();
     expect(inputs?.lowerGarmentKey).toBe(lowerKey);
   });
+
+  it('refunds credits and marks each job FAILED when XADD fails for every look', async () => {
+    await seedCreditPlan('free', false);
+    const { token, userId } = await registerUser('looks-enqfail@x.com');
+    await grantCredits(userId, 100);
+    const { faceId, bgAId, bgBId } = await seedFaceAndTwoBackgrounds();
+    const { poseAId, poseBId } = await seedTwoPoses();
+    const garmentKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, garmentKey);
+
+    const realXadd = app.redis.xadd.bind(app.redis);
+    app.redis.xadd = (async () => {
+      throw new Error('redis down');
+    }) as typeof app.redis.xadd;
+
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/jobs/tryon',
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          inputs: {
+            upperGarmentKey: garmentKey,
+            faceId,
+            looks: [
+              { poseId: poseAId, backgroundId: bgAId },
+              { poseId: poseBId, backgroundId: bgBId },
+            ],
+          },
+          aspectRatio: '1:1',
+          resolution: '2K',
+        },
+      });
+      expect(res.statusCode).toBe(503);
+
+      const [bal] = await app.db
+        .select()
+        .from(schema.userCredits)
+        .where(eq(schema.userCredits.userId, userId));
+      expect(bal.balance).toBe(100);
+
+      const jobRows = await app.db.select().from(schema.jobs).where(eq(schema.jobs.userId, userId));
+      expect(jobRows).toHaveLength(2);
+      for (const job of jobRows) {
+        expect(job.status).toBe('FAILED');
+        expect(job.errorCode).toBe('ENQUEUE_FAIL');
+      }
+    } finally {
+      app.redis.xadd = realXadd;
+    }
+  });
 });

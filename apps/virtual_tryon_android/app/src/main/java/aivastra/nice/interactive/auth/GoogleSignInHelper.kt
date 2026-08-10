@@ -11,6 +11,8 @@ import androidx.credentials.exceptions.NoCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import java.security.SecureRandom
 
 /**
@@ -27,6 +29,16 @@ sealed interface GoogleSignInResult {
     data class Failure(val message: String) : GoogleSignInResult
     data object Cancelled : GoogleSignInResult
 }
+
+/**
+ * On a cold app process, Credential Manager's provider binding (Play Services)
+ * hasn't finished enumerating accounts yet and throws NoCredentialException even
+ * though the device genuinely has Google accounts. Once the binding is warm,
+ * later calls succeed immediately, so a couple of quick retries clear it up
+ * without the user having to know to tap the button again.
+ */
+private const val NO_CREDENTIAL_MAX_ATTEMPTS = 3
+private const val NO_CREDENTIAL_RETRY_DELAY_MS = 400L
 
 /**
  * Launches the Credential Manager Google sign-in sheet and returns the ID token to
@@ -48,32 +60,45 @@ suspend fun requestGoogleIdToken(context: Context): GoogleSignInResult {
         .addCredentialOption(option)
         .build()
 
-    return try {
-        val response = credentialManager.getCredential(context, request)
-        val credential = response.credential
-        if (credential is CustomCredential &&
-            credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
-        ) {
-            val googleCredential = GoogleIdTokenCredential.createFrom(credential.data)
-            GoogleSignInResult.Success(googleCredential.idToken)
-        } else {
-            GoogleSignInResult.Failure("Unexpected credential type")
+    for (attempt in 1..NO_CREDENTIAL_MAX_ATTEMPTS) {
+        try {
+            val response = credentialManager.getCredential(context, request)
+            val credential = response.credential
+            return if (credential is CustomCredential &&
+                credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+            ) {
+                val googleCredential = GoogleIdTokenCredential.createFrom(credential.data)
+                GoogleSignInResult.Success(googleCredential.idToken)
+            } else {
+                GoogleSignInResult.Failure("Unexpected credential type")
+            }
+        } catch (e: GoogleIdTokenParsingException) {
+            Log.e("GoogleSignIn", "Token parsing failed", e)
+            return GoogleSignInResult.Failure("Invalid Google credential")
+        } catch (e: NoCredentialException) {
+            Log.w(
+                "GoogleSignIn",
+                "NoCredentialException on attempt $attempt/$NO_CREDENTIAL_MAX_ATTEMPTS: ${e.type} ${e.message}",
+                e,
+            )
+            if (attempt == NO_CREDENTIAL_MAX_ATTEMPTS) {
+                return GoogleSignInResult.Failure("No Google account available on this device")
+            }
+            delay(NO_CREDENTIAL_RETRY_DELAY_MS)
+        } catch (e: GetCredentialCancellationException) {
+            return GoogleSignInResult.Cancelled
+        } catch (e: GetCredentialException) {
+            Log.e("GoogleSignIn", "GetCredentialException: ${e.type} ${e.message}", e)
+            return GoogleSignInResult.Failure(e.message ?: "Google sign-in failed")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e("GoogleSignIn", "Unexpected exception during Google sign-in: ${e.message}", e)
+            return GoogleSignInResult.Failure(e.message ?: "Google sign-in failed")
         }
-    } catch (e: GoogleIdTokenParsingException) {
-        Log.e("GoogleSignIn", "Token parsing failed", e)
-        GoogleSignInResult.Failure("Invalid Google credential")
-    } catch (e: NoCredentialException) {
-        Log.e("GoogleSignIn", "NoCredentialException: ${e.type} ${e.message}", e)
-        GoogleSignInResult.Failure("No Google account available on this device")
-    } catch (e: GetCredentialCancellationException) {
-        GoogleSignInResult.Cancelled
-    } catch (e: GetCredentialException) {
-        Log.e("GoogleSignIn", "GetCredentialException: ${e.type} ${e.message}", e)
-        GoogleSignInResult.Failure(e.message ?: "Google sign-in failed")
-    } catch (e: Exception) {
-        Log.e("GoogleSignIn", "Unexpected exception during Google sign-in: ${e.message}", e)
-        GoogleSignInResult.Failure(e.message ?: "Google sign-in failed")
     }
+    // Unreachable: the loop always returns on the final attempt.
+    return GoogleSignInResult.Failure("No Google account available on this device")
 }
 
 private fun generateNonce(): String {

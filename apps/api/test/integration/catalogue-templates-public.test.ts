@@ -1,8 +1,12 @@
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { signAccess } from '../../src/modules/auth/service';
 import { buildTestApp, type TestApp } from '../helpers/api';
 import { type Containers, startContainers } from '../helpers/containers';
+
+const JWT_SECRET = 'test-jwt-secret-0123456789abcdef-32min';
+const secret = new TextEncoder().encode(JWT_SECRET);
 
 describe('GET /v1/models/catalogue-templates', () => {
   let c: Containers;
@@ -28,12 +32,9 @@ describe('GET /v1/models/catalogue-templates', () => {
       .update(schema.users)
       .set({ emailVerified: true })
       .where(eq(schema.users.id, user.id));
-    const login = await app.inject({
-      method: 'POST',
-      url: '/v1/auth/login',
-      payload: { email, password: 'password123' },
-    });
-    return login.json().accessToken as string;
+    // Signed directly rather than via /v1/auth/login — this file calls loginToken() once
+    // per test (real login is 5/min rate-limited) and none of these tests exercise login itself.
+    return signAccess(secret, user.id, { kind: 'access' }, '15m');
   }
 
   it('returns only resolvable looks, drops templates left with zero looks', async () => {

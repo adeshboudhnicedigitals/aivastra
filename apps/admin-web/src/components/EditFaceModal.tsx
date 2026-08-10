@@ -31,6 +31,7 @@ export function EditFaceModal({
     continent: (face.continent ?? '') as Continent | '',
     sortOrder: face.sortOrder,
     publicApiSlug: face.publicApiSlug ?? '',
+    tagsInput: (face.tags ?? []).join(', '),
   });
   const [addingContinent, setAddingContinent] = useState(false);
   const [newContinentLabel, setNewContinentLabel] = useState('');
@@ -51,6 +52,17 @@ export function EditFaceModal({
       : form.continent || null;
     const body = { ...form, continent: resolvedContinent };
     try {
+      const tags = form.tagsInput
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean);
+      const body = {
+        label: form.label,
+        gender: form.gender,
+        sortOrder: form.sortOrder,
+        publicApiSlug: form.publicApiSlug,
+        tags,
+      };
       await apiFetch(`/admin/assets/faces/${face.id}`, {
         method: 'PATCH',
         body: JSON.stringify(body),
@@ -227,6 +239,21 @@ export function EditFaceModal({
             kind="model"
             onChange={(v) => setForm((f) => ({ ...f, publicApiSlug: v }))}
           />
+          <div className="field">
+            <label>
+              Tags <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
+            </label>
+            <input
+              className="input"
+              value={form.tagsInput}
+              disabled={saving}
+              placeholder="e.g. warm tone, closeup, studio"
+              onChange={(e) => setForm((f) => ({ ...f, tagsInput: e.target.value }))}
+            />
+          </div>
+          <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0 }}>
+            Tags are comma-separated — lets you filter models in Studio (e.g. all "closeup" faces).
+          </p>
           <div className="field">
             <label>Replace image</label>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>

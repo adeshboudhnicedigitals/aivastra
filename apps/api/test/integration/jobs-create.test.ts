@@ -1,16 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildTestApp, type TestApp } from '../helpers/api';
 import { type Containers, startContainers } from '../helpers/containers';
 
 describe('jobs-create', () => {
   let c: Containers;
   let app: TestApp;
+  let realHeadObject: typeof app.storage.headObject | undefined;
   beforeAll(async () => {
     c = await startContainers();
     app = await buildTestApp(c);
+    realHeadObject = app.storage.headObject?.bind(app.storage);
   }, 60000);
   afterAll(async () => {
     await app?.close();
@@ -19,6 +21,14 @@ describe('jobs-create', () => {
   beforeEach(async () => {
     await app.redis.del('jobs:normal');
     await app.redis.del('jobs:priority');
+    // assertOwnsUploadKey (in createJob's verifyGarmentKey path) checks the
+    // upload actually exists in storage — mock it out like jobs-create-looks.test.ts.
+    app.storage.headObject = (async () => ({
+      contentLength: 1024,
+    })) as typeof app.storage.headObject;
+  });
+  afterEach(() => {
+    if (realHeadObject) app.storage.headObject = realHeadObject;
   });
 
   async function registerUser(email: string) {
@@ -47,32 +57,41 @@ describe('jobs-create', () => {
     };
   }
 
-  async function seedCatalog(suffix = '') {
-    const [type] = await app.db
-      .insert(schema.catalogTypes)
-      .values({ slug: `models${suffix}`, label: 'Models' })
+  // Admin-curated face/pose/background assets — the current input model for
+  // createJob (see jobs-create-looks.test.ts). The old catalog_items-based
+  // modelCatalogId/poseCatalogId/backgroundCatalogId/lowerCatalogId shape this
+  // file used to seed and post predates that model and no longer matches either
+  // CreateTryOnJobRequest's schema or catalog_items' NOT NULL `type` column.
+  async function seedFaceAndLook(suffix = '') {
+    const [face] = await app.db
+      .insert(schema.modelFaces)
+      .values({
+        gender: 'women',
+        label: `Face${suffix}`,
+        r2Key: `f${suffix}.jpg`,
+        thumbnailKey: `f${suffix}.jpg`,
+      })
       .returning();
-    const [cat] = await app.db
-      .insert(schema.catalogCategories)
-      .values({ typeId: type.id, slug: `women${suffix}`, label: 'Women' })
+    const [background] = await app.db
+      .insert(schema.modelBackgrounds)
+      .values({ label: `Bg${suffix}`, r2Key: `b${suffix}.jpg`, thumbnailKey: `b${suffix}.jpg` })
       .returning();
-    const [m] = await app.db
-      .insert(schema.catalogItems)
-      .values({ categoryId: cat.id, label: 'Model A', r2Key: 'k1', thumbnailKey: 't1' })
+    const [pose] = await app.db
+      .insert(schema.modelPoseAssets)
+      .values({ label: `Pose${suffix}`, r2Key: `p${suffix}.jpg`, thumbnailKey: `p${suffix}.jpg` })
       .returning();
-    const [p] = await app.db
-      .insert(schema.catalogItems)
-      .values({ categoryId: cat.id, label: 'Pose A', r2Key: 'k2', thumbnailKey: 't2' })
-      .returning();
-    const [b] = await app.db
-      .insert(schema.catalogItems)
-      .values({ categoryId: cat.id, label: 'Bg A', r2Key: 'k3', thumbnailKey: 't3' })
-      .returning();
-    const [l] = await app.db
-      .insert(schema.catalogItems)
-      .values({ categoryId: cat.id, label: 'Lower A', r2Key: 'k4', thumbnailKey: 't4' })
-      .returning();
-    return { m: m.id, p: p.id, b: b.id, l: l.id };
+    return { faceId: face.id, backgroundId: background.id, poseId: pose.id };
+  }
+
+  async function seedCreditPlan(slug: string) {
+    await app.db
+      .insert(schema.creditPlans)
+      .values({ slug, name: slug, credits: 1000, basePaise: 0, watermark: false })
+      .onConflictDoNothing({ target: schema.creditPlans.slug });
+  }
+
+  async function bindUploadKey(userId: string, key: string) {
+    await app.redis.set(`upload:owner:${key}`, userId, 'EX', 3600);
   }
 
   async function grantCredits(userId: string, amount: number) {
@@ -83,17 +102,20 @@ describe('jobs-create', () => {
   }
 
   it('creates job: deducts credit, inserts inputs, XADDs to jobs:normal', async () => {
+    await seedCreditPlan('free');
     const { token, userId } = await registerUser('job@x.com');
-    await grantCredits(userId, 5);
-    const { m, p, b, l } = await seedCatalog();
+    await grantCredits(userId, 100);
+    const { faceId, backgroundId, poseId } = await seedFaceAndLook();
+    const garmentKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, garmentKey);
     const body = {
       inputs: {
-        upperGarmentKey: 'inputs/x/garment.jpg',
-        modelCatalogId: m,
-        poseCatalogId: p,
-        backgroundCatalogId: b,
-        lowerCatalogId: l,
+        upperGarmentKey: garmentKey,
+        faceId,
+        looks: [{ poseId, backgroundId }],
       },
+      aspectRatio: '1:1',
+      resolution: '2K',
       userHint: 'soft light',
     };
     const res = await app.inject({
@@ -103,14 +125,14 @@ describe('jobs-create', () => {
       payload: body,
     });
     expect(res.statusCode).toBe(201);
-    const { jobId } = res.json();
-    const [j] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+    const { jobIds } = res.json();
+    const [j] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobIds[0]));
     expect(j.status).toBe('QUEUED');
     const [bal] = await app.db
       .select()
       .from(schema.userCredits)
       .where(eq(schema.userCredits.userId, userId));
-    expect(bal.balance).toBe(4);
+    expect(bal.balance).toBeLessThan(100);
     const len = await app.redis.xlen('jobs:normal');
     expect(len).toBeGreaterThanOrEqual(1);
   });
@@ -230,17 +252,20 @@ describe('jobs-create', () => {
   });
 
   it('returns 402 when balance is 0', async () => {
+    await seedCreditPlan('free');
     const { token, userId } = await registerUser('job2@x.com');
     await grantCredits(userId, 0);
-    const { m, p, b, l } = await seedCatalog('-2');
+    const { faceId, backgroundId, poseId } = await seedFaceAndLook('-2');
+    const garmentKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, garmentKey);
     const body = {
       inputs: {
-        upperGarmentKey: 'inputs/x/garment.jpg',
-        modelCatalogId: m,
-        poseCatalogId: p,
-        backgroundCatalogId: b,
-        lowerCatalogId: l,
+        upperGarmentKey: garmentKey,
+        faceId,
+        looks: [{ poseId, backgroundId }],
       },
+      aspectRatio: '1:1',
+      resolution: '2K',
     };
     const res = await app.inject({
       method: 'POST',

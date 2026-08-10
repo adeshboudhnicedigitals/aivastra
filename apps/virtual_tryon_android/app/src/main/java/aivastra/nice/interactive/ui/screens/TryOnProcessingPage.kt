@@ -1,6 +1,7 @@
 package aivastra.nice.interactive.ui.screens
 
 import android.content.Context
+import android.content.Intent
 import android.media.MediaPlayer
 import android.net.Uri
 import android.widget.VideoView
@@ -15,9 +16,6 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,17 +33,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import aivastra.nice.interactive.ui.components.AppDialog
 import aivastra.nice.interactive.ui.components.AppHeaderLogo
+import aivastra.nice.interactive.ui.components.AppToast
+import aivastra.nice.interactive.ui.components.ToastType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -60,6 +56,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -88,11 +85,11 @@ private class FullScreenVideoView(context: Context) : VideoView(context) {
 // Rotates under the headline while the AI generation call is in flight, so the wait feels
 // active rather than stalled on one static line.
 private val processingStatusMessages = listOf(
-    "Analyzing your photoâ€¦",
-    "Matching the garment drapeâ€¦",
-    "Blending fabric texturesâ€¦",
-    "Applying AI stylingâ€¦",
-    "Adding finishing touchesâ€¦"
+    "Analyzing your photo...",
+    "Matching the garment drape...",
+    "Blending fabric textures...",
+    "Applying AI styling...",
+    "Adding finishing touches..."
 )
 
 @Composable
@@ -126,16 +123,28 @@ fun TryOnProcessingContent(
     onCancel: () -> Unit = onBack,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val isPreview = LocalInspectionMode.current
     val statusBarH: Dp = (if (isPreview) sdp(R.dimen._28sdp) else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()) + sdp(R.dimen._10sdp)
     val navBarH: Dp = if (isPreview) 14.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-    BackHandler(onBack = onCancel)
+    // There is no cancel-generation API yet - the job keeps running server-side regardless,
+    // so back/gesture navigation during an active generation must not leave the screen (it
+    // would strand the user with no way back to a job that's still processing). Once it has
+    // failed (errorMessage != null) there's nothing left to protect against, so let it through.
+    var showLeaveWarningToast by remember { mutableStateOf(false) }
+    BackHandler {
+        if (errorMessage == null) {
+            showLeaveWarningToast = true
+        } else {
+            onCancel()
+        }
+    }
 
     var hasVideoError by remember { mutableStateOf(false) }
 
     // Fake-but-reassuring progress: climbs fast at first, then eases off and caps below 100%
-    // while still generating, so it never looks "stuck" â€” real completion navigates away
+    // while still generating, so it never looks "stuck" - real completion navigates away
     // before it would matter.
     var messageIndex by remember { mutableIntStateOf(0) }
     LaunchedEffect(errorMessage) {
@@ -159,7 +168,7 @@ fun TryOnProcessingContent(
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // â”€â”€ Layer 1: Full-Screen Background Video Player (Loaded from API config) â”€â”€â”€
+        // Layer 1: Full-Screen Background Video Player (Loaded from API config)
         if (videoUri != null && !hasVideoError && errorMessage == null) {
             AndroidView(
                 factory = { ctx ->
@@ -193,15 +202,14 @@ fun TryOnProcessingContent(
             )
         }
 
-        // â”€â”€ Layer 1b: Warm Amber Wash â€” ties the video into the app's gold theme instead
-        // of sitting neutral/dark against it â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // Layer 1b: Warm Amber Wash - ties the video into the app's gold theme
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color(0xFFE7A52C).copy(alpha = 0.12f))
         )
 
-        // â”€â”€ Layer 2: Top & Bottom Gradient Scrims for Readability â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // Layer 2: Top & Bottom Gradient Scrims for Readability
         // Top Gradient Scrim
         Box(
             modifier = Modifier
@@ -236,7 +244,7 @@ fun TryOnProcessingContent(
                 )
         )
 
-        // â”€â”€ Layer 3: Floating UI Content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // Layer 3: Floating UI Content
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -256,7 +264,7 @@ fun TryOnProcessingContent(
                     .widthIn(max = sdp(R.dimen._screen_container_width)),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // â”€â”€ Top Header Bar (Centered Logo without back button) â”€â”€â”€â”€â”€â”€
+                // Top Header Bar (Centered Logo without back button)
                 Box(
                     modifier = Modifier.fillMaxWidth(),
                     contentAlignment = Alignment.Center
@@ -266,7 +274,7 @@ fun TryOnProcessingContent(
 
                 Spacer(Modifier.height(sdp(R.dimen._18sdp)))
 
-                // â”€â”€ Headline & Subtitle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                // Headline & Subtitle
                 Text(
                     "Generating Your AI Try-On...",
                     color = Color(0xB3F3C65E),
@@ -278,17 +286,16 @@ fun TryOnProcessingContent(
 
             }
 
-            // Cancel Button & Error Action Container
+            // Progress Container
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .widthIn(max = sdp(R.dimen._screen_container_width)),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Rotating status text, progress bar, and Cancel Generation button â€”
-                // all hidden together once the error dialog takes over.
+                // Rotating status text and progress bar - hidden once the error dialog takes over.
                 if (errorMessage == null) {
-                    // â”€â”€ Rotating status line â€” keeps the wait feeling active â”€â”€â”€â”€
+                    // Rotating status line - keeps the wait feeling active
                     AnimatedContent(
                         targetState = messageIndex,
                         transitionSpec = {
@@ -310,7 +317,7 @@ fun TryOnProcessingContent(
 
                     Spacer(Modifier.height(sdp(R.dimen._12sdp)))
 
-                    // â”€â”€ Progress Bar (gold gradient, matches app theme) â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                    // Progress Bar (gold gradient, matches app theme)
                     Row(
                         modifier = Modifier.fillMaxWidth(0.7f),
                         horizontalArrangement = Arrangement.SpaceBetween
@@ -351,67 +358,71 @@ fun TryOnProcessingContent(
                         )
                     }
 
-                    Spacer(Modifier.height(sdp(R.dimen._18sdp)))
-
-                    // Glassmorphic Cancel Generation Button on Video Overlay
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(sdp(R.dimen._20sdp)))
-                            .background(Color(0x992B1515))
-                            .border(
-                                width = sdp(R.dimen._1sdp),
-                                color = Color(0xFFFF5555).copy(alpha = 0.6f),
-                                shape = RoundedCornerShape(sdp(R.dimen._20sdp))
-                            )
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = onCancel
-                            )
-                            .padding(horizontal = sdp(R.dimen._18sdp), vertical = sdp(R.dimen._8sdp))
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Cancel",
-                                tint = Color(0xFFFF7777),
-                                modifier = Modifier.size(sdp(R.dimen._16sdp))
-                            )
-                            Spacer(Modifier.width(sdp(R.dimen._6sdp)))
-                            Text(
-                                text = "Cancel Generation",
-                                color = Color.White,
-                                fontSize = ssp(R.dimen._13ssp),
-                                fontWeight = FontWeight.SemiBold,
-                                fontFamily = PoppinsFamily
-                            )
-                        }
-                    }
+                    // Keeps the progress bar clear of the device's gesture-navigation area,
+                    // independent of the outer Column's bottom padding.
+                    Spacer(Modifier.height(sdp(R.dimen._28sdp)))
                 }
             }
         }
 
-        // â”€â”€ Error Dialog: shown on any generation / API failure â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // Leave-during-generation warning: shown instead of navigating away, since there is
+        // no cancel-generation API to actually stop the in-flight job.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.BottomCenter)
+                .padding(bottom = navBarH + sdp(R.dimen._12sdp))
+        ) {
+            AppToast(
+                visible = showLeaveWarningToast,
+                message = "Please wait — your Try-On is still generating.",
+                type = ToastType.WARNING,
+                autoDismissMs = 3000L,
+                onDismiss = { showLeaveWarningToast = false }
+            )
+        }
+
+        // Error Dialog: shown on any generation / API failure
         errorMessage?.let { msg ->
             val cleanMsg = aivastra.nice.interactive.utils.ErrorParser.parseErrorMessage(msg, msg)
             val isSessionExpired = cleanMsg.contains("expired", ignoreCase = true) || cleanMsg.contains("not owned", ignoreCase = true)
-            val displayText = if (isSessionExpired) {
-                "Your photo upload session expired. Please re-upload your photo to continue."
+            val isInsufficientCredits = cleanMsg.contains("insufficient credit", ignoreCase = true)
+
+            if (isInsufficientCredits) {
+                // Play Store treats in-app "buy credits" prompts as a digital-goods purchase
+                // flow, which must go through Play Billing - so this dialog only points the
+                // user to the AI Vastra account site instead of naming a price or "buy" action.
+                AppDialog(
+                    title = "Credits Unavailable",
+                    message = "Your account doesn't have enough credits to complete this request. Please sign in to your AI Vastra account to manage your account.",
+                    icon = Icons.Default.Warning,
+                    confirmText = "Open AI Vastra",
+                    cancelText = "Close",
+                    onConfirm = {
+                        try {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://app.aivastra.com")))
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    },
+                    onDismiss = onCancel
+                )
             } else {
-                cleanMsg
+                val displayText = if (isSessionExpired) {
+                    "Your photo upload session expired. Please re-upload your photo to continue."
+                } else {
+                    cleanMsg
+                }
+                AppDialog(
+                    title = "Try-On Failed",
+                    message = displayText,
+                    icon = Icons.Default.Warning,
+                    confirmText = if (isSessionExpired) "Re-upload Photo" else "Retry Try-On",
+                    cancelText = "Cancel",
+                    onConfirm = onRetry,
+                    onDismiss = onCancel
+                )
             }
-            AppDialog(
-                title = "Try-On Failed",
-                message = displayText,
-                icon = Icons.Default.Warning,
-                confirmText = if (isSessionExpired) "Re-upload Photo" else "Retry Try-On",
-                cancelText = "Cancel",
-                onConfirm = onRetry,
-                onDismiss = onCancel
-            )
         }
     }
 }

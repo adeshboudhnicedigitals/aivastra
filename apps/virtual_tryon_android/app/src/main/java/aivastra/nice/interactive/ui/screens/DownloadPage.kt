@@ -158,6 +158,7 @@ fun DownloadPage(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .height(sdp(R.dimen._download_card_height))
                             .clip(RoundedCornerShape(sdp(R.dimen._16sdp)))
                             .background(Color(0xFF1E1914))
                             .border(sdp(R.dimen._1sdp), Color(0xFF6E4E1C), RoundedCornerShape(sdp(R.dimen._16sdp)))
@@ -191,7 +192,7 @@ fun DownloadPage(
                                 )
                             } else {
                                 Image(
-                                    painter = painterResource(R.drawable.women_img),
+                                    painter = painterResource(R.drawable.placeholder),
                                     contentDescription = null,
                                     modifier = Modifier.size(sdp(R.dimen._150sdp))
                                 )
@@ -288,6 +289,7 @@ fun DownloadPage(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .height(sdp(R.dimen._download_card_height))
                         .clip(RoundedCornerShape(sdp(R.dimen._16sdp)))
                         .background(Color(0xFF1E1914))
                         .border(sdp(R.dimen._1sdp), Color(0xFF6E4E1C), RoundedCornerShape(sdp(R.dimen._16sdp)))
@@ -303,7 +305,7 @@ fun DownloadPage(
                         )
                     } else {
                         Image(
-                            painter = painterResource(R.drawable.women_img),
+                            painter = painterResource(R.drawable.placeholder),
                             contentDescription = null,
                             modifier = Modifier.size(sdp(R.dimen._150sdp))
                         )
@@ -475,7 +477,7 @@ private fun QrCodeImage(content: String, modifier: Modifier = Modifier) {
         )
     } else {
         Image(
-            painter = painterResource(R.drawable.women_img),
+            painter = painterResource(R.drawable.placeholder),
             contentDescription = null,
             modifier = modifier
         )

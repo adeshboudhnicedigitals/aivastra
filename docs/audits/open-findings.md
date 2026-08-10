@@ -382,12 +382,14 @@ Access token moved out of cookies entirely into a module-level variable in `apps
 
 #### SEC-H3 · Object storage bucket is world-readable
 **Severity:** High
-**Status:** ✅ Fixed (2026-06-30)
+**Status:** ⚠️ Partially fixed — live prod bucket is still world-readable
 **File:** `infra/docker-compose*.yml` (`mc anonymous set download`)
 
-`mc anonymous set download` removed from both `docker-compose.yml` and `docker-compose.prod.yml`. Bucket is now private. All private content in `/admin/results/data` is now served via presigned GET URLs (1 h TTL) via a `presign()` helper — `garmentUrl`, `poseUrl`, `backgroundUrl`, `lowerUrl`, `shoeUrl`, `outputUrl` all use `app.storage.presignGet(key, 3600)` instead of `publicUrl()`.
+`mc anonymous set download` was removed from both `docker-compose.yml` and `docker-compose.prod.yml`, and `/admin/results/data` now serves its private content via presigned GET URLs (1 h TTL) — `garmentUrl`, `poseUrl`, `backgroundUrl`, `lowerUrl`, `shoeUrl`, `outputUrl` all use `app.storage.presignGet(key, 3600)` instead of `publicUrl()`. That part is real and correct.
 
-**Note:** Curated catalog thumbnails and pose thumbnails (public reads) still work because they are served via presigned URLs on demand — no separate public prefix needed for the current traffic pattern.
+**What's still open (found 2026-08-07, staging environment build-out):** removing the line from the compose file only stops a *newly created* bucket from getting the public policy — it does not revoke an already-applied MinIO bucket policy on an existing bucket. Prod's live bucket was created before this fix landed and is still `mc anonymous set download` (world-readable) today, grandfathered. This was only discovered because staging's bucket, created fresh after the fix, never got the policy and every `publicUrl()`-based image 404'd until it was manually re-applied to match prod's actual behavior.
+
+The previous version of this note claimed curated catalog/pose thumbnails "are served via presigned URLs on demand — no separate public prefix needed." That's inaccurate: `apps/api/src/modules/models/routes.ts`, `catalog/routes.ts`, `catalog-options/build.ts`, `subcategories.routes.ts`, `backgrounds/routes.ts`, `admin/catalog.routes.ts`, `admin/catalogue-templates.routes.ts`, `admin/config.routes.ts`, `admin/users.routes.ts` (merchant logos), and `auth/routes.ts` (merchant logos) all still call `app.storage.publicUrl()` directly for thumbnails/logos. They only render because the bucket is public, not because of presigning. A real fix requires either migrating all of these call sites to `presignGet()` too, or making a deliberate, documented decision that these specific non-sensitive admin-curated prefixes (models/, catalog thumbnails) are meant to stay public and scoping the bucket policy to just those prefixes instead of the whole bucket.
 
 ---
 
@@ -547,7 +549,7 @@ Free-trial credits are granted at account creation. Spending requires a verified
 | SEC-C2 | ~~Security: SSRF via garmentImageUrl~~ ✅ Fixed | Critical | — |
 | SEC-H1 | ~~Security: open merchant signup~~ ✅ Fixed | High | — |
 | SEC-H2 | Security: access_token in memory ✅; CSP still open 🔴 | High | Medium |
-| SEC-H3 | ~~Security: world-readable storage bucket~~ ✅ Fixed | High | — |
+| SEC-H3 | Security: world-readable storage bucket — prod's live bucket still is, grandfathered | High | Migrate remaining `publicUrl()` call sites or scope bucket policy to specific prefixes |
 | SEC-H4 | Security: presigned PUT unbounded size | High | Medium |
 | SEC-H5 | Security: DNS-rebinding TOCTOU in background URL-fetch SSRF guard | High | Medium |
 | PIPE-8 | Pipeline: priority starvation | High | Product decision |

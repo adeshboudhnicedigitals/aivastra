@@ -67,6 +67,7 @@ import aivastra.nice.interactive.viewmodels.OutfitSelectionViewModel
 fun OutfitSelectionPage(
     category: String,
     onBack: () -> Unit = {},
+    onUnauthorized: () -> Unit = {},
     onOutfitSelected: (CatalogProduct, List<CatalogProduct>) -> Unit = { _, _ -> },
     viewModel: OutfitSelectionViewModel = viewModel(),
     modifier: Modifier = Modifier
@@ -241,6 +242,12 @@ fun OutfitSelectionPage(
                                 )
                             }
 
+                            uiState.isUnauthorized -> CatalogMessage(
+                                message = uiState.errorMessage ?: "Session expired. Please sign in again.",
+                                actionLabel = "Sign In",
+                                onAction = onUnauthorized
+                            )
+
                             uiState.errorMessage != null && !hasLoadedProducts -> CatalogMessage(
                                 message = uiState.errorMessage.orEmpty(),
                                 actionLabel = "Retry",
@@ -248,7 +255,9 @@ fun OutfitSelectionPage(
                             )
 
                             uiState.visibleProducts.isEmpty() -> CatalogMessage(
-                                message = "No outfits available in this category."
+                                message = "No outfits available in this category.",
+                                actionLabel = "Refresh Catalog",
+                                onAction = viewModel::retry
                             )
 
                             else -> LazyVerticalGrid(
