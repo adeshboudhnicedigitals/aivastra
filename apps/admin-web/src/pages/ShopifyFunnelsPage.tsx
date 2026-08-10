@@ -242,9 +242,7 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Header */}
-      <div
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
-      >
+      <div className="page-head">
         <div>
           <h2 style={{ margin: 0, fontSize: '1.125rem', fontWeight: 600 }}>Shopify</h2>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
@@ -252,9 +250,11 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
             workflow template.
           </p>
         </div>
-        <button type="button" className="btn primary" onClick={() => setShowCreate(true)}>
-          <Icon.Plus /> New funnel template
-        </button>
+        <div className="head-tools">
+          <button type="button" className="btn primary" onClick={() => setShowCreate(true)}>
+            <Icon.Plus /> New funnel template
+          </button>
+        </div>
       </div>
 
       {!loading && !hasDefault && (

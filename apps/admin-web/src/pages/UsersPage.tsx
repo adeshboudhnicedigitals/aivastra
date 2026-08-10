@@ -695,7 +695,7 @@ export default function UsersPage({ onNav, toast }: Props) {
           </p>
         ) : (
           <>
-            <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+            <div className="stat-grid">
               <button className="stat" onClick={openPlanEditor} title="Change credit plan">
                 <div className="lbl">
                   <Icon.Credit /> Current plan
@@ -746,7 +746,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                 <h3>Account details</h3>
               </div>
               <div className="card-body">
-                <div className="kv-grid" style={{ gridTemplateColumns: '112px 1fr' }}>
+                <div className="kv-grid">
                   <KV k="Phone" v={u.phone ? `+91 ${u.phone}` : 'Not provided'} />
                   <KV
                     k="Authentication"
@@ -817,10 +817,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                     </button>
                   </div>
                 ) : (
-                  <div
-                    className="kv-grid"
-                    style={{ gridTemplateColumns: 'auto 1fr auto 1fr auto 1fr', columnGap: 28 }}
-                  >
+                  <div className="kv-grid-3-col">
                     <KV
                       k="Status"
                       v={<StatusBadge status={u.merchant.isActive ? 'active' : 'inactive'} />}

@@ -54,6 +54,7 @@ export default function ContactRequestsPage({ toast }: Props) {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<ContactRequest | null>(null);
+  const [modalRow, setModalRow] = useState<ContactRequest | null>(null);
 
   const notifPermRef = useRef(false);
   const prevNewCountRef = useRef<number | null>(null);
@@ -140,10 +141,13 @@ export default function ContactRequestsPage({ toast }: Props) {
     return () => clearInterval(poll);
   }, [load, refreshSummary, statusFilter, sourceFilter]);
 
-  // Escape closes drawer
+  // Escape closes drawer / modal
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setSelected(null);
+      if (e.key === 'Escape') {
+        setSelected(null);
+        setModalRow(null);
+      }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
@@ -157,6 +161,7 @@ export default function ContactRequestsPage({ toast }: Props) {
       });
       setRows((prev) => prev.map((r) => (r.id === id ? updated : r)));
       if (selected?.id === id) setSelected(updated);
+      if (modalRow?.id === id) setModalRow(updated);
       toast({ title: `Marked as ${STATUS_LABEL[status]}` });
       void refreshSummary();
     } catch (e) {
@@ -167,6 +172,126 @@ export default function ContactRequestsPage({ toast }: Props) {
       });
     }
   };
+
+  const renderDetail = (r: ContactRequest) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24 }}>
+        <div>
+          <div
+            style={{
+              fontSize: 11,
+              color: 'var(--muted)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              marginBottom: 6,
+            }}
+          >
+            Status
+          </div>
+          <span className={STATUS_BADGE[r.status] ?? 'badge'}>{STATUS_LABEL[r.status]}</span>
+        </div>
+        <div>
+          <div
+            style={{
+              fontSize: 11,
+              color: 'var(--muted)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              marginBottom: 6,
+            }}
+          >
+            Source
+          </div>
+          <span className={sourceBadgeClass(r.source)}>
+            {SOURCE_LABELS[sourceKey(r.source)] ?? r.source ?? 'General'}
+          </span>
+        </div>
+        <div>
+          <div
+            style={{
+              fontSize: 11,
+              color: 'var(--muted)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              marginBottom: 6,
+            }}
+          >
+            Received
+          </div>
+          <div style={{ fontSize: 14 }}>
+            {new Date(r.createdAt).toLocaleString('en-IN', {
+              day: 'numeric',
+              month: 'long',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div
+          style={{
+            fontSize: 11,
+            color: 'var(--muted)',
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+            marginBottom: 6,
+          }}
+        >
+          Message
+        </div>
+        <div
+          style={{
+            fontSize: 14,
+            lineHeight: 1.6,
+            whiteSpace: 'pre-wrap',
+            color: 'var(--ink)',
+          }}
+        >
+          {r.message || (
+            <span style={{ fontStyle: 'italic', color: 'var(--muted-2)' }}>
+              No message included
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+        {r.status === 'new' && (
+          <button
+            type="button"
+            className="btn"
+            onClick={() => void setStatus(r.id, 'read')}
+            title="Mark read"
+          >
+            <Icon.Eye /> View
+          </button>
+        )}
+        {r.status !== 'done' && (
+          <button
+            type="button"
+            className="btn primary"
+            onClick={() => void setStatus(r.id, 'done')}
+            title="Mark done"
+          >
+            <Icon.Check /> Ok
+          </button>
+        )}
+        {r.status === 'done' && (
+          <button
+            type="button"
+            className="btn"
+            onClick={() => void setStatus(r.id, 'new')}
+            title="Reopen"
+          >
+            <Icon.Refresh /> Reopen
+          </button>
+        )}
+      </div>
+    </div>
+  );
 
   const statusFilters: Array<'all' | 'new' | 'read' | 'done'> = ['all', 'new', 'read', 'done'];
   const totalNew = summary.newBySource.__total__ ?? 0;
@@ -352,173 +477,138 @@ export default function ContactRequestsPage({ toast }: Props) {
             : 'No contact requests matching the selected filters.'}
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {filtered.map((r) => {
-            const isSelected = selected?.id === r.id;
-            return (
-              <div
-                key={r.id}
-                style={{
-                  background: 'var(--surface)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 'var(--r-lg)',
-                  overflow: 'hidden',
-                  boxShadow: isSelected ? '0 0 0 2px var(--accent-soft)' : undefined,
-                  borderColor: isSelected ? 'var(--accent)' : undefined,
-                }}
-              >
-                <div
-                  onClick={() => setSelected(isSelected ? null : r)}
-                  style={{
-                    padding: '16px 20px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    cursor: 'pointer',
-                    background: r.status === 'new' ? 'var(--danger-soft)' : 'transparent',
-                  }}
-                >
-                  <div style={{ fontWeight: r.status === 'new' ? 600 : 500, fontSize: 15 }}>
-                    {r.name}
-                  </div>
-                  <div
+        <>
+          {/* Desktop / Laptop Table */}
+          <div className="desktop-only table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Source</th>
+                  <th>Status</th>
+                  <th>Received</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((r) => (
+                  <tr
+                    key={r.id}
+                    onClick={() => setModalRow(r)}
                     style={{
-                      transform: isSelected ? 'rotate(90deg)' : 'rotate(0deg)',
-                      transition: 'transform 0.2s',
-                      display: 'flex',
-                      color: 'var(--muted)',
+                      cursor: 'pointer',
+                      background: r.status === 'new' ? 'var(--danger-soft)' : undefined,
                     }}
                   >
-                    <Icon.Chevron />
-                  </div>
-                </div>
+                    <td>
+                      <span style={{ fontWeight: r.status === 'new' ? 600 : 500 }}>{r.name}</span>
+                    </td>
+                    <td>
+                      <span className="sub">{r.email}</span>
+                    </td>
+                    <td>
+                      <span className={sourceBadgeClass(r.source)}>
+                        {SOURCE_LABELS[sourceKey(r.source)] ?? r.source ?? 'General'}
+                      </span>
+                    </td>
+                    <td>
+                      <span className={STATUS_BADGE[r.status] ?? 'badge'}>
+                        {STATUS_LABEL[r.status]}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="mono sub" style={{ fontSize: 11 }}>
+                        {new Date(r.createdAt).toLocaleString('en-IN', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </span>
+                    </td>
+                    <td>
+                      <Icon.Chevron />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-                {isSelected && (
-                  <div style={{ padding: '20px', borderTop: '1px solid var(--border)' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24 }}>
-                        <div>
-                          <div
-                            style={{
-                              fontSize: 11,
-                              color: 'var(--muted)',
-                              textTransform: 'uppercase',
-                              letterSpacing: '0.05em',
-                              marginBottom: 6,
-                            }}
-                          >
-                            Status
-                          </div>
-                          <span className={STATUS_BADGE[r.status] ?? 'badge'}>
-                            {STATUS_LABEL[r.status]}
-                          </span>
-                        </div>
-                        <div>
-                          <div
-                            style={{
-                              fontSize: 11,
-                              color: 'var(--muted)',
-                              textTransform: 'uppercase',
-                              letterSpacing: '0.05em',
-                              marginBottom: 6,
-                            }}
-                          >
-                            Source
-                          </div>
-                          <span className={sourceBadgeClass(r.source)}>
-                            {SOURCE_LABELS[sourceKey(r.source)] ?? r.source ?? 'General'}
-                          </span>
-                        </div>
-                        <div>
-                          <div
-                            style={{
-                              fontSize: 11,
-                              color: 'var(--muted)',
-                              textTransform: 'uppercase',
-                              letterSpacing: '0.05em',
-                              marginBottom: 6,
-                            }}
-                          >
-                            Received
-                          </div>
-                          <div style={{ fontSize: 14 }}>
-                            {new Date(r.createdAt).toLocaleString('en-IN', {
-                              day: 'numeric',
-                              month: 'long',
-                              year: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div>
-                        <div
-                          style={{
-                            fontSize: 11,
-                            color: 'var(--muted)',
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.05em',
-                            marginBottom: 6,
-                          }}
-                        >
-                          Message
-                        </div>
-                        <div
-                          style={{
-                            fontSize: 14,
-                            lineHeight: 1.6,
-                            whiteSpace: 'pre-wrap',
-                            color: 'var(--ink)',
-                          }}
-                        >
-                          {r.message || (
-                            <span style={{ fontStyle: 'italic', color: 'var(--muted-2)' }}>
-                              No message included
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
-                        {r.status === 'new' && (
-                          <button
-                            type="button"
-                            className="btn"
-                            onClick={() => void setStatus(r.id, 'read')}
-                            title="Mark read"
-                          >
-                            <Icon.Eye /> View
-                          </button>
-                        )}
-                        {r.status !== 'done' && (
-                          <button
-                            type="button"
-                            className="btn primary"
-                            onClick={() => void setStatus(r.id, 'done')}
-                            title="Mark done"
-                          >
-                            <Icon.Check /> Ok
-                          </button>
-                        )}
-                        {r.status === 'done' && (
-                          <button
-                            type="button"
-                            className="btn"
-                            onClick={() => void setStatus(r.id, 'new')}
-                            title="Reopen"
-                          >
-                            <Icon.Refresh /> Reopen
-                          </button>
-                        )}
-                      </div>
+          {/* Mobile / Tablet Card Accordion List */}
+          <div className="mobile-only">
+            {filtered.map((r) => {
+              const isSelected = selected?.id === r.id;
+              return (
+                <div
+                  key={r.id}
+                  style={{
+                    background: 'var(--surface)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--r-lg)',
+                    overflow: 'hidden',
+                    boxShadow: isSelected ? '0 0 0 2px var(--accent-soft)' : undefined,
+                    borderColor: isSelected ? 'var(--accent)' : undefined,
+                  }}
+                >
+                  <div
+                    onClick={() => setSelected(isSelected ? null : r)}
+                    style={{
+                      padding: '16px 20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      cursor: 'pointer',
+                      background: r.status === 'new' ? 'var(--danger-soft)' : 'transparent',
+                    }}
+                  >
+                    <div style={{ fontWeight: r.status === 'new' ? 600 : 500, fontSize: 15 }}>
+                      {r.name}
+                    </div>
+                    <div
+                      style={{
+                        transform: isSelected ? 'rotate(90deg)' : 'rotate(0deg)',
+                        transition: 'transform 0.2s',
+                        display: 'flex',
+                        color: 'var(--muted)',
+                      }}
+                    >
+                      <Icon.Chevron />
                     </div>
                   </div>
-                )}
-              </div>
-            );
-          })}
+
+                  {isSelected && (
+                    <div style={{ padding: '20px', borderTop: '1px solid var(--border)' }}>
+                      {renderDetail(r)}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {/* ── Desktop detail modal ────────────────────────────────────── */}
+      {modalRow && (
+        <div className="modal-overlay" onClick={() => setModalRow(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>{modalRow.name}</h3>
+              <p className="lede" style={{ margin: '2px 0 0' }}>
+                {modalRow.email}
+                {modalRow.phone ? ` · ${modalRow.phone}` : ''}
+              </p>
+            </div>
+            <div className="modal-body">{renderDetail(modalRow)}</div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setModalRow(null)}>
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

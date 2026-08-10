@@ -234,10 +234,7 @@ export default function DashboardPage({ onNav, toast }: Props) {
       {/* ── Activity metrics ───────────────────────────────────── */}
       <div>
         <div className="section-title">Today's activity</div>
-        <div
-          className="stat-grid"
-          style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 0 }}
-        >
+        <div className="stat-grid" style={{ marginBottom: 0 }}>
           <button className="stat" onClick={() => onNav('jobs', { page: 'jobs', filter: 'today' })}>
             <div className="lbl">
               <Icon.Activity /> Jobs processed
@@ -277,7 +274,7 @@ export default function DashboardPage({ onNav, toast }: Props) {
       {/* ── System health metrics ──────────────────────────────── */}
       <div>
         <div className="section-title">System health</div>
-        <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+        <div className="stat-grid">
           <button
             className={`stat ${!workersOk && stats.workersTotal > 0 ? 'alert' : ''}`}
             onClick={() => onNav('workers')}
@@ -365,7 +362,7 @@ export default function DashboardPage({ onNav, toast }: Props) {
       </div>
 
       {/* ── Charts + Worker pool ───────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.7fr 1fr', gap: 14 }}>
+      <div className="dash-grid-2col">
         {/* Jobs sparkline */}
         <div className="card">
           <div className="card-head">
@@ -578,7 +575,7 @@ export default function DashboardPage({ onNav, toast }: Props) {
       </div>
 
       {/* ── Failures + Stuck queue ─────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+      <div className="dash-grid-2col-even">
         {/* Recent failures */}
         <div className="card" style={{ minWidth: 0, overflow: 'hidden' }}>
           <div className="card-head">
