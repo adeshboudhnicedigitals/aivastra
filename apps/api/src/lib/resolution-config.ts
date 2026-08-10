@@ -30,6 +30,8 @@ export const DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG: { creditCost: number } = {
 
 export const DEFAULT_PIXVERSE_CONFIG: { creditCost: number } = { creditCost: PIXVERSE_VIDEO_COST };
 
+export const DEFAULT_SHOPIFY_TRIAL_CONFIG: { trialCredits: number } = { trialCredits: 25 };
+
 /**
  * Reads the admin-configured credit cost for a resolution from the same
  * `config:system` Redis key the admin panel edits (GET/PATCH /admin/config).
@@ -111,5 +113,24 @@ export async function getPixverseCreditCost(app: FastifyInstance): Promise<numbe
     return typeof cost === 'number' ? cost : PIXVERSE_VIDEO_COST;
   } catch {
     return PIXVERSE_VIDEO_COST;
+  }
+}
+
+/**
+ * Reads the admin-configured number of free trial credits granted once,
+ * automatically, when a Shopify store first links to an AiVastra account
+ * (see grantShopifyTrialCredits in modules/shopify/billing.ts). Independent
+ * of Shopify's own day-based trialDays billing trial. Falls back to
+ * DEFAULT_SHOPIFY_TRIAL_CONFIG.trialCredits if nothing is stored yet, or the
+ * entry is missing/malformed.
+ */
+export async function getShopifyTrialCredits(app: FastifyInstance): Promise<number> {
+  try {
+    const raw = await app.redis.get(CONFIG_KEY);
+    const cfg = raw ? JSON.parse(raw) : {};
+    const credits = cfg.shopify?.trialCredits;
+    return typeof credits === 'number' ? credits : DEFAULT_SHOPIFY_TRIAL_CONFIG.trialCredits;
+  } catch {
+    return DEFAULT_SHOPIFY_TRIAL_CONFIG.trialCredits;
   }
 }
