@@ -5,6 +5,20 @@ import com.fasterxml.jackson.annotation.JsonProperty
 import java.io.Serializable
 
 @JsonIgnoreProperties(ignoreUnknown = true)
+data class MerchantCatalogSareeStyle(
+    @JsonProperty("id") val id: String = "",
+    @JsonProperty("label") val label: String = "",
+    @JsonProperty("previewUrl") val previewUrl: String? = null,
+    @JsonProperty("sortOrder") val sortOrder: Int = 0,
+    @JsonProperty("supportsTwoInput") val supportsTwoInput: Boolean = false
+) : Serializable
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+data class MerchantCatalogSareeStyleListResponse(
+    @JsonProperty("items") val items: List<MerchantCatalogSareeStyle> = emptyList()
+)
+
+@JsonIgnoreProperties(ignoreUnknown = true)
 data class MerchantCatalogSubcategory(@JsonProperty("id") val id: String = "", @JsonProperty("category") val category: String = "", @JsonProperty("name") val name: String = "", @JsonProperty("productCount") val productCount: Int = 0) : Serializable
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class MerchantCatalogSubcategoryListResponse(@JsonProperty("items") val items: List<MerchantCatalogSubcategory> = emptyList())
