@@ -43,7 +43,7 @@ async function parseErrorBody(res: Response): Promise<{ message: string; code?: 
 // handler. An <a target="_top"> element's native click handling is not
 // subject to that restriction, so route through one instead of assigning
 // location directly.
-function navigateTopLevel(url: string): void {
+export function navigateTopLevel(url: string): void {
   const a = document.createElement('a');
   a.href = url;
   a.target = '_top';
