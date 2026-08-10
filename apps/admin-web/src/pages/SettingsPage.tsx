@@ -587,13 +587,6 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
 
-  const [resolutions, setResolutions] = useState<
-    Record<string, { enabled: boolean; creditCost: number }>
-  >({
-    HD: { enabled: false, creditCost: 10 },
-    '2K': { enabled: true, creditCost: 25 },
-    '4K': { enabled: true, creditCost: 40 },
-  });
   const [maxOutputPx, setMaxOutputPx] = useState(2048);
   const [maxBatchJobs, setMaxBatchJobs] = useState(200);
   const [merchantCatalogDefaults, setMerchantCatalogDefaults] = useState<
@@ -612,9 +605,6 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   const [modelBackgroundsList, setModelBackgroundsList] = useState<
     Array<{ id: string; label: string }>
   >([]);
-  const [tryonCreditCost, setTryonCreditCost] = useState(5);
-  const [sareeMannequinDevCreditCost, setSareeMannequinDevCreditCost] = useState(10);
-  const [pixverseCreditCost, setPixverseCreditCost] = useState(150);
   const [shopifyTrialCredits, setShopifyTrialCredits] = useState(25);
   const [shopifyPlanCredits, setShopifyPlanCredits] = useState({
     starter: 1925,
@@ -660,7 +650,6 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
 
   useEffect(() => {
     apiFetch<{
-      resolutions?: Record<string, { enabled: boolean; creditCost: number }>;
       maxOutputPx?: number;
       maxBatchJobs?: number;
       merchantCatalogDefaults?: Record<
@@ -668,9 +657,6 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
         { faceId: string; backgroundId: string; lowerCatalogId?: string; shoeCatalogId?: string }
       >;
       merchantCatalogAspectRatio?: string;
-      tryon?: { creditCost: number };
-      sareeMannequinDev?: { creditCost: number };
-      pixverse?: { creditCost: number };
       shopify?: {
         trialCredits: number;
         planCredits?: { starter: number; growth: number; pro: number };
@@ -678,15 +664,11 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
       uploadLimits?: Record<string, number>;
     }>('/admin/config')
       .then((cfg) => {
-        if (cfg.resolutions) setResolutions(cfg.resolutions);
         if (cfg.maxOutputPx) setMaxOutputPx(cfg.maxOutputPx);
         if (cfg.maxBatchJobs) setMaxBatchJobs(cfg.maxBatchJobs);
         if (cfg.merchantCatalogDefaults) setMerchantCatalogDefaults(cfg.merchantCatalogDefaults);
         if (cfg.merchantCatalogAspectRatio)
           setMerchantCatalogAspectRatio(cfg.merchantCatalogAspectRatio);
-        if (cfg.tryon) setTryonCreditCost(cfg.tryon.creditCost);
-        if (cfg.sareeMannequinDev) setSareeMannequinDevCreditCost(cfg.sareeMannequinDev.creditCost);
-        if (cfg.pixverse) setPixverseCreditCost(cfg.pixverse.creditCost);
         if (cfg.shopify) {
           setShopifyTrialCredits(cfg.shopify.trialCredits);
           if (cfg.shopify.planCredits) setShopifyPlanCredits(cfg.shopify.planCredits);
@@ -799,14 +781,10 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
       await apiFetch('/admin/config', {
         method: 'PATCH',
         body: JSON.stringify({
-          resolutions,
           maxOutputPx,
           maxBatchJobs,
           merchantCatalogDefaults: sanitizedMerchantCatalogDefaults,
           merchantCatalogAspectRatio,
-          tryon: { creditCost: tryonCreditCost },
-          sareeMannequinDev: { creditCost: sareeMannequinDevCreditCost },
-          pixverse: { creditCost: pixverseCreditCost },
           shopify: { trialCredits: shopifyTrialCredits, planCredits: shopifyPlanCredits },
           uploadLimits: {
             merchantCatalogMaxBytes: mbToBytes(uploadLimitsMb.merchantCatalogMaxBytes),
@@ -1506,77 +1484,6 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
               <>
                 <div style={{ marginTop: 24, marginBottom: 8 }}>
                   <div className="setting-lbl" style={{ marginBottom: 4 }}>
-                    Resolution Pricing
-                  </div>
-                  <div className="setting-desc" style={{ marginBottom: 12 }}>
-                    Credit cost per image for each resolution. Disable resolutions to hide them from
-                    the pricing page.
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {(['HD', '2K', '4K'] as const).map((res) => {
-                      const cfg = resolutions[res] ?? { enabled: false, creditCost: 0 };
-                      return (
-                        <div
-                          key={res}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 12,
-                            padding: '10px 12px',
-                            border: '1px solid var(--border)',
-                            borderRadius: 'var(--r)',
-                            background: 'var(--surface-2)',
-                          }}
-                        >
-                          <Switch
-                            checked={cfg.enabled}
-                            onChange={(v) =>
-                              setResolutions((prev) => ({
-                                ...prev,
-                                [res]: { ...cfg, enabled: v },
-                              }))
-                            }
-                          />
-                          <span className="setting-lbl" style={{ width: 32 }}>
-                            {res}
-                          </span>
-                          <div
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 6,
-                              marginLeft: 'auto',
-                            }}
-                          >
-                            <input
-                              className="input"
-                              type="number"
-                              min={1}
-                              max={1000}
-                              style={{ width: 80, textAlign: 'right' }}
-                              value={cfg.creditCost}
-                              disabled={sysSaving || !cfg.enabled}
-                              onChange={(e) =>
-                                setResolutions((prev) => ({
-                                  ...prev,
-                                  [res]: { ...cfg, creditCost: Number(e.target.value) },
-                                }))
-                              }
-                            />
-                            <span
-                              style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}
-                            >
-                              credits / image
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div style={{ marginTop: 24, marginBottom: 8 }}>
-                  <div className="setting-lbl" style={{ marginBottom: 4 }}>
                     Max Output Resolution
                   </div>
                   <div className="setting-desc" style={{ marginBottom: 12 }}>
@@ -1640,126 +1547,6 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                       onChange={(e) => setMaxBatchJobs(Number(e.target.value))}
                     />
                     <span style={{ fontSize: 13, color: 'var(--muted)' }}>jobs per batch</span>
-                  </div>
-                </div>
-
-                <div style={{ marginTop: 24, marginBottom: 8 }}>
-                  <div className="setting-lbl" style={{ marginBottom: 4 }}>
-                    Virtual Try-On Pricing
-                  </div>
-                  <div className="setting-desc" style={{ marginBottom: 12 }}>
-                    Credit cost per virtual try-on generation (studio "reuse as try-on" and saree
-                    try-on both share this cost).
-                  </div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 12,
-                      padding: '10px 12px',
-                      border: '1px solid var(--border)',
-                      borderRadius: 'var(--r)',
-                      background: 'var(--surface-2)',
-                    }}
-                  >
-                    <span className="setting-lbl">Try-On</span>
-                    <div
-                      style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}
-                    >
-                      <input
-                        className="input"
-                        type="number"
-                        min={1}
-                        max={1000}
-                        style={{ width: 80, textAlign: 'right' }}
-                        value={tryonCreditCost}
-                        disabled={sysSaving}
-                        onChange={(e) => setTryonCreditCost(Number(e.target.value))}
-                      />
-                      <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                        credits / try-on
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ marginTop: 24, marginBottom: 8 }}>
-                  <div className="setting-lbl" style={{ marginBottom: 4 }}>
-                    Dev API — Saree Mannequin
-                  </div>
-                  <div className="setting-desc" style={{ marginBottom: 12 }}>
-                    Credit cost per saree-mannequin (step-1) job created via the developer API (
-                    <code>/v1/dev/saree-mannequin</code>). Independent of the Virtual Try-On cost
-                    above.
-                  </div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 12,
-                      padding: '10px 12px',
-                      border: '1px solid var(--border)',
-                      borderRadius: 'var(--r)',
-                      background: 'var(--surface-2)',
-                    }}
-                  >
-                    <span className="setting-lbl">Saree Mannequin (Dev API)</span>
-                    <div
-                      style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}
-                    >
-                      <input
-                        className="input"
-                        type="number"
-                        min={1}
-                        max={1000}
-                        style={{ width: 80, textAlign: 'right' }}
-                        value={sareeMannequinDevCreditCost}
-                        disabled={sysSaving}
-                        onChange={(e) => setSareeMannequinDevCreditCost(Number(e.target.value))}
-                      />
-                      <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                        credits / job
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ marginTop: 24, marginBottom: 8 }}>
-                  <div className="setting-lbl" style={{ marginBottom: 4 }}>
-                    Catalog Video (PixVerse)
-                  </div>
-                  <div className="setting-desc" style={{ marginBottom: 12 }}>
-                    Credit cost per catalog-video generation (image-to-video via PixVerse).
-                  </div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 12,
-                      padding: '10px 12px',
-                      border: '1px solid var(--border)',
-                      borderRadius: 'var(--r)',
-                      background: 'var(--surface-2)',
-                    }}
-                  >
-                    <span className="setting-lbl">Catalog Video</span>
-                    <div
-                      style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}
-                    >
-                      <input
-                        className="input"
-                        type="number"
-                        min={1}
-                        max={1000}
-                        style={{ width: 80, textAlign: 'right' }}
-                        value={pixverseCreditCost}
-                        disabled={sysSaving}
-                        onChange={(e) => setPixverseCreditCost(Number(e.target.value))}
-                      />
-                      <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                        credits / video
-                      </span>
-                    </div>
                   </div>
                 </div>
 
