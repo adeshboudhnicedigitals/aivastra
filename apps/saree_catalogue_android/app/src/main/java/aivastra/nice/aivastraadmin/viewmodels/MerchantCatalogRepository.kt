@@ -34,11 +34,6 @@ object MerchantCatalogRepository {
         APICaller.putToPresignedUrl(uploadUrl, file.asRequestBody(contentType.toMediaType()))
     }
 
-    suspend fun fetchSareeStyles(): List<MerchantCatalogSareeStyle> {
-        val response = APICaller.getJsonAuthed(APIConstant.API_ENDPOINTS.MERCHANT_CATALOG_SAREE_STYLES, PrefsManager.getAccessToken())
-        return mapper.readValue(response, MerchantCatalogSareeStyleListResponse::class.java).items
-    }
-
     suspend fun generate(
         subcategoryId: String,
         flatImageKey: String,
