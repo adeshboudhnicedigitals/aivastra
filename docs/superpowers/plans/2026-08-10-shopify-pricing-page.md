@@ -28,7 +28,7 @@
 - Consumes: nothing new.
 - Produces: `creditsForPlanName('starter'|'growth'|'pro')` now returns `1925`/`5000`/`22000` (was `2500`/`6250`/`25000`). No signature change — later tasks don't depend on this file.
 
-- [ ] **Step 1: Update the failing test expectations first**
+- [x] **Step 1: Update the failing test expectations first**
 
 In `apps/api/src/modules/shopify/billing-plans.test.ts`, change the first two `it` blocks:
 
@@ -51,12 +51,12 @@ describe('creditsForPlanName', () => {
 
 Leave the remaining two `it` blocks (`'returns null for an unknown name...'` and the `SHOPIFY_PLAN_HANDLES` one) and the `normalizePlanName` describe block unchanged.
 
-- [ ] **Step 2: Run the test to verify it now fails**
+- [x] **Step 2: Run the test to verify it now fails**
 
 Run: `pnpm --filter @aivastra/api test -- billing-plans`
 Expected: FAIL — `creditsForPlanName('starter')` returns `2500`, not `1925` (and similarly for growth/pro).
 
-- [ ] **Step 3: Update the implementation**
+- [x] **Step 3: Update the implementation**
 
 In `apps/api/src/modules/shopify/billing-plans.ts`, replace the credits map and the doc comment's price line:
 
@@ -82,12 +82,12 @@ to:
  * owns credits, never price): starter $29, growth $59, pro $229/month.
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `pnpm --filter @aivastra/api test -- billing-plans`
 Expected: PASS, all 6 assertions in `billing-plans.test.ts` green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/modules/shopify/billing-plans.ts apps/api/src/modules/shopify/billing-plans.test.ts
@@ -106,7 +106,7 @@ git commit -m "fix(api): reconcile Shopify plan credit grants with the pricing s
 - Consumes: nothing new (wraps the existing `buildPlanSelectionUrl` in the same file).
 - Produces: `resolvePlanSelectionUrl(shopDomain: string, appHandle: string): { url: string } | { error: string }`. Task 3 (`PricingPage`) and Task 5 (`DashboardPage` wiring) both call this.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `apps/shopify/src/lib/billing.test.ts`, add a new `describe` block below the existing one:
 
@@ -131,12 +131,12 @@ describe('resolvePlanSelectionUrl', () => {
 
 (Update the existing top import line accordingly — `buildPlanSelectionUrl` and `resolvePlanSelectionUrl` both come from `./billing`.)
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `pnpm --filter @aivastra/shopify-admin test -- billing.test`
 Expected: FAIL — `resolvePlanSelectionUrl` is not exported from `./billing`.
 
-- [ ] **Step 3: Implement `resolvePlanSelectionUrl`**
+- [x] **Step 3: Implement `resolvePlanSelectionUrl`**
 
 In `apps/shopify/src/lib/billing.ts`, append below `buildPlanSelectionUrl`:
 
@@ -158,12 +158,12 @@ export function resolvePlanSelectionUrl(
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `pnpm --filter @aivastra/shopify-admin test -- billing.test`
 Expected: PASS, both new assertions plus the pre-existing `buildPlanSelectionUrl` test green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/shopify/src/lib/billing.ts apps/shopify/src/lib/billing.test.ts
@@ -182,7 +182,7 @@ git commit -m "refactor(shopify-admin): extract shared plan-selection URL resolv
 - Consumes: nothing.
 - Produces: `PLAN_FEATURE_SETS: PlanFeatureSet[]` (3 entries, handles `'starter' | 'growth' | 'pro'` in that order) and `SHARED_FEATURE_BULLETS: string[]`. Task 4 (`PricingPage`) imports both.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `apps/shopify/src/lib/planFeatures.test.ts`:
 
@@ -246,12 +246,12 @@ describe('SHARED_FEATURE_BULLETS', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `pnpm --filter @aivastra/shopify-admin test -- planFeatures`
 Expected: FAIL — cannot find module `./planFeatures`.
 
-- [ ] **Step 3: Implement the data file**
+- [x] **Step 3: Implement the data file**
 
 Create `apps/shopify/src/lib/planFeatures.ts`:
 
@@ -326,12 +326,12 @@ export const SHARED_FEATURE_BULLETS = [
 ];
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `pnpm --filter @aivastra/shopify-admin test -- planFeatures`
 Expected: PASS, all assertions green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/shopify/src/lib/planFeatures.ts apps/shopify/src/lib/planFeatures.test.ts
@@ -350,7 +350,7 @@ git commit -m "feat(shopify-admin): add plan feature comparison data"
 - Consumes: `PLAN_FEATURE_SETS`, `SHARED_FEATURE_BULLETS` from `../lib/planFeatures` (Task 3); `resolvePlanSelectionUrl` from `../lib/billing` (Task 2); `apiFetch`, `navigateTopLevel` from `../lib/api`; `ShopifyMe` from `../types`.
 - Produces: `PricingPage` default export, mounted at route path `/pricing` in `App.tsx`. Task 5 (`DashboardPage`) navigates here.
 
-- [ ] **Step 1: Create `PricingPage.tsx`**
+- [x] **Step 1: Create `PricingPage.tsx`**
 
 ```tsx
 import {
@@ -496,7 +496,7 @@ export default function PricingPage() {
 }
 ```
 
-- [ ] **Step 2: Route it in `App.tsx`**
+- [x] **Step 2: Route it in `App.tsx`**
 
 In `apps/shopify/src/App.tsx`, add the import alongside the other page imports (alphabetical, between `ManagePage` and `SettingsPage`):
 
@@ -510,7 +510,7 @@ And add the route alongside the other routes, between `/analytics` and `/widget-
 <Route path="/pricing" element={<PricingPage />} />
 ```
 
-- [ ] **Step 3: Typecheck**
+- [x] **Step 3: Typecheck**
 
 Run: `pnpm --filter @aivastra/shopify-admin exec tsc --noEmit`
 Expected: no errors.
@@ -519,7 +519,7 @@ Expected: no errors.
 
 Run: `pnpm --filter @aivastra/shopify-admin dev`, open the printed dev URL, navigate to `/pricing` directly (the dev nav in `AppNavMenu`/`NAV_ITEMS` won't list it — that's expected, see Global Constraints). Confirm all 3 columns render with the correct price/credits/try-ons/features, Growth shows "Best value", and clicking a non-current plan's button either navigates top-level to the Shopify hosted picker or — if `VITE_SHOPIFY_APP_HANDLE` isn't set in the local dev env — shows the critical banner instead of a silent failure.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/shopify/src/pages/PricingPage.tsx apps/shopify/src/App.tsx
@@ -537,7 +537,7 @@ git commit -m "feat(shopify-admin): add in-app pricing comparison page"
 - Consumes: `useNavigate` (already imported at line 19).
 - Produces: nothing new — this is the last task, removes now-dead code.
 
-- [ ] **Step 1: Remove the now-unused imports and constant**
+- [x] **Step 1: Remove the now-unused imports and constant**
 
 In `apps/shopify/src/pages/DashboardPage.tsx`, change line 20 from:
 
@@ -562,7 +562,7 @@ Remove lines 32–34 (the `APP_HANDLE` constant and its leading comment):
 const APP_HANDLE = import.meta.env.VITE_SHOPIFY_APP_HANDLE ?? '';
 ```
 
-- [ ] **Step 2: Remove `openPlanSelection` and repoint the button**
+- [x] **Step 2: Remove `openPlanSelection` and repoint the button**
 
 Delete the `openPlanSelection` function (lines 133–146):
 
@@ -595,7 +595,7 @@ to:
                 <Button onClick={() => navigate('/pricing')}>
 ```
 
-- [ ] **Step 3: Typecheck**
+- [x] **Step 3: Typecheck**
 
 Run: `pnpm --filter @aivastra/shopify-admin exec tsc --noEmit`
 Expected: no errors (confirms no other reference to `openPlanSelection`, `APP_HANDLE`, `navigateTopLevel`, or `buildPlanSelectionUrl` was left behind in this file).
@@ -604,7 +604,7 @@ Expected: no errors (confirms no other reference to `openPlanSelection`, `APP_HA
 
 With `pnpm --filter @aivastra/shopify-admin dev` still running, open the Dashboard, click "Choose a plan" / "Manage plan", confirm it now lands on `/pricing` in-app instead of redirecting straight off to Shopify.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/shopify/src/pages/DashboardPage.tsx
