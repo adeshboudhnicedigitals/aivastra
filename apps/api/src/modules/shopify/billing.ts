@@ -1,8 +1,8 @@
 import { schema } from '@aivastra/db';
 import { eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { getShopifyTrialCredits } from '../../lib/resolution-config.js';
-import { creditsForPlanName, normalizePlanName } from './billing-plans.js';
+import { getShopifyPlanCredits, getShopifyTrialCredits } from '../../lib/resolution-config.js';
+import { normalizePlanName } from './billing-plans.js';
 import {
   type ActiveSubscription,
   getActiveSubscription as defaultGetActiveSubscription,
@@ -77,7 +77,7 @@ export async function syncStoreSubscription(
     store.currentSubscriptionId !== subscription.id ||
     (store.currentPeriodEnd?.getTime() ?? null) !== (periodEnd?.getTime() ?? null);
 
-  const amount = planHandle ? creditsForPlanName(planHandle) : null;
+  const amount = planHandle ? await getShopifyPlanCredits(app, planHandle) : null;
 
   if (amount === null) {
     // Operator-visible rather than silent: a plan renamed in Partner Dashboard
