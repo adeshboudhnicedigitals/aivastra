@@ -1,8 +1,14 @@
 export type GenderSlug = 'men' | 'women' | 'boys' | 'girls';
 
+// Free-form slug, admin-defined (see ContinentSlug in @aivastra/types) — not a
+// fixed set. apps/admin-web/src/lib/continents.ts holds the preset list plus
+// slugify/label helpers.
+export type Continent = string;
+
 export interface ModelFace {
   id: string;
   gender: GenderSlug;
+  continent: Continent | null;
   label: string;
   thumbnailKey: string;
   r2Key: string;

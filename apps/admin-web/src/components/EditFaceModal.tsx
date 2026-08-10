@@ -1,25 +1,39 @@
 import { useRef, useState } from 'react';
+import { slugifyContinent } from '../lib/continents';
 import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
-import type { GenderSlug, ModelFace } from '../types';
+import type { Continent, GenderSlug, ModelFace } from '../types';
 import { Icon } from './Icons';
 import { PublicApiSlugField } from './PublicApiSlugField';
+
+const ADD_NEW = '__add_new__';
 
 interface Props {
   face: ModelFace;
   storagePublicUrl: string | null;
+  knownContinents: { value: Continent; label: string }[];
   onSaved: (updated: ModelFace) => void;
   onClose: () => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
-export function EditFaceModal({ face, storagePublicUrl, onSaved, onClose, toast }: Props) {
+export function EditFaceModal({
+  face,
+  storagePublicUrl,
+  knownContinents,
+  onSaved,
+  onClose,
+  toast,
+}: Props) {
   const [form, setForm] = useState({
     label: face.label,
     gender: face.gender,
+    continent: (face.continent ?? '') as Continent | '',
     sortOrder: face.sortOrder,
     publicApiSlug: face.publicApiSlug ?? '',
   });
+  const [addingContinent, setAddingContinent] = useState(false);
+  const [newContinentLabel, setNewContinentLabel] = useState('');
   const [saving, setSaving] = useState(false);
   const [replaceFile, setReplaceFile] = useState<File | null>(null);
   const [replacePreview, setReplacePreview] = useState<string | null>(null);
@@ -27,13 +41,21 @@ export function EditFaceModal({ face, storagePublicUrl, onSaved, onClose, toast 
   const replaceRef = useRef<HTMLInputElement>(null);
 
   const handleSave = async () => {
+    if (addingContinent && !newContinentLabel.trim()) {
+      toast({ kind: 'error', title: 'Enter a name for the new continent, or cancel' });
+      return;
+    }
     setSaving(true);
+    const resolvedContinent = addingContinent
+      ? slugifyContinent(newContinentLabel) || null
+      : form.continent || null;
+    const body = { ...form, continent: resolvedContinent };
     try {
       await apiFetch(`/admin/assets/faces/${face.id}`, {
         method: 'PATCH',
-        body: JSON.stringify(form),
+        body: JSON.stringify(body),
       });
-      onSaved({ ...face, ...form });
+      onSaved({ ...face, ...body });
       toast({ title: `${form.label} updated` });
       onClose();
     } catch (e) {
@@ -140,6 +162,52 @@ export function EditFaceModal({ face, storagePublicUrl, onSaved, onClose, toast 
               <option value="boys">Boys</option>
               <option value="girls">Girls</option>
             </select>
+          </div>
+          <div className="field">
+            <label>Continent</label>
+            {addingContinent ? (
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input
+                  className="input"
+                  placeholder="e.g. Middle East"
+                  value={newContinentLabel}
+                  disabled={saving}
+                  onChange={(e) => setNewContinentLabel(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="btn sm ghost"
+                  disabled={saving}
+                  onClick={() => {
+                    setAddingContinent(false);
+                    setNewContinentLabel('');
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <select
+                className="select"
+                value={form.continent}
+                disabled={saving}
+                onChange={(e) => {
+                  if (e.target.value === ADD_NEW) {
+                    setAddingContinent(true);
+                    return;
+                  }
+                  setForm((f) => ({ ...f, continent: e.target.value as Continent | '' }));
+                }}
+              >
+                <option value="">Unassigned (shown as "Global" in studio)</option>
+                {knownContinents.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+                <option value={ADD_NEW}>+ Add new continent…</option>
+              </select>
+            )}
           </div>
           <div className="field">
             <label>Sort order</label>

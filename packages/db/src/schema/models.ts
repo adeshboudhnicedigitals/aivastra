@@ -18,6 +18,11 @@ export const modelFaces = pgTable('model_faces', {
   id: uuid('id').primaryKey().defaultRandom(),
   gender: text('gender').notNull(), // 'men' | 'women' | 'boys' | 'girls'
   label: text('label').notNull(),
+  // Free-form slug (lowercase letters/digits/underscores), admin-defined — not a
+  // fixed enum, so admins can add new continents from the admin UI. Null = unassigned;
+  // shown under the "Global" bucket in the studio model picker. See ContinentSlug in
+  // @aivastra/types.
+  continent: text('continent'),
   r2Key: text('r2_key').notNull(),
   thumbnailKey: text('thumbnail_key').notNull(),
   faceSideR2Key: text('face_side_r2_key'), // ComfyUI-specific face image (moved from model_pose_assets)
