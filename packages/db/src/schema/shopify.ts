@@ -108,15 +108,23 @@ export const shopifyStores = pgTable('shopify_stores', {
   settings: jsonb('settings').$type<ShopifyStoreSettings>().notNull().default({}),
   syncCursor: text('sync_cursor'),
   // Shopify App Pricing state — populated by billing.ts's syncStoreSubscription,
-  // never written from a client-trusted value. null planHandle means "no plan
-  // selected yet" (distinct from "was on a plan, now cancelled", which is
-  // subscriptionStatus === 'cancelled' with planHandle still set to the last plan).
+  // never written from a client-trusted value. Holds the normalized (trimmed +
+  // lowercased) AppSubscription.name, since the Admin API exposes no plan
+  // handle. null means "no plan selected yet" (distinct from "was on a plan,
+  // now cancelled", which is subscriptionStatus === 'cancelled' with
+  // planHandle still set to the last plan).
   planHandle: text('plan_handle'),
-  subscriptionStatus: text('subscription_status'), // 'active' | 'cancelled' | 'frozen' | null
-  // The Partner API's activeSubscription.currentBillingCycle.startTime. When a
-  // poll observes this value change, a new billing cycle started — that's the
-  // renewal signal, since Shopify App Pricing sends no renewal webhook.
-  currentBillingCycleStart: timestamp('current_billing_cycle_start', { withTimezone: true }),
+  // Lowercased AppSubscriptionStatus: 'active' | 'cancelled' | 'declined' |
+  // 'expired' | 'frozen' | 'pending' | null.
+  subscriptionStatus: text('subscription_status'),
+  // The pair that identifies the billing cycle credits were last granted for:
+  // the Admin API's AppSubscription.id and its currentPeriodEnd. When a poll
+  // observes *either* change, a new cycle started — that's the renewal signal,
+  // since Shopify App Pricing sends no renewal webhook. Both are needed because
+  // a plan change may either advance the period end on the same subscription or
+  // replace the subscription with a new id.
+  currentSubscriptionId: text('current_subscription_id'),
+  currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
   lastBillingSyncAt: timestamp('last_billing_sync_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

@@ -3,11 +3,11 @@ import { isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { syncStoreSubscription } from './billing.js';
 
-// Partner API rate limit is 4 requests/second per client (per
-// shopify.dev/docs/api/partner#rate-limits). One store = one request here, so
-// a fixed delay between stores keeps a large store count from bursting past
-// that even though today's install count is nowhere near it.
-const PARTNER_API_MIN_DELAY_MS = 300;
+// Admin GraphQL rate limits are per-shop, so N stores in a tick do not share a
+// budget and no fixed pacing is strictly required. This small delay is only to
+// keep a large install base from opening every outbound request at once (and to
+// keep the log burst smooth); it is not a correctness constraint.
+const PER_STORE_DELAY_MS = 100;
 
 interface TickDeps {
   sync?: typeof syncStoreSubscription;
@@ -34,11 +34,11 @@ export async function runBillingSyncTick(app: FastifyInstance, deps: TickDeps = 
 
   for (const store of stores) {
     try {
-      await sync(app.db, app.env, store);
+      await sync(app, store);
     } catch (err) {
       app.log.error({ err, storeId: store.id }, 'shopify billing sync failed for store');
     }
-    await sleepImpl(PARTNER_API_MIN_DELAY_MS);
+    await sleepImpl(PER_STORE_DELAY_MS);
   }
 }
 
@@ -52,10 +52,24 @@ export function startBillingScheduler(
   app: FastifyInstance,
   intervalMs: number = HOUR_MS,
 ): () => void {
+  // One tick makes a serialized Admin API round-trip per installed store, so at
+  // a large enough install count it can outrun the interval. Without this guard
+  // setInterval would stack ticks, multiplying outbound requests against every
+  // shop and re-reading the same rows concurrently.
+  let running = false;
   const timer = setInterval(() => {
-    void runBillingSyncTick(app).catch((err) => {
-      app.log.error({ err }, 'billing sync tick failed');
-    });
+    if (running) {
+      app.log.warn('billing sync tick still running — skipping this interval');
+      return;
+    }
+    running = true;
+    void runBillingSyncTick(app)
+      .catch((err) => {
+        app.log.error({ err }, 'billing sync tick failed');
+      })
+      .finally(() => {
+        running = false;
+      });
   }, intervalMs);
   return () => clearInterval(timer);
 }

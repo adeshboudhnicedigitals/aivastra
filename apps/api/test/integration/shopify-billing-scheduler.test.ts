@@ -50,7 +50,7 @@ describe('runBillingSyncTick', () => {
 
     await runBillingSyncTick(app, { sync, sleepImpl: async () => {} });
 
-    const syncedIds = sync.mock.calls.map((call) => (call[2] as { id: string }).id);
+    const syncedIds = sync.mock.calls.map((call) => (call[1] as { id: string }).id);
     expect(syncedIds).toContain(active.id);
     expect(syncedIds).not.toContain(uninstalled.id);
   });
@@ -61,7 +61,7 @@ describe('runBillingSyncTick', () => {
     let calls = 0;
     const sync = vi.fn(async () => {
       calls += 1;
-      if (calls === 1) throw new Error('partner api down');
+      if (calls === 1) throw new Error('shopify admin api down');
       return { planHandle: null, subscriptionStatus: 'cancelled', creditsGranted: 0 };
     });
 

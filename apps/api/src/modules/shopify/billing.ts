@@ -1,17 +1,13 @@
-import type { DB } from '@aivastra/db';
 import { schema } from '@aivastra/db';
 import { eq, sql } from 'drizzle-orm';
-import { creditsForPlanHandle } from './billing-plans.js';
+import type { FastifyInstance } from 'fastify';
+import { creditsForPlanName, normalizePlanName } from './billing-plans.js';
 import {
   type ActiveSubscription,
   getActiveSubscription as defaultGetActiveSubscription,
-} from './partner-client.js';
+} from './subscription-client.js';
 
-interface PartnerEnv {
-  SHOPIFY_PARTNER_API_TOKEN?: string;
-  SHOPIFY_PARTNER_ORG_ID?: string;
-  SHOPIFY_PARTNER_APP_GID?: string;
-}
+type Store = typeof schema.shopifyStores.$inferSelect;
 
 export interface SyncResult {
   planHandle: string | null;
@@ -21,36 +17,38 @@ export interface SyncResult {
 
 interface SyncDeps {
   getActiveSubscription?: (
-    env: PartnerEnv,
-    shopifyShopId: number,
-    fetchImpl?: typeof fetch,
+    app: FastifyInstance,
+    store: Store,
   ) => Promise<ActiveSubscription | null>;
 }
 
 /**
- * Re-checks one store's Shopify App Pricing subscription against the Partner
- * API (the only source of truth — Shopify App Pricing sends no webhooks) and
- * grants credits for a new billing cycle exactly once.
+ * Re-checks one store's Shopify App Pricing subscription against the Admin
+ * GraphQL API (the only source of truth — Shopify App Pricing sends no
+ * webhooks) and grants credits for a new billing cycle exactly once.
+ *
+ * The read goes through the store's own offline Admin token, because
+ * `currentAppInstallation.activeSubscriptions` is scoped to whichever shop
+ * authenticates the request. There is no org-level equivalent.
  *
  * Idempotency is enforced by the (external_ref) partial unique index on
- * credit_ledger (migration 0148), keyed on storeId + the cycle's start time.
- * That, not application-level locking, is what makes this safe to call
- * concurrently from both the redirect-confirm route and the scheduler poll
+ * credit_ledger (migration 0148), keyed on storeId + the subscription id + the
+ * period end. That, not application-level locking, is what makes this safe to
+ * call concurrently from both the redirect-confirm route and the scheduler poll
  * for the same store — matches the existing atomicDeduct/refund idiom in
  * credits/ledger.ts rather than introducing SELECT ... FOR UPDATE, which this
  * codebase doesn't otherwise use.
  */
 export async function syncStoreSubscription(
-  db: DB,
-  env: PartnerEnv,
-  store: typeof schema.shopifyStores.$inferSelect,
+  app: FastifyInstance,
+  store: Store,
   deps: SyncDeps = {},
 ): Promise<SyncResult> {
   const getSubscription = deps.getActiveSubscription ?? defaultGetActiveSubscription;
-  const subscription = await getSubscription(env, store.shopifyShopId);
+  const subscription = await getSubscription(app, store);
 
   if (!subscription) {
-    await db
+    await app.db
       .update(schema.shopifyStores)
       .set({
         subscriptionStatus: 'cancelled',
@@ -61,26 +59,54 @@ export async function syncStoreSubscription(
     return { planHandle: null, subscriptionStatus: 'cancelled', creditsGranted: 0 };
   }
 
-  const planHandle = subscription.items[0]?.handle ?? null;
-  const cycleStart = subscription.currentBillingCycle
-    ? new Date(subscription.currentBillingCycle.startTime)
-    : null;
-  const isNewCycle =
-    !!cycleStart &&
-    (!store.currentBillingCycleStart ||
-      cycleStart.getTime() !== store.currentBillingCycleStart.getTime());
+  // The Admin API has no plan handle — `name` is the display name configured in
+  // Partner Dashboard. Normalized so the persisted value (and the frontend's
+  // PLAN_LABELS lookup) is stable regardless of how it was capitalized there.
+  const planHandle = normalizePlanName(subscription.name) || null;
+  const subscriptionStatus = subscription.status.toLowerCase();
+  const periodEnd = subscription.currentPeriodEnd ? new Date(subscription.currentPeriodEnd) : null;
 
+  // Keyed off BOTH the subscription id and its period end, because Shopify's
+  // behavior on a plan change is not something we can verify without a live
+  // test store: an upgrade may mutate the same AppSubscription in place, or it
+  // may cancel the old one and issue a new id. Treating either value changing
+  // as a new cycle covers both — a same-id renewal (period end advances) and a
+  // mid-cycle plan swap (id changes, period end may not).
+  const isNewCycle =
+    store.currentSubscriptionId !== subscription.id ||
+    (store.currentPeriodEnd?.getTime() ?? null) !== (periodEnd?.getTime() ?? null);
+
+  const amount = planHandle ? creditsForPlanName(planHandle) : null;
+
+  if (amount === null) {
+    // Operator-visible rather than silent: a plan renamed in Partner Dashboard
+    // without the matching change to billing-plans.ts stops all credit grants
+    // for every merchant on that plan, and nothing else would surface it.
+    app.log.error(
+      { storeId: store.id, planName: subscription.name },
+      'unrecognized Shopify plan name — no credits granted',
+    );
+  }
+
+  // A grant is only possible when we know who to credit, how much, and the
+  // subscription is actually live. PENDING (merchant hasn't approved the
+  // charge yet), FROZEN, DECLINED and EXPIRED all mean Shopify is not billing
+  // the merchant, so granting against them would be giving product away.
+  const ownerUserId = store.ownerUserId;
+  let grantable = false;
   let creditsGranted = 0;
 
-  if (store.ownerUserId && planHandle && isNewCycle) {
-    const amount = creditsForPlanHandle(planHandle);
-    if (amount) {
-      const externalRef = `shopify_subscription:${store.id}:${cycleStart!.toISOString()}`;
-      const granted = await db.transaction(async (tx) => {
+  if (ownerUserId !== null && amount !== null && subscription.status === 'ACTIVE') {
+    grantable = true;
+    if (isNewCycle) {
+      const externalRef = `shopify_subscription:${store.id}:${subscription.id}:${
+        periodEnd?.toISOString() ?? 'none'
+      }`;
+      const granted = await app.db.transaction(async (tx) => {
         const inserted = await tx
           .insert(schema.creditLedger)
           .values({
-            userId: store.ownerUserId!,
+            userId: ownerUserId,
             delta: amount,
             reason: 'SHOPIFY_SUBSCRIPTION',
             externalRef,
@@ -90,7 +116,7 @@ export async function syncStoreSubscription(
         if (!inserted.length) return false; // already granted for this cycle
         await tx
           .insert(schema.userCredits)
-          .values({ userId: store.ownerUserId!, balance: amount })
+          .values({ userId: ownerUserId, balance: amount })
           .onConflictDoUpdate({
             target: schema.userCredits.userId,
             set: { balance: sql`${schema.userCredits.balance} + ${amount}`, updatedAt: new Date() },
@@ -101,27 +127,33 @@ export async function syncStoreSubscription(
     }
   }
 
-  // Only advance the stored cycle marker when there was actually an owner to
-  // grant to. If ownerUserId is null, this cycle was never billed — leaving
-  // currentBillingCycleStart at its previous value (possibly still null)
-  // means a later sync, once the store gets linked to an owner, still sees
-  // isNewCycle === true for this same cycle and grants it. Advancing it
-  // unconditionally here would silently mark an unbilled cycle as "seen" and
-  // the merchant would never receive credits for it.
-  const cycleStartToPersist = store.ownerUserId ? cycleStart : store.currentBillingCycleStart;
+  // Only advance the stored cycle marker when a grant was actually possible.
+  // If there was no owner to credit, or the plan name didn't map to a credit
+  // amount, or the subscription wasn't ACTIVE, this cycle was never billed to
+  // anyone — leaving the marker at its previous value (possibly still null)
+  // means a later sync, once the store gets an owner / the plan mapping is
+  // fixed / the subscription goes live, still sees isNewCycle === true for the
+  // same cycle and grants it. Advancing unconditionally would silently mark an
+  // unbilled cycle as "seen" and the merchant would never get those credits.
+  const marker = grantable
+    ? { currentSubscriptionId: subscription.id, currentPeriodEnd: periodEnd }
+    : {
+        currentSubscriptionId: store.currentSubscriptionId,
+        currentPeriodEnd: store.currentPeriodEnd,
+      };
 
-  await db
+  await app.db
     .update(schema.shopifyStores)
     .set({
       planHandle,
-      subscriptionStatus: 'active',
-      currentBillingCycleStart: cycleStartToPersist,
+      subscriptionStatus,
+      ...marker,
       lastBillingSyncAt: new Date(),
       updatedAt: new Date(),
     })
     .where(eq(schema.shopifyStores.id, store.id));
 
-  return { planHandle, subscriptionStatus: 'active', creditsGranted };
+  return { planHandle, subscriptionStatus, creditsGranted };
 }
 
 /**
