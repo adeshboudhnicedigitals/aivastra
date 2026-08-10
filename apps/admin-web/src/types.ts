@@ -246,6 +246,16 @@ export interface User {
   merchant?: UserMerchant | null;
 }
 
+export interface CreditLedgerEntry {
+  id: string;
+  userId: string;
+  delta: number;
+  reason: string;
+  jobId: string | null;
+  adminId: string | null;
+  createdAt: string;
+}
+
 export type JobStatus =
   | 'QUEUED'
   | 'PREPROCESSING'

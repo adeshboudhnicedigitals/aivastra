@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
-import { JobTypeBadge } from '../components/JobTypeBadge';
 import { KV } from '../components/KV';
 import { NameAvatar } from '../components/NameAvatar';
 import { Pager } from '../components/Pager';
@@ -11,7 +10,7 @@ import type { SortDir } from '../components/Th';
 import { Th } from '../components/Th';
 import { useAuth } from '../context/AuthContext';
 import { apiErrorMessage, apiFetch } from '../lib/data';
-import type { CreditPlan, User } from '../types';
+import type { CreditLedgerEntry, CreditPlan, User } from '../types';
 
 const PAGE_SIZE = 20;
 
@@ -107,6 +106,9 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [createUserError, setCreateUserError] = useState('');
   const [resettingPassword, setResettingPassword] = useState(false);
   const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [creditActivity, setCreditActivity] = useState<CreditLedgerEntry[]>([]);
+  const [creditActivityLoading, setCreditActivityLoading] = useState(false);
+  const [showAllCreditActivity, setShowAllCreditActivity] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -170,13 +172,36 @@ export default function UsersPage({ onNav, toast }: Props) {
     }
   };
 
+  const loadCreditActivity = useCallback(
+    async (userId: string) => {
+      setCreditActivityLoading(true);
+      try {
+        const rows = await apiFetch<CreditLedgerEntry[]>(`/admin/credits/ledger/${userId}`);
+        setCreditActivity(rows);
+      } catch (e) {
+        toast({
+          kind: 'error',
+          title: 'Failed to load credit activity',
+          body: apiErrorMessage(e, 'Please try again.'),
+        });
+      } finally {
+        setCreditActivityLoading(false);
+      }
+    },
+    [toast],
+  );
+
   const openDetail = async (u: User) => {
     setDetail(u);
     setSelectedTier(u.tier);
     setSelectedMaxDevices(String(u.maxActiveDevices ?? 1));
+    setShowAllCreditActivity(false);
     setDetailLoading(true);
     try {
-      const full = await apiFetch<User>(`/admin/users/${u.id}`);
+      const [full] = await Promise.all([
+        apiFetch<User>(`/admin/users/${u.id}`),
+        loadCreditActivity(u.id),
+      ]);
       setDetail(full);
       setSelectedTier(full.tier);
       setSelectedMaxDevices(String(full.maxActiveDevices ?? 1));
@@ -394,6 +419,7 @@ export default function UsersPage({ onNav, toast }: Props) {
         );
         toast({ title: `Deducted ${amt.toLocaleString()} credits` });
       }
+      void loadCreditActivity(grantUserId);
       closeAdjustCredits();
     } catch (err) {
       toast({
@@ -866,80 +892,87 @@ export default function UsersPage({ onNav, toast }: Props) {
             <div className="card" style={{ overflow: 'hidden' }}>
               <div className="card-head">
                 <div>
-                  <h3>Recent activity</h3>
-                  <span className="sub">Latest five generation jobs</span>
+                  <h3>Credit activity</h3>
+                  <span className="sub">
+                    {showAllCreditActivity
+                      ? `All ${creditActivity.length} ledger entries`
+                      : 'Latest five ledger entries'}
+                  </span>
                 </div>
-                <button
-                  className="btn sm ghost"
-                  onClick={() =>
-                    onNav('jobs', { page: 'jobs', search: u.email ?? u.username ?? '' })
-                  }
-                >
-                  View all jobs <Icon.Chevron />
-                </button>
+                {creditActivity.length > 5 && (
+                  <button
+                    className="btn sm ghost"
+                    onClick={() => setShowAllCreditActivity((v) => !v)}
+                  >
+                    {showAllCreditActivity ? 'Show less' : `Show all (${creditActivity.length})`}{' '}
+                    <Icon.Chevron />
+                  </button>
+                )}
               </div>
               <div className="table-wrap" style={{ border: 0, borderRadius: 0 }}>
                 <table>
                   <thead>
                     <tr>
+                      <th>Reason</th>
+                      <th>Delta</th>
                       <th>Job</th>
-                      <th>Status</th>
-                      <th>Credits</th>
-                      <th>Created</th>
-                      <th style={{ textAlign: 'right' }}>Duration</th>
-                      <th aria-label="Open job"></th>
+                      <th>Date</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {u.recentJobs?.length ? (
-                      u.recentJobs.map((j) => (
-                        <tr
-                          key={j.id}
-                          onClick={() => onNav('jobs', { page: 'jobs', search: j.id, jobId: j.id })}
-                          style={{ cursor: 'pointer' }}
-                          title="Open job details"
+                    {creditActivityLoading ? (
+                      <tr>
+                        <td
+                          colSpan={4}
+                          style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}
                         >
-                          <td>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <JobTypeBadge jobType={j.jobType} />
-                              <span className="mono sub">{j.id.slice(0, 8)}&hellip;</span>
-                            </div>
-                          </td>
-                          <td>
-                            <StatusBadge status={j.status} />
-                          </td>
-                          <td>
-                            <span className="mono">{j.creditsCharged.toLocaleString()}</span>
-                          </td>
-                          <td>{new Date(j.createdAt).toLocaleString()}</td>
-                          <td style={{ textAlign: 'right' }}>
-                            {j.completedAt && j.startedAt ? (
-                              <span className="mono">
-                                {(
-                                  (new Date(j.completedAt).getTime() -
-                                    new Date(j.startedAt).getTime()) /
-                                  1000
-                                ).toFixed(1)}
-                                s
+                          Loading&hellip;
+                        </td>
+                      </tr>
+                    ) : creditActivity.length ? (
+                      (showAllCreditActivity ? creditActivity : creditActivity.slice(0, 5)).map(
+                        (l) => (
+                          <tr key={l.id}>
+                            <td>{l.reason}</td>
+                            <td>
+                              <span
+                                className="mono"
+                                style={{
+                                  color: l.delta < 0 ? 'var(--danger)' : 'var(--success, #4caf50)',
+                                }}
+                              >
+                                {l.delta > 0 ? '+' : ''}
+                                {l.delta.toLocaleString()}
                               </span>
-                            ) : (
-                              '—'
-                            )}
-                          </td>
-                          <td>
-                            <span style={{ color: 'var(--muted-2)' }} aria-hidden="true">
-                              <Icon.Chevron />
-                            </span>
-                          </td>
-                        </tr>
-                      ))
+                            </td>
+                            <td>
+                              {l.jobId ? (
+                                <span
+                                  className="mono sub"
+                                  style={{ cursor: 'pointer' }}
+                                  title="Open job details"
+                                  onClick={() => {
+                                    const jobId = l.jobId as string;
+                                    onNav('jobs', { page: 'jobs', search: jobId, jobId });
+                                  }}
+                                >
+                                  {l.jobId.slice(0, 8)}&hellip;
+                                </span>
+                              ) : (
+                                '—'
+                              )}
+                            </td>
+                            <td>{new Date(l.createdAt).toLocaleString()}</td>
+                          </tr>
+                        ),
+                      )
                     ) : (
                       <tr>
                         <td
-                          colSpan={6}
+                          colSpan={4}
                           style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}
                         >
-                          No recent jobs.
+                          No credit activity.
                         </td>
                       </tr>
                     )}
