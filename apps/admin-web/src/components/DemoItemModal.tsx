@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
-import { Icon } from './Icons';
+import { EditDrawer } from './EditDrawer';
 import { Switch } from './Switch';
 
 export interface DemoItemEditData {
@@ -90,8 +90,7 @@ export function DemoItemModal({
     setPreview(f ? URL.createObjectURL(f) : null);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSave = async () => {
     if (!label.trim() || hasPriceError || saving) return;
     if (!isEditing && !file) {
       toast({ kind: 'error', title: 'Choose an image for the demo product.' });
@@ -145,151 +144,130 @@ export function DemoItemModal({
   const displayImageUrl = preview ?? initialData?.thumbnailUrl ?? null;
 
   return (
-    <div className="modal-overlay" onClick={saving ? undefined : onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <form onSubmit={handleSubmit}>
-          <div className="modal-head">
-            <h3>{isEditing ? 'Edit demo product' : 'Add demo product'}</h3>
-            <button
-              type="button"
-              className="btn sm ghost"
-              onClick={onClose}
+    <EditDrawer
+      onClose={onClose}
+      title={isEditing ? 'Edit demo product' : 'Add demo product'}
+      width="min(480px, calc(100vw - 40px))"
+      saving={saving}
+      onSave={() => void handleSave()}
+      saveLabel={saving ? 'Saving…' : 'Save'}
+      saveDisabled={saving || !label.trim() || hasPriceError}
+    >
+      <div className="field">
+        <label>Image</label>
+        {isEditing ? (
+          <div
+            style={{
+              height: 140,
+              width: 110,
+              borderRadius: 8,
+              border: '1px solid var(--border)',
+              background: 'var(--surface-2)',
+              overflow: 'hidden',
+            }}
+          >
+            {displayImageUrl && (
+              // biome-ignore lint/performance/noImgElement: presigned R2 preview
+              <img
+                src={displayImageUrl}
+                alt={label}
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+            )}
+          </div>
+        ) : (
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
               disabled={saving}
-              style={{ marginLeft: 'auto' }}
-            >
-              <Icon.Close />
-            </button>
-          </div>
-          <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div className="field">
-              <label>Image</label>
-              {isEditing ? (
-                <div
-                  style={{
-                    height: 140,
-                    width: 110,
-                    borderRadius: 8,
-                    border: '1px solid var(--border)',
-                    background: 'var(--surface-2)',
-                    overflow: 'hidden',
-                  }}
-                >
-                  {displayImageUrl && (
-                    // biome-ignore lint/performance/noImgElement: presigned R2 preview
-                    <img
-                      src={displayImageUrl}
-                      alt={label}
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                    />
-                  )}
-                </div>
-              ) : (
-                <>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    disabled={saving}
-                    onChange={handleFileChange}
-                    style={{ fontSize: 13 }}
-                  />
-                  {preview && (
-                    // biome-ignore lint/performance/noImgElement: local file preview
-                    <img
-                      src={preview}
-                      alt="Preview"
-                      style={{
-                        width: 110,
-                        height: 140,
-                        objectFit: 'cover',
-                        borderRadius: 8,
-                        border: '1px solid var(--border)',
-                        marginTop: 8,
-                      }}
-                    />
-                  )}
-                </>
-              )}
-            </div>
-
-            <div className="field">
-              <label>Product name</label>
-              <input
-                className="input"
-                required
-                maxLength={200}
-                value={label}
-                disabled={saving}
-                onChange={(e) => setLabel(e.target.value)}
-                placeholder="e.g. Slim Fit Cotton Shirt"
+              onChange={handleFileChange}
+              style={{ fontSize: 13 }}
+            />
+            {preview && (
+              // biome-ignore lint/performance/noImgElement: local file preview
+              <img
+                src={preview}
+                alt="Preview"
+                style={{
+                  width: 110,
+                  height: 140,
+                  objectFit: 'cover',
+                  borderRadius: 8,
+                  border: '1px solid var(--border)',
+                  marginTop: 8,
+                }}
               />
-            </div>
-
-            <div className="field">
-              <label>SKU</label>
-              <input
-                className="input"
-                maxLength={120}
-                value={sku}
-                disabled={saving}
-                onChange={(e) => setSku(e.target.value)}
-                placeholder="Optional"
-              />
-            </div>
-
-            <div className="field-row">
-              <div className="field">
-                <label>MRP (₹)</label>
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  required
-                  value={actualPrice}
-                  disabled={saving}
-                  onChange={(e) => setActualPrice(e.target.value)}
-                />
-              </div>
-              <div className="field">
-                <label>Offer price (₹)</label>
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  required
-                  value={offerPrice}
-                  disabled={saving}
-                  onChange={(e) => setOfferPrice(e.target.value)}
-                  style={hasPriceError ? { borderColor: 'var(--danger)' } : undefined}
-                />
-              </div>
-            </div>
-            {hasPriceError && (
-              <div style={{ color: 'var(--danger)', fontSize: 12.5 }}>
-                Offer price cannot be greater than MRP.
-              </div>
             )}
-
-            {isEditing && (
-              <div
-                className="field"
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
-              >
-                <Switch checked={isActive} onChange={setIsActive} disabled={saving} />
-                <label style={{ marginBottom: 0 }}>Active</label>
-              </div>
-            )}
-          </div>
-          <div className="modal-foot">
-            <button type="button" className="btn ghost" onClick={onClose} disabled={saving}>
-              Cancel
-            </button>
-            <button type="submit" className="btn primary" disabled={saving || hasPriceError}>
-              {saving ? 'Saving…' : 'Save'}
-            </button>
-          </div>
-        </form>
+          </>
+        )}
       </div>
-    </div>
+
+      <div className="field">
+        <label>Product name</label>
+        <input
+          className="input"
+          required
+          maxLength={200}
+          value={label}
+          disabled={saving}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder="e.g. Slim Fit Cotton Shirt"
+        />
+      </div>
+
+      <div className="field">
+        <label>SKU</label>
+        <input
+          className="input"
+          maxLength={120}
+          value={sku}
+          disabled={saving}
+          onChange={(e) => setSku(e.target.value)}
+          placeholder="Optional"
+        />
+      </div>
+
+      <div className="field-row">
+        <div className="field">
+          <label>MRP (₹)</label>
+          <input
+            className="input"
+            type="number"
+            min={0}
+            required
+            value={actualPrice}
+            disabled={saving}
+            onChange={(e) => setActualPrice(e.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label>Offer price (₹)</label>
+          <input
+            className="input"
+            type="number"
+            min={0}
+            required
+            value={offerPrice}
+            disabled={saving}
+            onChange={(e) => setOfferPrice(e.target.value)}
+            style={hasPriceError ? { borderColor: 'var(--danger)' } : undefined}
+          />
+        </div>
+      </div>
+      {hasPriceError && (
+        <div style={{ color: 'var(--danger)', fontSize: 12.5 }}>
+          Offer price cannot be greater than MRP.
+        </div>
+      )}
+
+      {isEditing && (
+        <div className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <Switch checked={isActive} onChange={setIsActive} disabled={saving} />
+          <label style={{ marginBottom: 0 }}>Active</label>
+        </div>
+      )}
+    </EditDrawer>
   );
 }

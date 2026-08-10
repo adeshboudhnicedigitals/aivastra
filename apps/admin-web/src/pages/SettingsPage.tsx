@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { Switch } from '../components/Switch';
@@ -139,244 +140,224 @@ function PlanModal({
     (isFreePlan || (form.credits > 0 && form.priceRupees > 0));
 
   return (
-    <div className="modal-overlay" onClick={saving ? undefined : onClose}>
-      <div className="drawer" onClick={(e) => e.stopPropagation()}>
-        <div className="drawer-head">
-          <h2>{plan ? 'Edit plan' : 'Add plan'}</h2>
-          <button
-            className="btn sm ghost"
-            onClick={onClose}
-            disabled={saving}
-            style={{ marginLeft: 'auto' }}
-          >
-            <Icon.Close />
-          </button>
+    <EditDrawer
+      onClose={onClose}
+      title={plan ? 'Edit plan' : 'Add plan'}
+      saving={saving}
+      onSave={() => void handleSave()}
+      saveLabel={saving ? 'Saving…' : plan ? 'Save changes' : 'Create plan'}
+      saveDisabled={saving || !valid}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {/* Identity Group */}
+        <div style={{ display: 'flex', gap: 16 }}>
+          <div className="field" style={{ flex: 1 }}>
+            <label>Slug (Identifier)</label>
+            <input
+              className="input"
+              value={form.slug}
+              disabled={saving || !!plan}
+              placeholder="e.g. starter"
+              onChange={(e) => set('slug', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+            />
+            {!plan && (
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                Lowercase letters, numbers, hyphens. Cannot change later.
+              </span>
+            )}
+          </div>
+          <div className="field" style={{ flex: 1.5 }}>
+            <label>Plan Name</label>
+            <input
+              className="input"
+              value={form.name}
+              disabled={saving}
+              placeholder="e.g. Starter Pack"
+              onChange={(e) => set('name', e.target.value)}
+            />
+          </div>
         </div>
 
-        <div className="drawer-body" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          {/* Identity Group */}
-          <div style={{ display: 'flex', gap: 16 }}>
+        <div className="field">
+          <label>Subtext Description</label>
+          <input
+            className="input"
+            value={form.subtext}
+            disabled={saving}
+            placeholder="e.g. Individual sellers &amp; small stores"
+            onChange={(e) => set('subtext', e.target.value)}
+          />
+        </div>
+
+        <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+
+        {/* Value Group */}
+        <div style={{ display: 'flex', gap: 16 }}>
+          <div className="field" style={{ flex: 1 }}>
+            <label>{isFreePlan ? 'Signup credits' : 'Credit Allocation'}</label>
+            <input
+              className="input"
+              type="number"
+              min={0}
+              value={form.credits}
+              disabled={saving}
+              onChange={(e) => set('credits', Number(e.target.value))}
+            />
+            {isFreePlan && (
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                Granted once to every new signup. Set to 0 to disable.
+              </span>
+            )}
+          </div>
+          {!isFreePlan && (
             <div className="field" style={{ flex: 1 }}>
-              <label>Slug (Identifier)</label>
-              <input
-                className="input"
-                value={form.slug}
-                disabled={saving || !!plan}
-                placeholder="e.g. starter"
-                onChange={(e) =>
-                  set('slug', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))
-                }
-              />
-              {!plan && (
+              <label>Price (₹, excl. GST)</label>
+              <div style={{ position: 'relative' }}>
+                <span
+                  style={{
+                    position: 'absolute',
+                    left: 12,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    fontSize: 14,
+                    color: 'var(--muted)',
+                    pointerEvents: 'none',
+                  }}
+                >
+                  ₹
+                </span>
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={form.priceRupees || ''}
+                  disabled={saving}
+                  placeholder="e.g. 2500"
+                  style={{ paddingLeft: 26 }}
+                  onChange={(e) => set('priceRupees', Number(e.target.value))}
+                />
+              </div>
+              {form.priceRupees > 0 && (
                 <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                  Lowercase letters, numbers, hyphens. Cannot change later.
+                  ₹{form.priceRupees.toLocaleString('en-IN')} + 18% GST = ₹
+                  {(form.priceRupees * 1.18).toLocaleString('en-IN', {
+                    maximumFractionDigits: 2,
+                  })}
                 </span>
               )}
             </div>
-            <div className="field" style={{ flex: 1.5 }}>
-              <label>Plan Name</label>
-              <input
-                className="input"
-                value={form.name}
-                disabled={saving}
-                placeholder="e.g. Starter Pack"
-                onChange={(e) => set('name', e.target.value)}
-              />
-            </div>
-          </div>
+          )}
+        </div>
 
-          <div className="field">
-            <label>Subtext Description</label>
+        <div style={{ display: 'flex', gap: 16 }}>
+          <div className="field" style={{ flex: 1.5 }}>
+            <label>Job Queue Priority</label>
+            <select
+              className="input"
+              value={form.queueStream}
+              disabled={saving}
+              onChange={(e) => set('queueStream', e.target.value as 'priority' | 'normal' | 'low')}
+            >
+              <option value="priority">1st — Priority (jobs processed first)</option>
+              <option value="normal">2nd — Normal</option>
+              <option value="low">3rd — Low (processed last)</option>
+            </select>
+          </div>
+          <div className="field" style={{ flex: 1 }}>
+            <label>Marketing Badge</label>
             <input
               className="input"
-              value={form.subtext}
+              value={form.badge}
               disabled={saving}
-              placeholder="e.g. Individual sellers & small stores"
-              onChange={(e) => set('subtext', e.target.value)}
+              placeholder="e.g. Best Value"
+              onChange={(e) => set('badge', e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+
+        {/* Settings Group */}
+        <div
+          style={{
+            display: 'flex',
+            gap: 24,
+            alignItems: 'center',
+            background: 'var(--surface-2)',
+            padding: 16,
+            borderRadius: 'var(--r-lg)',
+            border: '1px solid var(--border)',
+          }}
+        >
+          <div className="field" style={{ width: 100, marginBottom: 0 }}>
+            <label>Sort order</label>
+            <input
+              className="input"
+              type="number"
+              min={0}
+              value={form.sortOrder}
+              disabled={saving}
+              style={{ background: 'var(--surface)' }}
+              onChange={(e) => set('sortOrder', Number(e.target.value))}
             />
           </div>
 
-          <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+          <div style={{ width: 1, height: 40, background: 'var(--border)' }} />
 
-          {/* Value Group */}
-          <div style={{ display: 'flex', gap: 16 }}>
-            <div className="field" style={{ flex: 1 }}>
-              <label>{isFreePlan ? 'Signup credits' : 'Credit Allocation'}</label>
-              <input
-                className="input"
-                type="number"
-                min={0}
-                value={form.credits}
-                disabled={saving}
-                onChange={(e) => set('credits', Number(e.target.value))}
-              />
-              {isFreePlan && (
-                <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                  Granted once to every new signup. Set to 0 to disable.
-                </span>
-              )}
-            </div>
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 32 }}>
             {!isFreePlan && (
-              <div className="field" style={{ flex: 1 }}>
-                <label>Price (₹, excl. GST)</label>
-                <div style={{ position: 'relative' }}>
-                  <span
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Switch checked={form.isActive} onChange={(v) => set('isActive', v)} />
+                <div>
+                  <div
                     style={{
-                      position: 'absolute',
-                      left: 12,
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      fontSize: 14,
-                      color: 'var(--muted)',
-                      pointerEvents: 'none',
+                      fontSize: 13,
+                      fontWeight: 500,
+                      color: 'var(--ink)',
+                      lineHeight: 1.2,
                     }}
                   >
-                    ₹
-                  </span>
-                  <input
-                    className="input"
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={form.priceRupees || ''}
-                    disabled={saving}
-                    placeholder="e.g. 2500"
-                    style={{ paddingLeft: 26 }}
-                    onChange={(e) => set('priceRupees', Number(e.target.value))}
-                  />
+                    Active
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                    Purchasable
+                  </div>
                 </div>
-                {form.priceRupees > 0 && (
-                  <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                    ₹{form.priceRupees.toLocaleString('en-IN')} + 18% GST = ₹
-                    {(form.priceRupees * 1.18).toLocaleString('en-IN', {
-                      maximumFractionDigits: 2,
-                    })}
-                  </span>
-                )}
               </div>
             )}
-          </div>
 
-          <div style={{ display: 'flex', gap: 16 }}>
-            <div className="field" style={{ flex: 1.5 }}>
-              <label>Job Queue Priority</label>
-              <select
-                className="input"
-                value={form.queueStream}
-                disabled={saving}
-                onChange={(e) =>
-                  set('queueStream', e.target.value as 'priority' | 'normal' | 'low')
-                }
-              >
-                <option value="priority">1st — Priority (jobs processed first)</option>
-                <option value="normal">2nd — Normal</option>
-                <option value="low">3rd — Low (processed last)</option>
-              </select>
-            </div>
-            <div className="field" style={{ flex: 1 }}>
-              <label>Marketing Badge</label>
-              <input
-                className="input"
-                value={form.badge}
-                disabled={saving}
-                placeholder="e.g. Best Value"
-                onChange={(e) => set('badge', e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
-
-          {/* Settings Group */}
-          <div
-            style={{
-              display: 'flex',
-              gap: 24,
-              alignItems: 'center',
-              background: 'var(--surface-2)',
-              padding: 16,
-              borderRadius: 'var(--r-lg)',
-              border: '1px solid var(--border)',
-            }}
-          >
-            <div className="field" style={{ width: 100, marginBottom: 0 }}>
-              <label>Sort order</label>
-              <input
-                className="input"
-                type="number"
-                min={0}
-                value={form.sortOrder}
-                disabled={saving}
-                style={{ background: 'var(--surface)' }}
-                onChange={(e) => set('sortOrder', Number(e.target.value))}
-              />
-            </div>
-
-            <div style={{ width: 1, height: 40, background: 'var(--border)' }} />
-
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 32 }}>
-              {!isFreePlan && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <Switch checked={form.isActive} onChange={(v) => set('isActive', v)} />
-                  <div>
-                    <div
-                      style={{
-                        fontSize: 13,
-                        fontWeight: 500,
-                        color: 'var(--ink)',
-                        lineHeight: 1.2,
-                      }}
-                    >
-                      Active
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                      Purchasable
-                    </div>
-                  </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Switch checked={form.isHighlighted} onChange={(v) => set('isHighlighted', v)} />
+              <div>
+                <div
+                  style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)', lineHeight: 1.2 }}
+                >
+                  Featured
                 </div>
-              )}
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <Switch checked={form.isHighlighted} onChange={(v) => set('isHighlighted', v)} />
-                <div>
-                  <div
-                    style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)', lineHeight: 1.2 }}
-                  >
-                    Featured
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                    Accent styling
-                  </div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                  Accent styling
                 </div>
               </div>
+            </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <Switch checked={form.watermark} onChange={(v) => set('watermark', v)} />
-                <div>
-                  <div
-                    style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)', lineHeight: 1.2 }}
-                  >
-                    Watermark
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                    Apply logo to jobs
-                  </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Switch checked={form.watermark} onChange={(v) => set('watermark', v)} />
+              <div>
+                <div
+                  style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)', lineHeight: 1.2 }}
+                >
+                  Watermark
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                  Apply logo to jobs
                 </div>
               </div>
             </div>
           </div>
-        </div>
-
-        <div className="drawer-foot">
-          <button className="btn ghost" onClick={onClose} disabled={saving}>
-            Cancel
-          </button>
-          <button className="btn primary" onClick={handleSave} disabled={saving || !valid}>
-            {saving ? 'Saving…' : plan ? 'Save changes' : 'Create plan'}
-          </button>
         </div>
       </div>
-    </div>
+    </EditDrawer>
   );
 }
 
@@ -475,107 +456,85 @@ function CampaignModal({
     new Date(form.endAt) > new Date(form.startAt);
 
   return (
-    <div className="modal-overlay" onClick={saving ? undefined : onClose}>
-      <div className="drawer" onClick={(e) => e.stopPropagation()}>
-        <div className="drawer-head">
-          <h2>{campaign ? 'Edit campaign' : 'Add campaign'}</h2>
-          <button
-            className="btn sm ghost"
-            onClick={onClose}
-            disabled={saving}
-            style={{ marginLeft: 'auto' }}
-          >
-            <Icon.Close />
-          </button>
-        </div>
-
-        <div className="drawer-body" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          <div style={{ display: 'flex', gap: 16 }}>
-            <div className="field" style={{ flex: 1 }}>
-              <label>Code</label>
-              <input
-                className="input"
-                value={form.code}
-                disabled={saving || !!campaign}
-                placeholder="e.g. gartex2026"
-                onChange={(e) =>
-                  set('code', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))
-                }
-              />
-              {!campaign && (
-                <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                  Matches the ?src= value on the signup link. Cannot change later.
-                </span>
-              )}
-            </div>
-            <div className="field" style={{ flex: 1.5 }}>
-              <label>Name</label>
-              <input
-                className="input"
-                value={form.name}
-                disabled={saving}
-                placeholder="e.g. Gartex Expo Delhi 2026"
-                onChange={(e) => set('name', e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="field">
-            <label>Bonus % (applied to first purchase and signup free credits)</label>
+    <EditDrawer
+      onClose={onClose}
+      title={campaign ? 'Edit campaign' : 'Add campaign'}
+      saving={saving}
+      onSave={() => void handleSave()}
+      saveLabel={saving ? 'Saving…' : campaign ? 'Save changes' : 'Create campaign'}
+      saveDisabled={saving || !valid}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div style={{ display: 'flex', gap: 16 }}>
+          <div className="field" style={{ flex: 1 }}>
+            <label>Code</label>
             <input
               className="input"
-              type="number"
-              min={0}
-              max={100}
-              value={form.bonusPercent}
+              value={form.code}
+              disabled={saving || !!campaign}
+              placeholder="e.g. gartex2026"
+              onChange={(e) => set('code', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+            />
+            {!campaign && (
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                Matches the ?src= value on the signup link. Cannot change later.
+              </span>
+            )}
+          </div>
+          <div className="field" style={{ flex: 1.5 }}>
+            <label>Name</label>
+            <input
+              className="input"
+              value={form.name}
               disabled={saving}
-              onChange={(e) => set('bonusPercent', Number(e.target.value))}
+              placeholder="e.g. Gartex Expo Delhi 2026"
+              onChange={(e) => set('name', e.target.value)}
             />
           </div>
+        </div>
 
-          <div style={{ display: 'flex', gap: 16 }}>
-            <div className="field" style={{ flex: 1 }}>
-              <label>Starts</label>
-              <input
-                className="input"
-                type="datetime-local"
-                value={form.startAt}
-                disabled={saving}
-                onChange={(e) => set('startAt', e.target.value)}
-              />
-            </div>
-            <div className="field" style={{ flex: 1 }}>
-              <label>Ends</label>
-              <input
-                className="input"
-                type="datetime-local"
-                value={form.endAt}
-                disabled={saving}
-                onChange={(e) => set('endAt', e.target.value)}
-              />
-            </div>
-          </div>
+        <div className="field">
+          <label>Bonus % (applied to first purchase and signup free credits)</label>
+          <input
+            className="input"
+            type="number"
+            min={0}
+            max={100}
+            value={form.bonusPercent}
+            disabled={saving}
+            onChange={(e) => set('bonusPercent', Number(e.target.value))}
+          />
+        </div>
 
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Switch
-              checked={form.isActive}
-              onChange={(v) => set('isActive', v)}
+        <div style={{ display: 'flex', gap: 16 }}>
+          <div className="field" style={{ flex: 1 }}>
+            <label>Starts</label>
+            <input
+              className="input"
+              type="datetime-local"
+              value={form.startAt}
               disabled={saving}
+              onChange={(e) => set('startAt', e.target.value)}
             />
-            Active
-          </label>
+          </div>
+          <div className="field" style={{ flex: 1 }}>
+            <label>Ends</label>
+            <input
+              className="input"
+              type="datetime-local"
+              value={form.endAt}
+              disabled={saving}
+              onChange={(e) => set('endAt', e.target.value)}
+            />
+          </div>
         </div>
 
-        <div className="drawer-foot">
-          <button className="btn ghost" onClick={onClose} disabled={saving}>
-            Cancel
-          </button>
-          <button className="btn primary" onClick={handleSave} disabled={saving || !valid}>
-            {saving ? 'Saving…' : campaign ? 'Save changes' : 'Create campaign'}
-          </button>
-        </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Switch checked={form.isActive} onChange={(v) => set('isActive', v)} disabled={saving} />
+          Active
+        </label>
       </div>
-    </div>
+    </EditDrawer>
   );
 }
 

@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
 import type { GenderSlug, ModelFace } from '../types';
+import { EditDrawer } from './EditDrawer';
 import { Icon } from './Icons';
 import { PublicApiSlugField } from './PublicApiSlugField';
 
@@ -110,154 +111,131 @@ export function EditFaceModal({ face, storagePublicUrl, onSaved, onClose, toast 
   };
 
   return (
-    <div className="modal-overlay" onClick={saving || replaceUploading ? undefined : onClose}>
-      <div
-        className="modal"
-        onClick={(e) => e.stopPropagation()}
-        style={{ width: 'min(400px, calc(100vw - 40px))' }}
-      >
-        <div className="modal-head">
-          <h3>Edit model face</h3>
-          <button
-            className="btn sm ghost"
-            onClick={onClose}
-            disabled={saving || replaceUploading}
-            style={{ marginLeft: 'auto' }}
-          >
-            <Icon.Close />
-          </button>
-        </div>
-
-        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div className="field">
-            <label>Label</label>
-            <input
-              className="input"
-              value={form.label}
-              disabled={saving}
-              placeholder="e.g. Model 1 — Men"
-              onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
-            />
-          </div>
-          <div className="field">
-            <label>Gender</label>
-            <select
-              className="select"
-              value={form.gender}
-              disabled={saving}
-              onChange={(e) => setForm((f) => ({ ...f, gender: e.target.value as GenderSlug }))}
-            >
-              <option value="men">Men</option>
-              <option value="women">Women</option>
-              <option value="boys">Boys</option>
-              <option value="girls">Girls</option>
-            </select>
-          </div>
-          <div className="field">
-            <label>Sort order</label>
-            <input
-              className="input"
-              type="number"
-              min={0}
-              value={form.sortOrder}
-              disabled={saving}
-              style={{ width: 100 }}
-              onChange={(e) => setForm((f) => ({ ...f, sortOrder: Number(e.target.value) }))}
-            />
-          </div>
-          <PublicApiSlugField
-            value={form.publicApiSlug}
+    <EditDrawer
+      onClose={onClose}
+      title="Edit model face"
+      width="min(480px, calc(100vw - 40px))"
+      thumbnail={{ thumbnailKey: face.thumbnailKey, storagePublicUrl }}
+      saving={saving || replaceUploading}
+      onSave={handleSave}
+      saveDisabled={!form.label.trim()}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="field">
+          <label>Label</label>
+          <input
+            className="input"
+            value={form.label}
             disabled={saving}
-            kind="model"
-            onChange={(v) => setForm((f) => ({ ...f, publicApiSlug: v }))}
+            placeholder="e.g. Model 1 — Men"
+            onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
           />
-          <div className="field">
-            <label>
-              Tags <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
-            </label>
-            <input
-              className="input"
-              value={form.tagsInput}
-              disabled={saving}
-              placeholder="e.g. warm tone, closeup, studio"
-              onChange={(e) => setForm((f) => ({ ...f, tagsInput: e.target.value }))}
-            />
-          </div>
-          <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0 }}>
-            Tags are comma-separated — lets you filter models in Studio (e.g. all "closeup" faces).
-          </p>
-          <div className="field">
-            <label>Replace image</label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              {(replacePreview ??
-                (storagePublicUrl && face.thumbnailKey
-                  ? `${storagePublicUrl}/${face.thumbnailKey}`
-                  : null)) && (
-                // biome-ignore lint/performance/noImgElement: face thumbnail preview
-                <img
-                  src={replacePreview ?? `${storagePublicUrl}/${face.thumbnailKey}`}
-                  alt=""
-                  style={{
-                    width: 56,
-                    height: 56,
-                    objectFit: 'cover',
-                    borderRadius: 6,
-                    border: '1px solid var(--border)',
-                  }}
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = 'none';
-                  }}
-                />
-              )}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <input
-                  ref={replaceRef}
-                  type="file"
-                  accept="image/*"
-                  style={{ display: 'none' }}
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    setReplaceFile(file);
-                    setReplacePreview(URL.createObjectURL(file));
-                  }}
-                />
+        </div>
+        <div className="field">
+          <label>Gender</label>
+          <select
+            className="select"
+            value={form.gender}
+            disabled={saving}
+            onChange={(e) => setForm((f) => ({ ...f, gender: e.target.value as GenderSlug }))}
+          >
+            <option value="men">Men</option>
+            <option value="women">Women</option>
+            <option value="boys">Boys</option>
+            <option value="girls">Girls</option>
+          </select>
+        </div>
+        <div className="field">
+          <label>Sort order</label>
+          <input
+            className="input"
+            type="number"
+            min={0}
+            value={form.sortOrder}
+            disabled={saving}
+            style={{ width: 100 }}
+            onChange={(e) => setForm((f) => ({ ...f, sortOrder: Number(e.target.value) }))}
+          />
+        </div>
+        <PublicApiSlugField
+          value={form.publicApiSlug}
+          disabled={saving}
+          kind="model"
+          onChange={(v) => setForm((f) => ({ ...f, publicApiSlug: v }))}
+        />
+        <div className="field">
+          <label>
+            Tags <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
+          </label>
+          <input
+            className="input"
+            value={form.tagsInput}
+            disabled={saving}
+            placeholder="e.g. warm tone, closeup, studio"
+            onChange={(e) => setForm((f) => ({ ...f, tagsInput: e.target.value }))}
+          />
+        </div>
+        <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0 }}>
+          Tags are comma-separated — lets you filter models in Studio (e.g. all "closeup" faces).
+        </p>
+        <div className="field">
+          <label>Replace image</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {(replacePreview ??
+              (storagePublicUrl && face.thumbnailKey
+                ? `${storagePublicUrl}/${face.thumbnailKey}`
+                : null)) && (
+              // biome-ignore lint/performance/noImgElement: face thumbnail preview
+              <img
+                src={replacePreview ?? `${storagePublicUrl}/${face.thumbnailKey}`}
+                alt=""
+                style={{
+                  width: 56,
+                  height: 56,
+                  objectFit: 'cover',
+                  borderRadius: 6,
+                  border: '1px solid var(--border)',
+                }}
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = 'none';
+                }}
+              />
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <input
+                ref={replaceRef}
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setReplaceFile(file);
+                  setReplacePreview(URL.createObjectURL(file));
+                }}
+              />
+              <button
+                type="button"
+                className="btn sm ghost"
+                disabled={saving || replaceUploading}
+                onClick={() => replaceRef.current?.click()}
+              >
+                <Icon.Image /> {replaceFile ? replaceFile.name : 'Pick new image'}
+              </button>
+              {replaceFile && (
                 <button
                   type="button"
-                  className="btn sm ghost"
-                  disabled={saving || replaceUploading}
-                  onClick={() => replaceRef.current?.click()}
+                  className="btn sm primary"
+                  disabled={replaceUploading}
+                  onClick={handleReplaceImage}
                 >
-                  <Icon.Image /> {replaceFile ? replaceFile.name : 'Pick new image'}
+                  {replaceUploading ? 'Uploading…' : 'Upload & replace'}
                 </button>
-                {replaceFile && (
-                  <button
-                    type="button"
-                    className="btn sm primary"
-                    disabled={replaceUploading}
-                    onClick={handleReplaceImage}
-                  >
-                    {replaceUploading ? 'Uploading…' : 'Upload & replace'}
-                  </button>
-                )}
-              </div>
+              )}
             </div>
           </div>
         </div>
-
-        <div className="modal-foot">
-          <button className="btn ghost" onClick={onClose} disabled={saving || replaceUploading}>
-            Cancel
-          </button>
-          <button
-            className="btn primary"
-            onClick={handleSave}
-            disabled={saving || replaceUploading || !form.label.trim()}
-          >
-            {saving ? 'Saving…' : 'Save changes'}
-          </button>
-        </div>
       </div>
-    </div>
+    </EditDrawer>
   );
 }

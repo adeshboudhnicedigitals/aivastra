@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeGifFromVideo } from '../lib/gif';
+import { EditDrawer } from './EditDrawer';
 import { Icon } from './Icons';
 
 interface PresignResult {
@@ -130,150 +131,125 @@ export function SampleVideoUploadModal({
   };
 
   return (
-    <div className="modal-overlay" onClick={uploading ? undefined : onClose}>
-      <div
-        className="modal"
-        onClick={(e) => e.stopPropagation()}
-        style={{ width: 'min(640px, calc(100vw - 40px))' }}
-      >
-        <div className="modal-head">
-          <h3>Add sample video</h3>
-          <button
-            className="btn sm ghost"
-            onClick={onClose}
-            disabled={uploading}
-            style={{ marginLeft: 'auto' }}
-          >
-            <Icon.Close />
-          </button>
-        </div>
+    <EditDrawer
+      onClose={onClose}
+      title="Add sample video"
+      width="min(640px, calc(100vw - 40px))"
+      saving={uploading}
+      onSave={() => {
+        if (step === 1) {
+          if (!videoFile || !gifBlob || generatingGif) return;
+          setStep(2);
+        } else {
+          void submit();
+        }
+      }}
+      saveLabel={step === 1 ? 'Next' : 'Create'}
+      saveDisabled={step === 1 ? !videoFile || !gifBlob || generatingGif : !canSubmit || uploading}
+    >
+      {step === 1 ? (
+        <>
+          <div className="field">
+            <label>Sample video file (.mp4)</label>
+            <input
+              type="file"
+              accept="video/mp4"
+              onChange={(e) => setVideoFile(e.target.files?.[0] ?? null)}
+            />
+            <span className="hint">
+              A looping preview GIF is generated automatically from this clip — no separate poster
+              image needed.
+            </span>
+          </div>
 
-        {step === 1 ? (
-          <>
+          {videoFile && (
             <div
-              className="modal-body"
-              style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 16,
+                padding: 14,
+                borderRadius: 8,
+                border: '1px solid var(--border)',
+                background: 'var(--surface2, #1a1a1a)',
+              }}
             >
-              <div className="field">
-                <label>Sample video file (.mp4)</label>
-                <input
-                  type="file"
-                  accept="video/mp4"
-                  onChange={(e) => setVideoFile(e.target.files?.[0] ?? null)}
-                />
-                <span className="hint">
-                  A looping preview GIF is generated automatically from this clip — no separate
-                  poster image needed.
-                </span>
-              </div>
-
-              {videoFile && (
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 16,
-                    padding: 14,
-                    borderRadius: 8,
-                    border: '1px solid var(--border)',
-                    background: 'var(--surface2, #1a1a1a)',
-                  }}
-                >
-                  <div
-                    style={{
-                      width: 160,
-                      aspectRatio: '9 / 16',
-                      borderRadius: 6,
-                      overflow: 'hidden',
-                      background: 'var(--subtle)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                    }}
-                  >
-                    {gifPreviewUrl ? (
-                      // biome-ignore lint/performance/noImgElement: animated GIF preview, blob URL
-                      <img
-                        src={gifPreviewUrl}
-                        alt="Generated preview"
-                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                      />
-                    ) : (
-                      <Icon.Image />
-                    )}
-                  </div>
-                  <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-                    {generatingGif && <p style={{ margin: 0 }}>Generating preview GIF…</p>}
-                    {gifError && <p style={{ margin: 0, color: 'var(--danger)' }}>{gifError}</p>}
-                    {!generatingGif && !gifError && gifPreviewUrl && (
-                      <p style={{ margin: 0 }}>Preview GIF ready.</p>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="modal-foot">
-              <button className="btn ghost" onClick={onClose}>
-                Cancel
-              </button>
-              <button
-                className="btn primary"
-                disabled={!videoFile || !gifBlob || generatingGif}
-                onClick={() => setStep(2)}
+              <div
+                style={{
+                  width: 160,
+                  aspectRatio: '9 / 16',
+                  borderRadius: 6,
+                  overflow: 'hidden',
+                  background: 'var(--subtle)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
               >
-                Next
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div
-              className="modal-body"
-              style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
-            >
-              <div className="field">
-                <label>Title</label>
-                <input
-                  className="input"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  maxLength={120}
-                />
+                {gifPreviewUrl ? (
+                  // biome-ignore lint/performance/noImgElement: animated GIF preview, blob URL
+                  <img
+                    src={gifPreviewUrl}
+                    alt="Generated preview"
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                ) : (
+                  <Icon.Image />
+                )}
               </div>
-              <div className="field">
-                <label>PixVerse prompt</label>
-                <textarea
-                  className="input"
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  maxLength={5000}
-                  rows={4}
-                />
-              </div>
-              <div className="field">
-                <label>Sort order</label>
-                <input
-                  className="input"
-                  type="number"
-                  value={sortOrder}
-                  onChange={(e) => setSortOrder(Number(e.target.value))}
-                  style={{ width: 100 }}
-                />
+              <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+                {generatingGif && <p style={{ margin: 0 }}>Generating preview GIF…</p>}
+                {gifError && <p style={{ margin: 0, color: 'var(--danger)' }}>{gifError}</p>}
+                {!generatingGif && !gifError && gifPreviewUrl && (
+                  <p style={{ margin: 0 }}>Preview GIF ready.</p>
+                )}
               </div>
             </div>
-            <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setStep(1)} disabled={uploading}>
-                Back
-              </button>
-              <button className="btn primary" disabled={!canSubmit || uploading} onClick={submit}>
-                <Icon.Upload />
-                {uploading ? 'Uploading…' : 'Create'}
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
+          )}
+        </>
+      ) : (
+        <>
+          <button
+            type="button"
+            className="btn ghost"
+            onClick={() => setStep(1)}
+            disabled={uploading}
+            style={{ alignSelf: 'flex-start' }}
+          >
+            Back
+          </button>
+          <div className="field">
+            <label>Title</label>
+            <input
+              className="input"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              maxLength={120}
+            />
+          </div>
+          <div className="field">
+            <label>PixVerse prompt</label>
+            <textarea
+              className="input"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              maxLength={5000}
+              rows={4}
+            />
+          </div>
+          <div className="field">
+            <label>Sort order</label>
+            <input
+              className="input"
+              type="number"
+              value={sortOrder}
+              onChange={(e) => setSortOrder(Number(e.target.value))}
+              style={{ width: 100 }}
+            />
+          </div>
+        </>
+      )}
+    </EditDrawer>
   );
 }

@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import type { ModelBackground } from '../types';
+import { EditDrawer } from './EditDrawer';
 import { Icon } from './Icons';
 
 interface PresignResult {
@@ -139,288 +140,266 @@ export function BackgroundUploadModal({
   const pendingCount = entries.filter((e) => e.status !== 'done').length;
 
   return (
-    <div className="modal-overlay" onClick={busy ? undefined : onClose}>
-      <div
-        className="modal"
-        onClick={(e) => e.stopPropagation()}
-        style={{ width: 'min(640px, calc(100vw - 40px))' }}
-      >
-        <div className="modal-head">
-          <h3>Add backgrounds</h3>
-          <button
-            className="btn sm ghost"
-            onClick={onClose}
-            disabled={busy}
-            style={{ marginLeft: 'auto' }}
-          >
-            <Icon.Close />
-          </button>
-        </div>
-
-        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 10 }}>
-            <div className="field">
-              <label>Gender (applied to all)</label>
-              {lockedGenderSlug ? (
-                <span className="badge dot" style={{ marginTop: 6, display: 'inline-block' }}>
-                  {lockedGenderSlug}
-                </span>
-              ) : (
-                <select
-                  className="select"
-                  value={genderSlug}
-                  disabled={busy}
-                  onChange={(e) => setGenderSlug(e.target.value)}
-                >
-                  <option value="">All genders</option>
-                  <option value="men">Men</option>
-                  <option value="women">Women</option>
-                  <option value="boys">Boys</option>
-                  <option value="girls">Girls</option>
-                </select>
-              )}
-            </div>
-            <div className="field">
-              <label>Start sort order</label>
-              <input
-                className="input"
-                type="number"
-                min={0}
-                value={sortStart}
-                disabled={busy}
-                onChange={(e) => setSortStart(Number(e.target.value))}
-                style={{ width: '100%' }}
-              />
-            </div>
-          </div>
-
-          <div className="field">
-            <label>
-              Images — one file per background (label defaults to filename, edit per row)
-            </label>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept="image/jpeg,image/png,image/webp"
+    <EditDrawer
+      onClose={onClose}
+      title="Add backgrounds"
+      width="min(640px, calc(100vw - 40px))"
+      saving={busy}
+      onSave={() => void handleUpload()}
+      saveLabel={
+        running
+          ? `Uploading ${doneCount}/${entries.length}…`
+          : `Upload ${pendingCount || entries.length || ''} background${pendingCount !== 1 ? 's' : ''}`
+      }
+      saveDisabled={!canUpload}
+    >
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 10 }}>
+        <div className="field">
+          <label>Gender (applied to all)</label>
+          {lockedGenderSlug ? (
+            <span className="badge dot" style={{ marginTop: 6, display: 'inline-block' }}>
+              {lockedGenderSlug}
+            </span>
+          ) : (
+            <select
+              className="select"
+              value={genderSlug}
               disabled={busy}
-              onChange={handleFiles}
-              style={{ display: 'none' }}
-            />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <button
-                type="button"
-                className="btn sm ghost"
-                disabled={busy}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <Icon.Upload /> {entries.length > 0 ? 'Change images' : 'Choose images'}
-              </button>
-              {entries.length > 0 && (
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  {entries.length} file{entries.length !== 1 ? 's' : ''} selected
-                </span>
-              )}
-            </div>
-          </div>
-
-          {running && (
-            <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-              Uploading {doneCount} / {entries.length}…
-              <div className="bar-track" style={{ marginTop: 6 }}>
-                <div
-                  className="bar-fill accent"
-                  style={{ width: `${entries.length ? (doneCount / entries.length) * 100 : 0}%` }}
-                />
-              </div>
-            </div>
+              onChange={(e) => setGenderSlug(e.target.value)}
+            >
+              <option value="">All genders</option>
+              <option value="men">Men</option>
+              <option value="women">Women</option>
+              <option value="boys">Boys</option>
+              <option value="girls">Girls</option>
+            </select>
           )}
+        </div>
+        <div className="field">
+          <label>Start sort order</label>
+          <input
+            className="input"
+            type="number"
+            min={0}
+            value={sortStart}
+            disabled={busy}
+            onChange={(e) => setSortStart(Number(e.target.value))}
+            style={{ width: '100%' }}
+          />
+        </div>
+      </div>
 
+      <div className="field">
+        <label>Images — one file per background (label defaults to filename, edit per row)</label>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept="image/jpeg,image/png,image/webp"
+          disabled={busy}
+          onChange={handleFiles}
+          style={{ display: 'none' }}
+        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button
+            type="button"
+            className="btn sm ghost"
+            disabled={busy}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Icon.Upload /> {entries.length > 0 ? 'Change images' : 'Choose images'}
+          </button>
           {entries.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+              {entries.length} file{entries.length !== 1 ? 's' : ''} selected
+            </span>
+          )}
+        </div>
+      </div>
+
+      {running && (
+        <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+          Uploading {doneCount} / {entries.length}…
+          <div className="bar-track" style={{ marginTop: 6 }}>
+            <div
+              className="bar-fill accent"
+              style={{ width: `${entries.length ? (doneCount / entries.length) * 100 : 0}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {entries.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '44px 1fr 56px 28px',
+              gap: 8,
+              padding: '0 4px',
+              fontSize: 11,
+              color: 'var(--muted)',
+              fontWeight: 600,
+            }}
+          >
+            <span>Preview</span>
+            <span>Label</span>
+            <span>Size</span>
+            <span></span>
+          </div>
+          <div
+            style={{
+              maxHeight: 260,
+              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 4,
+            }}
+          >
+            {entries.map((entry, i) => (
               <div
+                key={`${entry.file.name}-${entry.file.size}-${entry.file.lastModified}`}
                 style={{
                   display: 'grid',
                   gridTemplateColumns: '44px 1fr 56px 28px',
                   gap: 8,
-                  padding: '0 4px',
-                  fontSize: 11,
-                  color: 'var(--muted)',
-                  fontWeight: 600,
+                  alignItems: 'center',
+                  padding: '6px 4px',
+                  borderRadius: 6,
+                  background:
+                    entry.status === 'done'
+                      ? 'var(--success-soft)'
+                      : entry.status === 'error'
+                        ? 'var(--danger-soft)'
+                        : entry.status === 'uploading'
+                          ? 'var(--accent-soft, #f0f7ff)'
+                          : 'var(--subtle)',
+                  border: `1px solid ${
+                    entry.status === 'done'
+                      ? 'var(--success-border)'
+                      : entry.status === 'error'
+                        ? 'var(--danger-border)'
+                        : entry.status === 'uploading'
+                          ? 'var(--accent, #2563eb)'
+                          : 'var(--border)'
+                  }`,
                 }}
               >
-                <span>Preview</span>
-                <span>Label</span>
-                <span>Size</span>
-                <span></span>
-              </div>
-              <div
-                style={{
-                  maxHeight: 260,
-                  overflowY: 'auto',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 4,
-                }}
-              >
-                {entries.map((entry, i) => (
-                  <div
-                    key={`${entry.file.name}-${entry.file.size}-${entry.file.lastModified}`}
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: '44px 1fr 56px 28px',
-                      gap: 8,
-                      alignItems: 'center',
-                      padding: '6px 4px',
-                      borderRadius: 6,
-                      background:
-                        entry.status === 'done'
-                          ? 'var(--success-soft)'
-                          : entry.status === 'error'
-                            ? 'var(--danger-soft)'
-                            : entry.status === 'uploading'
-                              ? 'var(--accent-soft, #f0f7ff)'
-                              : 'var(--subtle)',
-                      border: `1px solid ${
-                        entry.status === 'done'
-                          ? 'var(--success-border)'
-                          : entry.status === 'error'
-                            ? 'var(--danger-border)'
-                            : entry.status === 'uploading'
-                              ? 'var(--accent, #2563eb)'
-                              : 'var(--border)'
-                      }`,
-                    }}
-                  >
+                <div
+                  style={{
+                    position: 'relative',
+                    width: 36,
+                    height: 36,
+                    borderRadius: 4,
+                    overflow: 'hidden',
+                    flexShrink: 0,
+                  }}
+                >
+                  {/* biome-ignore lint/performance/noImgElement: admin panel */}
+                  <img
+                    src={entry.preview}
+                    alt=""
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                  {entry.status === 'done' && (
                     <div
                       style={{
-                        position: 'relative',
-                        width: 36,
-                        height: 36,
-                        borderRadius: 4,
-                        overflow: 'hidden',
-                        flexShrink: 0,
+                        position: 'absolute',
+                        inset: 0,
+                        background: 'rgba(0,0,0,0.35)',
+                        display: 'grid',
+                        placeItems: 'center',
+                        color: 'white',
+                        fontSize: 16,
                       }}
                     >
-                      {/* biome-ignore lint/performance/noImgElement: admin panel */}
-                      <img
-                        src={entry.preview}
-                        alt=""
-                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                      />
-                      {entry.status === 'done' && (
-                        <div
-                          style={{
-                            position: 'absolute',
-                            inset: 0,
-                            background: 'rgba(0,0,0,0.35)',
-                            display: 'grid',
-                            placeItems: 'center',
-                            color: 'white',
-                            fontSize: 16,
-                          }}
-                        >
-                          ✓
-                        </div>
-                      )}
-                      {entry.status === 'uploading' && (
-                        <div
-                          style={{
-                            position: 'absolute',
-                            inset: 0,
-                            background: 'rgba(0,0,0,0.35)',
-                            display: 'grid',
-                            placeItems: 'center',
-                            color: 'white',
-                            fontSize: 12,
-                          }}
-                        >
-                          ↑
-                        </div>
-                      )}
-                      {entry.status === 'error' && (
-                        <div
-                          style={{
-                            position: 'absolute',
-                            inset: 0,
-                            background: 'rgba(0,0,0,0.5)',
-                            display: 'grid',
-                            placeItems: 'center',
-                            color: 'white',
-                            fontSize: 16,
-                          }}
-                        >
-                          ✗
-                        </div>
-                      )}
+                      ✓
                     </div>
-
-                    <div style={{ minWidth: 0 }}>
-                      <input
-                        className="input"
-                        value={entry.label}
-                        disabled={busy}
-                        placeholder="e.g. Studio White"
-                        onChange={(e) => updateEntry(i, { label: e.target.value })}
-                        style={{ fontSize: 13, padding: '3px 8px', width: '100%' }}
-                      />
-                      {entry.error && (
-                        <p style={{ fontSize: 11, color: 'var(--danger)', margin: '2px 0 0' }}>
-                          {entry.error}
-                        </p>
-                      )}
-                    </div>
-
-                    <span
+                  )}
+                  {entry.status === 'uploading' && (
+                    <div
                       style={{
-                        fontSize: 11,
-                        color: 'var(--muted)',
-                        whiteSpace: 'nowrap',
-                        textAlign: 'right',
+                        position: 'absolute',
+                        inset: 0,
+                        background: 'rgba(0,0,0,0.35)',
+                        display: 'grid',
+                        placeItems: 'center',
+                        color: 'white',
+                        fontSize: 12,
                       }}
                     >
-                      {(entry.file.size / 1024).toFixed(0)} KB
-                    </span>
-
-                    <button
-                      className="btn sm ghost"
-                      disabled={busy}
-                      onClick={() => removeEntry(i)}
-                      title="Remove"
-                      style={{ padding: '2px 4px' }}
+                      ↑
+                    </div>
+                  )}
+                  {entry.status === 'error' && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        background: 'rgba(0,0,0,0.5)',
+                        display: 'grid',
+                        placeItems: 'center',
+                        color: 'white',
+                        fontSize: 16,
+                      }}
                     >
-                      <Icon.Close />
-                    </button>
-                  </div>
-                ))}
+                      ✗
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ minWidth: 0 }}>
+                  <input
+                    className="input"
+                    value={entry.label}
+                    disabled={busy}
+                    placeholder="e.g. Studio White"
+                    onChange={(e) => updateEntry(i, { label: e.target.value })}
+                    style={{ fontSize: 13, padding: '3px 8px', width: '100%' }}
+                  />
+                  {entry.error && (
+                    <p style={{ fontSize: 11, color: 'var(--danger)', margin: '2px 0 0' }}>
+                      {entry.error}
+                    </p>
+                  )}
+                </div>
+
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: 'var(--muted)',
+                    whiteSpace: 'nowrap',
+                    textAlign: 'right',
+                  }}
+                >
+                  {(entry.file.size / 1024).toFixed(0)} KB
+                </span>
+
+                <button
+                  className="btn sm ghost"
+                  disabled={busy}
+                  onClick={() => removeEntry(i)}
+                  title="Remove"
+                  style={{ padding: '2px 4px' }}
+                >
+                  <Icon.Close />
+                </button>
               </div>
-            </div>
-          )}
-
-          {allDone && (
-            <div style={{ fontSize: 13, color: 'var(--success)', fontWeight: 600 }}>
-              All {entries.length} backgrounds uploaded successfully.
-            </div>
-          )}
-          {hasErrors && !running && (
-            <div style={{ fontSize: 13, color: 'var(--danger)' }}>
-              Some uploads failed. Fix errors above and click Upload again to retry failed items.
-            </div>
-          )}
+            ))}
+          </div>
         </div>
+      )}
 
-        <div className="modal-foot">
-          <button className="btn ghost" onClick={onClose} disabled={busy}>
-            {allDone ? 'Close' : 'Cancel'}
-          </button>
-          <button className="btn primary" onClick={handleUpload} disabled={!canUpload}>
-            <Icon.Upload />
-            {running
-              ? `Uploading ${doneCount}/${entries.length}…`
-              : `Upload ${pendingCount || entries.length || ''} background${pendingCount !== 1 ? 's' : ''}`}
-          </button>
+      {allDone && (
+        <div style={{ fontSize: 13, color: 'var(--success)', fontWeight: 600 }}>
+          All {entries.length} backgrounds uploaded successfully.
         </div>
-      </div>
-    </div>
+      )}
+      {hasErrors && !running && (
+        <div style={{ fontSize: 13, color: 'var(--danger)' }}>
+          Some uploads failed. Fix errors above and click Upload again to retry failed items.
+        </div>
+      )}
+    </EditDrawer>
   );
 }

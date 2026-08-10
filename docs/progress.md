@@ -1,3 +1,51 @@
+## 2026-08-10 — Unified EditDrawer migration (admin-web)
+
+**Done**
+- Completed the 11-task migration standardizing every add/edit popup in `apps/admin-web` onto a single shared `EditDrawer` component (`apps/admin-web/src/components/EditDrawer.tsx`).
+- Migrated all ~30 add/edit modals and legacy drawers across the admin SPA:
+  - Task 1: Shared `EditDrawer` component + `AddFaceModal` / `EditFaceModal`
+  - Task 2: `AddGarmentTypeModal` / `EditGarmentTypeModal`
+  - Task 3: Garment type prompt overrides / pose config modals
+  - Task 4: Background add / edit modals
+  - Task 5: Pose upload modal
+  - Task 6: Catalog tab add/edit categories & batch upload modals
+  - Task 7: Catalogue templates, sample videos, and saree styles modals
+  - Task 8: Workflow upload & edit modals with KSampler validation
+  - Task 9: Users page modals (Reset Password, Adjust credits, Grant merchant access, Edit merchant details, Create User)
+  - Task 10: Shopify funnels, Try-on categories & sample images, Dev API categories modals
+  - Task 11: Settings credit plans & campaigns, Chatbot Q&A (scrim normalized to modal-overlay), Kiosk demo items, sets & subcategories
+- Validated with clean `tsc -b` and production Vite build (`pnpm --filter @aivastra/admin build`).
+
+**Failed / Not Done**
+- None.
+
+**Open Questions / Decisions**
+- None.
+
+## 2026-08-10 — Unified EditDrawer migration (admin-web)
+
+**Done**
+- Completed the 11-task migration standardizing every add/edit popup in `apps/admin-web` onto a single shared `EditDrawer` component (`apps/admin-web/src/components/EditDrawer.tsx`).
+- Migrated all ~30 add/edit modals and legacy drawers across the admin SPA:
+  - Task 1: Shared `EditDrawer` component + `AddFaceModal` / `EditFaceModal`
+  - Task 2: `AddGarmentTypeModal` / `EditGarmentTypeModal`
+  - Task 3: Garment type prompt overrides / pose config modals
+  - Task 4: Background add / edit modals
+  - Task 5: Pose upload modal
+  - Task 6: Catalog tab add/edit categories & batch upload modals
+  - Task 7: Catalogue templates, sample videos, and saree styles modals
+  - Task 8: Workflow upload & edit modals with KSampler validation
+  - Task 9: Users page modals (Reset Password, Adjust credits, Grant merchant access, Edit merchant details, Create User)
+  - Task 10: Shopify funnels, Try-on categories & sample images, Dev API categories modals
+  - Task 11: Settings credit plans & campaigns, Chatbot Q&A (scrim normalized to modal-overlay), Kiosk demo items, sets & subcategories
+- Validated with clean `tsc -b` and production Vite build (`pnpm --filter @aivastra/admin build`).
+
+**Failed / Not Done**
+- None.
+
+**Open Questions / Decisions**
+- None.
+
 ## 2026-08-09 — Batch catalog generation
 
 **Done**

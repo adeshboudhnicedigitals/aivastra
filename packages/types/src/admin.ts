@@ -397,6 +397,19 @@ export const UpdateWorkflowBody = z.object({
   resultNodeId: z.string().min(1).nullable().optional(),
   facePhasePromptNode: z.string().min(1).optional(),
   garmentPhasePromptNode: z.string().min(1).optional(),
+  // Prompt TEXT (not which node holds it — see facePhasePromptNode/garmentPhasePromptNode
+  // above for that). No .min(1) here on purpose: emptiness rules differ per field and are
+  // enforced in the route handler (garmentPhasePrompt must be non-empty, facePhasePrompt may
+  // be empty).
+  garmentPhasePrompt: z.string().optional(),
+  facePhasePrompt: z.string().optional(),
+  // KSampler settings — found by class_type scan, not a stored node-id column (every
+  // real workflow has exactly one KSampler). steps<1 means no generation happens;
+  // denoise is bounded to its defined semantic range [0,1]; cfg has no fixed ceiling
+  // since it varies by model/LoRA.
+  ksamplerSteps: z.number().int().min(1).optional(),
+  ksamplerCfg: z.number().min(0).optional(),
+  ksamplerDenoise: z.number().min(0).max(1).optional(),
   // Tryon workflow node IDs
   tryonPersonNodeId: z.string().min(1).nullable().optional(),
   tryonGarmentNodeId: z.string().min(1).nullable().optional(),

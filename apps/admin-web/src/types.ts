@@ -75,6 +75,10 @@ export interface WorkflowOption {
   poseCount: number;
   defaultFacePhasePrompt: string;
   defaultGarmentPhasePrompt: string;
+  facePhasePromptNode: string | null;
+  ksamplerSteps: number | null;
+  ksamplerCfg: number | null;
+  ksamplerDenoise: number | null;
   lowerNodeId: string | null;
   shoeNodeId: string | null;
   thirdNodeId: string | null;
