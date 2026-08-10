@@ -605,12 +605,6 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   const [modelBackgroundsList, setModelBackgroundsList] = useState<
     Array<{ id: string; label: string }>
   >([]);
-  const [shopifyTrialCredits, setShopifyTrialCredits] = useState(25);
-  const [shopifyPlanCredits, setShopifyPlanCredits] = useState({
-    starter: 1925,
-    growth: 5000,
-    pro: 22000,
-  });
   const [uploadLimitsMb, setUploadLimitsMb] = useState({
     merchantCatalogMaxBytes: 20,
     webGarmentMaxBytes: 20,
@@ -657,10 +651,6 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
         { faceId: string; backgroundId: string; lowerCatalogId?: string; shoeCatalogId?: string }
       >;
       merchantCatalogAspectRatio?: string;
-      shopify?: {
-        trialCredits: number;
-        planCredits?: { starter: number; growth: number; pro: number };
-      };
       uploadLimits?: Record<string, number>;
     }>('/admin/config')
       .then((cfg) => {
@@ -669,10 +659,6 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
         if (cfg.merchantCatalogDefaults) setMerchantCatalogDefaults(cfg.merchantCatalogDefaults);
         if (cfg.merchantCatalogAspectRatio)
           setMerchantCatalogAspectRatio(cfg.merchantCatalogAspectRatio);
-        if (cfg.shopify) {
-          setShopifyTrialCredits(cfg.shopify.trialCredits);
-          if (cfg.shopify.planCredits) setShopifyPlanCredits(cfg.shopify.planCredits);
-        }
         if (cfg.uploadLimits) {
           const bytesToMb = (b: number) => Math.round((b / (1024 * 1024)) * 100) / 100;
           setUploadLimitsMb({
@@ -785,7 +771,6 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
           maxBatchJobs,
           merchantCatalogDefaults: sanitizedMerchantCatalogDefaults,
           merchantCatalogAspectRatio,
-          shopify: { trialCredits: shopifyTrialCredits, planCredits: shopifyPlanCredits },
           uploadLimits: {
             merchantCatalogMaxBytes: mbToBytes(uploadLimitsMb.merchantCatalogMaxBytes),
             webGarmentMaxBytes: mbToBytes(uploadLimitsMb.webGarmentMaxBytes),
@@ -1552,96 +1537,6 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
 
                 <div style={{ marginTop: 24, marginBottom: 8 }}>
                   <div className="setting-lbl" style={{ marginBottom: 4 }}>
-                    Shopify Free Trial
-                  </div>
-                  <div className="setting-desc" style={{ marginBottom: 12 }}>
-                    Credits granted once, automatically, the first time a Shopify store links to an
-                    AiVastra account — before the merchant picks a paid plan. Independent of any
-                    day-based trial configured in Partner Dashboard.
-                  </div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 12,
-                      padding: '10px 12px',
-                      border: '1px solid var(--border)',
-                      borderRadius: 'var(--r)',
-                      background: 'var(--surface-2)',
-                    }}
-                  >
-                    <span className="setting-lbl">Trial Credits</span>
-                    <div
-                      style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}
-                    >
-                      <input
-                        className="input"
-                        type="number"
-                        min={0}
-                        max={1000}
-                        style={{ width: 80, textAlign: 'right' }}
-                        value={shopifyTrialCredits}
-                        disabled={sysSaving}
-                        onChange={(e) => setShopifyTrialCredits(Number(e.target.value))}
-                      />
-                      <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                        credits / store
-                      </span>
-                    </div>
-                  </div>
-                  <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
-                    {(['starter', 'growth', 'pro'] as const).map((plan) => (
-                      <div
-                        key={plan}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 12,
-                          padding: '10px 12px',
-                          border: '1px solid var(--border)',
-                          borderRadius: 'var(--r)',
-                          background: 'var(--surface-2)',
-                        }}
-                      >
-                        <span className="setting-lbl" style={{ textTransform: 'capitalize' }}>
-                          {plan}
-                        </span>
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 6,
-                            marginLeft: 'auto',
-                          }}
-                        >
-                          <input
-                            className="input"
-                            type="number"
-                            min={1}
-                            max={1000000}
-                            style={{ width: 100, textAlign: 'right' }}
-                            value={shopifyPlanCredits[plan]}
-                            disabled={sysSaving}
-                            onChange={(e) =>
-                              setShopifyPlanCredits((prev) => ({
-                                ...prev,
-                                [plan]: Number(e.target.value),
-                              }))
-                            }
-                          />
-                          <span
-                            style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}
-                          >
-                            credits / cycle
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div style={{ marginTop: 24, marginBottom: 8 }}>
-                  <div className="setting-lbl" style={{ marginBottom: 4 }}>
                     App Video
                   </div>
                   <div className="setting-desc" style={{ marginBottom: 12 }}>
@@ -1992,19 +1887,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                       maxOutputPx > 4096 ||
                       !Number.isInteger(maxBatchJobs) ||
                       maxBatchJobs < 1 ||
-                      maxBatchJobs > 2000 ||
-                      !Number.isInteger(shopifyTrialCredits) ||
-                      shopifyTrialCredits < 0 ||
-                      shopifyTrialCredits > 1000 ||
-                      !Number.isInteger(shopifyPlanCredits.starter) ||
-                      shopifyPlanCredits.starter < 1 ||
-                      shopifyPlanCredits.starter > 1000000 ||
-                      !Number.isInteger(shopifyPlanCredits.growth) ||
-                      shopifyPlanCredits.growth < 1 ||
-                      shopifyPlanCredits.growth > 1000000 ||
-                      !Number.isInteger(shopifyPlanCredits.pro) ||
-                      shopifyPlanCredits.pro < 1 ||
-                      shopifyPlanCredits.pro > 1000000
+                      maxBatchJobs > 2000
                     }
                   >
                     {sysSaving ? 'Saving…' : 'Save'}
