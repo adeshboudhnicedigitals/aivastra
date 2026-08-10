@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import { encryptToken } from '../../lib/crypto.js';
 import { AppError } from '../../lib/errors.js';
+import { grantShopifyTrialCredits } from './billing.js';
 import { resolveAccountLinkCode } from './customer-auth.js';
 import { writeWidgetKeyMetafield } from './metafields.js';
 import { numericIdFromGid, shopifyGraphQL, verifyQueryHmac } from './service.js';
@@ -280,6 +281,8 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
         .update(schema.shopifyStores)
         .set({ ownerUserId: userId, updatedAt: new Date() })
         .where(eq(schema.shopifyStores.id, store.id));
+      const { creditsGranted } = await grantShopifyTrialCredits(app, store, userId);
+      req.log.debug({ storeId: store.id, userId, creditsGranted }, 'shopify trial credit grant');
       return { ok: true };
     },
   );
