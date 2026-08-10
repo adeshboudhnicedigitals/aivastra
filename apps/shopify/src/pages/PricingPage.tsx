@@ -79,6 +79,19 @@ export default function PricingPage() {
       <BlockStack gap="400">
         {error && <Banner tone="critical">{error}</Banner>}
 
+        <Card>
+          <BlockStack gap="200">
+            <Text as="h2" variant="headingSm">
+              All plans include
+            </Text>
+            <InlineGrid columns={{ xs: 1, sm: 2, md: 5 }} gap="200">
+              {SHARED_FEATURE_BULLETS.map((label) => (
+                <FeatureRow key={label} label={label} included />
+              ))}
+            </InlineGrid>
+          </BlockStack>
+        </Card>
+
         <InlineGrid columns={{ xs: 1, md: 3 }} gap="400">
           {PLAN_FEATURE_SETS.map((plan) => {
             const isCurrent = me?.store.planHandle === plan.handle;
@@ -117,9 +130,6 @@ export default function PricingPage() {
                   </Box>
 
                   <BlockStack gap="150">
-                    {SHARED_FEATURE_BULLETS.map((label) => (
-                      <FeatureRow key={label} label={label} included />
-                    ))}
                     <FeatureRow label={`${plan.analyticsTier} try-on analytics`} included />
                     <FeatureRow label="Custom branding" included={plan.customBranding} />
                     <FeatureRow label="White-label experience" included={plan.whiteLabel} />
