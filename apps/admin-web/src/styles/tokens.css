@@ -1322,6 +1322,18 @@ textarea.input {
   grid-template-columns: repeat(4, 1fr);
   gap: 14px;
 }
+
+/* --- dashboard two-panel grids (chart+pool, failures+stuck) --- */
+.dash-grid-2col {
+  display: grid;
+  grid-template-columns: 1.7fr 1fr;
+  gap: 14px;
+}
+.dash-grid-2col-even {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
 .stat {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -2033,6 +2045,12 @@ p {
     grid-template-columns: repeat(2, 1fr);
   }
 
+  /* Dashboard two-panel grids stack to one column */
+  .dash-grid-2col,
+  .dash-grid-2col-even {
+    grid-template-columns: 1fr;
+  }
+
   /* Field rows stack */
   .field-row {
     grid-template-columns: 1fr;
@@ -2378,8 +2396,18 @@ p {
   gap: 8px 18px;
   font-size: 13px;
 }
+.kv-grid-3-col {
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr auto 1fr;
+  column-gap: 28px;
+  row-gap: 8px;
+  font-size: 13px;
+}
 @media (max-width: 1023px) {
   .kv-grid-2-col {
+    grid-template-columns: 120px 1fr;
+  }
+  .kv-grid-3-col {
     grid-template-columns: 120px 1fr;
   }
 }
@@ -2388,6 +2416,9 @@ p {
     grid-template-columns: 100px 1fr;
   }
   .kv-grid-2-col {
+    grid-template-columns: 100px 1fr;
+  }
+  .kv-grid-3-col {
     grid-template-columns: 100px 1fr;
   }
 }
@@ -2399,6 +2430,10 @@ p {
   .kv-grid-2-col {
     grid-template-columns: 1fr;
     gap: 4px;
+  }
+  .kv-grid-3-col {
+    grid-template-columns: 1fr;
+    row-gap: 4px;
   }
 }
 

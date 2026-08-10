@@ -247,16 +247,14 @@ export default function TryonPage({ toast }: Props) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Header */}
-      <div
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
-      >
+      <div className="page-head">
         <div>
           <h2 style={{ margin: 0, fontSize: '1.125rem', fontWeight: 600 }}>Tryon Categories</h2>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
             Manage garment type categories for try-on.
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div className="head-tools">
           <button className="btn ghost" onClick={() => setShowSamplesModal(true)}>
             <Icon.Image /> Edit sample images
           </button>
