@@ -1,3 +1,94 @@
+## 2026-08-09 — Batch catalog generation
+
+**Done**
+- `POST /v1/jobs/batch` (`apps/api/src/modules/jobs/createBatch.ts`): submits a batch of ordinary `CATALOG` tryon jobs sharing one `batchId` in a single all-or-nothing Postgres transaction — there is no `batches` table, batch state is derived entirely by `GROUP BY batch_id` over `jobs`. One `atomicDeduct` per job inside that one transaction (so the ledger carries N entries for N jobs, and a single rollback un-charges all of them), one `job_inputs` row per job, row-attributed `AppError` details (via `AppError`'s new structured-details carrier, `apps/api/src/lib/errors.ts` / `74b354a6`) when an individual row fails preflight (bad catalog IDs, mannequin two-pass garment types explicitly rejected in batch), and a batch cap enforced by `getMaxBatchJobs` reading the shared `config:system` Redis key. If `XADD` fails after the transaction commits, the affected job is refunded and marked failed (`refundAndMarkFailed`) rather than left charged and stuck.
+- `GET /v1/batches/:id` (`apps/api/src/modules/jobs/routes.ts`): derives per-catalogue progress from the underlying `jobs` rows sharing `batch_id`, returning `{batchId, totalJobs, catalogues: [{catalogueId, total, completed, failed, createdAt}]}` — counts only, no aggregate status string, and no separate batch table or status column to keep in sync.
+- `resolveTryonPlan` (`apps/api/src/modules/jobs/create.ts`) now takes an optional per-request `TryonPlanCache` (`createTryonPlanCache()`), memoising face/background/pose/garment-subcategory lookups across all rows of one batch request so an N-row batch doesn't re-run the same catalog resolution N times. This is the load-bearing piece every job-creation path (single tryon, batch, kiosk, saree) shares — verified via `batch-jobs.test.ts`'s parity test plus re-running `jobs-create-looks.test.ts`, `jobs-create-mannequin.test.ts`, and `jobs-create-background-ownership.test.ts` to confirm the cache didn't change what any single-job path produces.
+- Batch jobs are ordinary `CATALOG` jobs on the ordinary `jobs:priority`/`normal`/`low` streams — the dispatcher was not touched.
+- Studio batch UI (`apps/catalogues-web`): a mode toggle between single and batch generation, a garment tray supporting parallel multi-upload plus reuse of past uploads, a responsive row/grid layout for batch rows, a summary bar, and a batch-filtered catalogues view (`8e9c7901`) that live-polls in-flight batches without failing closed before batch data has loaded (`cf0fb662`).
+- `jobs.batch_id` column + migration (`ffcb6fd7`); batch request/row Zod schemas and shared row-validation rules in `packages/types` (`e29f10d3`).
+- Final whole-branch review fix wave: batch rows may reuse a garment key drawn from the caller's own `job_inputs` history even after the 24h `upload:owner:{key}` Redis binding has expired (`trustedGarmentKeys`, same escape hatch `regenerate.ts` uses) — the tray's "Past uploads" tab was otherwise 403-ing on anything older than a day; the summary bar blocks an unsupported aspect ratio with a specific reason; `error.rowIndex` from a server-rejected row now highlights that row in the grid; removing a tray garment clears rows that referenced it; `C.danger` was added to the design tokens (pointing at the existing `--c-merchant-danger` variable) so "invalid" stops sharing `C.pink` with "selected".
+- Full verification: `pnpm typecheck` and `pnpm lint` clean at repo root; API unit suite green across all 65 non-integration test files / 542 tests (run in 6 batches to stay under this environment's per-call time limit — `test:unit`'s single invocation exceeds it), including `batch-row-rules.test.ts` and `app-error-details.test.ts`; the 4 integration files this plan touches or depends on (`batch-jobs.test.ts` 13/13, `jobs-create-looks.test.ts` 10/10, `jobs-create-mannequin.test.ts` 3/3, `jobs-create-background-ownership.test.ts` 4/4) plus 4 more job-creation-adjacent files run as an extra smoke check (`kiosk-jobs.test.ts`, `regenerate.test.ts`, `shopify-limits.test.ts`, `simple-tryon.test.ts` — 37/37) all pass in full. `jobs-create.test.ts`, `catalog.test.ts`, and `e2e.test.ts` still fail, confirmed pre-existing and unrelated (git history shows none were touched by this feature) — see Open Questions for the one discrepancy found in exactly how they fail. A full 89-file integration sweep was not run in one shot; see `.superpowers/sdd/2026-08-08-batch-catalog-generation/task-15-report.md` for the complete file-by-file breakdown.
+
+**Failed / Not Done**
+- Saree two-pass mannequin flow, catalogue templates, and `thirdGarmentKey` are explicitly out of scope for batch v1 per the design spec (`docs/superpowers/specs/2026-08-08-batch-catalog-generation-design.md`) — batch rows using mannequin two-pass garment types are rejected at preflight rather than supported.
+
+**Open Questions / Decisions**
+- Whether `maxBatchJobs` needs a real admin-panel control rather than a raw `config:system` Redis key edit — `getMaxBatchJobs` reads that key directly (shared with `getMaxOutputPx` and the resolution costs) with no admin UI built for it in this plan.
+- `apps/api/vitest.config.ts`'s comment for the three documented pre-existing integration failures is stale in its specifics though its conclusion (pre-existing, unrelated) still holds: `jobs-create.test.ts` and `catalog.test.ts` now fail on a Postgres NOT NULL violation (`catalog_items.type`) rather than a validation error — the root cause is the same stale contract (these tests still seed the old models/poses/backgrounds shape into what `catalog_items` now exclusively models: user-selectable lower garments/shoes), just caught one layer earlier by a schema constraint added since the comment was written. `e2e.test.ts` fails on a 401 from an admin-JWT-minted-before-admin-row-insert ordering bug in the test itself, not because it "depends on jobs-create's flow" as documented. None of the three files have been touched by any commit in this feature (verified via `git log`), so all three are confirmed pre-existing and out of scope for this task, but the vitest.config.ts comment could use a refresh to match current behavior.
+- Batch mode does not support `9:16`/`16:9` aspect ratios or an incomplete custom ratio — `CreateBatchJobRequest.aspectRatio` only accepts `1:1`/`2:3`/`3:4`/`4:5`, and the batch UI has no aspect-ratio control of its own to correct an unsupported selection. The summary bar now blocks submission with "Batch doesn't support this aspect ratio — switch to Single mode to change it" instead of letting it 400 unattributed, and switching to Single mode no longer destroys in-progress batch work (a confirm guard was added, `b4b2273f`) — but the ratio still cannot be changed from inside Batch. Underlying gap remains open.
+
+## 2026-08-06 — Staging environment
+
+### Done
+- **Alloy env-scoping:** Scoped Grafana Alloy's container discovery per environment (`ALLOY_CONTAINER_REGEX`) so staging's Alloy only reads `aivastra-staging-*` containers and production's only reads `aivastra-prod-*`, sharing one Docker socket without cross-environment log/metric bleed.
+- **Staging compose stack + env template:** Added `infra/docker-compose.staging.yml` (mirror of `docker-compose.prod.yml`, namespaced project/container/network/ports at prod+100) and `.env.staging.example` covering every var the stack needs, each `change_me` placeholder flagged for the operator.
+- **Deploy guardrail script:** Added `scripts/staging/check-staging-env.sh`, which refuses to deploy unless `.env.staging` is demonstrably not a copy of production's (env marker, compose project name, no live Razorpay key, distinct Shopify app, distinct mail sender).
+- **Prod-to-staging sync script:** Added `scripts/staging/sync-from-prod.sh` — read-only against production, dumps + restores Postgres, mirrors MinIO objects (excluding user-content prefixes), empties the workers table, and re-applies dev-only migrations.
+- **CI pipeline routing:** Changed the deploy pipeline so pushes to `dev` deploy to staging and pushes to `main` deploy to production.
+- **VPS runbook + docs:** Created `docs/staging-runbook.md` documenting the complete VPS provisioning guide (11 steps: reclaim cache, capacity baseline, clone repo, env file setup, GitHub secrets, DNS/CloudPanel vhost configuration with nginx WebSocket settings for chatbot, GPU worker deferral, Grafana Cloud setup, first boot sequence, initial sync, and re-sync cadence). Added `## Staging Environment` section to `CLAUDE.md` after the "Adding a GPU worker" section. Verified all bound ports in the staging compose file match the vhost routing table in the runbook (3100, 3101, 3103, 4100, 4300, 9100, 9101).
+
+### Failed / Not Done
+- **No staging GPU worker yet (accepted, deferred):** Staging ships with an empty `workers` table, so every try-on job enqueues and stays `QUEUED` forever. This is intentional — the environment validates the rest of the stack (auth, credits, catalog, dispatcher plumbing up to worker selection) without needing a second GPU box. A dedicated ComfyUI worker will be provisioned and registered later.
+
+### Open Questions / Decisions
+- **PixVerse:** Staging shares the production API key, so `PIXVERSE_API_KEY` is shipped empty in `.env.staging.example` — the dispatcher logs a startup warning and fails every catalog-video job fast with `PIXVERSE_NOT_CONFIGURED`, so no request ever reaches PixVerse. Fill it in only once staging has its own key, or the spend is accepted.
+- **Unscrubbed staging DB (accepted):** The staging database is an unscrubbed production snapshot — real customer, merchant and payment data — isolated from causing real-world effects only by staging's own credentials (test Razorpay keys, a separate Shopify dev app, a non-production mail sender), not by data scrubbing. `scripts/staging/check-staging-env.sh` enforces the credential isolation before every deploy.
+
+## 2026-08-03 - Virtual Try-On Android cache synchronization desync fix
+
+### Done
+- Fixed cache synchronization in `CatalogRepository.kt` by checking cache freshness of both `products` and `subcategories` for the requested category. If either cache entry is stale or missing, the entire cache is invalidated and both lists are re-fetched in sync. This eliminates the rare desync bug where a subcategory list would load fresh from the network but match with stale/empty cached products, resulting in no items showing until an app restart.
+- Verified build with `./gradlew compileDebugKotlin` (`BUILD SUCCESSFUL in 23s`).
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-08-03 - CategorySelectionPage root back gesture exit fix
+
+### Done
+- Updated `CategorySelectionPage.kt` `BackHandler` so system back gestures or buttons on the main category selection page call `(context as? Activity)?.finish()` to cleanly minimize/exit the app, replacing a no-op handler that trapped users on the screen.
+- Verified build with `./gradlew assembleDebug` (`BUILD SUCCESSFUL in 29s`).
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-08-03 - Virtual Try-On Android 401 missing bearer session handling fix
+
+### Done
+- Fixed `CatalogRepository.kt` to explicitly catch HTTP 400/401/403 unauthorized responses during subcategories and product catalog fetching, clear `SessionManager` state, and set `isUnauthorized = true` in `CatalogResult.Failure`.
+- Updated `OutfitSelectionViewModel.kt` and `OutfitSelectionUiState` to capture `isUnauthorized` status.
+- Updated `OutfitSelectionPage.kt` and `TryMoreOutfitsPage.kt` to show a "Session expired. Please sign in again." notification with a "Sign In" action button when an unauthenticated status is detected, replacing infinite dead "Retry" loops.
+- Wired `onUnauthorized` callbacks in `NavGraph.kt` to redirect expired or unauthenticated device sessions directly to `SignInPage`.
+- Verified compilation with `./gradlew assembleDebug` (`BUILD SUCCESSFUL in 15s`).
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-08-01 - Virtual Try-On Android instant merchant catalog loading fix
+
+### Done
+- Fixed Android catalog caching in `CatalogRepository.kt` so empty product/subcategory lists returned prior to merchant access setup are not cached as valid/fresh for 5 minutes.
+- Updated `SessionManager.kt` so `SessionManager.save(...)` and `SessionManager.clear()` automatically purge `CatalogRepository` cache upon login, logout, or session updates.
+- Updated `OutfitSelectionViewModel.kt` to force-reload catalog data whenever products list is empty, and clear cache on refresh/retry.
+- Added a "Refresh Catalog" button to the empty catalog state in `OutfitSelectionPage.kt`.
+- Verified compilation with `./gradlew compileDebugSources` (`BUILD SUCCESSFUL in 1m 2s`).
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
 ## 2026-08-06 — Local seed images added
 
 **Done**

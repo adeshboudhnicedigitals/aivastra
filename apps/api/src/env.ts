@@ -1,5 +1,11 @@
 import { z } from 'zod';
 
+// z.string().url().optional() rejects '' — it only tolerates a truly absent
+// key. A .env file with `FOO=` sets FOO to '', not undefined, so every
+// optional URL var needs this to actually be skippable.
+const optionalUrl = () =>
+  z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional());
+
 const Env = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   LOG_LEVEL: z.string().default('debug'),
@@ -18,9 +24,9 @@ const Env = z.object({
   /** Endpoint used for presigned URL signing (SigV4 Host header). Set to the public
    *  domain when MinIO is behind a reverse proxy so the signed Host matches the
    *  header forwarded by Nginx. Falls back to R2_ENDPOINT when omitted. */
-  R2_SIGN_ENDPOINT: z.string().url().optional(),
+  R2_SIGN_ENDPOINT: optionalUrl(),
   /** Public-facing base URL for browser-side presigned uploads, e.g. https://rankplex.cloud/minio */
-  R2_PUBLIC_PRESIGN_BASE: z.string().url().optional(),
+  R2_PUBLIC_PRESIGN_BASE: optionalUrl(),
   ADMIN_BOOTSTRAP_EMAIL: z.string().email().optional(),
   ADMIN_BOOTSTRAP_PASSWORD: z.string().min(8).optional(),
   CORS_ORIGIN: z
@@ -44,7 +50,7 @@ const Env = z.object({
   COOKIE_SECRET: z.string().min(32),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
-  GOOGLE_CALLBACK_URL: z.string().url().optional(),
+  GOOGLE_CALLBACK_URL: optionalUrl(),
   // Extra accepted `aud` values for POST /v1/auth/device-login/google, comma-separated.
   // Normally unset: the Android ID token's aud is GOOGLE_CLIENT_ID (the Web client ID
   // passed to Credential Manager as serverClientId).
@@ -55,8 +61,8 @@ const Env = z.object({
   RAZORPAY_KEY_ID: z.string().min(1).optional(),
   RAZORPAY_KEY_SECRET: z.string().min(1).optional(),
   RAZORPAY_WEBHOOK_SECRET: z.string().min(1).optional(),
-  SENTRY_DSN: z.string().url().optional(),
-  CHATBOT_URL: z.string().url().optional(),
+  SENTRY_DSN: optionalUrl(),
+  CHATBOT_URL: optionalUrl(),
   CHATBOT_SERVICE_TOKEN: z.string().optional(),
   SHOPIFY_API_KEY: z.string().optional(),
   SHOPIFY_API_SECRET: z.string().optional(),
@@ -66,7 +72,7 @@ const Env = z.object({
   // post-install redirect goes back through Shopify (admin.shopify.com/store/
   // .../apps/...) so that Shopify re-opens the app with the host/id_token params
   // App Bridge requires. Never redirect at the SPA's own URL directly.
-  SHOPIFY_APP_URL: z.string().url().optional(),
+  SHOPIFY_APP_URL: optionalUrl(),
   SHOPIFY_SCOPES: z.string().default('read_products'),
   // 32-byte key, base64-encoded (44 chars). Required only when Shopify is enabled.
   SHOPIFY_TOKEN_ENC_KEY: z.string().optional(),

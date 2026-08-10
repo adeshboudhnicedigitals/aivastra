@@ -595,6 +595,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
     '4K': { enabled: true, creditCost: 40 },
   });
   const [maxOutputPx, setMaxOutputPx] = useState(2048);
+  const [maxBatchJobs, setMaxBatchJobs] = useState(200);
   const [merchantCatalogDefaults, setMerchantCatalogDefaults] = useState<
     Record<
       string,
@@ -655,6 +656,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
     apiFetch<{
       resolutions?: Record<string, { enabled: boolean; creditCost: number }>;
       maxOutputPx?: number;
+      maxBatchJobs?: number;
       merchantCatalogDefaults?: Record<
         string,
         { faceId: string; backgroundId: string; lowerCatalogId?: string; shoeCatalogId?: string }
@@ -668,6 +670,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
       .then((cfg) => {
         if (cfg.resolutions) setResolutions(cfg.resolutions);
         if (cfg.maxOutputPx) setMaxOutputPx(cfg.maxOutputPx);
+        if (cfg.maxBatchJobs) setMaxBatchJobs(cfg.maxBatchJobs);
         if (cfg.merchantCatalogDefaults) setMerchantCatalogDefaults(cfg.merchantCatalogDefaults);
         if (cfg.merchantCatalogAspectRatio)
           setMerchantCatalogAspectRatio(cfg.merchantCatalogAspectRatio);
@@ -784,6 +787,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
         body: JSON.stringify({
           resolutions,
           maxOutputPx,
+          maxBatchJobs,
           merchantCatalogDefaults: sanitizedMerchantCatalogDefaults,
           merchantCatalogAspectRatio,
           tryon: { creditCost: tryonCreditCost },
@@ -1592,6 +1596,40 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
 
                 <div style={{ marginTop: 24, marginBottom: 8 }}>
                   <div className="setting-lbl" style={{ marginBottom: 4 }}>
+                    Max Batch Size
+                  </div>
+                  <div className="setting-desc" style={{ marginBottom: 12 }}>
+                    Ceiling on jobs per Studio batch submission. Also sizes the row cap on the batch
+                    catalogues view, so raising this stays consistent end-to-end.
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: '10px 12px',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--r)',
+                      background: 'var(--surface-2)',
+                      maxWidth: 260,
+                    }}
+                  >
+                    <input
+                      className="input"
+                      type="number"
+                      min={1}
+                      max={2000}
+                      style={{ width: 100 }}
+                      value={maxBatchJobs}
+                      disabled={sysSaving}
+                      onChange={(e) => setMaxBatchJobs(Number(e.target.value))}
+                    />
+                    <span style={{ fontSize: 13, color: 'var(--muted)' }}>jobs per batch</span>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 24, marginBottom: 8 }}>
+                  <div className="setting-lbl" style={{ marginBottom: 4 }}>
                     Virtual Try-On Pricing
                   </div>
                   <div className="setting-desc" style={{ marginBottom: 12 }}>
@@ -2059,7 +2097,10 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                       sysSaving ||
                       !Number.isInteger(maxOutputPx) ||
                       maxOutputPx < 512 ||
-                      maxOutputPx > 4096
+                      maxOutputPx > 4096 ||
+                      !Number.isInteger(maxBatchJobs) ||
+                      maxBatchJobs < 1 ||
+                      maxBatchJobs > 2000
                     }
                   >
                     {sysSaving ? 'Saving…' : 'Save'}

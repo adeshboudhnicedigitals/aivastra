@@ -7,6 +7,7 @@ interface SelectableItem {
   label: string;
   thumbnailUrl?: string | null;
   previewUrl?: string | null;
+  tags?: string[];
 }
 
 interface SelectGridModalProps<T extends SelectableItem> {
@@ -21,6 +22,18 @@ interface SelectGridModalProps<T extends SelectableItem> {
   columns?: number;
   continueLabel?: string;
   hideLabels?: boolean;
+  tagOptions?: string[];
+  activeTag?: string;
+  onTagChange?: (tag: string) => void;
+  // Second, independent filter row shown above the tag row (e.g. continent for
+  // faces). Unlike tags (free-text, self-labeling), group ids can differ from
+  // their display label (e.g. a slug vs "North America"), so options carry both,
+  // and groupOf tells the modal how to read the group value off an item.
+  groupOptions?: { id: string; label: string }[];
+  activeGroup?: string;
+  onGroupChange?: (id: string) => void;
+  groupOf?: (item: T) => string;
+  allGroupsLabel?: string;
 }
 
 export function SelectGridModal<T extends SelectableItem>({
@@ -35,7 +48,23 @@ export function SelectGridModal<T extends SelectableItem>({
   columns = 4,
   continueLabel,
   hideLabels = false,
+  tagOptions,
+  activeTag = '',
+  onTagChange,
+  groupOptions,
+  activeGroup = '',
+  onGroupChange,
+  groupOf,
+  allGroupsLabel = 'groups',
 }: SelectGridModalProps<T>) {
+  const groupFiltered =
+    !activeGroup || !groupOptions?.length || !groupOf
+      ? items
+      : items.filter((item) => groupOf(item) === activeGroup);
+  const visibleItems =
+    !activeTag || !tagOptions?.length
+      ? groupFiltered
+      : groupFiltered.filter((item) => (item.tags ?? []).includes(activeTag));
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: click-outside-to-dismiss backdrop; keyboard users have the visible Close button below
     <div
@@ -96,7 +125,89 @@ export function SelectGridModal<T extends SelectableItem>({
           </button>
         </div>
         <div style={{ flex: 1, overflowY: 'auto' }}>
-          {items.length === 0 ? (
+          {groupOptions && groupOptions.length > 0 && onGroupChange && groupOf && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+              <button
+                type="button"
+                onClick={() => onGroupChange('')}
+                style={{
+                  padding: '7px 14px',
+                  borderRadius: 8,
+                  border: `1px solid ${activeGroup === '' ? C.pink : C.border2}`,
+                  background: activeGroup === '' ? 'rgba(245,92,122,0.08)' : C.white,
+                  color: activeGroup === '' ? C.pink : C.text,
+                  fontFamily: 'inherit',
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                }}
+              >
+                All {allGroupsLabel}
+              </button>
+              {groupOptions.map((g) => (
+                <button
+                  type="button"
+                  key={g.id}
+                  onClick={() => onGroupChange(g.id)}
+                  style={{
+                    padding: '7px 14px',
+                    borderRadius: 8,
+                    border: `1px solid ${activeGroup === g.id ? C.pink : C.border2}`,
+                    background: activeGroup === g.id ? 'rgba(245,92,122,0.08)' : C.white,
+                    color: activeGroup === g.id ? C.pink : C.text,
+                    fontFamily: 'inherit',
+                    fontSize: 13,
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {g.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {tagOptions && tagOptions.length > 0 && onTagChange && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+              <button
+                type="button"
+                onClick={() => onTagChange('')}
+                style={{
+                  padding: '7px 14px',
+                  borderRadius: 8,
+                  border: `1px solid ${activeTag === '' ? C.pink : C.border2}`,
+                  background: activeTag === '' ? 'rgba(245,92,122,0.08)' : C.white,
+                  color: activeTag === '' ? C.pink : C.text,
+                  fontFamily: 'inherit',
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                }}
+              >
+                All tags
+              </button>
+              {tagOptions.map((tag) => (
+                <button
+                  type="button"
+                  key={tag}
+                  onClick={() => onTagChange(tag)}
+                  style={{
+                    padding: '7px 14px',
+                    borderRadius: 8,
+                    border: `1px solid ${activeTag === tag ? C.pink : C.border2}`,
+                    background: activeTag === tag ? 'rgba(245,92,122,0.08)' : C.white,
+                    color: activeTag === tag ? C.pink : C.text,
+                    fontFamily: 'inherit',
+                    fontSize: 13,
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+          )}
+          {visibleItems.length === 0 ? (
             <p style={{ fontSize: 14, color: C.mid }}>Nothing available yet.</p>
           ) : (
             <div
@@ -106,7 +217,7 @@ export function SelectGridModal<T extends SelectableItem>({
                 gap: 16,
               }}
             >
-              {items.map((item) => {
+              {visibleItems.map((item) => {
                 const selected = selectedIds.includes(item.id);
                 const img = item.previewUrl || item.thumbnailUrl;
                 return (

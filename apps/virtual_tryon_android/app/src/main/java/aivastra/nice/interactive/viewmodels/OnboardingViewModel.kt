@@ -18,7 +18,6 @@ sealed interface OnboardingUiState {
         val companyName: String = "",
         val phone: String = "",
         val showCompanyNameField: Boolean = true,
-        val showPhoneField: Boolean = true,
         val businessAddress: String = "",
         val isSubmitting: Boolean = false,
         val error: String? = null
@@ -42,6 +41,11 @@ class OnboardingViewModel(
      * suggestion, not confirmed merchant data, so the business-name field stays
      * visible and editable unless the onboarding status endpoint already has a
      * real company name stored for the merchant.
+     *
+     * The phone field always stays visible/editable even when a stored phone is
+     * prefilled: it may be stale (carried over from an unrelated prior signup on
+     * the same email), and unlike company name there was no way for a user to
+     * correct it once the field was hidden.
      */
     fun start(suggestedContactName: String? = null, suggestedCompanyName: String? = null) {
         _uiState.update { OnboardingUiState.Loading }
@@ -70,8 +74,7 @@ class OnboardingViewModel(
                         contactName = contactName,
                         companyName = companyName,
                         phone = phoneDigits,
-                        showCompanyNameField = storedCompanyName == null,
-                        showPhoneField = phoneDigits.length != 10
+                        showCompanyNameField = storedCompanyName == null
                     )
                 }
             } catch (_: Exception) {
@@ -81,8 +84,7 @@ class OnboardingViewModel(
                     OnboardingUiState.Editing(
                         contactName = contactName,
                         companyName = companyName,
-                        showCompanyNameField = true,
-                        showPhoneField = true
+                        showCompanyNameField = true
                     )
                 }
             }

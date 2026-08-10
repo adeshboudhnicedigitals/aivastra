@@ -21,7 +21,8 @@ data class OutfitSelectionUiState(
     val subcategories: List<GarmentSubcategory> = emptyList(),
     val products: List<CatalogProduct> = emptyList(),
     val selectedSubcategoryId: String? = null,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val isUnauthorized: Boolean = false
 ) {
     val visibleProducts: List<CatalogProduct>
         get() = selectedSubcategoryId?.let { id ->
@@ -41,7 +42,9 @@ class OutfitSelectionViewModel(
         val normalizedCategory = category.trim().lowercase()
         val currentState = _uiState.value
 
-        if (!forceReload && currentState.category == normalizedCategory && currentState.products.isNotEmpty()) {
+        val shouldForceReload = forceReload || currentState.products.isEmpty()
+
+        if (!shouldForceReload && currentState.category == normalizedCategory && currentState.products.isNotEmpty()) {
             _uiState.update { it.copy(isLoading = false, isRefreshing = false) }
             return
         }
@@ -57,13 +60,15 @@ class OutfitSelectionViewModel(
                     isLoading = false,
                     isRefreshing = true,
                     category = normalizedCategory,
-                    errorMessage = null
+                    errorMessage = null,
+                    isUnauthorized = false
                 )
             } else {
                 OutfitSelectionUiState(
                     isLoading = true,
                     category = normalizedCategory,
-                    errorMessage = null
+                    errorMessage = null,
+                    isUnauthorized = false
                 )
             }
         }
@@ -71,7 +76,7 @@ class OutfitSelectionViewModel(
         catalogJob = viewModelScope.launch {
             try {
                 val result = withTimeoutOrNull(20000L) {
-                    repository.getCatalog(normalizedCategory, forceReload)
+                    repository.getCatalog(normalizedCategory, shouldForceReload)
                 }
 
                 if (result == null) {
@@ -79,7 +84,8 @@ class OutfitSelectionViewModel(
                         state.copy(
                             isLoading = false,
                             isRefreshing = false,
-                            errorMessage = "Loading timed out. Check connection and tap Retry."
+                            errorMessage = "Loading timed out. Check connection and tap Retry.",
+                            isUnauthorized = false
                         )
                     }
                 } else {
@@ -97,7 +103,8 @@ class OutfitSelectionViewModel(
                                 subcategories = result.data.subcategories,
                                 products = result.data.products,
                                 selectedSubcategoryId = selectedSubcategoryId,
-                                errorMessage = null
+                                errorMessage = null,
+                                isUnauthorized = false
                             )
                         }
 
@@ -105,7 +112,8 @@ class OutfitSelectionViewModel(
                             state.copy(
                                 isLoading = false,
                                 isRefreshing = false,
-                                errorMessage = result.message
+                                errorMessage = result.message,
+                                isUnauthorized = result.isUnauthorized
                             )
                         }
                     }
@@ -115,7 +123,8 @@ class OutfitSelectionViewModel(
                     state.copy(
                         isLoading = false,
                         isRefreshing = false,
-                        errorMessage = e.message ?: "Failed to load catalog. Tap Retry."
+                        errorMessage = e.message ?: "Failed to load catalog. Tap Retry.",
+                        isUnauthorized = false
                     )
                 }
             }
@@ -125,6 +134,7 @@ class OutfitSelectionViewModel(
     fun retry() {
         val category = _uiState.value.category
         if (category.isNotBlank()) {
+            CatalogRepository.clearCache()
             loadCatalog(category, forceReload = true)
         }
     }

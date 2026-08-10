@@ -13,6 +13,7 @@ export interface ModelFace {
   thumbnailKey: string;
   r2Key: string;
   faceSideR2Key: string | null;
+  tags: string[];
   /** Non-null = published to the public developer API under this slug. */
   publicApiSlug: string | null;
   isActive: boolean;
@@ -245,6 +246,16 @@ export interface User {
     jobType: string;
   }[];
   merchant?: UserMerchant | null;
+}
+
+export interface CreditLedgerEntry {
+  id: string;
+  userId: string;
+  delta: number;
+  reason: string;
+  jobId: string | null;
+  adminId: string | null;
+  createdAt: string;
 }
 
 export type JobStatus =

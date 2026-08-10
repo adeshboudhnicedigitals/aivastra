@@ -1,11 +1,16 @@
 package aivastra.nice.interactive.navigation
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.graphics.Color
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -104,6 +109,19 @@ fun AppNavGraph(
     val sessionTryOnResults = remember { mutableStateListOf<String>() }
 
     val tryOnUiState by tryOnViewModel.uiState.collectAsState()
+
+    var lastNavTime by remember { mutableLongStateOf(0L) }
+
+    val safePopBackStack: () -> Unit = {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - lastNavTime >= 350L) {
+            lastNavTime = now
+            val currentRoute = navController.currentDestination?.route
+            if (currentRoute != Screen.CategorySelection.route && navController.previousBackStackEntry != null) {
+                navController.popBackStack()
+            }
+        }
+    }
 
     NavHost(
         navController = navController,
@@ -232,9 +250,8 @@ fun AppNavGraph(
                         val refreshToken = SessionManager.refreshToken
                         if (!refreshToken.isNullOrEmpty()) {
                             UserRepository().logoutDevice(refreshToken)
-                        } else {
-                            SessionManager.clear()
                         }
+                        SessionManager.clear()
                         navController.navigate(Screen.SignIn.route) {
                             popUpTo(0) { inclusive = true }
                         }
@@ -271,7 +288,7 @@ fun AppNavGraph(
             exitTransition  = { ExitTransition.None }
         ) {
             ProfilePage(
-                onBack = { navController.popBackStack() },
+                onBack = { safePopBackStack() },
                 onLogoutSuccess = {
                     navController.navigate(Screen.SignIn.route) {
                         popUpTo(0) { inclusive = true }
@@ -290,7 +307,12 @@ fun AppNavGraph(
         ) { backStackEntry ->
             OutfitSelectionPage(
                 category = backStackEntry.arguments?.getString("category").orEmpty(),
-                onBack = { navController.popBackStack() },
+                onBack = { safePopBackStack() },
+                onUnauthorized = {
+                    navController.navigate(Screen.SignIn.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                },
                 onOutfitSelected = { product, productList ->
                     selectedCategory = backStackEntry.arguments?.getString("category").orEmpty()
                     selectedProduct = product
@@ -310,7 +332,7 @@ fun AppNavGraph(
                 OutfitDetailPage(
                     product = product,
                     productList = activeSubcategoryProductList,
-                    onBack = { navController.popBackStack() },
+                    onBack = { safePopBackStack() },
                     onStartTryOn = { targetProduct ->
                         selectedProduct = targetProduct
                         val photoKey = customerPhotoR2Key
@@ -322,9 +344,11 @@ fun AppNavGraph(
                         }
                     }
                 )
-            } ?: LaunchedEffect(Unit) {
-                if (entry.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
-                    navController.popBackStack()
+            } ?: Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+                LaunchedEffect(Unit) {
+                    if (entry.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                        safePopBackStack()
+                    }
                 }
             }
         }
@@ -339,7 +363,7 @@ fun AppNavGraph(
         ) { backStackEntry ->
             PoseGuidePage(
                 category = backStackEntry.arguments?.getString("category").orEmpty(),
-                onBack = { navController.popBackStack() },
+                onBack = { safePopBackStack() },
                 onReady = { navController.navigate(Screen.PhotoUpload.route) }
             )
         }
@@ -350,7 +374,13 @@ fun AppNavGraph(
             exitTransition = { ExitTransition.None }
         ) {
             PhotoUploadPage(
-                onBack = { navController.popBackStack() },
+                onBack = {
+                    // Exiting PhotoUpload backward always lands on the original OutfitDetail
+                    // entry, not the one pushed from TryMoreOutfits — clear the reuse-photo
+                    // shortcut flag or a stale true skips PhotoUpload/PhotoReview next time.
+                    fromTryMoreOutfits = false
+                    safePopBackStack()
+                },
                 onUploadSuccess = { photoUri, r2Key ->
                     // A freshly captured/uploaded photo starts a new customer's session — any
                     // try-on results still held from a previous photo must not leak into this
@@ -372,8 +402,12 @@ fun AppNavGraph(
             exitTransition = { ExitTransition.None }
         ) { entry ->
             val handleBackToUpload: () -> Unit = {
-                if (!navController.popBackStack(Screen.PhotoUpload.route, inclusive = false)) {
-                    navController.navigate(Screen.PhotoUpload.route)
+                val now = android.os.SystemClock.uptimeMillis()
+                if (now - lastNavTime >= 350L) {
+                    lastNavTime = now
+                    if (!navController.popBackStack(Screen.PhotoUpload.route, inclusive = false)) {
+                        navController.navigate(Screen.PhotoUpload.route)
+                    }
                 }
             }
 
@@ -402,9 +436,11 @@ fun AppNavGraph(
                         }
                     }
                 )
-            } ?: LaunchedEffect(Unit) {
-                if (entry.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
-                    handleBackToUpload()
+            } ?: Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+                LaunchedEffect(Unit) {
+                    if (entry.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                        handleBackToUpload()
+                    }
                 }
             }
         }
@@ -414,9 +450,9 @@ fun AppNavGraph(
             enterTransition = { EnterTransition.None },
             exitTransition = { ExitTransition.None }
         ) { entry ->
-            LaunchedEffect(tryOnUiState.state) {
-                if (tryOnUiState.state == TryOnState.COMPLETED && tryOnUiState.shareUrl != null) {
-                    val url = tryOnUiState.shareUrl!!
+            LaunchedEffect(tryOnUiState.state, tryOnUiState.shareUrl) {
+                val url = tryOnUiState.shareUrl
+                if (tryOnUiState.state == TryOnState.COMPLETED && url != null) {
                     if (!sessionTryOnResults.contains(url)) {
                         sessionTryOnResults.add(url)
                     }
@@ -434,7 +470,7 @@ fun AppNavGraph(
 
             val handleCancel: () -> Unit = {
                 tryOnViewModel.cancelCurrentTryOnJob()
-                navController.popBackStack()
+                safePopBackStack()
             }
 
             TryOnProcessingPage(
@@ -471,23 +507,33 @@ fun AppNavGraph(
                     resultImageUrl = url,
                     onBack = {
                         hasEnteredTryMoreFlow = true
-                        navController.navigate(Screen.TryMoreOutfits.route) {
-                            popUpTo(Screen.PhotoReview.route) { inclusive = false }
+                        val now = android.os.SystemClock.uptimeMillis()
+                        if (now - lastNavTime >= 350L) {
+                            lastNavTime = now
+                            navController.navigate(Screen.TryMoreOutfits.route) {
+                                popUpTo(Screen.PhotoReview.route) { inclusive = false }
+                            }
                         }
                     },
                     onTryAnother = {
                         hasEnteredTryMoreFlow = true
-                        navController.navigate(Screen.TryMoreOutfits.route) {
-                            popUpTo(Screen.PhotoReview.route) { inclusive = false }
+                        val now = android.os.SystemClock.uptimeMillis()
+                        if (now - lastNavTime >= 350L) {
+                            lastNavTime = now
+                            navController.navigate(Screen.TryMoreOutfits.route) {
+                                popUpTo(Screen.PhotoReview.route) { inclusive = false }
+                            }
                         }
                     },
                     onDownload = {
                         navController.navigate(Screen.Download.route)
                     }
                 )
-            } ?: LaunchedEffect(Unit) {
-                if (entry.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
-                    navController.popBackStack()
+            } ?: Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+                LaunchedEffect(Unit) {
+                    if (entry.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                        safePopBackStack()
+                    }
                 }
             }
         }
@@ -501,10 +547,20 @@ fun AppNavGraph(
                 initialCategory = selectedCategory,
                 initialProduct = selectedProduct,
                 resultImageUrl = tryOnUiState.shareUrl,
+                sessionHistory = sessionTryOnResults,
                 onBack = {
                     hasEnteredTryMoreFlow = true
-                    if (!navController.popBackStack(Screen.PhotoReview.route, inclusive = false)) {
-                        navController.navigate(Screen.PhotoReview.route)
+                    val now = android.os.SystemClock.uptimeMillis()
+                    if (now - lastNavTime >= 350L) {
+                        lastNavTime = now
+                        if (!navController.popBackStack(Screen.PhotoReview.route, inclusive = false)) {
+                            navController.navigate(Screen.PhotoReview.route)
+                        }
+                    }
+                },
+                onUnauthorized = {
+                    navController.navigate(Screen.SignIn.route) {
+                        popUpTo(0) { inclusive = true }
                     }
                 },
                 onGoToDownloads = {
@@ -534,7 +590,7 @@ fun AppNavGraph(
         ) {
             DownloadPage(
                 resultsList = sessionTryOnResults,
-                onBack = { navController.popBackStack() },
+                onBack = { safePopBackStack() },
                 onDeleteSession = {
                     hasEnteredTryMoreFlow = false
                     sessionTryOnResults.clear()
