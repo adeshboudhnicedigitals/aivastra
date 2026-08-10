@@ -8,11 +8,11 @@ export async function shopifyBillingRoutes(app: FastifyInstance) {
   // redirect (see buildPlanSelectionUrl in billing.ts and the welcome-link
   // config in Partner Dashboard). Shopify appends plan_handle/shop as query
   // params, but those are merchant-controllable via the URL bar — this route
-  // never trusts them. It re-fetches the real state from the Partner API via
-  // syncStoreSubscription instead, exactly like the periodic scheduler does.
+  // never trusts them. It re-fetches the real state from Shopify's Admin API
+  // via syncStoreSubscription instead, exactly like the periodic scheduler does.
   app.get('/v1/shopify/billing/confirm', { preHandler: app.requireShopifySession }, async (req) => {
     const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
-    const result = await syncStoreSubscription(app.db, app.env, store);
+    const result = await syncStoreSubscription(app, store);
 
     let creditBalance: number | null = null;
     if (store.ownerUserId) {

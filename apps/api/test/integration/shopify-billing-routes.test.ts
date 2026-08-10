@@ -69,11 +69,13 @@ describe('GET /v1/shopify/billing/confirm', () => {
       subscriptionStatus: 'active',
       creditBalance: 0,
     });
-    expect(syncSpy).toHaveBeenCalledWith(
-      app.db,
-      app.env,
-      expect.objectContaining({ id: store.id }),
-    );
+    // Asserted positionally rather than via toHaveBeenCalledWith so the deep
+    // equality check never has to walk the whole Fastify instance.
+    expect(syncSpy).toHaveBeenCalledTimes(1);
+    // The Fastify instance the route passes is its own encapsulated child, not
+    // the root TestApp, so assert on its capabilities rather than identity.
+    expect(syncSpy.mock.calls[0]?.[0]).toHaveProperty('db');
+    expect(syncSpy.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ id: store.id }));
 
     syncSpy.mockRestore();
   });
@@ -82,7 +84,7 @@ describe('GET /v1/shopify/billing/confirm', () => {
     // Shopify appends plan_handle/shop as query params on this redirect, but
     // they're editable in the URL bar before the request ever reaches us.
     // A spoofed plan_handle here must not leak into the response — only the
-    // real value syncStoreSubscription reads from the Partner API should.
+    // real value syncStoreSubscription reads from Shopify's Admin API should.
     const [user] = await app.db
       .insert(schema.users)
       .values({
