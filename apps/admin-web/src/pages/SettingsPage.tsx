@@ -615,6 +615,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   const [tryonCreditCost, setTryonCreditCost] = useState(5);
   const [sareeMannequinDevCreditCost, setSareeMannequinDevCreditCost] = useState(10);
   const [pixverseCreditCost, setPixverseCreditCost] = useState(150);
+  const [shopifyTrialCredits, setShopifyTrialCredits] = useState(25);
   const [uploadLimitsMb, setUploadLimitsMb] = useState({
     merchantCatalogMaxBytes: 20,
     webGarmentMaxBytes: 20,
@@ -665,6 +666,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
       tryon?: { creditCost: number };
       sareeMannequinDev?: { creditCost: number };
       pixverse?: { creditCost: number };
+      shopify?: { trialCredits: number };
       uploadLimits?: Record<string, number>;
     }>('/admin/config')
       .then((cfg) => {
@@ -677,6 +679,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
         if (cfg.tryon) setTryonCreditCost(cfg.tryon.creditCost);
         if (cfg.sareeMannequinDev) setSareeMannequinDevCreditCost(cfg.sareeMannequinDev.creditCost);
         if (cfg.pixverse) setPixverseCreditCost(cfg.pixverse.creditCost);
+        if (cfg.shopify) setShopifyTrialCredits(cfg.shopify.trialCredits);
         if (cfg.uploadLimits) {
           const bytesToMb = (b: number) => Math.round((b / (1024 * 1024)) * 100) / 100;
           setUploadLimitsMb({
@@ -793,6 +796,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
           tryon: { creditCost: tryonCreditCost },
           sareeMannequinDev: { creditCost: sareeMannequinDevCreditCost },
           pixverse: { creditCost: pixverseCreditCost },
+          shopify: { trialCredits: shopifyTrialCredits },
           uploadLimits: {
             merchantCatalogMaxBytes: mbToBytes(uploadLimitsMb.merchantCatalogMaxBytes),
             webGarmentMaxBytes: mbToBytes(uploadLimitsMb.webGarmentMaxBytes),
@@ -1750,6 +1754,47 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
 
                 <div style={{ marginTop: 24, marginBottom: 8 }}>
                   <div className="setting-lbl" style={{ marginBottom: 4 }}>
+                    Shopify Free Trial
+                  </div>
+                  <div className="setting-desc" style={{ marginBottom: 12 }}>
+                    Credits granted once, automatically, the first time a Shopify store links to an
+                    AiVastra account — before the merchant picks a paid plan. Independent of any
+                    day-based trial configured in Partner Dashboard.
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: '10px 12px',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--r)',
+                      background: 'var(--surface-2)',
+                    }}
+                  >
+                    <span className="setting-lbl">Trial Credits</span>
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}
+                    >
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        max={1000}
+                        style={{ width: 80, textAlign: 'right' }}
+                        value={shopifyTrialCredits}
+                        disabled={sysSaving}
+                        onChange={(e) => setShopifyTrialCredits(Number(e.target.value))}
+                      />
+                      <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                        credits / store
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 24, marginBottom: 8 }}>
+                  <div className="setting-lbl" style={{ marginBottom: 4 }}>
                     App Video
                   </div>
                   <div className="setting-desc" style={{ marginBottom: 12 }}>
@@ -2100,7 +2145,10 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                       maxOutputPx > 4096 ||
                       !Number.isInteger(maxBatchJobs) ||
                       maxBatchJobs < 1 ||
-                      maxBatchJobs > 2000
+                      maxBatchJobs > 2000 ||
+                      !Number.isInteger(shopifyTrialCredits) ||
+                      shopifyTrialCredits < 0 ||
+                      shopifyTrialCredits > 1000
                     }
                   >
                     {sysSaving ? 'Saving…' : 'Save'}
