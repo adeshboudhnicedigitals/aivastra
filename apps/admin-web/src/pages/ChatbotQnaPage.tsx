@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
 import { apiFetch } from '../lib/data';
 
@@ -192,123 +193,107 @@ export default function ChatbotQnaPage({
       )}
 
       {editing && (
-        <>
-          <div className="scrim" onClick={() => setEditing(null)} />
-          <div className="drawer">
-            <div className="drawer-head">
-              <div style={{ fontWeight: 600, fontSize: 15 }}>{editing.id ? 'Edit' : 'New'} Q&A</div>
-              <button className="iconbtn" onClick={() => setEditing(null)} title="Close (Esc)">
-                <Icon.Close />
-              </button>
-            </div>
-            <div
-              className="drawer-body"
-              style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
-            >
-              <div>
-                <div
-                  style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)', marginBottom: 4 }}
-                >
-                  Question
-                </div>
-                <textarea
-                  value={editing.question ?? ''}
-                  onChange={(e) => setEditing({ ...editing, question: e.target.value })}
-                  rows={3}
-                  style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    fontSize: 13,
-                    border: '1px solid var(--border)',
-                    borderRadius: 'var(--r)',
-                    background: 'var(--surface)',
-                    color: 'var(--ink)',
-                    resize: 'vertical',
-                    fontFamily: 'var(--sans)',
-                    boxSizing: 'border-box',
-                  }}
-                />
-              </div>
-              <div>
-                <div
-                  style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)', marginBottom: 4 }}
-                >
-                  Answer
-                </div>
-                <textarea
-                  value={editing.answer ?? ''}
-                  onChange={(e) => setEditing({ ...editing, answer: e.target.value })}
-                  rows={5}
-                  style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    fontSize: 13,
-                    border: '1px solid var(--border)',
-                    borderRadius: 'var(--r)',
-                    background: 'var(--surface)',
-                    color: 'var(--ink)',
-                    resize: 'vertical',
-                    fontFamily: 'var(--sans)',
-                    boxSizing: 'border-box',
-                  }}
-                />
-              </div>
-              <div>
-                <div
-                  style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)', marginBottom: 4 }}
-                >
-                  Tags (comma-separated)
-                </div>
-                <input
-                  value={(editing.tags ?? []).join(', ')}
-                  onChange={(e) =>
-                    setEditing({
-                      ...editing,
-                      tags: e.target.value
-                        .split(',')
-                        .map((s) => s.trim())
-                        .filter(Boolean),
-                    })
-                  }
-                  style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    fontSize: 13,
-                    border: '1px solid var(--border)',
-                    borderRadius: 'var(--r)',
-                    background: 'var(--surface)',
-                    color: 'var(--ink)',
-                    boxSizing: 'border-box',
-                  }}
-                />
-              </div>
-              <label
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  fontSize: 13,
-                  cursor: 'pointer',
-                }}
+        <EditDrawer
+          onClose={() => setEditing(null)}
+          title={`${editing.id ? 'Edit' : 'New'} Q&A`}
+          onSave={save}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div>
+              <div
+                style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)', marginBottom: 4 }}
               >
-                <input
-                  type="checkbox"
-                  checked={editing.isActive ?? true}
-                  onChange={(e) => setEditing({ ...editing, isActive: e.target.checked })}
-                />
-                Active
-              </label>
+                Question
+              </div>
+              <textarea
+                value={editing.question ?? ''}
+                onChange={(e) => setEditing({ ...editing, question: e.target.value })}
+                rows={3}
+                style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  fontSize: 13,
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--r)',
+                  background: 'var(--surface)',
+                  color: 'var(--ink)',
+                  resize: 'vertical',
+                  fontFamily: 'var(--sans)',
+                  boxSizing: 'border-box',
+                }}
+              />
             </div>
-            <div className="drawer-foot" style={{ gap: 8 }}>
-              <button className="btn" onClick={() => setEditing(null)}>
-                Cancel
-              </button>
-              <button className="btn primary" onClick={save}>
-                Save
-              </button>
+            <div>
+              <div
+                style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)', marginBottom: 4 }}
+              >
+                Answer
+              </div>
+              <textarea
+                value={editing.answer ?? ''}
+                onChange={(e) => setEditing({ ...editing, answer: e.target.value })}
+                rows={5}
+                style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  fontSize: 13,
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--r)',
+                  background: 'var(--surface)',
+                  color: 'var(--ink)',
+                  resize: 'vertical',
+                  fontFamily: 'var(--sans)',
+                  boxSizing: 'border-box',
+                }}
+              />
             </div>
+            <div>
+              <div
+                style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)', marginBottom: 4 }}
+              >
+                Tags (comma-separated)
+              </div>
+              <input
+                value={(editing.tags ?? []).join(', ')}
+                onChange={(e) =>
+                  setEditing({
+                    ...editing,
+                    tags: e.target.value
+                      .split(',')
+                      .map((s) => s.trim())
+                      .filter(Boolean),
+                  })
+                }
+                style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  fontSize: 13,
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--r)',
+                  background: 'var(--surface)',
+                  color: 'var(--ink)',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={editing.isActive ?? true}
+                onChange={(e) => setEditing({ ...editing, isActive: e.target.checked })}
+              />
+              Active
+            </label>
           </div>
-        </>
+        </EditDrawer>
       )}
     </div>
   );

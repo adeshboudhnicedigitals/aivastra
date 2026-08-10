@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { useAuth } from '../context/AuthContext';
@@ -679,100 +680,74 @@ export default function SareePage({ toast, onNav }: Props) {
       </div>
 
       {wfModal && (
-        <div className="modal-overlay" onClick={() => !wfSaving && setWfModal(false)}>
-          <div
-            className="modal"
-            onClick={(e) => e.stopPropagation()}
-            style={{ width: 'min(520px, calc(100vw - 40px))' }}
-          >
-            <div className="modal-head">
-              <h3>Upload saree workflow JSON</h3>
-              <button
-                className="btn sm ghost"
-                onClick={() => setWfModal(false)}
-                disabled={wfSaving}
-                style={{ marginLeft: 'auto' }}
-              >
-                <Icon.Close />
-              </button>
-            </div>
-            <div
-              className="modal-body"
-              style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
-            >
-              <div className="field">
-                <label>Label</label>
-                <input
-                  className="input"
-                  value={wfLabel}
-                  disabled={wfSaving}
-                  placeholder="e.g. Saree default"
-                  onChange={(e) => handleWfLabelChange(e.target.value)}
-                />
-              </div>
-              <div className="field">
-                <label>
-                  Slug{' '}
-                  <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 400 }}>
-                    (auto-derived, editable)
-                  </span>
-                </label>
-                <input
-                  className="input"
-                  value={wfSlug}
-                  disabled={wfSaving}
-                  placeholder="kebab-case"
-                  onChange={(e) => {
-                    setSlugEdited(true);
-                    setWfSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'));
-                  }}
-                />
-              </div>
-              <div className="field">
-                <label>ComfyUI JSON file</label>
-                <label
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '6px 12px',
-                    border: '1.5px dashed var(--border)',
-                    borderRadius: 7,
-                    cursor: wfSaving ? 'not-allowed' : 'pointer',
-                    background: 'var(--surface-2)',
-                    fontSize: 12,
-                    color: 'var(--muted)',
-                    userSelect: 'none',
-                    width: 'fit-content',
-                  }}
-                >
-                  <Icon.Workflow />
-                  {wfFile ? wfFile.name : 'Choose .json file'}
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="application/json"
-                    disabled={wfSaving}
-                    style={{ display: 'none' }}
-                    onChange={(e) => setWfFile(e.target.files?.[0] ?? null)}
-                  />
-                </label>
-              </div>
-            </div>
-            <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setWfModal(false)} disabled={wfSaving}>
-                Cancel
-              </button>
-              <button
-                className="btn primary"
-                disabled={wfSaving || !wfFile || !wfLabel.trim() || !wfSlug.trim()}
-                onClick={() => void handleUploadWorkflow()}
-              >
-                {wfSaving ? 'Uploading…' : 'Upload'}
-              </button>
-            </div>
+        <EditDrawer
+          onClose={() => setWfModal(false)}
+          title="Upload saree workflow JSON"
+          width="min(520px, calc(100vw - 40px))"
+          saving={wfSaving}
+          onSave={() => void handleUploadWorkflow()}
+          saveLabel="Upload"
+          saveDisabled={!wfFile || !wfLabel.trim() || !wfSlug.trim()}
+        >
+          <div className="field">
+            <label>Label</label>
+            <input
+              className="input"
+              value={wfLabel}
+              disabled={wfSaving}
+              placeholder="e.g. Saree default"
+              onChange={(e) => handleWfLabelChange(e.target.value)}
+            />
           </div>
-        </div>
+          <div className="field">
+            <label>
+              Slug{' '}
+              <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 400 }}>
+                (auto-derived, editable)
+              </span>
+            </label>
+            <input
+              className="input"
+              value={wfSlug}
+              disabled={wfSaving}
+              placeholder="kebab-case"
+              onChange={(e) => {
+                setSlugEdited(true);
+                setWfSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'));
+              }}
+            />
+          </div>
+          <div className="field">
+            <label>ComfyUI JSON file</label>
+            <label
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 12px',
+                border: '1.5px dashed var(--border)',
+                borderRadius: 7,
+                cursor: wfSaving ? 'not-allowed' : 'pointer',
+                background: 'var(--surface-2)',
+                fontSize: 12,
+                color: 'var(--muted)',
+                userSelect: 'none',
+                width: 'fit-content',
+              }}
+            >
+              <Icon.Workflow />
+              {wfFile ? wfFile.name : 'Choose .json file'}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/json"
+                disabled={wfSaving}
+                style={{ display: 'none' }}
+                onChange={(e) => setWfFile(e.target.files?.[0] ?? null)}
+              />
+            </label>
+          </div>
+        </EditDrawer>
       )}
     </div>
   );
