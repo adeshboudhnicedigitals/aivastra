@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { AssetThumb } from '../../components/AssetThumb';
+import { EditDrawer } from '../../components/EditDrawer';
 import { EditGarmentTypeModal } from '../../components/EditGarmentTypeModal';
 import { Icon } from '../../components/Icons';
 import { SearchableSelect } from '../../components/SearchableSelect';
@@ -864,251 +865,206 @@ export function GarmentTypesTab() {
 
       {/* Add garment type */}
       {showSubcatModal && (
-        <div
-          className="modal-overlay"
-          onClick={
-            subcatSaving
-              ? undefined
-              : () => {
-                  setShowSubcatModal(false);
-                  setSubcatImageFile(null);
-                }
-          }
+        <EditDrawer
+          onClose={() => {
+            setShowSubcatModal(false);
+            setSubcatImageFile(null);
+          }}
+          title="Add garment type"
+          width="min(560px, calc(100vw - 60px))"
+          saving={subcatSaving}
+          saveDisabled={!subcatForm.label.trim() || !subcatForm.slug.trim()}
+          saveLabel={subcatSaving ? 'Creating…' : 'Create'}
+          onSave={async () => {
+            setSubcatSaving(true);
+            try {
+              let thumbnailKey: string | undefined;
+              if (subcatImageFile) {
+                const presign = await apiFetch<{ uploadUrl: string; thumbnailKey: string }>(
+                  '/admin/assets/garment-types/presign',
+                  {
+                    method: 'POST',
+                    body: JSON.stringify({ contentType: subcatImageFile.type }),
+                  },
+                );
+                const thumb = await makeThumbnail(subcatImageFile);
+                await fetch(presign.uploadUrl, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': thumb.type },
+                  body: thumb,
+                });
+                thumbnailKey = presign.thumbnailKey;
+              }
+              const row = await apiFetch<GarmentType>('/admin/assets/garment-types', {
+                method: 'POST',
+                body: JSON.stringify({ ...subcatForm, thumbnailKey }),
+              });
+              // A collision at the chosen sortOrder shifts other rows of this
+              // gender server-side - refetch instead of patching just this one.
+              await loadGarmentTypes();
+              toast({ title: `${row.label} created` });
+              setShowSubcatModal(false);
+              setSubcatImageFile(null);
+            } catch (e) {
+              toast({
+                kind: 'error',
+                title: 'Failed to create garment type',
+                body: apiErrorMessage(e, 'Please try again.'),
+              });
+            } finally {
+              setSubcatSaving(false);
+            }
+          }}
         >
-          <div
-            className="modal"
-            onClick={(e) => e.stopPropagation()}
-            style={{ width: 'min(440px, calc(100vw - 80px))' }}
-          >
-            <div className="modal-head">
-              <h3>Add garment type</h3>
-              <button
-                className="btn sm ghost"
-                onClick={() => {
-                  setShowSubcatModal(false);
-                  setSubcatImageFile(null);
-                }}
-                disabled={subcatSaving}
-                style={{ marginLeft: 'auto' }}
-              >
-                <Icon.Close />
-              </button>
-            </div>
-            <div
-              className="modal-body"
-              style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
+          <div className="field">
+            <label>Label</label>
+            <input
+              className="input"
+              placeholder="Full Sleeve Shirt"
+              value={subcatForm.label}
+              disabled={subcatSaving}
+              onChange={(e) => setSubcatForm((f) => ({ ...f, label: e.target.value }))}
+            />
+          </div>
+          <div className="field">
+            <label>Slug</label>
+            <input
+              className="input"
+              placeholder="fullsleeveshirt"
+              value={subcatForm.slug}
+              disabled={subcatSaving}
+              onChange={(e) =>
+                setSubcatForm((f) => ({
+                  ...f,
+                  slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
+                }))
+              }
+            />
+          </div>
+          <div className="field">
+            <label>Gender</label>
+            <select
+              className="select"
+              value={subcatForm.genderSlug}
+              disabled={subcatSaving}
+              onChange={(e) => {
+                const genderSlug = e.target.value as GenderSlug;
+                setSubcatForm((f) => ({
+                  ...f,
+                  genderSlug,
+                  sortOrder: nextSortOrderFor(genderSlug),
+                }));
+              }}
             >
-              <div className="field">
-                <label>Label</label>
-                <input
-                  className="input"
-                  placeholder="Full Sleeve Shirt"
-                  value={subcatForm.label}
-                  disabled={subcatSaving}
-                  onChange={(e) => setSubcatForm((f) => ({ ...f, label: e.target.value }))}
+              <option value="men">Men</option>
+              <option value="women">Women</option>
+              <option value="boys">Boys</option>
+              <option value="girls">Girls</option>
+            </select>
+          </div>
+          <div className="field">
+            <label>
+              Sort order{' '}
+              <span style={{ color: 'var(--muted)', fontWeight: 400 }}>
+                (1 shows first; picking a taken position pushes the rest down)
+              </span>
+            </label>
+            <input
+              className="input"
+              type="number"
+              step={1}
+              value={subcatForm.sortOrder}
+              disabled={subcatSaving}
+              onChange={(e) => setSubcatForm((f) => ({ ...f, sortOrder: Number(e.target.value) }))}
+            />
+          </div>
+          <div className="field">
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={subcatForm.requiresLowerUpload}
+                disabled={subcatSaving}
+                onChange={(e) =>
+                  setSubcatForm((f) => ({ ...f, requiresLowerUpload: e.target.checked }))
+                }
+              />
+              Requires lower garment upload
+              <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
+                (user uploads bottom wear separately)
+              </span>
+            </label>
+          </div>
+          <div className="field">
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={subcatForm.requiresThirdUpload}
+                disabled={subcatSaving}
+                onChange={(e) =>
+                  setSubcatForm((f) => ({ ...f, requiresThirdUpload: e.target.checked }))
+                }
+              />
+              Requires 3rd garment upload
+              <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
+                (user uploads a third garment image separately)
+              </span>
+            </label>
+          </div>
+          <div className="field">
+            <label>
+              Thumbnail image{' '}
+              <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {subcatImageFile ? (
+                // biome-ignore lint/performance/noImgElement: admin panel
+                <img
+                  src={URL.createObjectURL(subcatImageFile)}
+                  alt="preview"
+                  style={{
+                    width: 48,
+                    height: 48,
+                    objectFit: 'cover',
+                    borderRadius: 6,
+                    flexShrink: 0,
+                  }}
                 />
-              </div>
-              <div className="field">
-                <label>Slug</label>
-                <input
-                  className="input"
-                  placeholder="fullsleeveshirt"
-                  value={subcatForm.slug}
-                  disabled={subcatSaving}
-                  onChange={(e) =>
-                    setSubcatForm((f) => ({
-                      ...f,
-                      slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
-                    }))
-                  }
-                />
-              </div>
-              <div className="field">
-                <label>Gender</label>
-                <select
-                  className="select"
-                  value={subcatForm.genderSlug}
-                  disabled={subcatSaving}
-                  onChange={(e) => {
-                    const genderSlug = e.target.value as GenderSlug;
-                    setSubcatForm((f) => ({
-                      ...f,
-                      genderSlug,
-                      sortOrder: nextSortOrderFor(genderSlug),
-                    }));
+              ) : (
+                <div
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 6,
+                    background: 'var(--subtle)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
                   }}
                 >
-                  <option value="men">Men</option>
-                  <option value="women">Women</option>
-                  <option value="boys">Boys</option>
-                  <option value="girls">Girls</option>
-                </select>
-              </div>
-              <div className="field">
-                <label>
-                  Sort order{' '}
-                  <span style={{ color: 'var(--muted)', fontWeight: 400 }}>
-                    (1 shows first; picking a taken position pushes the rest down)
-                  </span>
-                </label>
-                <input
-                  className="input"
-                  type="number"
-                  step={1}
-                  value={subcatForm.sortOrder}
-                  disabled={subcatSaving}
-                  onChange={(e) =>
-                    setSubcatForm((f) => ({ ...f, sortOrder: Number(e.target.value) }))
-                  }
-                />
-              </div>
-              <div className="field">
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={subcatForm.requiresLowerUpload}
-                    disabled={subcatSaving}
-                    onChange={(e) =>
-                      setSubcatForm((f) => ({ ...f, requiresLowerUpload: e.target.checked }))
-                    }
-                  />
-                  Requires lower garment upload
-                  <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
-                    (user uploads bottom wear separately)
-                  </span>
-                </label>
-              </div>
-              <div className="field">
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={subcatForm.requiresThirdUpload}
-                    disabled={subcatSaving}
-                    onChange={(e) =>
-                      setSubcatForm((f) => ({ ...f, requiresThirdUpload: e.target.checked }))
-                    }
-                  />
-                  Requires 3rd garment upload
-                  <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
-                    (user uploads a third garment image separately)
-                  </span>
-                </label>
-              </div>
-              <div className="field">
-                <label>
-                  Thumbnail image{' '}
-                  <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
-                </label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  {subcatImageFile ? (
-                    // biome-ignore lint/performance/noImgElement: admin panel
-                    <img
-                      src={URL.createObjectURL(subcatImageFile)}
-                      alt="preview"
-                      style={{
-                        width: 48,
-                        height: 48,
-                        objectFit: 'cover',
-                        borderRadius: 6,
-                        flexShrink: 0,
-                      }}
-                    />
-                  ) : (
-                    <div
-                      style={{
-                        width: 48,
-                        height: 48,
-                        borderRadius: 6,
-                        background: 'var(--subtle)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0,
-                      }}
-                    >
-                      <Icon.Image />
-                    </div>
-                  )}
-                  <label className="btn sm ghost" style={{ cursor: 'pointer' }}>
-                    {subcatImageFile ? 'Change image' : 'Upload image'}
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      style={{ display: 'none' }}
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) setSubcatImageFile(f);
-                      }}
-                    />
-                  </label>
-                  {subcatImageFile && (
-                    <button className="btn sm ghost" onClick={() => setSubcatImageFile(null)}>
-                      <Icon.Close />
-                    </button>
-                  )}
+                  <Icon.Image />
                 </div>
-              </div>
-            </div>
-            <div className="modal-foot">
-              <button
-                className="btn ghost"
-                onClick={() => {
-                  setShowSubcatModal(false);
-                  setSubcatImageFile(null);
-                }}
-                disabled={subcatSaving}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn primary"
-                disabled={subcatSaving || !subcatForm.label.trim() || !subcatForm.slug.trim()}
-                onClick={async () => {
-                  setSubcatSaving(true);
-                  try {
-                    let thumbnailKey: string | undefined;
-                    if (subcatImageFile) {
-                      const presign = await apiFetch<{ uploadUrl: string; thumbnailKey: string }>(
-                        '/admin/assets/garment-types/presign',
-                        {
-                          method: 'POST',
-                          body: JSON.stringify({ contentType: subcatImageFile.type }),
-                        },
-                      );
-                      const thumb = await makeThumbnail(subcatImageFile);
-                      await fetch(presign.uploadUrl, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': thumb.type },
-                        body: thumb,
-                      });
-                      thumbnailKey = presign.thumbnailKey;
-                    }
-                    const row = await apiFetch<GarmentType>('/admin/assets/garment-types', {
-                      method: 'POST',
-                      body: JSON.stringify({ ...subcatForm, thumbnailKey }),
-                    });
-                    // A collision at the chosen sortOrder shifts other rows of this
-                    // gender server-side - refetch instead of patching just this one.
-                    await loadGarmentTypes();
-                    toast({ title: `${row.label} created` });
-                    setShowSubcatModal(false);
-                    setSubcatImageFile(null);
-                  } catch (e) {
-                    toast({
-                      kind: 'error',
-                      title: 'Failed to create garment type',
-                      body: apiErrorMessage(e, 'Please try again.'),
-                    });
-                  } finally {
-                    setSubcatSaving(false);
-                  }
-                }}
-              >
-                <Icon.Add /> {subcatSaving ? 'Creating…' : 'Create'}
-              </button>
+              )}
+              <label className="btn sm ghost" style={{ cursor: 'pointer' }}>
+                {subcatImageFile ? 'Change image' : 'Upload image'}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) setSubcatImageFile(f);
+                  }}
+                />
+              </label>
+              {subcatImageFile && (
+                <button className="btn sm ghost" onClick={() => setSubcatImageFile(null)}>
+                  <Icon.Close />
+                </button>
+              )}
             </div>
           </div>
-        </div>
+        </EditDrawer>
       )}
 
       {/* Edit garment type */}
@@ -1732,182 +1688,156 @@ function MappedTemplateWorkflowModal({
   }
   const configuredCount = items.filter((item) => item.workflowTemplateId).length;
   return (
-    <div className="modal-overlay" onClick={savingId || savingLookId ? undefined : onClose}>
-      <div
-        className="modal"
-        onClick={(event) => event.stopPropagation()}
-        style={{ width: 'min(820px, calc(100vw - 64px))' }}
-      >
-        <div className="modal-head">
-          <div>
-            <h3 style={{ margin: 0 }}>{mapping.label}</h3>
-            <p style={{ margin: '5px 0 0', color: 'var(--muted)', fontSize: 12 }}>
-              {garmentTypeLabel} / {configuredCount} of {items.length} poses ready
-            </p>
-          </div>
-          <button
-            className="btn sm ghost"
-            onClick={onClose}
-            disabled={!!savingId || !!savingLookId}
-          >
-            <Icon.Close />
-          </button>
+    <EditDrawer
+      onClose={onClose}
+      title={mapping.label}
+      subtitle={`${garmentTypeLabel} / ${configuredCount} of ${items.length} poses ready`}
+      width="min(820px, calc(100vw - 64px))"
+      saving={!!savingId || !!savingLookId}
+      onSave={onClose}
+      saveLabel="Done"
+    >
+      {loading ? (
+        <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--muted)' }}>
+          Loading poses...
         </div>
-        <div className="modal-body">
-          {loading ? (
-            <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--muted)' }}>
-              Loading poses...
-            </div>
-          ) : items.length === 0 ? (
-            <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--muted)' }}>
-              Add looks to the global template before configuring workflows.
-            </div>
-          ) : (
-            <div style={{ display: 'grid', gap: 10 }}>
-              {items.map((item) => (
-                <div key={item.id} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      ) : items.length === 0 ? (
+        <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--muted)' }}>
+          Add looks to the global template before configuring workflows.
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: 10 }}>
+          {items.map((item) => (
+            <div key={item.id} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div
+                className="card"
+                style={{
+                  padding: 10,
+                  display: 'grid',
+                  gridTemplateColumns: '58px minmax(140px, 1fr) minmax(220px, 1.4fr) auto',
+                  alignItems: 'center',
+                  gap: 12,
+                  outline: item.workflowTemplateId ? '1px solid var(--pink)' : undefined,
+                  opacity: savingId === item.id ? 0.65 : 1,
+                }}
+              >
+                {/* biome-ignore lint/performance/noImgElement: admin panel */}
+                <img
+                  src={item.thumbnailUrl}
+                  alt={item.displayName ?? item.label}
+                  style={{ width: 58, height: 68, borderRadius: 8, objectFit: 'cover' }}
+                />
+                <div style={{ minWidth: 0 }}>
+                  <p style={{ margin: 0, fontSize: 12, fontWeight: 650 }}>
+                    {item.displayName ?? item.label}
+                  </p>
+                  <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                    <span
+                      className={`badge ${item.workflowTemplateId ? 'dot accent' : ''}`}
+                      style={{ fontSize: 9 }}
+                    >
+                      {item.workflowTemplateId ? 'Ready' : 'Workflow required'}
+                    </span>
+                    {item.workflowTemplateId && item.source === 'auto' && (
+                      <span
+                        className="badge"
+                        style={{ fontSize: 9, opacity: 0.7 }}
+                        title="Filled from this garment type's shot-type default — picking a workflow here overrides it"
+                      >
+                        auto
+                      </span>
+                    )}
+                    {item.promptGarmentPhase && (
+                      <span className="badge dot" style={{ fontSize: 9 }}>
+                        Custom prompt
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <SearchableSelect
+                  options={workflows.map((w) => ({ id: w.id, label: w.label }))}
+                  value={item.workflowTemplateId ?? ''}
+                  disabled={savingId === item.id}
+                  onChange={(val) => void setWorkflow(item.id, val || null)}
+                  emptyLabel="Select workflow..."
+                  placeholder="— search workflow —"
+                  ariaLabel={`Workflow for ${item.displayName ?? item.label}`}
+                />
+                <div style={{ display: 'grid', justifyItems: 'end', gap: 7 }}>
+                  <button
+                    className="btn sm ghost"
+                    disabled={!item.workflowTemplateId || savingId === item.id}
+                    onClick={() =>
+                      editingPromptId === item.id ? closePromptEditor() : openPromptEditor(item)
+                    }
+                  >
+                    <Icon.MessageSquare /> Prompt
+                  </button>
+                  {(looksByPoseId.get(item.id) ?? []).map((look) => (
+                    <div
+                      key={look.id}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                      title={`Visible for ${garmentTypeLabel}: ${look.backgroundLabel}`}
+                    >
+                      <span style={{ color: 'var(--muted)', fontSize: 10 }}>
+                        {look.isEnabled ? 'Visible' : 'Hidden'}
+                      </span>
+                      <Switch
+                        checked={look.isEnabled}
+                        onChange={() => void setLookEnabled(look.id, !look.isEnabled)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {editingPromptId === item.id && (
+                <div className="card" style={{ padding: 10 }}>
+                  <div className="field">
+                    <label>Garment-phase prompt override</label>
+                    <textarea
+                      className="input"
+                      rows={6}
+                      placeholder="Inherited from workflow default"
+                      value={promptDraft}
+                      disabled={savingId === item.id}
+                      onChange={(e) => setPromptDraft(e.target.value)}
+                      style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }}
+                    />
+                    <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
+                      Used only for this pose within this template/garment-type mapping. Leave blank
+                      to use the assigned workflow's own default prompt.
+                    </span>
+                  </div>
                   <div
-                    className="card"
                     style={{
-                      padding: 10,
-                      display: 'grid',
-                      gridTemplateColumns: '58px minmax(140px, 1fr) minmax(220px, 1.4fr) auto',
-                      alignItems: 'center',
-                      gap: 12,
-                      outline: item.workflowTemplateId ? '1px solid var(--pink)' : undefined,
-                      opacity: savingId === item.id ? 0.65 : 1,
+                      display: 'flex',
+                      justifyContent: 'flex-end',
+                      gap: 8,
+                      marginTop: 10,
                     }}
                   >
-                    {/* biome-ignore lint/performance/noImgElement: admin panel */}
-                    <img
-                      src={item.thumbnailUrl}
-                      alt={item.displayName ?? item.label}
-                      style={{ width: 58, height: 68, borderRadius: 8, objectFit: 'cover' }}
-                    />
-                    <div style={{ minWidth: 0 }}>
-                      <p style={{ margin: 0, fontSize: 12, fontWeight: 650 }}>
-                        {item.displayName ?? item.label}
-                      </p>
-                      <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-                        <span
-                          className={`badge ${item.workflowTemplateId ? 'dot accent' : ''}`}
-                          style={{ fontSize: 9 }}
-                        >
-                          {item.workflowTemplateId ? 'Ready' : 'Workflow required'}
-                        </span>
-                        {item.workflowTemplateId && item.source === 'auto' && (
-                          <span
-                            className="badge"
-                            style={{ fontSize: 9, opacity: 0.7 }}
-                            title="Filled from this garment type's shot-type default — picking a workflow here overrides it"
-                          >
-                            auto
-                          </span>
-                        )}
-                        {item.promptGarmentPhase && (
-                          <span className="badge dot" style={{ fontSize: 9 }}>
-                            Custom prompt
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <SearchableSelect
-                      options={workflows.map((w) => ({ id: w.id, label: w.label }))}
-                      value={item.workflowTemplateId ?? ''}
+                    <button
+                      className="btn sm ghost"
                       disabled={savingId === item.id}
-                      onChange={(val) => void setWorkflow(item.id, val || null)}
-                      emptyLabel="Select workflow..."
-                      placeholder="— search workflow —"
-                      ariaLabel={`Workflow for ${item.displayName ?? item.label}`}
-                    />
-                    <div style={{ display: 'grid', justifyItems: 'end', gap: 7 }}>
-                      <button
-                        className="btn sm ghost"
-                        disabled={!item.workflowTemplateId || savingId === item.id}
-                        onClick={() =>
-                          editingPromptId === item.id ? closePromptEditor() : openPromptEditor(item)
-                        }
-                      >
-                        <Icon.MessageSquare /> Prompt
-                      </button>
-                      {(looksByPoseId.get(item.id) ?? []).map((look) => (
-                        <div
-                          key={look.id}
-                          style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                          title={`Visible for ${garmentTypeLabel}: ${look.backgroundLabel}`}
-                        >
-                          <span style={{ color: 'var(--muted)', fontSize: 10 }}>
-                            {look.isEnabled ? 'Visible' : 'Hidden'}
-                          </span>
-                          <Switch
-                            checked={look.isEnabled}
-                            onChange={() => void setLookEnabled(look.id, !look.isEnabled)}
-                          />
-                        </div>
-                      ))}
-                    </div>
+                      onClick={closePromptEditor}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      className="btn sm primary"
+                      disabled={savingId === item.id}
+                      onClick={() => void savePrompt(item.id)}
+                    >
+                      {savingId === item.id ? 'Saving…' : 'Save'}
+                    </button>
                   </div>
-                  {editingPromptId === item.id && (
-                    <div className="card" style={{ padding: 10 }}>
-                      <div className="field">
-                        <label>Garment-phase prompt override</label>
-                        <textarea
-                          className="input"
-                          rows={6}
-                          placeholder="Inherited from workflow default"
-                          value={promptDraft}
-                          disabled={savingId === item.id}
-                          onChange={(e) => setPromptDraft(e.target.value)}
-                          style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }}
-                        />
-                        <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
-                          Used only for this pose within this template/garment-type mapping. Leave
-                          blank to use the assigned workflow's own default prompt.
-                        </span>
-                      </div>
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'flex-end',
-                          gap: 8,
-                          marginTop: 10,
-                        }}
-                      >
-                        <button
-                          className="btn sm ghost"
-                          disabled={savingId === item.id}
-                          onClick={closePromptEditor}
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          className="btn sm primary"
-                          disabled={savingId === item.id}
-                          onClick={() => void savePrompt(item.id)}
-                        >
-                          {savingId === item.id ? 'Saving…' : 'Save'}
-                        </button>
-                      </div>
-                    </div>
-                  )}
                 </div>
-              ))}
+              )}
             </div>
-          )}
+          ))}
         </div>
-        <div className="modal-foot">
-          <span
-            className="mono"
-            style={{ marginRight: 'auto', color: 'var(--muted)', fontSize: 10 }}
-          >
-            Mapping {mapping.mappingId}
-          </span>
-          <button className="btn" onClick={onClose} disabled={!!savingId || !!savingLookId}>
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
+      )}
+    </EditDrawer>
   );
 }
 
@@ -2345,103 +2275,74 @@ function PoseConfigsPanel({
 
       {/* Edit override modal */}
       {editing && (
-        <div className="modal-overlay" onClick={savingId === editing.id ? undefined : closeEdit}>
-          <div
-            className="modal"
-            onClick={(e) => e.stopPropagation()}
-            style={{ width: 'min(720px, calc(100vw - 80px))' }}
-          >
-            <div className="modal-head">
-              <h3>
-                {sub.label} — {editing.displayName ?? editing.label}
-              </h3>
-              <button
-                className="btn sm ghost"
-                onClick={closeEdit}
-                disabled={savingId === editing.id}
-                style={{ marginLeft: 'auto' }}
-              >
-                <Icon.Close />
-              </button>
-            </div>
-            <div
-              className="modal-body"
-              style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
-            >
-              <div className="field">
-                <label>Workflow override</label>
-                <SearchableSelect
-                  options={workflows.map((w) => ({ id: w.id, label: w.label }))}
-                  value={editWorkflow}
-                  disabled={savingId === editing.id}
-                  onChange={(newId) => {
-                    setEditWorkflow(newId);
-                    // Always follow the newly selected workflow's own default prompt — same
-                    // convention as the pose-asset-level edit modal — so switching workflows
-                    // here doesn't keep sending the previous workflow's prompt text. Admin can
-                    // still hand-edit the textarea below before saving to customize further.
-                    const wf = newId ? workflows.find((w) => w.id === newId) : null;
-                    setEditGarmentPrompt(
-                      wf?.defaultGarmentPhasePrompt ?? editing.defaultPromptGarmentPhase ?? '',
-                    );
-                  }}
-                  emptyLabel={`Use default (${
-                    editing.defaultWorkflowTemplateId
-                      ? (workflows.find((w) => w.id === editing.defaultWorkflowTemplateId)?.label ??
-                        '?')
-                      : 'none'
-                  })`}
-                  placeholder="— search workflow —"
-                />
-                <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
-                  Changing this updates the prompt below to that workflow's own default — edit it
-                  after to customize further.
-                </span>
-              </div>
-              <div className="field">
-                <label>Positive prompt</label>
-                <textarea
-                  className="input"
-                  rows={10}
-                  placeholder="Inherited from pose"
-                  value={editGarmentPrompt}
-                  disabled={savingId === editing.id}
-                  onChange={(e) => setEditGarmentPrompt(e.target.value)}
-                  style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }}
-                />
-              </div>
-            </div>
-            <div className="modal-foot">
-              {editing.config && (
-                <button
-                  className="btn ghost"
-                  disabled={savingId === editing.id}
-                  style={{ marginRight: 'auto' }}
-                  onClick={() =>
-                    void onSave(sub.id, editing.id, {
-                      workflowTemplateId: null,
-                      promptGarmentPhase: null,
-                      promptFacePhase: null,
-                      isActive: null,
-                    }).then(closeEdit)
-                  }
-                >
-                  Clear override
-                </button>
-              )}
-              <button className="btn ghost" onClick={closeEdit} disabled={savingId === editing.id}>
-                Cancel
-              </button>
-              <button
-                className="btn primary"
-                disabled={savingId === editing.id}
-                onClick={() => void doSave()}
-              >
-                {savingId === editing.id ? 'Saving…' : 'Save'}
-              </button>
-            </div>
+        <EditDrawer
+          onClose={closeEdit}
+          title={`${sub.label} — ${editing.displayName ?? editing.label}`}
+          width="min(720px, calc(100vw - 80px))"
+          saving={savingId === editing.id}
+          onSave={() => void doSave()}
+          saveLabel="Save"
+        >
+          <div className="field">
+            <label>Workflow override</label>
+            <SearchableSelect
+              options={workflows.map((w) => ({ id: w.id, label: w.label }))}
+              value={editWorkflow}
+              disabled={savingId === editing.id}
+              onChange={(newId) => {
+                setEditWorkflow(newId);
+                // Always follow the newly selected workflow's own default prompt — same
+                // convention as the pose-asset-level edit modal — so switching workflows
+                // here doesn't keep sending the previous workflow's prompt text. Admin can
+                // still hand-edit the textarea below before saving to customize further.
+                const wf = newId ? workflows.find((w) => w.id === newId) : null;
+                setEditGarmentPrompt(
+                  wf?.defaultGarmentPhasePrompt ?? editing.defaultPromptGarmentPhase ?? '',
+                );
+              }}
+              emptyLabel={`Use default (${
+                editing.defaultWorkflowTemplateId
+                  ? (workflows.find((w) => w.id === editing.defaultWorkflowTemplateId)?.label ??
+                    '?')
+                  : 'none'
+              })`}
+              placeholder="— search workflow —"
+            />
+            <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
+              Changing this updates the prompt below to that workflow's own default — edit it after
+              to customize further.
+            </span>
           </div>
-        </div>
+          <div className="field">
+            <label>Positive prompt</label>
+            <textarea
+              className="input"
+              rows={10}
+              placeholder="Inherited from pose"
+              value={editGarmentPrompt}
+              disabled={savingId === editing.id}
+              onChange={(e) => setEditGarmentPrompt(e.target.value)}
+              style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }}
+            />
+          </div>
+          {editing.config && (
+            <button
+              className="btn ghost"
+              disabled={savingId === editing.id}
+              style={{ alignSelf: 'flex-start' }}
+              onClick={() =>
+                void onSave(sub.id, editing.id, {
+                  workflowTemplateId: null,
+                  promptGarmentPhase: null,
+                  promptFacePhase: null,
+                  isActive: null,
+                }).then(closeEdit)
+              }
+            >
+              Clear override
+            </button>
+          )}
+        </EditDrawer>
       )}
     </>
   );

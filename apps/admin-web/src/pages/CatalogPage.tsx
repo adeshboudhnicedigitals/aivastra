@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { BatchCatalogUploadModal } from '../components/BatchCatalogUploadModal';
+import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
 import { Pager } from '../components/Pager';
 import { PublicApiSlugField } from '../components/PublicApiSlugField';
@@ -433,129 +434,109 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
       />
 
       {editItem && (
-        <div className="modal-overlay" onClick={editSaving ? undefined : () => setEditItem(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head">
-              <h3>Edit catalog item</h3>
-              <button
-                className="btn sm ghost"
-                onClick={() => setEditItem(null)}
+        <EditDrawer
+          onClose={() => setEditItem(null)}
+          title="Edit catalog item"
+          width="min(720px, calc(100vw - 80px))"
+          thumbnail={{ thumbnailKey: editItem.thumbnailKey, storagePublicUrl }}
+          saving={editSaving}
+          onSave={() => void saveEdit()}
+          saveDisabled={!editLabel.trim()}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="field">
+              <label>Label</label>
+              <input
+                className="input"
+                value={editLabel}
                 disabled={editSaving}
-                style={{ marginLeft: 'auto' }}
-              >
-                <Icon.Close />
-              </button>
-            </div>
-            <div
-              className="modal-body"
-              style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
-            >
-              <div className="field">
-                <label>Label</label>
-                <input
-                  className="input"
-                  value={editLabel}
-                  disabled={editSaving}
-                  onChange={(e) => setEditLabel(e.target.value)}
-                />
-              </div>
-              <div className="field">
-                <label>Gender category</label>
-                <SearchableSelect
-                  options={categories
-                    .filter((c) => c.typeSlug === editItem.type)
-                    .map((c) => ({ id: String(c.id), label: c.label }))}
-                  value={editCategoryId}
-                  disabled={editSaving}
-                  placeholder="— search category —"
-                  onChange={setEditCategoryId}
-                />
-              </div>
-              <div className="field">
-                <label>Sort order</label>
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  value={editSortOrder}
-                  disabled={editSaving}
-                  onChange={(e) => setEditSortOrder(Number(e.target.value))}
-                  style={{ width: 100 }}
-                />
-              </div>
-              <PublicApiSlugField
-                value={editPublicApiSlug}
-                disabled={editSaving}
-                kind={editItem.type === 'shoe' ? 'sneaker' : 'trouser'}
-                onChange={setEditPublicApiSlug}
+                onChange={(e) => setEditLabel(e.target.value)}
               />
-              <div className="field">
-                <label>Replace image</label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  {(editReplacePreview ??
-                    (storagePublicUrl && editItem.thumbnailKey
-                      ? `${storagePublicUrl}/${editItem.thumbnailKey}`
-                      : null)) && (
-                    // biome-ignore lint/performance/noImgElement: edit catalog thumbnail preview
-                    <img
-                      src={editReplacePreview ?? `${storagePublicUrl}/${editItem.thumbnailKey}`}
-                      alt=""
-                      style={{
-                        width: 56,
-                        height: 56,
-                        objectFit: 'cover',
-                        borderRadius: 6,
-                        border: '1px solid var(--border)',
-                      }}
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = 'none';
-                      }}
-                    />
-                  )}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <input
-                      ref={replaceFileRef}
-                      type="file"
-                      accept="image/*"
-                      style={{ display: 'none' }}
-                      onChange={handleReplaceFilePick}
-                    />
+            </div>
+            <div className="field">
+              <label>Gender category</label>
+              <SearchableSelect
+                options={categories
+                  .filter((c) => c.typeSlug === editItem.type)
+                  .map((c) => ({ id: String(c.id), label: c.label }))}
+                value={editCategoryId}
+                disabled={editSaving}
+                placeholder="— search category —"
+                onChange={setEditCategoryId}
+              />
+            </div>
+            <div className="field">
+              <label>Sort order</label>
+              <input
+                className="input"
+                type="number"
+                min={0}
+                value={editSortOrder}
+                disabled={editSaving}
+                onChange={(e) => setEditSortOrder(Number(e.target.value))}
+                style={{ width: 100 }}
+              />
+            </div>
+            <PublicApiSlugField
+              value={editPublicApiSlug}
+              disabled={editSaving}
+              kind={editItem.type === 'shoe' ? 'sneaker' : 'trouser'}
+              onChange={setEditPublicApiSlug}
+            />
+            <div className="field">
+              <label>Replace image</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                {(editReplacePreview ??
+                  (storagePublicUrl && editItem.thumbnailKey
+                    ? `${storagePublicUrl}/${editItem.thumbnailKey}`
+                    : null)) && (
+                  // biome-ignore lint/performance/noImgElement: edit catalog thumbnail preview
+                  <img
+                    src={editReplacePreview ?? `${storagePublicUrl}/${editItem.thumbnailKey}`}
+                    alt=""
+                    style={{
+                      width: 56,
+                      height: 56,
+                      objectFit: 'cover',
+                      borderRadius: 6,
+                      border: '1px solid var(--border)',
+                    }}
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                )}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <input
+                    ref={replaceFileRef}
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    onChange={handleReplaceFilePick}
+                  />
+                  <button
+                    type="button"
+                    className="btn sm ghost"
+                    disabled={editSaving || editReplaceUploading}
+                    onClick={() => replaceFileRef.current?.click()}
+                  >
+                    <Icon.Image /> {editReplaceFile ? editReplaceFile.name : 'Pick new image'}
+                  </button>
+                  {editReplaceFile && (
                     <button
                       type="button"
-                      className="btn sm ghost"
-                      disabled={editSaving || editReplaceUploading}
-                      onClick={() => replaceFileRef.current?.click()}
+                      className="btn sm primary"
+                      disabled={editReplaceUploading}
+                      onClick={doReplaceImage}
                     >
-                      <Icon.Image /> {editReplaceFile ? editReplaceFile.name : 'Pick new image'}
+                      {editReplaceUploading ? 'Uploading…' : 'Upload & replace'}
                     </button>
-                    {editReplaceFile && (
-                      <button
-                        type="button"
-                        className="btn sm primary"
-                        disabled={editReplaceUploading}
-                        onClick={doReplaceImage}
-                      >
-                        {editReplaceUploading ? 'Uploading…' : 'Upload & replace'}
-                      </button>
-                    )}
-                  </div>
+                  )}
                 </div>
               </div>
             </div>
-            <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setEditItem(null)} disabled={editSaving}>
-                Cancel
-              </button>
-              <button
-                className="btn primary"
-                onClick={saveEdit}
-                disabled={editSaving || !editLabel.trim()}
-              >
-                {editSaving ? 'Saving…' : 'Save changes'}
-              </button>
-            </div>
           </div>
-        </div>
+        </EditDrawer>
       )}
 
       {confirmDelete && (
