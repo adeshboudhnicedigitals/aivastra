@@ -50,7 +50,6 @@ export function EditFaceModal({
     const resolvedContinent = addingContinent
       ? slugifyContinent(newContinentLabel) || null
       : form.continent || null;
-    const body = { ...form, continent: resolvedContinent };
     try {
       const tags = form.tagsInput
         .split(',')
@@ -59,6 +58,7 @@ export function EditFaceModal({
       const body = {
         label: form.label,
         gender: form.gender,
+        continent: resolvedContinent,
         sortOrder: form.sortOrder,
         publicApiSlug: form.publicApiSlug,
         tags,
