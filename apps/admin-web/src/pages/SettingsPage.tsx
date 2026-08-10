@@ -6,6 +6,9 @@ import { SearchableSelect } from '../components/SearchableSelect';
 import { Switch } from '../components/Switch';
 import { useAuth } from '../context/AuthContext';
 import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
+import JobCostsTab from './settings/JobCostsTab';
+import PurchasablePlansTab from './settings/PurchasablePlansTab';
+import ShopifyCreditsTab from './settings/ShopifyCreditsTab';
 
 function uploadFile(url: string, file: Blob, contentType: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -254,6 +257,9 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   const { logout } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const section = (searchParams.get('s') as SettingsSection | null) ?? 'appearance';
+  const [creditSubTab, setCreditSubTab] = useState<'purchasable' | 'job-costs' | 'shopify'>(
+    'purchasable',
+  );
   const [pageSize, setPageSize] = useState<number>(25);
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
@@ -651,6 +657,33 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
             </div>
           </div>
         </div>
+      )}
+
+      {/* Credit Plans */}
+      {section === 'credit-plans' && (
+        <>
+          <div className="tabs" style={{ marginBottom: 20 }}>
+            {(
+              [
+                { k: 'purchasable', label: 'Purchasable Plans' },
+                { k: 'job-costs', label: 'Job Costs' },
+                { k: 'shopify', label: 'Shopify' },
+              ] as const
+            ).map((t) => (
+              <button
+                key={t.k}
+                className={`tab ${creditSubTab === t.k ? 'active' : ''}`}
+                onClick={() => setCreditSubTab(t.k)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {creditSubTab === 'purchasable' && <PurchasablePlansTab toast={toast} />}
+          {creditSubTab === 'job-costs' && <JobCostsTab toast={toast} />}
+          {creditSubTab === 'shopify' && <ShopifyCreditsTab toast={toast} />}
+        </>
       )}
 
       {/* Signup Campaigns */}
