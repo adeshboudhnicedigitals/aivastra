@@ -1,3 +1,39 @@
+## 2026-08-10 - Virtual Try-On Android universal internet connectivity monitor
+
+### Done
+- Added `NetworkMonitor` (`app/src/main/java/aivastra/nice/interactive/utils/NetworkMonitor.kt`), a single process-wide singleton wrapping `ConnectivityManager`. Registers one `NetworkCallback` for the app's whole lifetime and republishes state as `isConnected: StateFlow<Boolean>` — "dynamic" in the sense that any collector reacts live to real connectivity changes (Wi-Fi/mobile toggling, captive portals) with no polling or manual re-check anywhere in the app. Tracks the *set* of currently-validated networks so losing one (e.g. Wi-Fi handoff) while another (cellular) is still up doesn't falsely report offline. Also exposes `isCurrentlyConnected()` for one-shot synchronous checks from non-Compose call sites (repositories, etc.); returns `true` if called before `initialize()` so a missed init never blocks a caller.
+- Uses `NET_CAPABILITY_INTERNET` + `NET_CAPABILITY_VALIDATED`, not just "a network is connected" — a phone joined to Wi-Fi with a dead uplink correctly reports offline, matching what the app can actually reach.
+- Added `android.permission.ACCESS_NETWORK_STATE` to `AndroidManifest.xml` (required to query `ConnectivityManager`; normal permission, no runtime prompt).
+- `AiVastraApplication.onCreate()` calls `NetworkMonitor.initialize(this)` alongside `CrashReporter.init()`, so it's live from process start, independent of any Activity/screen.
+- Added `NoInternetBanner` (`ui/components/NoInternetBanner.kt`) — a slim top banner that observes `NetworkMonitor.isConnected` directly (no state threaded in from the caller) and slides in/out automatically. Wired once into `MainActivity`'s root `Box` (`Modifier.align(Alignment.TopCenter)`, above `AppNavGraph`/`InAppUpdateChecker`), so every screen in the app gets live offline/online feedback without any per-screen wiring — this is the "overall project" integration point.
+- Deliberately did not rewire the existing network-error handling in repositories/ViewModels (they already show friendly "Network error. Check your connection." messages via caught exceptions) — `NetworkMonitor` is additive proactive UI on top of that, not a replacement, to avoid touching ~40 existing catch blocks in this pass.
+- Verified both `./gradlew assembleDebug` and `./gradlew assembleRelease` (`BUILD SUCCESSFUL`), including `lintVitalRelease` and `minifyReleaseWithR8`, with the new permission/class/composable.
+
+### Failed / Not Done
+- Did not gate any submit/action buttons (upload, try-on, login) on `NetworkMonitor.isCurrentlyConnected()` — the banner is informative only for now; flag if buttons should also disable while offline.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-08-10 - Virtual Try-On Android Firebase Crashlytics integration
+
+### Done
+- Wired the Firebase Crashlytics Gradle plugin (3.0.7) + `com.google.gms.google-services` (4.5.0) using the existing `app/google-services.json` (project `aivastra-virtualtryon`). Added `firebase-bom` (34.17.0), `firebase-crashlytics`, and `firebase-analytics` (Crashlytics breadcrumbs need Analytics events) to `gradle/libs.versions.toml` and `app/build.gradle.kts`.
+- Added a `CrashReporter` object (`app/src/main/java/aivastra/nice/interactive/utils/CrashReporter.kt`) as the single wrapper around `FirebaseCrashlytics` — `init()`, `setUserId()`, `log()`, `setCustomKey()`, `recordException()` — so call sites never touch the Firebase SDK directly.
+- `AiVastraApplication.onCreate()` calls `CrashReporter.init()`, which disables Crashlytics collection in debug builds (`setCrashlyticsCollectionEnabled(!BuildConfig.DEBUG)`) so developer/kiosk-test crashes don't pollute the release dashboard, and sets `build_type`/`version_name`/`version_code` custom keys.
+- `SessionManager` now stores the server-issued `user.id` (opaque, non-PII) alongside the existing session fields, and calls `CrashReporter.setUserId()` on `save()`, `clear()`, and `initialize()` (cold-start restore) so crashes/non-fatals can be correlated to a signed-in user without ever logging email/name to Crashlytics. `LoginViewModel`'s three `SessionManager.save()` call sites (password login, Google login, force login) now pass `userId = result.data.user.id`.
+- Replaced all 12 `e.printStackTrace()` / `t.printStackTrace()` call sites (`ApiClient`, `InternalCameraView`, `PhotoEditView`, `NavGraph`, `PhotoUploadPage`, `TryOnProcessingPage`, `TryOnResultPage`) with `CrashReporter.recordException(e, tag)`, so previously-silent caught exceptions now surface as non-fatals in Crashlytics instead of only going to logcat.
+- Added Crashlytics-recommended ProGuard rules (`-keepattributes SourceFile,LineNumberTable`, `-renamesourcefileattribute SourceFile`, keep `Exception` subclasses) to `app/proguard-rules.pro` so release stack traces stay deobfuscatable via the uploaded mapping file.
+- Verified both `./gradlew assembleDebug` and `./gradlew assembleRelease` (`BUILD SUCCESSFUL`); release build ran `minifyReleaseWithR8` and `uploadCrashlyticsMappingFileRelease` cleanly with the new ProGuard rules.
+- Temporarily added `CrashReporter.testCrash()` wired to a long-press on the `ProfilePage` avatar (behind an `AppDialog` confirmation) to verify the pipeline end-to-end. Confirmed live in the Firebase console (project `aivastra-virtualtryon`): the crash showed up as a "Fresh issue" with a fully deobfuscated stack trace, proving collection, upload, and symbolication all work correctly from a debug build (the `setCrashlyticsCollectionEnabled(true)` override in `testCrash()` bypassed the debug-collection-off default). Note for next time: the Issues list and crash-free % charts lag several minutes behind the Trends counter for a brand-new project's first event — that's normal Crashlytics indexing delay, not a wiring problem.
+- Removed `testCrash()` and its `ProfilePage` UI (long-press handler, confirmation dialog, now-unused imports) now that the pipeline is confirmed working — it was a one-time verification tool, not a permanent feature. `CrashReporter` is back to `init()` / `setUserId()` / `log()` / `setCustomKey()` / `recordException()` only. Verified `compileDebugKotlin` still succeeds after removal.
+
+### Failed / Not Done
+- Did not add Crashlytics NDK (`firebase-crashlytics-ndk`) since the app has no native/JNI code.
+
+### Open Questions / Decisions
+- Chose to disable Crashlytics collection in debug builds by default (only release crashes are reported) rather than always-on, to keep the dashboard signal limited to real user devices — flag if debug-build crash visibility is wanted instead.
+
 ## 2026-08-03 - Virtual Try-On Android cache synchronization desync fix
 
 ### Done
