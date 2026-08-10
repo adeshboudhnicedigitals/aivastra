@@ -1,4 +1,5 @@
 import {
+  CashDollarIcon,
   ChartVerticalIcon,
   HomeIcon,
   PaintBrushFlatIcon,
@@ -19,6 +20,7 @@ export const NAV_ITEMS = [
   { path: '/manage', label: 'Manage', icon: ProductIcon },
   { path: '/analytics', label: 'Analytics', icon: ChartVerticalIcon },
   { path: '/widget-design', label: 'Widget Design', icon: PaintBrushFlatIcon },
+  { path: '/pricing', label: 'Pricing', icon: CashDollarIcon },
   { path: '/settings', label: 'Settings', icon: SettingsIcon },
   { path: '/support', label: 'Support', icon: QuestionCircleIcon },
 ];
