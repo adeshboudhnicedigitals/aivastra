@@ -6,7 +6,6 @@ import aivastra.nice.aivastraadmin.utils.ViewControll
 import aivastra.nice.aivastraadmin.viewmodels.ProductUploadViewModel
 import aivastra.nice.interactive.Loader.LoaderManager
 import android.app.Dialog
-import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
@@ -14,6 +13,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
+import androidx.core.view.isVisible
 import androidx.lifecycle.ViewModelProvider
 import com.bumptech.glide.Glide
 import com.google.android.material.bottomsheet.BottomSheetBehavior
@@ -21,13 +21,108 @@ import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import java.io.File
 
-class UploadPhotoDialog(private  val selectedPhotoPath:String,
-                        private  val subcategoryId:String,
-                        private val onCompleted:(String)->Unit) : BottomSheetDialogFragment() {
+import android.app.Activity
+import android.graphics.Bitmap
+import android.net.Uri
+import androidx.activity.result.contract.ActivityResultContracts
+import com.yalantis.ucrop.UCrop
+import com.yalantis.ucrop.util.FileUtils
+import java.util.UUID
+
+class UploadPhotoDialog(
+    private val selectedPhotoPath: String,
+    private val subcategoryId: String,
+    private val style: String = "Nivi",
+    private val secondaryPhotoPath: String? = null,
+    private val onCompleted: (String) -> Unit
+) : BottomSheetDialogFragment() {
+
+    private enum class CropTarget { SINGLE, BODY, PALLU }
 
     private lateinit var binding: DialogUploadPhotoBinding
     private lateinit var productUploadViewmodel: ProductUploadViewModel
     private var isGenerateApiRunning = false
+
+    private var activeSelectedPath: String = selectedPhotoPath
+    private var activeSecondaryPath: String? = secondaryPhotoPath
+    private var activeCropTarget: CropTarget = CropTarget.SINGLE
+
+    private val uCropActivityResult =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            try {
+                if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+                    val uri = UCrop.getOutput(result.data!!)
+                    if (uri != null) {
+                        val file = getFileFromUriSafe(requireContext(), uri)
+                        if (file != null && file.exists()) {
+                            when (activeCropTarget) {
+                                CropTarget.SINGLE -> {
+                                    activeSelectedPath = file.absolutePath
+                                    Glide.with(requireActivity()).load(file).into(binding.imgSelected)
+                                }
+                                CropTarget.BODY -> {
+                                    activeSelectedPath = file.absolutePath
+                                    Glide.with(requireActivity()).load(file).into(binding.imgBody)
+                                }
+                                CropTarget.PALLU -> {
+                                    activeSecondaryPath = file.absolutePath
+                                    Glide.with(requireActivity()).load(file).into(binding.imgPallu)
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+    private fun startUCropForPath(path: String, target: CropTarget) {
+        try {
+            activeCropTarget = target
+            val sourceUri = Uri.fromFile(File(path))
+            val uniqueFileName = "cropped_${UUID.randomUUID()}.jpg"
+            val destinationUri = Uri.fromFile(File(requireContext().cacheDir, uniqueFileName))
+
+            val options = UCrop.Options().apply {
+                setCompressionFormat(Bitmap.CompressFormat.JPEG)
+                setCompressionQuality(100)
+                setFreeStyleCropEnabled(true)
+                setHideBottomControls(false)
+                setShowCropGrid(true)
+                setShowCropFrame(true)
+            }
+
+            val intent = UCrop.of(sourceUri, destinationUri)
+                .withOptions(options)
+                .getIntent(requireContext())
+
+            uCropActivityResult.launch(intent)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun getFileFromUriSafe(context: android.content.Context, uri: Uri): File? {
+        try {
+            val path = FileUtils.getPath(context, uri)
+            if (!path.isNullOrBlank()) {
+                val file = File(path)
+                if (file.exists() && file.length() > 0) return file
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return try {
+            val inputStream = context.contentResolver.openInputStream(uri) ?: return null
+            val file = File(context.cacheDir, "cropped_${System.currentTimeMillis()}.jpg")
+            java.io.FileOutputStream(file).use { out -> inputStream.copyTo(out) }
+            if (file.exists() && file.length() > 0) file else null
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -39,17 +134,13 @@ class UploadPhotoDialog(private  val selectedPhotoPath:String,
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         return super.onCreateDialog(savedInstanceState).apply {
-            setOnShowListener {
-                dialogInterface ->
+            setOnShowListener { dialogInterface ->
                 val bottomSheet = (dialogInterface as BottomSheetDialog)
                     .findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
 
-                bottomSheet?.background = ColorDrawable(Color.TRANSPARENT) // Force transparency
+                bottomSheet?.background = ColorDrawable(Color.TRANSPARENT)
                 if (bottomSheet != null) {
-                    // Set the background to transparent
                     bottomSheet.setBackgroundColor(Color.TRANSPARENT)
-
-                    // Force full height
                     val behavior = BottomSheetBehavior.from(bottomSheet)
                     behavior.state = BottomSheetBehavior.STATE_EXPANDED
                     behavior.skipCollapsed = true
@@ -60,12 +151,9 @@ class UploadPhotoDialog(private  val selectedPhotoPath:String,
 
     override fun onStart() {
         super.onStart()
-
-        // Make the dialog full-screen immediately
         dialog?.let { dlg ->
-            dlg.setCancelable(false)  // Prevents dismiss on back press
-            dlg.setCanceledOnTouchOutside(false)  // Prevents dismiss on outside touch
-
+            dlg.setCancelable(false)
+            dlg.setCanceledOnTouchOutside(false)
             val bottomSheet =
                 dlg.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
             bottomSheet?.layoutParams?.height = ViewGroup.LayoutParams.MATCH_PARENT
@@ -80,13 +168,37 @@ class UploadPhotoDialog(private  val selectedPhotoPath:String,
     }
 
     private fun initView() {
-        // Scoped to the parent fragment, not this dialog — finalizeProduct() runs later
-        // against the parent's own ProductUploadViewModel instance, so pendingItemId set
-        // here by generateProduct() must land on the same instance or it's lost when this
-        // dialog is dismissed.
         productUploadViewmodel = ViewModelProvider(requireParentFragment()).get(ProductUploadViewModel::class.java)
-        Glide.with(requireActivity()).load(File(selectedPhotoPath)).into(binding.imgSelected)
-        binding.iconCancle.setOnClickListener{
+
+        val secPath = activeSecondaryPath
+        if (!secPath.isNullOrEmpty()) {
+            // Separate / Multiple Upload Mode: Show both Body & Pallu images
+            binding.cardSingleImage.isVisible = false
+            binding.llMultipleImages.isVisible = true
+
+            Glide.with(requireActivity()).load(File(activeSelectedPath)).into(binding.imgBody)
+            Glide.with(requireActivity()).load(File(secPath)).into(binding.imgPallu)
+        } else {
+            // Single Upload Mode: Show single image
+            binding.cardSingleImage.isVisible = true
+            binding.llMultipleImages.isVisible = false
+
+            Glide.with(requireActivity()).load(File(activeSelectedPath)).into(binding.imgSelected)
+        }
+
+        binding.btnCropSingle.setOnClickListener {
+            startUCropForPath(activeSelectedPath, CropTarget.SINGLE)
+        }
+        binding.btnCropBody.setOnClickListener {
+            startUCropForPath(activeSelectedPath, CropTarget.BODY)
+        }
+        binding.btnCropPallu.setOnClickListener {
+            activeSecondaryPath?.let { path ->
+                startUCropForPath(path, CropTarget.PALLU)
+            }
+        }
+
+        binding.iconCancle.setOnClickListener {
             dismiss()
         }
         binding.btnUpload.setOnClickListener {
@@ -94,26 +206,42 @@ class UploadPhotoDialog(private  val selectedPhotoPath:String,
         }
     }
 
-    private fun uploadProductImageAPI(){
+    private fun uploadProductImageAPI() {
+        val act = activity ?: return
+        if (!isAdded) return
         keepScreenOn()
-        LoaderManager.show(requireActivity(),dialog?.window?.decorView as ViewGroup,true)
-        LoaderManager.setMessage(getString(R.string.uploading_your_product))
-        productUploadViewmodel.generateProduct(File(selectedPhotoPath), subcategoryId)
-        productUploadViewmodel.generateState.observe(this) { state ->
+
+        val decorView = (dialog?.window?.decorView as? ViewGroup)
+            ?: (act.findViewById<ViewGroup>(android.R.id.content))
+        if (decorView != null) {
+            LoaderManager.show(act, decorView, true)
+            LoaderManager.setMessage(getString(R.string.uploading_your_product))
+        }
+
+        val secondaryFile = activeSecondaryPath?.takeIf { it.isNotEmpty() }?.let { File(it) }
+        productUploadViewmodel.generateProduct(File(activeSelectedPath), subcategoryId, style, secondaryFile)
+
+        productUploadViewmodel.generateState.observe(viewLifecycleOwner) { state ->
+            if (state == null) return@observe
+            val currentAct = activity ?: return@observe
+            if (!isAdded) return@observe
+
             when (state) {
                 is ProductUploadViewModel.GenerateState.Completed -> {
-                    LoaderManager.remove(requireActivity())
+                    productUploadViewmodel.resetGenerateState()
+                    LoaderManager.remove(currentAct)
                     clearKeepScreenOn()
                     onCompleted(state.resultUrl)
-                    dismiss()
+                    dismissAllowingStateLoss()
                 }
                 is ProductUploadViewModel.GenerateState.Failed -> {
-                    LoaderManager.remove(requireActivity())
+                    productUploadViewmodel.resetGenerateState()
+                    LoaderManager.remove(currentAct)
                     clearKeepScreenOn()
-                    ViewControll.showMessage(requireActivity(), state.message)
-                    dismiss()
+                    ViewControll.showMessage(currentAct, state.message)
+                    dismissAllowingStateLoss()
                 }
-                else -> { /* Uploading / Generating — loader already shown */ }
+                else -> { /* Uploading / Generating */ }
             }
         }
     }

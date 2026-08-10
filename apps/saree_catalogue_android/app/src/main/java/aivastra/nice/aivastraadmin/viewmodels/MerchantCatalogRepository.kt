@@ -9,6 +9,11 @@ import okhttp3.RequestBody.Companion.asRequestBody
 
 object MerchantCatalogRepository {
     private val mapper = ObjectMapper()
+    suspend fun fetchSareeStyles(): List<MerchantCatalogSareeStyle> {
+        val response = APICaller.getJsonAuthed(APIConstant.API_ENDPOINTS.MERCHANT_CATALOG_SAREE_STYLES, PrefsManager.getAccessToken())
+        return mapper.readValue(response, MerchantCatalogSareeStyleListResponse::class.java).items
+    }
+
     suspend fun fetchSubcategories(category: String): List<MerchantCatalogSubcategory> {
         val response = APICaller.getJsonAuthed("${APIConstant.API_ENDPOINTS.MERCHANT_CATALOG_SUBCATEGORIES}?category=$category", PrefsManager.getAccessToken())
         return mapper.readValue(response, MerchantCatalogSubcategoryListResponse::class.java).items
@@ -29,14 +34,20 @@ object MerchantCatalogRepository {
         APICaller.putToPresignedUrl(uploadUrl, file.asRequestBody(contentType.toMediaType()))
     }
 
-    suspend fun generate(subcategoryId: String, flatImageKey: String): String {
-        // This app only ever generates saree catalog images — skip the normal pose/
-        // background/face compositing step and finalize with the mannequin-drape
-        // output directly (see createMerchantSareeMannequinJob on the API side).
+    suspend fun generate(
+        subcategoryId: String,
+        flatImageKey: String,
+        secondFlatImageKey: String? = null,
+        sareeStyleLabel: String = "Nivi"
+    ): String {
         val body = org.json.JSONObject().apply {
             put("subcategoryId", subcategoryId)
             put("flatImageKey", flatImageKey)
+            if (!secondFlatImageKey.isNullOrEmpty()) {
+                put("secondFlatImageKey", secondFlatImageKey)
+            }
             put("mannequinOnly", true)
+            put("sareeStyleId", sareeStyleLabel)
         }.toString()
         val response = APICaller.postJsonAuthed(APIConstant.API_ENDPOINTS.MERCHANT_CATALOG_GENERATE, body, PrefsManager.getAccessToken())
         return mapper.readValue(response, MerchantCatalogGenerateResponse::class.java).jobId
