@@ -202,7 +202,6 @@ export function PoseUploadModal({
   };
 
   const pendingCount = entries.filter((e) => e.status === 'pending' || e.status === 'error').length;
-  const allDone = entries.length > 0 && entries.every((e) => e.status === 'done');
   const canUpload = !uploading && pendingCount > 0 && !!workflowTemplateId;
 
   return (
@@ -518,12 +517,6 @@ export function PoseUploadModal({
                   )}
                 </div>
               ))}
-            </div>
-          )}
-
-          {allDone && (
-            <div style={{ fontSize: 13, color: 'var(--success)', fontWeight: 600 }}>
-              All {entries.length} pose{entries.length !== 1 ? 's' : ''} uploaded successfully.
             </div>
           )}
 
