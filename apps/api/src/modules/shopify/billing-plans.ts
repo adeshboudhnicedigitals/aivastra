@@ -18,7 +18,7 @@
 export const SHOPIFY_PLAN_HANDLES = ['starter', 'growth', 'pro'] as const;
 export type ShopifyPlanHandle = (typeof SHOPIFY_PLAN_HANDLES)[number];
 
-const CREDITS_BY_PLAN_HANDLE: Record<ShopifyPlanHandle, number> = {
+export const DEFAULT_CREDITS_BY_PLAN_HANDLE: Record<ShopifyPlanHandle, number> = {
   starter: 1925,
   growth: 5000,
   pro: 22000,
@@ -35,5 +35,7 @@ export function normalizePlanName(name: string): string {
 
 /** Credits granted per billing cycle, or null when the name is not a plan we know. */
 export function creditsForPlanName(name: string): number | null {
-  return (CREDITS_BY_PLAN_HANDLE as Record<string, number>)[normalizePlanName(name)] ?? null;
+  return (
+    (DEFAULT_CREDITS_BY_PLAN_HANDLE as Record<string, number>)[normalizePlanName(name)] ?? null
+  );
 }
