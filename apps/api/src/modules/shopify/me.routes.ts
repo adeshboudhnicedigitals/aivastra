@@ -119,6 +119,8 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
         settings: store.settings,
         ownerUserId: store.ownerUserId,
         connectedSince: store.installedAt.toISOString(),
+        planHandle: store.planHandle,
+        subscriptionStatus: store.subscriptionStatus,
       },
       creditBalance,
       stats: {
