@@ -1,6 +1,6 @@
 'use client';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { type GenerationJob, GenerationPanel } from '@/app/(app)/studio/generation-panel';
 import { SelectGridModal } from '@/app/(app)/studio/select-modal';
 import { SectionHead, SelCard, sectionCardStyle } from '@/app/(app)/studio/shared-cards';
@@ -209,6 +209,18 @@ export function EmbedStudioWizard() {
     );
     return [...all].sort(() => Math.random() - 0.5);
   }, [shoeCatalogData]);
+  const lowerPreviewItems = useMemo(() => {
+    const selectedItem = lowerItems.find((item) => item.id === lowerCatalogId);
+    const firstItems = lowerItems.slice(0, 4);
+    if (!selectedItem || firstItems.some((item) => item.id === selectedItem.id)) return firstItems;
+    return [selectedItem, ...firstItems.filter((item) => item.id !== selectedItem.id)].slice(0, 4);
+  }, [lowerCatalogId, lowerItems]);
+  const shoePreviewItems = useMemo(() => {
+    const selectedItem = shoeItems.find((item) => item.id === shoeCatalogId);
+    const firstItems = shoeItems.slice(0, 4);
+    if (!selectedItem || firstItems.some((item) => item.id === selectedItem.id)) return firstItems;
+    return [selectedItem, ...firstItems.filter((item) => item.id !== selectedItem.id)].slice(0, 4);
+  }, [shoeCatalogId, shoeItems]);
 
   function togglePose(id: string) {
     setPoseIds((prev) => {
@@ -339,7 +351,36 @@ export function EmbedStudioWizard() {
     }
   }, [garmentTypes, garmentTypeId, gender, didAutoGarmentType]);
 
+  const defaultsAppliedForGarmentType = useRef('');
+  useEffect(() => {
+    if (!garmentTypeId || defaultsAppliedForGarmentType.current === garmentTypeId) return;
+
+    const garmentType = garmentTypes.find((item) => item.id === garmentTypeId);
+    if (!garmentType) return;
+
+    setLowerCatalogId(garmentType.defaultLowerCatalogId ?? '');
+    setShoeCatalogId(garmentType.defaultShoeCatalogId ?? '');
+    defaultsAppliedForGarmentType.current = garmentTypeId;
+  }, [garmentTypeId, garmentTypes]);
+
   const selectedGarmentType = garmentTypes.find((g) => g.id === garmentTypeId);
+  const previousCatalogNeeds = useRef({ lower: false, shoes: false });
+  useEffect(() => {
+    if (needsLower && !previousCatalogNeeds.current.lower && !lowerCatalogId) {
+      setLowerCatalogId(selectedGarmentType?.defaultLowerCatalogId ?? '');
+    }
+    if (needsShoes && !previousCatalogNeeds.current.shoes && !shoeCatalogId) {
+      setShoeCatalogId(selectedGarmentType?.defaultShoeCatalogId ?? '');
+    }
+    previousCatalogNeeds.current = { lower: needsLower, shoes: needsShoes };
+  }, [
+    lowerCatalogId,
+    needsLower,
+    needsShoes,
+    selectedGarmentType?.defaultLowerCatalogId,
+    selectedGarmentType?.defaultShoeCatalogId,
+    shoeCatalogId,
+  ]);
   const requiresLowerUpload = selectedGarmentType?.requiresLowerUpload ?? false;
   const requiresThirdUpload = selectedGarmentType?.requiresThirdUpload ?? false;
   const hasMultipleUploadBoxes = requiresLowerUpload || requiresThirdUpload;
@@ -984,7 +1025,7 @@ export function EmbedStudioWizard() {
                 </span>
               ) : (
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                  {lowerItems.slice(0, 4).map((i) => (
+                  {lowerPreviewItems.map((i) => (
                     <SelCard
                       key={i.id}
                       selected={lowerCatalogId === i.id}
@@ -1033,7 +1074,7 @@ export function EmbedStudioWizard() {
                 </span>
               ) : (
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                  {shoeItems.slice(0, 4).map((i) => (
+                  {shoePreviewItems.map((i) => (
                     <SelCard
                       key={i.id}
                       selected={shoeCatalogId === i.id}

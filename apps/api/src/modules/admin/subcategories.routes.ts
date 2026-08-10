@@ -200,6 +200,10 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
               .set({ ...body, updatedAt: new Date() })
               .where(eq(schema.garmentSubcategories.id, id));
           });
+          app.log.info(
+            { adminUserId: req.userId, garmentTypeId: id, fields: Object.keys(body) },
+            'garment type updated',
+          );
           return { ok: true };
         }
       }
@@ -210,6 +214,10 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
         .where(eq(schema.garmentSubcategories.id, id))
         .returning({ id: schema.garmentSubcategories.id });
       if (!updated) throw new AppError('NOT_FOUND', 404, 'garment type not found');
+      app.log.info(
+        { adminUserId: req.userId, garmentTypeId: id, fields: Object.keys(body) },
+        'garment type updated',
+      );
       return { ok: true };
     },
   );
@@ -232,6 +240,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
         .delete(schema.garmentSubcategories)
         .where(eq(schema.garmentSubcategories.id, id));
 
+      app.log.info({ adminUserId: req.userId, garmentTypeId: id }, 'garment type deleted');
       return { ok: true };
     },
   );
@@ -507,6 +516,115 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
     },
   );
 
+  // Look visibility is scoped to one concrete template-to-garment-type mapping.
+  // No exclusion row means the look remains shown (the default).
+  app.get(
+    '/admin/assets/catalogue-template-mappings/:mappingId/looks',
+    {
+      preHandler: RW,
+      schema: { params: z.object({ mappingId: z.string().uuid() }) },
+    },
+    async (req) => {
+      const { mappingId } = req.params as { mappingId: string };
+      const [mapping] = await app.db
+        .select({ templateId: schema.catalogueTemplateSubcategories.templateId })
+        .from(schema.catalogueTemplateSubcategories)
+        .where(eq(schema.catalogueTemplateSubcategories.id, mappingId));
+      if (!mapping) throw new AppError('NOT_FOUND', 404, 'template mapping not found');
+
+      const looks = await app.db
+        .select({
+          id: schema.catalogueTemplateLooks.id,
+          poseAssetId: schema.catalogueTemplateLooks.poseAssetId,
+          poseLabel: schema.modelPoseAssets.label,
+          poseDisplayName: schema.modelPoseAssets.displayName,
+          poseThumbnailKey: schema.modelPoseAssets.thumbnailKey,
+          backgroundLabel: schema.modelBackgrounds.label,
+          excludedId: schema.catalogueTemplateLookExclusions.id,
+        })
+        .from(schema.catalogueTemplateLooks)
+        .innerJoin(
+          schema.modelPoseAssets,
+          eq(schema.catalogueTemplateLooks.poseAssetId, schema.modelPoseAssets.id),
+        )
+        .innerJoin(
+          schema.modelBackgrounds,
+          eq(schema.catalogueTemplateLooks.backgroundId, schema.modelBackgrounds.id),
+        )
+        .leftJoin(
+          schema.catalogueTemplateLookExclusions,
+          and(
+            eq(schema.catalogueTemplateLookExclusions.mappingId, mappingId),
+            eq(schema.catalogueTemplateLookExclusions.lookId, schema.catalogueTemplateLooks.id),
+          ),
+        )
+        .where(eq(schema.catalogueTemplateLooks.templateId, mapping.templateId))
+        .orderBy(asc(schema.catalogueTemplateLooks.sortOrder));
+
+      return {
+        items: looks.map((look) => ({
+          id: look.id,
+          poseAssetId: look.poseAssetId,
+          poseLabel: look.poseDisplayName ?? look.poseLabel,
+          poseThumbnailUrl: app.storage.publicUrl(look.poseThumbnailKey),
+          backgroundLabel: look.backgroundLabel,
+          isEnabled: look.excludedId == null,
+        })),
+      };
+    },
+  );
+
+  app.patch(
+    '/admin/assets/catalogue-template-mappings/:mappingId/looks/:lookId',
+    {
+      preHandler: RW,
+      schema: {
+        params: z.object({ mappingId: z.string().uuid(), lookId: z.string().uuid() }),
+        body: z.object({ isEnabled: z.boolean() }),
+      },
+    },
+    async (req) => {
+      const { mappingId, lookId } = req.params as { mappingId: string; lookId: string };
+      const { isEnabled } = req.body as { isEnabled: boolean };
+
+      const [validLook] = await app.db
+        .select({ id: schema.catalogueTemplateLooks.id })
+        .from(schema.catalogueTemplateSubcategories)
+        .innerJoin(
+          schema.catalogueTemplateLooks,
+          and(
+            eq(
+              schema.catalogueTemplateLooks.templateId,
+              schema.catalogueTemplateSubcategories.templateId,
+            ),
+            eq(schema.catalogueTemplateLooks.id, lookId),
+          ),
+        )
+        .where(eq(schema.catalogueTemplateSubcategories.id, mappingId))
+        .limit(1);
+      if (!validLook) {
+        throw new AppError('NOT_FOUND', 404, 'look does not belong to this template mapping');
+      }
+
+      if (isEnabled) {
+        await app.db
+          .delete(schema.catalogueTemplateLookExclusions)
+          .where(
+            and(
+              eq(schema.catalogueTemplateLookExclusions.mappingId, mappingId),
+              eq(schema.catalogueTemplateLookExclusions.lookId, lookId),
+            ),
+          );
+      } else {
+        await app.db
+          .insert(schema.catalogueTemplateLookExclusions)
+          .values({ mappingId, lookId })
+          .onConflictDoNothing();
+      }
+
+      return { ok: true, isEnabled };
+    },
+  );
   app.get(
     '/admin/assets/catalogue-template-mappings/:mappingId/poses',
     {

@@ -6,7 +6,10 @@ import { processJob } from '../job/processor.js';
 
 const GROUP = 'dispatcher-cg';
 const CONSUMER = hostname();
-const DEFAULT_STREAMS = ['jobs:priority', 'jobs:normal', 'jobs:low'] as const;
+// jobs:video comes last deliberately: this loop awaits each processJob serially, and a
+// recovered video job runs for minutes (PixVerse poll + mp4 download), so putting it
+// first would stall recovery of the GPU streams behind it.
+const DEFAULT_STREAMS = ['jobs:priority', 'jobs:normal', 'jobs:low', 'jobs:video'] as const;
 
 type PendingEntry = [string, string, number, number]; // [id, consumer, idleMs, deliveries]
 
@@ -55,7 +58,15 @@ export async function recoverPendingJobs(
           continue;
         }
         log.info({ jobId: fieldMap.jobId }, 'reprocessing claimed pending job');
-        await processJob(cfg, fieldMap.jobId, fieldMap.userId, stream, messageId);
+        const retryCount = Number.parseInt(fieldMap.retryCount ?? '0', 10);
+        await processJob(
+          cfg,
+          fieldMap.jobId,
+          fieldMap.userId,
+          stream,
+          messageId,
+          Number.isFinite(retryCount) ? retryCount : 0,
+        );
       }
 
       const lastId = pending[pending.length - 1]?.[0];

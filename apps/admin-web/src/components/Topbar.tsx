@@ -7,9 +7,10 @@ interface TopbarProps {
   onNavTrail: (i: number) => void;
   theme: 'light' | 'dark' | 'system';
   onToggleTheme: () => void;
+  onOpenMobileNav: () => void;
 }
 
-export function Topbar({ trail, onNavTrail, theme, onToggleTheme }: TopbarProps) {
+export function Topbar({ trail, onNavTrail, theme, onToggleTheme, onOpenMobileNav }: TopbarProps) {
   const { email, role } = useAuth();
   const emailUser = email ? email.split('@')[0] : 'Admin';
   const initials = emailUser.slice(0, 2).toUpperCase();
@@ -17,6 +18,14 @@ export function Topbar({ trail, onNavTrail, theme, onToggleTheme }: TopbarProps)
 
   return (
     <div className="topbar">
+      <button
+        type="button"
+        className="mobile-only topbar-menu-btn"
+        onClick={onOpenMobileNav}
+        aria-label="Open navigation menu"
+      >
+        <Icon.Menu />
+      </button>
       <div className="crumbs">
         {trail.map((crumb, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: breadcrumb trail has no stable id

@@ -1,6 +1,8 @@
 import { schema as dbSchema } from '@aivastra/db';
 import { and, eq } from 'drizzle-orm';
+import postgres from 'postgres';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { hashPassword } from '../../src/modules/auth/service.js';
 import { buildServer } from '../../src/server';
 import { type Containers, startContainers } from '../helpers/containers';
 
@@ -46,10 +48,33 @@ async function buildGoogleApp(c: Containers) {
 describe('google oauth', () => {
   let c: Containers;
   let app: Awaited<ReturnType<typeof buildGoogleApp>>;
+  let adminToken: string;
 
   beforeAll(async () => {
     c = await startContainers();
     app = await buildGoogleApp(c);
+    const passwordHash = await hashPassword('password123');
+    const [adminUser] = await app.db
+      .insert(dbSchema.users)
+      .values({
+        email: 'google-race-admin@example.com',
+        displayName: 'Google Race Admin',
+        passwordHash,
+        emailVerified: true,
+      })
+      .returning({ id: dbSchema.users.id });
+    if (!adminUser) throw new Error('failed to seed Google race admin');
+    await app.db.insert(dbSchema.adminUsers).values({
+      userId: adminUser.id,
+      role: 'SUPER_ADMIN',
+      passwordHash,
+    });
+    const adminLogin = await app.inject({
+      method: 'POST',
+      url: '/admin/auth/login',
+      payload: { email: 'google-race-admin@example.com', password: 'password123' },
+    });
+    adminToken = adminLogin.json<{ accessToken: string }>().accessToken;
   }, 60000);
 
   afterAll(async () => {
@@ -69,6 +94,22 @@ describe('google oauth', () => {
     expect(cookieHeader).toBeTruthy();
     const cookies = Array.isArray(cookieHeader) ? cookieHeader : [cookieHeader];
     expect(cookies.some((c: string) => c.startsWith('google_state='))).toBe(true);
+  });
+
+  it('GET /v1/auth/google/init without src clears a stale campaign source cookie', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/auth/google/init',
+      headers: { cookie: 'google_src=gartex2026' },
+    });
+
+    expect(res.statusCode).toBe(302);
+    const cookieHeader = res.headers['set-cookie'];
+    const cookies = Array.isArray(cookieHeader) ? cookieHeader : [cookieHeader];
+    const clearedSrc = cookies.find((cookie) => cookie.startsWith('google_src=;'));
+    expect(clearedSrc).toBeTruthy();
+    expect(clearedSrc).toContain('Max-Age=0');
+    expect(clearedSrc).toContain('Path=/v1/auth/google');
   });
 
   it('POST /v1/auth/google/exchange with valid OTP returns accessToken', async () => {
@@ -278,4 +319,219 @@ describe('google oauth', () => {
     expect(links).toHaveLength(1);
     expect(links[0]?.userId).toBe(originalUserId);
   });
+
+  it('attributes a brand-new Google signup to the campaign when ?src= is threaded through init -> callback', async () => {
+    const now = new Date();
+    await app.db.insert(dbSchema.signupCampaigns).values({
+      code: 'gartex2026',
+      name: 'Gartex Expo Delhi 2026',
+      bonusPercent: 25,
+      startAt: new Date(now.getTime() - 86_400_000),
+      endAt: new Date(now.getTime() + 86_400_000),
+      isActive: true,
+    });
+
+    const initRes = await app.inject({
+      method: 'GET',
+      url: '/v1/auth/google/init?src=gartex2026',
+    });
+    expect(initRes.statusCode).toBe(302);
+    const initCookies = Array.isArray(initRes.headers['set-cookie'])
+      ? initRes.headers['set-cookie']
+      : [initRes.headers['set-cookie'] as string];
+    const stateCookie = initCookies.find((c) => c.startsWith('google_state='));
+    const srcCookie = initCookies.find((c) => c.startsWith('google_src='));
+    expect(srcCookie).toBeTruthy();
+    const state = stateCookie?.split(';')[0]?.split('=')[1];
+    const encodedSrc = srcCookie?.split(';')[0]?.split('=')[1];
+
+    const mockFetch = async (url: string | URL | Request): Promise<Response> => {
+      const urlStr = url.toString();
+      if (urlStr.includes('oauth2.googleapis.com/token')) {
+        return new Response(JSON.stringify({ access_token: 'mock-token' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (urlStr.includes('googleapis.com/oauth2/v3/userinfo')) {
+        return new Response(
+          JSON.stringify({
+            sub: 'google-sub-campaign-001',
+            email: 'gartex-google-user@example.com',
+            name: 'Gartex Google User',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected fetch to: ${urlStr}`);
+    };
+    vi.spyOn(global, 'fetch').mockImplementation(mockFetch as typeof fetch);
+
+    const callbackRes = await app.inject({
+      method: 'GET',
+      url: `/v1/auth/google/callback?code=auth_code_campaign&state=${state}`,
+      headers: { cookie: `google_state=${state}; google_src=${encodedSrc}` },
+    });
+    expect(callbackRes.statusCode).toBe(302);
+
+    const [user] = await app.db
+      .select({ id: dbSchema.users.id, signupCampaignId: dbSchema.users.signupCampaignId })
+      .from(dbSchema.users)
+      .where(eq(dbSchema.users.email, 'gartex-google-user@example.com'));
+    expect(user).toBeTruthy();
+    expect(user?.signupCampaignId).toBeTruthy();
+
+    const [campaign] = await app.db
+      .select()
+      .from(dbSchema.signupCampaigns)
+      .where(eq(dbSchema.signupCampaigns.code, 'gartex2026'));
+    expect(user?.signupCampaignId).toBe(campaign?.id);
+  });
+
+  it('serializes new Google campaign attribution with admin deletion', async () => {
+    const now = new Date();
+    const [campaign] = await app.db
+      .insert(dbSchema.signupCampaigns)
+      .values({
+        code: 'google-signup-delete-race',
+        name: 'Google Signup Delete Race',
+        bonusPercent: 25,
+        startAt: new Date(now.getTime() - 86_400_000),
+        endAt: new Date(now.getTime() + 86_400_000),
+        isActive: true,
+      })
+      .returning();
+    if (!campaign) throw new Error('failed to seed Google race campaign');
+
+    await app.db
+      .update(dbSchema.creditPlans)
+      .set({ credits: 100, isActive: true })
+      .where(eq(dbSchema.creditPlans.slug, 'free'));
+
+    const initRes = await app.inject({
+      method: 'GET',
+      url: '/v1/auth/google/init?src=google-signup-delete-race',
+    });
+    const initCookies = Array.isArray(initRes.headers['set-cookie'])
+      ? initRes.headers['set-cookie']
+      : [initRes.headers['set-cookie'] as string];
+    const state = initCookies
+      .find((cookie) => cookie.startsWith('google_state='))
+      ?.split(';')[0]
+      ?.split('=')[1];
+    const encodedSrc = initCookies
+      .find((cookie) => cookie.startsWith('google_src='))
+      ?.split(';')[0]
+      ?.split('=')[1];
+    if (!state || !encodedSrc)
+      throw new Error('Google init did not return state and source cookies');
+
+    vi.spyOn(global, 'fetch').mockImplementation(async (url: string | URL | Request) => {
+      const urlString = url.toString();
+      if (urlString.includes('oauth2.googleapis.com/token')) {
+        return new Response(JSON.stringify({ access_token: 'google-race-token' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (urlString.includes('googleapis.com/oauth2/v3/userinfo')) {
+        return new Response(
+          JSON.stringify({
+            sub: 'google-sub-delete-race',
+            email: 'google-delete-race-user@example.com',
+            name: 'Google Delete Race User',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected fetch to: ${urlString}`);
+    });
+
+    const blocker = postgres(c.pgUrl, { max: 1 });
+    const observer = postgres(c.pgUrl, { max: 1 });
+    let callback!: ReturnType<typeof app.inject>;
+    let deleting!: ReturnType<typeof app.inject>;
+    let deleteCompleted = false;
+    let deleteCompletedBeforeSignupCouldCommit = false;
+
+    try {
+      await blocker.begin(async (tx) => {
+        await tx`lock table users in share mode`;
+        callback = app.inject({
+          method: 'GET',
+          url: `/v1/auth/google/callback?code=google_race_code&state=${state}`,
+          headers: { cookie: `google_state=${state}; google_src=${encodedSrc}` },
+        });
+
+        const insertDeadline = Date.now() + 5_000;
+        while (true) {
+          const [waitingInsert] = await observer`
+            select pid
+            from pg_stat_activity
+            where datname = current_database()
+              and state = 'active'
+              and wait_event_type = 'Lock'
+              and query like 'insert into "users"%'
+            limit 1
+          `;
+          if (waitingInsert) break;
+          if (Date.now() >= insertDeadline) {
+            throw new Error('Google signup did not reach the user insert');
+          }
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+
+        deleting = app.inject({
+          method: 'DELETE',
+          url: `/admin/signup-campaigns/${campaign.id}`,
+          headers: { authorization: `Bearer ${adminToken}` },
+        });
+        void deleting.then(() => {
+          deleteCompleted = true;
+        });
+
+        const deleteDeadline = Date.now() + 5_000;
+        while (!deleteCompleted) {
+          const [waitingDelete] = await observer`
+            select pid
+            from pg_stat_activity
+            where datname = current_database()
+              and state = 'active'
+              and wait_event_type = 'Lock'
+              and query like '%signup_campaigns%'
+            limit 1
+          `;
+          if (waitingDelete) break;
+          if (Date.now() >= deleteDeadline) {
+            throw new Error('delete neither completed nor waited for the campaign lock');
+          }
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        deleteCompletedBeforeSignupCouldCommit = deleteCompleted;
+      });
+
+      const [callbackResponse, deleteResponse] = await Promise.all([callback, deleting]);
+      expect(deleteCompletedBeforeSignupCouldCommit).toBe(false);
+      expect(callbackResponse.statusCode).toBe(302);
+      expect(deleteResponse.statusCode).toBe(409);
+
+      const [user] = await app.db
+        .select({
+          id: dbSchema.users.id,
+          signupCampaignId: dbSchema.users.signupCampaignId,
+        })
+        .from(dbSchema.users)
+        .where(eq(dbSchema.users.email, 'google-delete-race-user@example.com'));
+      expect(user?.signupCampaignId).toBe(campaign.id);
+
+      const [credits] = await app.db
+        .select({ balance: dbSchema.userCredits.balance })
+        .from(dbSchema.userCredits)
+        .where(eq(dbSchema.userCredits.userId, user?.id));
+      expect(credits?.balance).toBe(125);
+    } finally {
+      await blocker.end();
+      await observer.end();
+    }
+  }, 15_000);
 });

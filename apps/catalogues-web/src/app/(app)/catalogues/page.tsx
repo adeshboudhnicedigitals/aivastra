@@ -116,7 +116,7 @@ function Cover({
       // biome-ignore lint/performance/noImgElement: presigned R2 URL, Next/Image incompatible
       <img
         src={displayUrl}
-        alt="Catalogue preview"
+        alt="Catalog preview"
         width={768}
         height={1024}
         loading="lazy"
@@ -646,36 +646,170 @@ export default function CataloguesPage(): React.ReactElement {
 
   return (
     <>
+      <style>{`
+        .catalogues-page-wrapper {
+          flex: 1;
+          overflow-y: auto;
+          padding: 0 28px;
+          box-sizing: border-box;
+        }
+
+        .catalogues-sticky-toolbar {
+          position: sticky;
+          top: 0;
+          z-index: 20;
+          background: ${C.bg};
+          box-shadow: 0 1px 0 ${C.border};
+          margin: 0 -28px;
+          padding: 16px 28px;
+          box-sizing: border-box;
+        }
+
+        .catalogues-toolbar-flex {
+          display: flex;
+          width: 100%;
+          min-height: 40px;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+          box-sizing: border-box;
+        }
+
+        .catalogues-search-box {
+          position: relative;
+          width: 240px;
+          flex-shrink: 0;
+        }
+
+        .catalogues-filter-group {
+          display: flex;
+          gap: 12px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+
+        .cat-filter-wrapper {
+          position: relative;
+        }
+
+        .cat-filter-btn {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          padding: 0 12px;
+          height: 40px;
+          border-radius: 8px;
+          border: 1px solid ${C.border};
+          background: ${C.bg};
+          font-family: inherit;
+          font-size: 13px;
+          font-weight: 500;
+          cursor: pointer;
+          color: ${C.mid};
+          box-sizing: border-box;
+          white-space: nowrap;
+        }
+
+        .catalogues-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+          gap: 16px;
+          width: 100%;
+        }
+
+        @media (max-width: 1199px) {
+          .catalogues-page-wrapper {
+            padding: 0 20px;
+          }
+
+          .catalogues-sticky-toolbar {
+            margin: 0 -20px;
+            padding: 12px 20px;
+          }
+
+          .catalogues-toolbar-flex {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 10px;
+            min-height: auto;
+          }
+
+          .catalogues-search-box {
+            width: 100%;
+          }
+
+          .catalogues-filter-group {
+            width: 100%;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+          }
+
+          .cat-filter-wrapper {
+            flex: 1 1 140px;
+            min-width: 120px;
+          }
+
+          .cat-filter-btn {
+            width: 100% !important;
+          }
+
+          .catalogues-grid {
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 12px;
+          }
+        }
+
+        @media (max-width: 639px) {
+          .catalogues-page-wrapper {
+            padding: 0 16px;
+          }
+
+          .catalogues-sticky-toolbar {
+            margin: 0 -16px;
+            padding: 10px 16px;
+          }
+
+          .catalogues-filter-group {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            width: 100%;
+          }
+
+          .cat-filter-wrapper {
+            width: 100% !important;
+            min-width: 0 !important;
+            flex: none !important;
+          }
+
+          .cat-filter-btn {
+            width: 100% !important;
+            height: 38px !important;
+            padding: 0 8px !important;
+            font-size: 12px !important;
+            justify-content: center !important;
+          }
+
+          .catalogues-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+          }
+        }
+      `}</style>
       <TopBar
-        title="Catalogues"
-        subtitle="View, manage, and download your previously generated catalogue images."
+        title="Catalogs"
+        subtitle="View, manage, and download your previously generated catalog images."
         right={undefined}
       />
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0 28px' }}>
+      <div className="catalogues-page-wrapper">
         {/* ── sticky toolbar ── */}
-        <div
-          style={{
-            position: 'sticky',
-            top: 0,
-            zIndex: 20,
-            background: C.bg,
-            boxShadow: `0 1px 0 ${C.border}`,
-            margin: '0 -28px',
-            padding: '16px 28px',
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              width: '100%',
-              height: 40,
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}
-          >
+        <div className="catalogues-sticky-toolbar">
+          <div className="catalogues-toolbar-flex">
             {/* search — always visible */}
-            <div style={{ position: 'relative', width: 240 }}>
+            <div className="catalogues-search-box">
               <span
                 style={{
                   position: 'absolute',
@@ -690,7 +824,7 @@ export default function CataloguesPage(): React.ReactElement {
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search Catalogues"
+                placeholder="Search Catalogs"
                 style={{
                   width: '100%',
                   height: 40,
@@ -708,7 +842,7 @@ export default function CataloguesPage(): React.ReactElement {
 
             {/* right side — transforms in selection mode */}
             {isSelectionMode ? (
-              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <div className="catalogues-filter-group">
                 {/* selection count + clear */}
                 <div
                   style={{
@@ -836,29 +970,15 @@ export default function CataloguesPage(): React.ReactElement {
                 </Tooltip>
               </div>
             ) : (
-              <div style={{ display: 'flex', gap: 12 }}>
+              <div className="catalogues-filter-group">
                 {/* gender filter */}
-                <div style={{ position: 'relative' }} ref={genderRef}>
+                <div className="cat-filter-wrapper" ref={genderRef}>
                   <button
                     type="button"
+                    className="cat-filter-btn"
                     onClick={() => setShowGenderDropdown(!showGenderDropdown)}
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 10,
-                      padding: 10,
                       width: 162,
-                      height: 40,
-                      borderRadius: 8,
-                      border: `1px solid ${C.border}`,
-                      background: C.bg,
-                      fontFamily: 'inherit',
-                      fontSize: 13,
-                      fontWeight: 500,
-                      cursor: 'pointer',
-                      color: C.mid,
-                      boxSizing: 'border-box',
                     }}
                   >
                     <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -914,27 +1034,13 @@ export default function CataloguesPage(): React.ReactElement {
                 </div>
 
                 {/* platform filter */}
-                <div style={{ position: 'relative' }} ref={platformRef}>
+                <div className="cat-filter-wrapper" ref={platformRef}>
                   <button
                     type="button"
+                    className="cat-filter-btn"
                     onClick={() => setShowPlatformDropdown(!showPlatformDropdown)}
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 10,
-                      padding: 10,
                       width: 158,
-                      height: 40,
-                      borderRadius: 8,
-                      border: `1px solid ${C.border}`,
-                      background: C.bg,
-                      fontFamily: 'inherit',
-                      fontSize: 13,
-                      fontWeight: 500,
-                      cursor: 'pointer',
-                      color: C.mid,
-                      boxSizing: 'border-box',
                     }}
                   >
                     <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -992,27 +1098,13 @@ export default function CataloguesPage(): React.ReactElement {
                 </div>
 
                 {/* garment type filter */}
-                <div style={{ position: 'relative' }} ref={garmentTypeRef}>
+                <div className="cat-filter-wrapper" ref={garmentTypeRef}>
                   <button
                     type="button"
+                    className="cat-filter-btn"
                     onClick={() => setShowGarmentTypeDropdown(!showGarmentTypeDropdown)}
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 10,
-                      padding: 10,
                       width: 176,
-                      height: 40,
-                      borderRadius: 8,
-                      border: `1px solid ${C.border}`,
-                      background: C.bg,
-                      fontFamily: 'inherit',
-                      fontSize: 13,
-                      fontWeight: 500,
-                      cursor: 'pointer',
-                      color: C.mid,
-                      boxSizing: 'border-box',
                     }}
                   >
                     <span
@@ -1078,9 +1170,10 @@ export default function CataloguesPage(): React.ReactElement {
                 </div>
 
                 {/* date filter */}
-                <div style={{ position: 'relative' }} ref={dateRef}>
+                <div className="cat-filter-wrapper" ref={dateRef}>
                   <button
                     type="button"
+                    className="cat-filter-btn"
                     onClick={() => {
                       if (!showDateDropdown) {
                         setDateSubPanel('presets');
@@ -1088,22 +1181,9 @@ export default function CataloguesPage(): React.ReactElement {
                       setShowDateDropdown(!showDateDropdown);
                     }}
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 10,
-                      padding: 10,
-                      height: 40,
-                      borderRadius: 8,
                       border: `1px solid ${dateFilter !== 'Date' ? C.pink : C.border}`,
                       background: dateFilter !== 'Date' ? 'rgba(245,92,122,0.04)' : C.bg,
-                      fontFamily: 'inherit',
-                      fontSize: 13,
-                      fontWeight: 500,
-                      cursor: 'pointer',
                       color: dateFilter !== 'Date' ? C.pink : C.mid,
-                      boxSizing: 'border-box',
-                      whiteSpace: 'nowrap',
                     }}
                   >
                     <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1300,38 +1380,27 @@ export default function CataloguesPage(): React.ReactElement {
                 </div>
 
                 {/* select all (normal mode) */}
-                <Tooltip
-                  tip={filtered.length === 0 ? 'No catalogues to select' : undefined}
-                  position="top"
-                >
-                  <button
-                    type="button"
-                    onClick={handleSelectAll}
-                    disabled={filtered.length === 0}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 8,
-                      padding: 10,
-                      width: 118,
-                      height: 40,
-                      borderRadius: 8,
-                      border: `1px solid ${C.border}`,
-                      background: C.bg,
-                      fontFamily: 'inherit',
-                      fontSize: 13,
-                      fontWeight: 500,
-                      cursor: filtered.length === 0 ? 'not-allowed' : 'pointer',
-                      color: C.mid,
-                      opacity: filtered.length === 0 ? 0.4 : 1,
-                      boxSizing: 'border-box',
-                    }}
+                <div className="cat-filter-wrapper">
+                  <Tooltip
+                    tip={filtered.length === 0 ? 'No catalogues to select' : undefined}
+                    position="top"
                   >
-                    <SquareIcon size={16} />
-                    Select All
-                  </button>
-                </Tooltip>
+                    <button
+                      type="button"
+                      className="cat-filter-btn"
+                      onClick={handleSelectAll}
+                      disabled={filtered.length === 0}
+                      style={{
+                        width: 118,
+                        cursor: filtered.length === 0 ? 'not-allowed' : 'pointer',
+                        opacity: filtered.length === 0 ? 0.4 : 1,
+                      }}
+                    >
+                      <SquareIcon size={16} />
+                      Select All
+                    </button>
+                  </Tooltip>
+                </div>
 
                 {/* download (inactive in normal mode) */}
                 <Tooltip tip="Select images to download" position="top">
@@ -1447,14 +1516,7 @@ export default function CataloguesPage(): React.ReactElement {
                 <div style={{ flex: 1, height: 1, background: C.border }} />
               </div>
 
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-                  gap: 16,
-                  width: '100%',
-                }}
-              >
+              <div className="catalogues-grid">
                 {items.map((cat) => {
                   const isSelected = selected.has(cat.catalogueId);
                   const showCheckbox = isSelectionMode || hoveredId === cat.catalogueId;

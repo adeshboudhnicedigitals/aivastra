@@ -18,6 +18,37 @@ export const UpdateUserBody = z.object({
   banReason: z.string().max(500).nullable().optional(),
   forceLogout: z.boolean().optional(),
 });
+export const BulkDeleteUsersBody = z.object({
+  ids: z.array(z.string().uuid()).min(1),
+});
+export const CreateUserBody = z.object({
+  username: z
+    .string()
+    .min(3)
+    .max(32)
+    .regex(/^[a-zA-Z0-9_.]+$/, 'Username may only contain letters, numbers, underscores, and dots'),
+  password: z
+    .string()
+    .min(8)
+    .max(128)
+    .regex(/[a-zA-Z]/, 'Password must contain at least one letter')
+    .regex(/[0-9]/, 'Password must contain at least one number'),
+  displayName: z.string().min(1).max(80),
+  email: z.string().email().max(254).optional(),
+  phone: z
+    .string()
+    .regex(/^\d{10}$/, 'phone must be a 10-digit number')
+    .optional(),
+  companyName: z.string().max(160).optional(),
+});
+export const ResetPasswordBody = z.object({
+  newPassword: z
+    .string()
+    .min(8)
+    .max(128)
+    .regex(/[a-zA-Z]/, 'Password must contain at least one letter')
+    .regex(/[0-9]/, 'Password must contain at least one number'),
+});
 export const CategoryTag = z.enum(['featured', 'trending', 'popular']);
 export const CreateCategoryBody = z.object({
   typeId: z.number().int().positive(),
@@ -85,13 +116,44 @@ export const SystemConfigBody = z.object({
   merchantCatalogDefaults: z
     .record(
       z.enum(['men', 'women', 'boys', 'girls']),
-      z.object({ faceId: z.string().uuid(), backgroundId: z.string().uuid() }),
+      z.object({
+        faceId: z.string().uuid(),
+        backgroundId: z.string().uuid(),
+        lowerCatalogId: z.string().uuid().optional(),
+        shoeCatalogId: z.string().uuid().optional(),
+      }),
     )
     .optional(),
   merchantCatalogAspectRatio: z.enum(['1:1', '2:3', '3:4', '4:5']).optional(),
   tryon: z
     .object({
       creditCost: z.number().int().positive().max(1_000),
+    })
+    .optional(),
+  sareeMannequinDev: z
+    .object({
+      creditCost: z.number().int().positive().max(1_000),
+    })
+    .optional(),
+  pixverse: z.object({ creditCost: z.number().int().positive().max(1_000) }).optional(),
+  // Admin-configurable per-surface upload size ceilings. Each replaces a previously
+  // hardcoded byte constant (see apps/api/src/lib/upload-limits-config.ts for
+  // defaults/readers). Omitted = fall back to the hardcoded default. No minimum
+  // floor is enforced deliberately — only a positive integer is required.
+  uploadLimits: z
+    .object({
+      merchantCatalogMaxBytes: z.number().int().positive().max(52_428_800).optional(),
+      webGarmentMaxBytes: z.number().int().positive().max(52_428_800).optional(),
+      merchantTryonMaxBytes: z.number().int().positive().max(52_428_800).optional(),
+      kioskUploadMaxBytes: z.number().int().positive().max(52_428_800).optional(),
+      devApiMaxBytes: z.number().int().positive().max(52_428_800).optional(),
+      shopifyCatalogSourceMaxBytes: z.number().int().positive().max(52_428_800).optional(),
+      shopifyCustomerPhotoMaxBytes: z.number().int().positive().max(52_428_800).optional(),
+      shopifyProductImageMaxBytes: z.number().int().positive().max(52_428_800).optional(),
+      shopifyProductSyncMaxBytes: z.number().int().positive().max(52_428_800).optional(),
+      // Different ceiling: this is a ZIP of many images (admin bulk asset import),
+      // not a single photo.
+      bulkImportMaxBytes: z.number().int().positive().max(3_221_225_472).optional(),
     })
     .optional(),
 });
@@ -112,6 +174,32 @@ export const ConfirmModelFaceBody = z.object({
   faceSideR2Key: z.string().min(1).optional(),
   sortOrder: z.number().int().default(0),
 });
+/**
+ * Opts an asset into the public developer API and names it there.
+ *
+ * null / omitted-as-null = withdraw the asset from /v1/dev/*. Setting a value is a
+ * publishing action: third-party integrations will hard-code it, so treat a rename
+ * as a breaking change for those callers rather than a cosmetic edit.
+ */
+export const PublicApiSlugField = z
+  .union([
+    // A cleared admin form field submits '' rather than null. Accept it and
+    // normalize below, so "withdraw this asset" works from the UI without every
+    // route handler having to special-case the empty string.
+    z.literal(''),
+    z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(
+        /^[a-z0-9]+(-[a-z0-9]+)*$/,
+        'must be lowercase alphanumeric words separated by hyphens',
+      ),
+  ])
+  .nullable()
+  .optional()
+  .transform((v) => (v === '' ? null : v));
+
 export const PatchModelFaceBody = z.object({
   label: z.string().min(1).max(120).optional(),
   gender: GenderEnum.optional(),
@@ -120,6 +208,7 @@ export const PatchModelFaceBody = z.object({
   r2Key: z.string().optional(),
   thumbnailKey: z.string().optional(),
   faceSideR2Key: z.string().nullable().optional(),
+  publicApiSlug: PublicApiSlugField,
 });
 
 // Backgrounds are now global — no faceId
@@ -151,6 +240,31 @@ export const PatchModelBackgroundBody = z.object({
   categoryId: CoercedPositiveInt.nullable().optional(),
   specialTag: CategoryTag.nullable().optional(),
   tags: z.array(z.string().min(1).max(40)).max(20).optional(),
+  publicApiSlug: PublicApiSlugField,
+});
+
+export const PresignSampleVideoBody = z.object({
+  videoContentType: z.literal('video/mp4'),
+  // Thumbnail is always a client-generated animated preview GIF (see gif.ts) — no
+  // manual poster upload, so this is fixed rather than reusing the image AssetContentType enum.
+  thumbnailContentType: z.literal('image/gif'),
+});
+export const ConfirmSampleVideoBody = z.object({
+  title: z.string().min(1).max(120),
+  videoR2Key: z.string().min(1),
+  thumbnailR2Key: z.string().min(1),
+  prompt: z.string().min(1).max(5000),
+  sortOrder: z.number().int().default(0),
+});
+export const PatchSampleVideoBody = z.object({
+  title: z.string().min(1).max(120).optional(),
+  prompt: z.string().min(1).max(5000).optional(),
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().optional(),
+});
+
+export const PresignAppVideoBody = z.object({
+  contentType: z.literal('video/mp4'),
 });
 
 // ── Workflow template schemas ─────────────────────────────────────────────
@@ -165,7 +279,9 @@ export const CreateWorkflowBody = z
       ),
     label: z.string().min(1).max(120),
     jsonContent: z.record(z.any()),
-    workflowType: z.enum(['regular', 'tryon', 'saree_step1']).default('regular'),
+    workflowType: z
+      .enum(['regular', 'tryon', 'saree_step1', 'saree_step1_two_input'])
+      .default('regular'),
     // Regular workflow fields (required when workflowType = 'regular')
     faceNodeId: z.string().min(1).optional(),
     poseNodeId: z.string().min(1).optional(),
@@ -190,10 +306,15 @@ export const CreateWorkflowBody = z
     // Tryon workflow fields (required when workflowType = 'tryon')
     tryonPersonNodeId: z.string().min(1).optional(),
     tryonGarmentNodeId: z.string().min(1).optional(),
+    tryonGarmentNodeId2: z.string().min(1).optional(),
     tryonOutputNodeId: z.string().min(1).optional(),
   })
   .superRefine((val, ctx) => {
-    if (val.workflowType === 'tryon' || val.workflowType === 'saree_step1') {
+    if (
+      val.workflowType === 'tryon' ||
+      val.workflowType === 'saree_step1' ||
+      val.workflowType === 'saree_step1_two_input'
+    ) {
       for (const field of ['facePhasePromptNode', 'garmentPhasePromptNode'] as const) {
         if (!val[field]) {
           ctx.addIssue({
@@ -239,7 +360,7 @@ export const CreateWorkflowBody = z
 
 export const ParseWorkflowBody = z.object({
   jsonContent: z.record(z.any()),
-  workflowType: z.enum(['regular', 'tryon', 'saree_step1']).optional(),
+  workflowType: z.enum(['regular', 'tryon', 'saree_step1', 'saree_step1_two_input']).optional(),
 });
 
 export const UpdateWorkflowBody = z.object({
@@ -274,6 +395,7 @@ export const UpdateWorkflowBody = z.object({
   // Tryon workflow node IDs
   tryonPersonNodeId: z.string().min(1).nullable().optional(),
   tryonGarmentNodeId: z.string().min(1).nullable().optional(),
+  tryonGarmentNodeId2: z.string().min(1).nullable().optional(),
   tryonOutputNodeId: z.string().min(1).nullable().optional(),
 });
 
@@ -418,6 +540,8 @@ export const PatchGarmentTypeBody = z.object({
   requiresMannequinStep: z.boolean().optional(),
   mannequinWorkflowTemplateId: z.string().uuid().nullable().optional(),
   sareeStep2WorkflowTemplateId: z.string().uuid().nullable().optional(),
+  mannequinTwoInputWorkflowTemplateId: z.string().uuid().nullable().optional(),
+  publicApiSlug: PublicApiSlugField,
 });
 export const PresignGarmentTypeBody = z.object({
   contentType: AssetContentType,
@@ -456,3 +580,22 @@ export const PutCatalogueTemplateLooksBody = z.object({
 export const PresignCatalogueTemplateThumbnailBody = z.object({
   contentType: AssetContentType,
 });
+
+export const AdminHeldJobsResponse = z.object({
+  total: z.number().int(),
+  byUser: z.array(
+    z.object({
+      userId: z.string().uuid().nullable(),
+      email: z.string().nullable(),
+      count: z.number().int(),
+      oldestCreatedAt: z.string(),
+    }),
+  ),
+});
+export type AdminHeldJobsResponse = z.infer<typeof AdminHeldJobsResponse>;
+
+export const AdminHeldJobsReleaseResponse = z.object({
+  released: z.number().int(),
+  remaining: z.number().int(),
+});
+export type AdminHeldJobsReleaseResponse = z.infer<typeof AdminHeldJobsReleaseResponse>;

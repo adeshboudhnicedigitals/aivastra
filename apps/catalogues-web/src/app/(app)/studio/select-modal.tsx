@@ -102,7 +102,7 @@ export function SelectGridModal<T extends SelectableItem>({
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: `repeat(${columns}, 1fr)`,
+                gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
                 gap: 16,
               }}
             >

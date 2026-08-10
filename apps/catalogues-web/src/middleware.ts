@@ -12,10 +12,23 @@ const PUBLIC_PATHS = [
   '/forgot-password',
   '/reset-password',
   '/kiosk-upload',
+  '/tryon-library-app',
 ];
 // Features not ready for real users — hidden from the sidebar (see sidebar.tsx
 // devOnly) and blocked here so direct navigation can't reach them either.
-const DEV_ONLY_PATHS = ['/tutorials'];
+const DEV_ONLY_PATHS: string[] = [];
+// Features hidden in every environment (not just production) — still fully
+// present in the codebase, just not reachable via nav or direct URL. See
+// sidebar.tsx for the matching nav-item removal.
+const ALWAYS_BLOCKED_PATHS: string[] = ['/sellio'];
+
+// Gartex Expo Delhi campaign (docs/superpowers/specs/2026-08-01-gartex-expo-qr-campaign-design.md)
+// — send /pricing traffic straight to signup with the already-configured
+// gartex2026delhi campaign code instead of a page that requires login.
+// Self-expiring: no follow-up deploy needed to remove it once the window
+// closes. IST bounds, matching the expo's own timezone.
+const GARTEX_REDIRECT_START = new Date('2026-08-05T00:00:00+05:30');
+const GARTEX_REDIRECT_END = new Date('2026-08-09T23:59:59+05:30');
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -28,11 +41,16 @@ export async function middleware(request: NextRequest) {
       : pathname;
 
   if (path.startsWith('/api/auth')) return NextResponse.next();
+  if (path.startsWith('/api/catalog-app')) return NextResponse.next();
 
   if (
     process.env.NODE_ENV === 'production' &&
     DEV_ONLY_PATHS.some((p) => path === p || path.startsWith(`${p}/`))
   ) {
+    return NextResponse.redirect(new URL(`${BASE_PATH}/studio`, request.url));
+  }
+
+  if (ALWAYS_BLOCKED_PATHS.some((p) => path === p || path.startsWith(`${p}/`))) {
     return NextResponse.redirect(new URL(`${BASE_PATH}/studio`, request.url));
   }
 
@@ -73,8 +91,22 @@ export async function middleware(request: NextRequest) {
         }
       }
     } catch {
-      // fall through to login redirect
+      // fall through to login/gartex redirect below
     }
+  }
+
+  // Real auth resolution (token, then refresh) has failed at this point --
+  // this visitor is genuinely anonymous, not just carrying a stale cookie
+  // from an earlier session. Gartex Expo Delhi campaign
+  // (docs/superpowers/specs/2026-08-01-gartex-expo-qr-campaign-design.md):
+  // send /pricing traffic straight to signup with the already-configured
+  // gartex2026delhi campaign code instead of a login wall. Self-expiring --
+  // no follow-up deploy needed once the window closes.
+  const now = new Date();
+  if (path === '/pricing' && now >= GARTEX_REDIRECT_START && now <= GARTEX_REDIRECT_END) {
+    const url = new URL(`${BASE_PATH}/register`, request.url);
+    url.searchParams.set('src', 'gartex2026delhi');
+    return NextResponse.redirect(url);
   }
 
   // Use absolute URL to avoid Next.js basePath double-prefix issues

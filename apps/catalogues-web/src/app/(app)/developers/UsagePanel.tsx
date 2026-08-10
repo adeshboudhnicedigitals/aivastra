@@ -78,60 +78,104 @@ export function UsagePanel() {
           </p>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr 0.7fr 1.3fr',
-              padding: '10px 14px',
-              borderBottom: `1px solid ${C.border}`,
-              fontSize: 12,
-              fontWeight: 600,
-              color: C.mid,
-              textTransform: 'uppercase',
-              letterSpacing: '0.4px',
-            }}
-          >
-            <span>Status</span>
-            <span>Key</span>
-            <span>Credits</span>
-            <span>Created</span>
-          </div>
-          {rows.map((r) => (
+        <div style={{ overflowX: 'auto', width: '100%', borderRadius: 8 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 500 }}>
             <div
-              key={r.jobId}
               style={{
                 display: 'grid',
-                gridTemplateColumns: '1fr 1fr 0.7fr 1.3fr',
-                padding: '12px 14px',
+                gridTemplateColumns: '1fr 1.2fr 0.7fr 1.3fr',
+                padding: '10px 14px',
                 borderBottom: `1px solid ${C.border}`,
-                alignItems: 'center',
+                fontSize: 12,
+                fontWeight: 600,
+                color: C.mid,
+                textTransform: 'uppercase',
+                letterSpacing: '0.4px',
               }}
             >
-              <span>
+              <span>Status</span>
+              <span>Key</span>
+              <span>Credits</span>
+              <span>Created</span>
+            </div>
+            {rows.map((r) => (
+              <div
+                key={r.jobId}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1.2fr 0.7fr 1.3fr',
+                  padding: '12px 14px',
+                  borderBottom: `1px solid ${C.border}`,
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
+                <span style={{ minWidth: 0 }}>
+                  <span
+                    style={{
+                      display: 'inline-block',
+                      padding: '3px 10px',
+                      borderRadius: 20,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: STATUS_COLOR[r.status] ?? C.mid,
+                      border: `1px solid ${STATUS_COLOR[r.status] ?? C.border2}`,
+                    }}
+                  >
+                    {r.status}
+                  </span>
+                </span>
                 <span
                   style={{
-                    display: 'inline-block',
-                    padding: '3px 10px',
-                    borderRadius: 20,
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: STATUS_COLOR[r.status] ?? C.mid,
-                    border: `1px solid ${STATUS_COLOR[r.status] ?? C.border2}`,
+                    fontSize: 13,
+                    color: C.text,
+                    fontWeight: 500,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    minWidth: 0,
                   }}
                 >
-                  {r.status}
+                  {r.keyLabel}{' '}
+                  <span
+                    style={{
+                      color: C.mid,
+                      fontSize: 12,
+                      fontFamily:
+                        'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                    }}
+                  >
+                    ({r.keyPrefix}…)
+                  </span>
                 </span>
-              </span>
-              <span style={{ fontSize: 13, color: C.text }}>
-                {r.keyLabel} <span style={{ color: C.mid }}>({r.keyPrefix}…)</span>
-              </span>
-              <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
-                {r.creditsCharged}
-              </span>
-              <span style={{ fontSize: 13, color: C.mid }}>{fmtDate(r.createdAt)}</span>
-            </div>
-          ))}
+                <span
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: C.text,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    minWidth: 0,
+                  }}
+                >
+                  {r.creditsCharged}
+                </span>
+                <span
+                  style={{
+                    fontSize: 12.5,
+                    color: C.mid,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    minWidth: 0,
+                  }}
+                >
+                  {fmtDate(r.createdAt)}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

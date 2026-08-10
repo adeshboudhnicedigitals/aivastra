@@ -36,11 +36,6 @@ async function createMerchant(
     })
     .returning();
 
-  await app.db.insert(schema.merchantCredits).values({
-    merchantId: merchant.id,
-    balance: 0,
-  });
-
   return merchant;
 }
 
@@ -58,9 +53,6 @@ async function createUser(app: TestApp, email: string) {
   return user;
 }
 
-// Merchant catalogue subcategories only accept garment types with
-// requiresMannequinStep = true — see the matching filter on the
-// GET/POST/PATCH routes in catalog.routes.ts.
 async function seedGarmentType(app: TestApp, genderSlug: string) {
   const [row] = await app.db
     .insert(schema.garmentSubcategories)
@@ -68,7 +60,6 @@ async function seedGarmentType(app: TestApp, genderSlug: string) {
       genderSlug,
       slug: `type-${randomUUID()}`,
       label: 'Type',
-      requiresMannequinStep: true,
     })
     .returning();
   return row;

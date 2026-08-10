@@ -61,6 +61,7 @@ const TERMINAL = ['COMPLETED', 'FAILED', 'CANCELLED'];
 
 // [min%, max%, durationMs] for each non-terminal stage
 const STAGE_RANGES: Record<string, [number, number, number]> = {
+  PENDING_MANNEQUIN: [0, 3, 0],
   QUEUED: [0, 5, 0],
   PREPROCESSING: [5, 25, 30_000],
   GENERATING: [25, 88, 240_000],
@@ -198,11 +199,13 @@ function ImageCard({
   const cardBg = isCompleted ? C.lighter : C.dark;
 
   const stageLabel =
-    job.status === 'PREPROCESSING'
-      ? 'Preparing…'
-      : job.status === 'UPLOADING'
-        ? 'Saving…'
-        : 'Generating…';
+    job.status === 'PENDING_MANNEQUIN'
+      ? 'Preparing garment…'
+      : job.status === 'PREPROCESSING'
+        ? 'Preparing…'
+        : job.status === 'UPLOADING'
+          ? 'Saving…'
+          : 'Generating…';
 
   return (
     <>
@@ -452,7 +455,15 @@ function ImageCard({
                 borderRadius: 20,
               }}
             >
-              {isCompleted ? 'Ready' : isFailed ? 'Failed' : isQueued ? 'Queued' : 'Generating'}
+              {isCompleted
+                ? 'Ready'
+                : isFailed
+                  ? 'Failed'
+                  : isQueued
+                    ? 'Queued'
+                    : job.status === 'PENDING_MANNEQUIN'
+                      ? 'Preparing'
+                      : 'Generating'}
             </span>
             <span style={{ fontSize: 11, color: C.light }}>
               {new Date(job.createdAt).toLocaleDateString('en-IN', {
@@ -774,6 +785,40 @@ export default function CataloguePage({
           0%   { transform: translateX(-150%); }
           100% { transform: translateX(400%); }
         }
+
+        .catalogue-detail-wrapper {
+          flex: 1;
+          overflow-y: auto;
+          padding: 24px 28px;
+          box-sizing: border-box;
+        }
+
+        .catalogue-detail-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+          gap: 16px;
+          width: 100%;
+        }
+
+        @media (max-width: 1023px) {
+          .catalogue-detail-wrapper {
+            padding: 20px 20px;
+          }
+          .catalogue-detail-grid {
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 12px;
+          }
+        }
+
+        @media (max-width: 639px) {
+          .catalogue-detail-wrapper {
+            padding: 16px 16px;
+          }
+          .catalogue-detail-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+          }
+        }
       `}</style>
       <TopBar
         lead={
@@ -786,7 +831,7 @@ export default function CataloguePage({
             </Link>
             <div>
               <div style={{ fontWeight: 700, fontSize: 18, color: C.text }}>
-                Catalogue{' '}
+                Catalog{' '}
                 <span style={{ color: C.mid, fontWeight: 500, fontSize: 14 }}>
                   #{id.slice(0, 8)}
                 </span>
@@ -860,7 +905,7 @@ export default function CataloguePage({
           </div>
         }
       />
-      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
+      <div className="catalogue-detail-wrapper">
         {isLoading && (
           <div
             style={{ display: 'flex', justifyContent: 'center', padding: '64px 0', color: C.mid }}
@@ -869,14 +914,7 @@ export default function CataloguePage({
           </div>
         )}
         {data && (
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-              gap: 16,
-              width: '100%',
-            }}
-          >
+          <div className="catalogue-detail-grid">
             {data.jobs.map((job) => (
               <ImageCard
                 key={job.id}

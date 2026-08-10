@@ -14,8 +14,7 @@ coverage
 .DS_Store
 Thumbs.db
 .idea
-.vscode/*
-!.vscode/settings.json
+.vscode/
 
 infra/data
 *.log
@@ -42,8 +41,10 @@ graphify-out/*
 assets/*
 
 .superpowers/*
+.worktrees/
 .opencode/*
 .codeboarding/
+.agents/
 
 # /legacy_ecosystem/
 /apps/admin-mobile/

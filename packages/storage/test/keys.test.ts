@@ -8,6 +8,9 @@ describe('keys', () => {
   it('builds output result key', () => {
     expect(keys.output('abc-123')).toBe('outputs/abc-123/result.png');
   });
+  it('builds output result key in webp format when requested', () => {
+    expect(keys.output('abc-123', 'webp')).toBe('outputs/abc-123/result.webp');
+  });
   it('builds catalog item key with type and id', () => {
     expect(keys.catalogItem('models', 'uuid-1')).toBe('catalog/models/uuid-1.jpg');
   });

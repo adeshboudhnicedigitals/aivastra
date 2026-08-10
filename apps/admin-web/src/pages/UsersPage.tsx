@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Icon } from '../components/Icons';
+import { JobTypeBadge } from '../components/JobTypeBadge';
 import { KV } from '../components/KV';
 import { NameAvatar } from '../components/NameAvatar';
 import { Pager } from '../components/Pager';
@@ -25,12 +26,29 @@ const EMPTY_EDIT_MERCHANT_FORM = {
   phone: '',
   businessAddress: '',
 };
+const EMPTY_CREATE_USER_FORM = {
+  username: '',
+  password: '',
+  displayName: '',
+  email: '',
+  phone: '',
+};
 
 function adminRoleLabel(role: string | null) {
   if (role === 'SUPER_ADMIN') return 'Super Admin';
   if (role === 'MODERATOR') return 'Moderator';
   if (role === 'SUPPORT') return 'Support';
   return 'Admin';
+}
+function userLabel(u: {
+  displayName: string | null;
+  email: string | null;
+  username: string | null;
+}) {
+  return u.displayName ?? u.email ?? u.username ?? 'User';
+}
+function userContact(u: { email: string | null; username: string | null }) {
+  return u.email ?? (u.username ? `@${u.username}` : '\u2014');
 }
 
 interface Props {
@@ -46,6 +64,7 @@ export default function UsersPage({ onNav, toast }: Props) {
   const isSuperAdmin = myRole === 'SUPER_ADMIN';
   const [query, setQuery] = useState('');
   const [merchantsOnly, setMerchantsOnly] = useState(false);
+  const [showBanned, setShowBanned] = useState(false);
   const [page, setPage] = useState(0);
   const [sortKey, setSortKey] = useState<keyof User>('createdAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -55,6 +74,11 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [detail, setDetail] = useState<User | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [confirmSuspend, setConfirmSuspend] = useState<string | null>(null);
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [deletingUser, setDeletingUser] = useState(false);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [grantUserId, setGrantUserId] = useState<string | null>(null);
   const [grantMode, setGrantMode] = useState<'grant' | 'deduct'>('grant');
   const [grantAmount, setGrantAmount] = useState('');
@@ -72,8 +96,16 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [grantingMerchant, setGrantingMerchant] = useState(false);
   const [showEditMerchant, setShowEditMerchant] = useState(false);
   const [merchantEditForm, setMerchantEditForm] = useState(EMPTY_EDIT_MERCHANT_FORM);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
   const [savingMerchantEdit, setSavingMerchantEdit] = useState(false);
   const [togglingMerchant, setTogglingMerchant] = useState(false);
+  const [togglingDemoData, setTogglingDemoData] = useState(false);
+  const [showCreateUser, setShowCreateUser] = useState(false);
+  const [createUserForm, setCreateUserForm] = useState(EMPTY_CREATE_USER_FORM);
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [createUserError, setCreateUserError] = useState('');
+  const [resettingPassword, setResettingPassword] = useState(false);
+  const [newPasswordInput, setNewPasswordInput] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -81,6 +113,7 @@ export default function UsersPage({ onNav, toast }: Props) {
       const params = new URLSearchParams({ page: String(page + 1), pageSize: String(PAGE_SIZE) });
       if (query) params.set('search', query);
       if (merchantsOnly) params.set('merchant', 'true');
+      if (showBanned) params.set('showBanned', 'true');
       const data = await apiFetch<{ items: User[]; total: number }>(`/admin/users?${params}`);
       setUsers(data.items);
       setTotal(data.total);
@@ -93,7 +126,7 @@ export default function UsersPage({ onNav, toast }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [page, query, merchantsOnly, toast]);
+  }, [page, query, merchantsOnly, showBanned, toast]);
 
   useEffect(() => {
     load();
@@ -213,6 +246,66 @@ export default function UsersPage({ onNav, toast }: Props) {
     setConfirmSuspend(null);
   };
 
+  const handleDeleteConfirm = async () => {
+    if (!confirmDelete) return;
+    const targetId = confirmDelete;
+    setDeletingUser(true);
+    try {
+      await apiFetch(`/admin/users/${targetId}`, { method: 'DELETE' });
+      if (detail?.id === targetId) setDetail(null);
+      toast({ title: 'User data erased' });
+      await load();
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Action failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setDeletingUser(false);
+      setConfirmDelete(null);
+    }
+  };
+
+  const handleBulkDeleteConfirm = async () => {
+    if (selectedUserIds.length === 0) return;
+    setBulkDeleting(true);
+    try {
+      const res = await apiFetch<{
+        succeeded: string[];
+        skipped: { id: string; reason: string }[];
+      }>('/admin/users/bulk-delete', {
+        method: 'POST',
+        body: JSON.stringify({ ids: selectedUserIds }),
+      });
+      const succLen = res.succeeded.length;
+      const skipLen = res.skipped.length;
+      toast({
+        title: `Erased ${succLen}, skipped ${skipLen}`,
+        body:
+          skipLen > 0
+            ? res.skipped
+                .map((s) => {
+                  const u = users.find((x) => x.id === s.id);
+                  return `${u ? (u.email ?? userLabel(u)) : s.id}: ${s.reason}`;
+                })
+                .join(', ')
+            : undefined,
+      });
+      setSelectedUserIds([]);
+      await load();
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Bulk delete failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setBulkDeleting(false);
+      setShowBulkDeleteConfirm(false);
+    }
+  };
+
   const handleTierSave = async () => {
     if (!detail || !selectedTier || selectedTier === detail.tier) return;
     setTierSaving(true);
@@ -324,14 +417,14 @@ export default function UsersPage({ onNav, toast }: Props) {
       await apiFetch('/admin/merchants', {
         method: 'POST',
         body: JSON.stringify({
-          email: detail.email,
+          userId: detail.id,
           companyName: grantMerchantForm.companyName.trim(),
           contactName: grantMerchantForm.contactName.trim() || undefined,
           phone: grantMerchantForm.phone.trim() || undefined,
           businessAddress: grantMerchantForm.businessAddress.trim() || undefined,
         }),
       });
-      toast({ title: `Merchant access granted to ${detail.email}` });
+      toast({ title: `Merchant access granted to ${userLabel(detail)}` });
       setShowGrantMerchant(false);
       await openDetail(detail);
       setUsers((prev) => prev.map((u) => (u.id === detail.id ? { ...u, isMerchant: true } : u)));
@@ -371,6 +464,31 @@ export default function UsersPage({ onNav, toast }: Props) {
       setSavingMerchantEdit(false);
     }
   }
+  async function handleLogoUpload(file: File) {
+    if (!detail?.merchant) return;
+    setUploadingLogo(true);
+    try {
+      const presign = await apiFetch<{ uploadUrl: string; logoKey: string }>(
+        `/admin/merchants/${detail.merchant.id}/logo/presign`,
+        { method: 'POST', body: JSON.stringify({ contentType: file.type }) },
+      );
+      await fetch(presign.uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type },
+        body: file,
+      });
+      await apiFetch(`/admin/merchants/${detail.merchant.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ logoKey: presign.logoKey }),
+      });
+      toast({ title: 'Merchant logo updated' });
+      await openDetail(detail);
+    } catch (err) {
+      toast({ kind: 'error', title: apiErrorMessage(err, 'Failed to upload logo') });
+    } finally {
+      setUploadingLogo(false);
+    }
+  }
 
   async function handleToggleMerchantActive() {
     if (!detail?.merchant) return;
@@ -389,6 +507,73 @@ export default function UsersPage({ onNav, toast }: Props) {
     }
   }
 
+  async function handleToggleMerchantDemoData() {
+    if (!detail?.merchant) return;
+    setTogglingDemoData(true);
+    try {
+      await apiFetch(`/admin/merchants/${detail.merchant.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ demoData: !detail.merchant.demoData }),
+      });
+      toast({
+        title: `Demo data ${detail.merchant.demoData ? 'disabled' : 'enabled'}`,
+      });
+      await openDetail(detail);
+    } catch (err) {
+      toast({ kind: 'error', title: apiErrorMessage(err, 'Failed to update demo data access') });
+    } finally {
+      setTogglingDemoData(false);
+    }
+  }
+
+  function openCreateUser() {
+    setCreateUserForm(EMPTY_CREATE_USER_FORM);
+    setCreateUserError('');
+    setShowCreateUser(true);
+  }
+
+  async function handleCreateUser() {
+    setCreateUserError('');
+    if (
+      !createUserForm.username.trim() ||
+      !createUserForm.password ||
+      !createUserForm.displayName.trim()
+    ) {
+      setCreateUserError('Username, password, and name are required.');
+      return;
+    }
+    setCreatingUser(true);
+    try {
+      await apiFetch('/admin/users', {
+        method: 'POST',
+        body: JSON.stringify({
+          username: createUserForm.username.trim(),
+          password: createUserForm.password,
+          displayName: createUserForm.displayName.trim(),
+          email: createUserForm.email.trim() || undefined,
+          phone: createUserForm.phone.trim() || undefined,
+        }),
+      });
+      toast({ title: `Account created for ${createUserForm.displayName.trim()}` });
+      setShowCreateUser(false);
+      setPage(0);
+      await load();
+    } catch (err) {
+      setCreateUserError(apiErrorMessage(err, 'Failed to create user'));
+    } finally {
+      setCreatingUser(false);
+    }
+  }
+
+  async function handleResetPassword(newPassword: string) {
+    if (!detail) return;
+    await apiFetch(`/admin/users/${detail.id}/reset-password`, {
+      method: 'POST',
+      body: JSON.stringify({ newPassword }),
+    });
+    toast({ title: 'Password reset \u2014 share the new password with the customer' });
+  }
+
   if (detail) {
     const u = detail;
     const effectiveTierOptions =
@@ -404,11 +589,11 @@ export default function UsersPage({ onNav, toast }: Props) {
               <Icon.Back /> Back to users
             </button>
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 12 }}>
-              <NameAvatar name={u.displayName ?? u.email} email={u.email} size={44} />
+              <NameAvatar name={userLabel(u)} email={u.email ?? undefined} size={44} />
               <div>
-                <h1 style={{ marginBottom: 2 }}>{u.displayName ?? u.email}</h1>
+                <h1 style={{ marginBottom: 2 }}>{userLabel(u)}</h1>
                 <p className="lede" style={{ margin: 0 }}>
-                  {u.email}
+                  {userContact(u)}
                 </p>
               </div>
             </div>
@@ -425,6 +610,15 @@ export default function UsersPage({ onNav, toast }: Props) {
             </div>
           </div>
           <div className="head-tools">
+            <button
+              className="btn ghost"
+              onClick={() => {
+                setNewPasswordInput('');
+                setResettingPassword(true);
+              }}
+            >
+              <Icon.Refresh /> Reset Password
+            </button>
             {isSuperAdmin && !u.isAdmin && u.hasPassword && (
               <button
                 className="btn ghost"
@@ -440,7 +634,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                     setUsers((prev) =>
                       prev.map((x) => (x.id === u.id ? { ...x, isAdmin: true } : x)),
                     );
-                    toast({ title: `${u.displayName ?? u.email} granted admin access` });
+                    toast({ title: `${userLabel(u)} granted admin access` });
                   } catch (e) {
                     toast({
                       kind: 'error',
@@ -467,7 +661,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                     setUsers((prev) =>
                       prev.map((x) => (x.id === u.id ? { ...x, isAdmin: false } : x)),
                     );
-                    toast({ title: `${u.displayName ?? u.email} admin access revoked` });
+                    toast({ title: `${userLabel(u)} admin access revoked` });
                   } catch (e) {
                     toast({
                       kind: 'error',
@@ -485,6 +679,11 @@ export default function UsersPage({ onNav, toast }: Props) {
             {!u.isAdmin && (
               <button className="btn danger" onClick={() => setConfirmSuspend(u.id)}>
                 <Icon.Ban /> {u.isBanned ? 'Unsuspend' : 'Suspend'}
+              </button>
+            )}
+            {isSuperAdmin && !u.isAdmin && (
+              <button className="btn danger" onClick={() => setConfirmDelete(u.id)}>
+                <Icon.Trash /> Delete
               </button>
             )}
           </div>
@@ -519,7 +718,7 @@ export default function UsersPage({ onNav, toast }: Props) {
               </button>
               <button
                 className="stat"
-                onClick={() => onNav('jobs', { page: 'jobs', search: u.email })}
+                onClick={() => onNav('jobs', { page: 'jobs', search: u.email ?? u.username ?? '' })}
                 title="View this user's jobs"
               >
                 <div className="lbl">
@@ -638,9 +837,25 @@ export default function UsersPage({ onNav, toast }: Props) {
                       }
                     />
                     <KV
-                      k="Catalogue credits"
-                      v={(u.merchant.creditBalance ?? 0).toLocaleString()}
-                      mono
+                      k="Demo data"
+                      v={
+                        <label
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            cursor: isSuperAdmin && !togglingDemoData ? 'pointer' : 'not-allowed',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={u.merchant.demoData}
+                            disabled={!isSuperAdmin || togglingDemoData}
+                            onChange={() => void handleToggleMerchantDemoData()}
+                          />
+                          <span>{u.merchant.demoData ? 'Enabled' : 'Disabled'}</span>
+                        </label>
+                      }
                     />
                   </div>
                 )}
@@ -655,7 +870,9 @@ export default function UsersPage({ onNav, toast }: Props) {
                 </div>
                 <button
                   className="btn sm ghost"
-                  onClick={() => onNav('jobs', { page: 'jobs', search: u.email })}
+                  onClick={() =>
+                    onNav('jobs', { page: 'jobs', search: u.email ?? u.username ?? '' })
+                  }
                 >
                   View all jobs <Icon.Chevron />
                 </button>
@@ -683,25 +900,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                         >
                           <td>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <span
-                                className={`badge ${
-                                  j.jobType === 'widget'
-                                    ? 'accent'
-                                    : j.jobType === 'api'
-                                      ? 'success'
-                                      : j.jobType === 'tryon'
-                                        ? 'info'
-                                        : ''
-                                }`}
-                              >
-                                {j.jobType === 'widget'
-                                  ? 'Merchant'
-                                  : j.jobType === 'api'
-                                    ? 'API'
-                                    : j.jobType === 'tryon'
-                                      ? 'Try-On'
-                                      : 'Studio'}
-                              </span>
+                              <JobTypeBadge jobType={j.jobType} />
                               <span className="mono sub">{j.id.slice(0, 8)}&hellip;</span>
                             </div>
                           </td>
@@ -750,6 +949,43 @@ export default function UsersPage({ onNav, toast }: Props) {
           </>
         )}
 
+        {resettingPassword && (
+          <div className="modal-overlay" onClick={() => setResettingPassword(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <h3>Reset Password</h3>
+              </div>
+              <div className="modal-body">
+                <div className="field">
+                  <label>New password</label>
+                  <input
+                    className="input"
+                    type="password"
+                    value={newPasswordInput}
+                    onChange={(e) => setNewPasswordInput(e.target.value)}
+                    placeholder="At least 8 characters with a letter and number"
+                  />
+                </div>
+              </div>
+              <div className="modal-foot">
+                <button className="btn ghost" onClick={() => setResettingPassword(false)}>
+                  Cancel
+                </button>
+                <button
+                  className="btn primary"
+                  onClick={async () => {
+                    await handleResetPassword(newPasswordInput);
+                    setResettingPassword(false);
+                  }}
+                  disabled={!newPasswordInput}
+                >
+                  Reset Password
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {confirmSuspend && (
           <div className="modal-overlay" onClick={() => setConfirmSuspend(null)}>
             <div className="modal confirm" onClick={(e) => e.stopPropagation()}>
@@ -759,7 +995,7 @@ export default function UsersPage({ onNav, toast }: Props) {
               <div className="modal-body">
                 <p>
                   Are you sure you want to {u.isBanned ? 'unsuspend' : 'suspend'}{' '}
-                  <strong>{u.displayName ?? u.email}</strong>?
+                  <strong>{userLabel(u)}</strong>?
                 </p>
               </div>
               <div className="modal-foot">
@@ -768,6 +1004,49 @@ export default function UsersPage({ onNav, toast }: Props) {
                 </button>
                 <button className="btn danger" onClick={handleSuspendConfirm}>
                   Confirm
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {confirmDelete && (
+          <div className="modal-overlay" onClick={() => setConfirmDelete(null)}>
+            <div className="modal confirm" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <h3>Delete user</h3>
+              </div>
+              <div className="modal-body">
+                <p>
+                  Permanently erase personal data for{' '}
+                  <strong>
+                    {(() => {
+                      const u = confirmDelete
+                        ? detail?.id === confirmDelete
+                          ? detail
+                          : users.find((x) => x.id === confirmDelete)
+                        : null;
+                      return u ? (u.email ?? userLabel(u)) : 'this user';
+                    })()}
+                  </strong>
+                  ? This cannot be undone. Their job and payment history will be retained but
+                  anonymized.
+                </p>
+              </div>
+              <div className="modal-foot">
+                <button
+                  className="btn ghost"
+                  onClick={() => setConfirmDelete(null)}
+                  disabled={deletingUser}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn danger"
+                  onClick={handleDeleteConfirm}
+                  disabled={deletingUser}
+                >
+                  {deletingUser ? 'Erasing…' : 'Confirm'}
                 </button>
               </div>
             </div>
@@ -845,7 +1124,7 @@ export default function UsersPage({ onNav, toast }: Props) {
           <div className="modal-overlay" onClick={closeAdjustCredits}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <div className="modal-head">
-                <h3>Adjust credits — {u.displayName ?? u.email}</h3>
+                <h3>Adjust credits — {userLabel(u)}</h3>
               </div>
               <div
                 className="modal-body"
@@ -932,7 +1211,7 @@ export default function UsersPage({ onNav, toast }: Props) {
           <div className="modal-overlay" onClick={() => setShowGrantMerchant(false)}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <div className="modal-head">
-                <h3>Grant merchant access — {u.displayName ?? u.email}</h3>
+                <h3>Grant merchant access — {userLabel(u)}</h3>
               </div>
               <div
                 className="modal-body"
@@ -985,8 +1264,8 @@ export default function UsersPage({ onNav, toast }: Props) {
                   />
                 </div>
                 <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>
-                  This instantly grants {u.email} access to the catalogue manager, using their
-                  existing login.
+                  This instantly grants {userContact(u)} access to the catalogue manager, using
+                  their existing login.
                 </p>
               </div>
               <div className="modal-foot">
@@ -1015,6 +1294,39 @@ export default function UsersPage({ onNav, toast }: Props) {
                 className="modal-body"
                 style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
               >
+                <div className="field">
+                  <label>Logo</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    {detail.merchant?.logoUrl && (
+                      // biome-ignore lint/performance/noImgElement: admin SPA, not Next.js
+                      <img
+                        src={detail.merchant.logoUrl}
+                        alt="Merchant logo"
+                        style={{
+                          width: 48,
+                          height: 48,
+                          objectFit: 'contain',
+                          borderRadius: 6,
+                          border: '1px solid var(--border)',
+                        }}
+                      />
+                    )}
+                    <label className="btn sm ghost" style={{ cursor: 'pointer' }}>
+                      {uploadingLogo ? 'Uploading…' : 'Upload logo'}
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        style={{ display: 'none' }}
+                        disabled={uploadingLogo}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) void handleLogoUpload(file);
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+                  </div>
+                </div>
                 <div className="field">
                   <label>Company name</label>
                   <input
@@ -1087,11 +1399,14 @@ export default function UsersPage({ onNav, toast }: Props) {
           <div className="search">
             <Icon.Search />
             <input
-              placeholder="Search by name or email…"
+              placeholder="Search by name, email, or username…"
               value={query}
               onChange={(e) => handleSearch(e.target.value)}
             />
           </div>
+          <button className="btn" onClick={openCreateUser}>
+            <Icon.Plus /> Create User
+          </button>
         </div>
       </div>
 
@@ -1122,10 +1437,74 @@ export default function UsersPage({ onNav, toast }: Props) {
         </p>
       ) : (
         <>
-          <div className="table-wrap">
+          <div
+            style={{
+              display: 'flex',
+              gap: 8,
+              alignItems: 'center',
+              padding: '10px 0',
+              marginBottom: 4,
+              flexWrap: 'wrap',
+            }}
+          >
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 13,
+                color: 'var(--muted)',
+                cursor: 'pointer',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={showBanned}
+                onChange={(e) => {
+                  setShowBanned(e.target.checked);
+                  setPage(0);
+                }}
+              />
+              Show suspended/deleted
+            </label>
+            {(() => {
+              const pagedUserIds = sorted.map((u) => u.id);
+              const pageSelected =
+                pagedUserIds.length > 0 && pagedUserIds.every((id) => selectedUserIds.includes(id));
+              return (
+                <button
+                  className="btn sm ghost"
+                  onClick={() => {
+                    setSelectedUserIds((prev) =>
+                      pageSelected
+                        ? prev.filter((id) => !pagedUserIds.includes(id))
+                        : [...new Set([...prev, ...pagedUserIds])],
+                    );
+                  }}
+                >
+                  {pageSelected ? 'Deselect page' : 'Select page'}
+                </button>
+              );
+            })()}
+            {selectedUserIds.length > 0 && (
+              <>
+                <span style={{ fontSize: 13, color: 'var(--muted)' }}>
+                  {selectedUserIds.length} selected
+                </span>
+                {isSuperAdmin && (
+                  <button className="btn sm danger" onClick={() => setShowBulkDeleteConfirm(true)}>
+                    Delete selected ({selectedUserIds.length})
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+
+          <div className="desktop-only table-wrap">
             <table>
               <thead>
                 <tr>
+                  <th style={{ width: 36 }} />
                   <Th k="displayName" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
                     User
                   </Th>
@@ -1133,6 +1512,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                     Plan
                   </Th>
                   <th>Access</th>
+                  <th>Signup</th>
                   <Th k="balance" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
                     Credits
                   </Th>
@@ -1158,11 +1538,22 @@ export default function UsersPage({ onNav, toast }: Props) {
                     onClick={() => openDetail(u)}
                     style={{ cursor: 'pointer', opacity: u.isBanned ? 0.6 : 1 }}
                   >
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedUserIds.includes(u.id)}
+                        onChange={(e) =>
+                          setSelectedUserIds((prev) =>
+                            e.target.checked ? [...prev, u.id] : prev.filter((x) => x !== u.id),
+                          )
+                        }
+                      />
+                    </td>
                     <td>
                       <div
                         style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 220 }}
                       >
-                        <NameAvatar name={u.displayName ?? u.email} email={u.email} size={32} />
+                        <NameAvatar name={userLabel(u)} email={u.email ?? undefined} size={32} />
                         <div style={{ minWidth: 0 }}>
                           <div
                             className="semi"
@@ -1172,7 +1563,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                               whiteSpace: 'nowrap',
                             }}
                           >
-                            {u.displayName ?? u.email}
+                            {userLabel(u)}
                           </div>
                           {u.displayName && (
                             <div
@@ -1183,7 +1574,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                                 whiteSpace: 'nowrap',
                               }}
                             >
-                              {u.email}
+                              {userContact(u)}
                             </div>
                           )}
                         </div>
@@ -1208,6 +1599,17 @@ export default function UsersPage({ onNav, toast }: Props) {
                           <span className="sub">Standard</span>
                         )}
                       </div>
+                    </td>
+                    <td>
+                      {u.isMerchant ? (
+                        u.signupSource === 'android_google' ? (
+                          <span className="badge warn">Self-signup</span>
+                        ) : (
+                          <span className="badge">Admin</span>
+                        )
+                      ) : (
+                        <span className="sub">&mdash;</span>
+                      )}
                     </td>
                     <td>
                       <span className="mono" style={{ fontVariantNumeric: 'tabular-nums' }}>
@@ -1244,7 +1646,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                 {sorted.length === 0 && (
                   <tr>
                     <td
-                      colSpan={9}
+                      colSpan={11}
                       style={{ textAlign: 'center', color: 'var(--muted)', padding: '2.5rem' }}
                     >
                       No users found.
@@ -1255,6 +1657,100 @@ export default function UsersPage({ onNav, toast }: Props) {
             </table>
           </div>
 
+          <div className="mobile-only" style={{ gap: 12 }}>
+            {sorted.map((u) => (
+              <button
+                type="button"
+                key={u.id}
+                onClick={() => openDetail(u)}
+                className="card"
+                style={{
+                  padding: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 10,
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  opacity: u.isBanned ? 0.6 : 1,
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                  background: 'var(--surface)',
+                  width: '100%',
+                  textAlign: 'left',
+                  color: 'inherit',
+                  fontFamily: 'inherit',
+                  fontSize: 'inherit',
+                }}
+              >
+                <div
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}
+                >
+                  <NameAvatar name={userLabel(u)} email={u.email ?? undefined} size={32} />
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div
+                      className="semi"
+                      style={{
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        fontSize: 14,
+                      }}
+                    >
+                      {userLabel(u)}
+                    </div>
+                    <div
+                      className="sub"
+                      style={{
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        fontSize: 11,
+                        display: 'flex',
+                        gap: 6,
+                        alignItems: 'center',
+                      }}
+                    >
+                      <span style={{ textTransform: 'capitalize' }}>{u.tier}</span>
+                      <span>&middot;</span>
+                      <span className="mono">{u.balance.toLocaleString()} credits</span>
+                    </div>
+                  </div>
+                </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-end',
+                    gap: 4,
+                    flexShrink: 0,
+                  }}
+                >
+                  {u.isBanned ? (
+                    <span className="badge danger dot">Suspended</span>
+                  ) : (
+                    <span className="badge success dot">Active</span>
+                  )}
+                  {u.isAdmin && (
+                    <span className="badge accent" style={{ fontSize: 10 }}>
+                      {u.adminRole === 'SUPER_ADMIN' ? 'Super Admin' : 'Admin'}
+                    </span>
+                  )}
+                  {u.isMerchant && (
+                    <span className="badge success" style={{ fontSize: 10 }}>
+                      Merchant
+                    </span>
+                  )}
+                </div>
+              </button>
+            ))}
+            {sorted.length === 0 && (
+              <div style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}>
+                No users found.
+              </div>
+            )}
+          </div>
+
           <Pager
             page={page}
             totalPages={totalPages}
@@ -1263,6 +1759,150 @@ export default function UsersPage({ onNav, toast }: Props) {
             pageSize={PAGE_SIZE}
           />
         </>
+      )}
+      {showCreateUser && (
+        <div className="modal-overlay" onClick={() => setShowCreateUser(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Create User</h3>
+            </div>
+            <div
+              className="modal-body"
+              style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
+            >
+              <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>
+                Give the account a username and password now. Email and phone are optional here —
+                the customer will be prompted to add them the first time they log in.
+              </p>
+              {createUserError && (
+                <div className="banner warn">
+                  <p style={{ margin: 0, fontSize: 13 }}>{createUserError}</p>
+                </div>
+              )}
+              <div className="field">
+                <label>Username</label>
+                <input
+                  className="input"
+                  value={createUserForm.username}
+                  onChange={(e) => setCreateUserForm((f) => ({ ...f, username: e.target.value }))}
+                  placeholder="e.g. priya_shop1"
+                />
+              </div>
+              <div className="field">
+                <label>Password</label>
+                <input
+                  className="input"
+                  value={createUserForm.password}
+                  onChange={(e) => setCreateUserForm((f) => ({ ...f, password: e.target.value }))}
+                  placeholder="Share this with the customer directly"
+                />
+              </div>
+              <div className="field">
+                <label>Full name</label>
+                <input
+                  className="input"
+                  value={createUserForm.displayName}
+                  onChange={(e) =>
+                    setCreateUserForm((f) => ({ ...f, displayName: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="field-row">
+                <div className="field">
+                  <label>Email</label>
+                  <input
+                    className="input"
+                    value={createUserForm.email}
+                    onChange={(e) => setCreateUserForm((f) => ({ ...f, email: e.target.value }))}
+                    placeholder="Optional"
+                  />
+                </div>
+                <div className="field">
+                  <label>Phone</label>
+                  <input
+                    className="input"
+                    value={createUserForm.phone}
+                    onChange={(e) => setCreateUserForm((f) => ({ ...f, phone: e.target.value }))}
+                    placeholder="Optional — 10-digit mobile number"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="modal-foot">
+              <button
+                className="btn ghost"
+                onClick={() => setShowCreateUser(false)}
+                disabled={creatingUser}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn"
+                onClick={() => void handleCreateUser()}
+                disabled={creatingUser}
+              >
+                {creatingUser ? 'Creating…' : 'Create User'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showBulkDeleteConfirm && (
+        <div className="modal-overlay" onClick={() => setShowBulkDeleteConfirm(false)}>
+          <div className="modal confirm" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Delete selected users</h3>
+            </div>
+            <div className="modal-body">
+              <p>
+                Permanently erase personal data for {selectedUserIds.length} selected user
+                {selectedUserIds.length > 1 ? 's' : ''}? This cannot be undone. Their job and
+                payment history will be retained but anonymized.
+              </p>
+              <ul
+                style={{
+                  maxHeight: 180,
+                  overflowY: 'auto',
+                  margin: '8px 0',
+                  paddingLeft: 20,
+                  fontSize: 13,
+                }}
+              >
+                {selectedUserIds.slice(0, 10).map((id) => {
+                  const uObj = users.find((x) => x.id === id);
+                  const label = uObj ? (uObj.email ?? userLabel(uObj)) : id;
+                  return (
+                    <li key={id}>
+                      <strong>{label}</strong>
+                    </li>
+                  );
+                })}
+                {selectedUserIds.length > 10 && (
+                  <li style={{ fontStyle: 'italic', color: 'var(--muted)' }}>
+                    and {selectedUserIds.length - 10} more
+                  </li>
+                )}
+              </ul>
+            </div>
+            <div className="modal-foot">
+              <button
+                className="btn ghost"
+                onClick={() => setShowBulkDeleteConfirm(false)}
+                disabled={bulkDeleting}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn danger"
+                onClick={handleBulkDeleteConfirm}
+                disabled={bulkDeleting}
+              >
+                {bulkDeleting ? 'Erasing…' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

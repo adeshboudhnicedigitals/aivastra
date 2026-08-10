@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { ChevronDown, Eye, EyeOff, LogOutIcon } from '@/components/icons';
 import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
+import { PremiumSelect } from '@/components/ui/premium-select';
 import { Tooltip } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
 
@@ -13,12 +14,16 @@ const TABS: Tab[] = ['Profile Details', 'Billing', 'Credit History', 'Invoices']
 
 interface MeResponse {
   id: string;
-  email: string;
+  email: string | null;
+  username: string | null;
   displayName: string | null;
   phone: string | null;
   companyName: string | null;
   tier: string;
   hasPassword: boolean;
+  defaultResolution: string;
+  defaultAspectRatio: string;
+  defaultPlatform: string;
 }
 interface CreditsResponse {
   balance: number;
@@ -73,7 +78,10 @@ function Field({
   const val = onChange ? (value ?? '') : internal;
   const inputId = `field-${label.toLowerCase().replace(/\s+/g, '-')}`;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minWidth: 280 }}>
+    <div
+      className="settings-field-col"
+      style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minWidth: 280 }}
+    >
       <label htmlFor={inputId} style={{ fontWeight: 500, fontSize: 14, color: C.text }}>
         {label}
       </label>
@@ -152,8 +160,55 @@ function Field({
   );
 }
 
+const ASPECT_RATIOS = ['1:1', '2:3', '3:4', '4:5'];
+const PLATFORMS = ['Amazon', 'Flipkart', 'Myntra', 'AJIO', 'Meesho', 'Nykaa Fashion', 'Shopify'];
+
+// ── SelectField ──────────────────────────────────────────
+function SelectField({
+  label,
+  value,
+  options,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  disabled?: boolean;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div
+      className="settings-field-col"
+      style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minWidth: 280 }}
+    >
+      <span style={{ fontWeight: 500, fontSize: 14, color: C.text }}>{label}</span>
+      <div
+        style={{
+          border: `1px solid ${C.border}`,
+          borderRadius: 8,
+          background: C.field,
+        }}
+      >
+        <PremiumSelect
+          ariaLabel={label}
+          value={value}
+          options={options.map((o) => ({ value: o, label: o }))}
+          disabled={disabled}
+          onChange={(v) => onChange(String(v))}
+          fullWidth
+          height={44}
+          fontSize={14}
+        />
+      </div>
+    </div>
+  );
+}
+
 const Row = ({ children }: { children: React.ReactNode }) => (
-  <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>{children}</div>
+  <div className="settings-row" style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+    {children}
+  </div>
 );
 
 function Section({
@@ -211,7 +266,11 @@ export default function SettingsPage(): React.ReactElement {
   const [tab, setTab] = useState<Tab>('Profile Details');
   const [name, setName] = useState<string | null>(null);
   const [phone, setPhone] = useState<string | null>(null);
+  const [email, setEmail] = useState<string | null>(null);
   const [companyName, setCompanyName] = useState<string | null>(null);
+  const [defaultResolution, setDefaultResolution] = useState<string | null>(null);
+  const [defaultAspectRatio, setDefaultAspectRatio] = useState<string | null>(null);
+  const [defaultPlatform, setDefaultPlatform] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -241,10 +300,14 @@ export default function SettingsPage(): React.ReactElement {
     queryFn: () => api.get('/v1/payments/history'),
   });
 
-  const email = me?.email ?? '';
+  const emailVal = email ?? me?.email ?? '';
+  const canEditEmail = !me?.email; // once an email is on file, it isn't editable here
   const nameVal = name ?? me?.displayName ?? '';
   const phoneVal = sanitizePhone(phone ?? me?.phone ?? '');
   const companyNameVal = companyName ?? me?.companyName ?? '';
+  const defaultResolutionVal = defaultResolution ?? me?.defaultResolution ?? 'HD';
+  const defaultAspectRatioVal = defaultAspectRatio ?? me?.defaultAspectRatio ?? '1:1';
+  const defaultPlatformVal = defaultPlatform ?? me?.defaultPlatform ?? 'Amazon';
   const phoneValid = PHONE_REGEX.test(phoneVal);
   const profileComplete = phoneValid;
 
@@ -258,8 +321,12 @@ export default function SettingsPage(): React.ReactElement {
     try {
       await api.patch('/v1/me', {
         displayName: nameVal.trim() || undefined,
+        email: canEditEmail && emailVal.trim() ? emailVal.trim() : undefined,
         phone: phoneVal || null,
         companyName: companyNameVal.trim() || null,
+        defaultResolution: defaultResolutionVal,
+        defaultAspectRatio: defaultAspectRatioVal,
+        defaultPlatform: defaultPlatformVal,
       });
       void qc.invalidateQueries({ queryKey: ['me'] });
       setSaved(true);
@@ -326,6 +393,31 @@ export default function SettingsPage(): React.ReactElement {
 
   return (
     <>
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+            @media (max-width: 1023px) {
+              .settings-page-content {
+                padding: 16px !important;
+              }
+              .settings-tab-bar {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+              }
+              .settings-tab-bar::-webkit-scrollbar {
+                display: none;
+              }
+              .settings-row {
+                flex-direction: column !important;
+                gap: 16px !important;
+              }
+              .settings-field-col {
+                min-width: 100% !important;
+              }
+            }
+          `,
+        }}
+      />
       <TopBar
         title="Account Settings"
         subtitle="Manage your profile, billing, credits, subscriptions, and account activity."
@@ -352,9 +444,15 @@ export default function SettingsPage(): React.ReactElement {
           </button>
         }
       />
-      <div style={{ flex: 1, overflowY: 'auto', padding: '20px 28px' }}>
+      <div
+        className="settings-page-content"
+        style={{ flex: 1, overflowY: 'auto', padding: '20px 28px' }}
+      >
         {/* Tab bar */}
-        <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, marginBottom: 20 }}>
+        <div
+          className="settings-tab-bar"
+          style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, marginBottom: 20 }}
+        >
           {TABS.map((t) => {
             const isActive = tab === t;
             return (
@@ -429,7 +527,14 @@ export default function SettingsPage(): React.ReactElement {
             >
               <Row>
                 <Field label="Full Name" value={nameVal} onChange={setName} />
-                <Field label="Email Address" value={email} disabled />
+                <Field
+                  label="Email Address"
+                  value={emailVal}
+                  placeholder="you@example.com"
+                  disabled={!editingProfile || !canEditEmail}
+                  onChange={canEditEmail ? setEmail : undefined}
+                />
+                {me?.username && <Field label="Username" value={me.username} disabled />}
                 <Field
                   label="Phone Number"
                   value={phoneVal}
@@ -464,10 +569,24 @@ export default function SettingsPage(): React.ReactElement {
               )}
             </Section>
             <Section title="Account Preferences">
+              {/* Default Resolution field hidden until Studio has an actual resolution
+                  picker to feed it into — see docs/progress.md. State/save payload for
+                  it are kept so the stored value round-trips unchanged. */}
               <Row>
-                <Field label="Default Resolution" value="HD" dropdown disabled />
-                <Field label="Default Aspect Ratio" value="1:1" dropdown disabled />
-                <Field label="Default Platform" value="Amazon" dropdown disabled />
+                <SelectField
+                  label="Default Aspect Ratio"
+                  value={defaultAspectRatioVal}
+                  options={ASPECT_RATIOS}
+                  disabled={!editingProfile}
+                  onChange={setDefaultAspectRatio}
+                />
+                <SelectField
+                  label="Default Platform"
+                  value={defaultPlatformVal}
+                  options={PLATFORMS}
+                  disabled={!editingProfile}
+                  onChange={setDefaultPlatform}
+                />
               </Row>
             </Section>
             {editingProfile && (
@@ -487,8 +606,12 @@ export default function SettingsPage(): React.ReactElement {
                   onClick={() => {
                     setEditingProfile(false);
                     setName(null);
+                    setEmail(null);
                     setPhone(null);
                     setCompanyName(null);
+                    setDefaultResolution(null);
+                    setDefaultAspectRatio(null);
+                    setDefaultPlatform(null);
                   }}
                   style={{
                     padding: '10px 24px',

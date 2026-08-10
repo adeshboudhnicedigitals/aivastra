@@ -14,20 +14,57 @@ export const SHOPIFY_API_VERSION = '2026-07';
 // to "token is just broken". Centralizing the call here means every route
 // gets the same SHOPIFY_REAUTH_REQUIRED signal instead of each callsite
 // reinventing (or forgetting) that distinction.
+//
+// The fifth argument accepts either a bare fetch (legacy callers, mostly tests)
+// or an options object. Passing `onUnauthorized` opts into one refresh-and-retry
+// on a 401, which is the backstop for expiring offline tokens: getValidAccessToken
+// refreshes ahead of expiry, but only this covers a token that lapses after the
+// check and before the call.
+export interface ShopifyAdminFetchOptions {
+  fetchImpl?: typeof fetch;
+  /**
+   * Called once on a 401 to obtain a fresh access token, after which the
+   * request is retried. Supply it wherever a store row is in hand — it is what
+   * saves a caller holding a token across a long run, where the hour can lapse
+   * between acquiring the token and this particular call going out.
+   *
+   * Only 401 triggers it. A 403 is an authorization verdict on a token Shopify
+   * accepted, so a newer token of the same scope would be refused identically.
+   */
+  onUnauthorized?: () => Promise<string>;
+}
+
 export async function shopifyAdminFetch(
   shopDomain: string,
   accessToken: string,
   path: string,
   init: RequestInit = {},
-  fetchImpl: typeof fetch = fetch,
+  fetchImplOrOptions: typeof fetch | ShopifyAdminFetchOptions = {},
 ): Promise<Response> {
+  const opts: ShopifyAdminFetchOptions =
+    typeof fetchImplOrOptions === 'function'
+      ? { fetchImpl: fetchImplOrOptions }
+      : fetchImplOrOptions;
+  const fetchImpl = opts.fetchImpl ?? fetch;
+
   const url = path.startsWith('http')
     ? path
     : `https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}${path}`;
-  const res = await fetchImpl(url, {
-    ...init,
-    headers: { ...init.headers, 'X-Shopify-Access-Token': accessToken },
-  });
+  const send = (token: string) =>
+    fetchImpl(url, {
+      ...init,
+      headers: { ...init.headers, 'X-Shopify-Access-Token': token },
+    });
+
+  let res = await send(accessToken);
+
+  if (res.status === 401 && opts.onUnauthorized) {
+    const refreshed = await opts.onUnauthorized();
+    // Only retry on a genuinely different token. Re-sending the same one would
+    // burn a second call to reach the identical 401.
+    if (refreshed && refreshed !== accessToken) res = await send(refreshed);
+  }
+
   if (res.status === 401 || res.status === 403) {
     throw new AppError(
       'SHOPIFY_REAUTH_REQUIRED',
@@ -36,6 +73,120 @@ export async function shopifyAdminFetch(
     );
   }
   return res;
+}
+
+export interface GraphQLUserError {
+  field?: string[] | null;
+  message: string;
+}
+
+export interface ShopifyGraphQLOptions extends ShopifyAdminFetchOptions {
+  /**
+   * Injectable so throttle-retry tests don't spend real seconds sleeping.
+   * Production callers omit it and get the exponential backoff.
+   */
+  sleepImpl?: (ms: number) => Promise<void>;
+}
+
+interface GraphQLBody<T> {
+  data?: T;
+  errors?: Array<{ message: string; extensions?: { code?: string } }>;
+}
+
+const THROTTLE_MAX_ATTEMPTS = 3;
+const THROTTLE_BASE_DELAY_MS = 1000;
+
+const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * Every Admin API call in this module goes through here.
+ *
+ * Layered on shopifyAdminFetch rather than beside it, so the 401
+ * refresh-and-retry and the 401/403 → SHOPIFY_REAUTH_REQUIRED mapping are
+ * inherited rather than duplicated — pass `onUnauthorized` through `options`
+ * and it keeps working exactly as it does for the REST callers.
+ *
+ * Throws on every failure mode, including the one that arrives as HTTP 200:
+ * GraphQL reports a refused query in `body.errors` with a 200 status, so a
+ * caller that only checked `res.ok` would read `undefined` and carry on.
+ */
+export async function shopifyGraphQL<T>(
+  shopDomain: string,
+  accessToken: string,
+  query: string,
+  variables: Record<string, unknown> = {},
+  options: ShopifyGraphQLOptions = {},
+): Promise<T> {
+  const { sleepImpl = defaultSleep, ...fetchOptions } = options;
+  let lastThrottleMessage = 'throttled';
+
+  for (let attempt = 1; attempt <= THROTTLE_MAX_ATTEMPTS; attempt++) {
+    const res = await shopifyAdminFetch(
+      shopDomain,
+      accessToken,
+      '/graphql.json',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, variables }),
+      },
+      fetchOptions,
+    );
+    if (!res.ok) {
+      throw new AppError('SHOPIFY', 502, `Shopify GraphQL request failed: HTTP ${res.status}`);
+    }
+
+    const body = (await res.json()) as GraphQLBody<T>;
+
+    // Throttling arrives as a 200 with an errors entry, not REST's 429.
+    const throttled = body.errors?.find((e) => e.extensions?.code === 'THROTTLED');
+    if (throttled) {
+      lastThrottleMessage = throttled.message;
+      if (attempt < THROTTLE_MAX_ATTEMPTS) {
+        await sleepImpl(THROTTLE_BASE_DELAY_MS * 2 ** (attempt - 1));
+        continue;
+      }
+      break;
+    }
+
+    if (body.errors?.length) {
+      throw new AppError('SHOPIFY', 502, body.errors[0].message);
+    }
+    if (!body.data) {
+      throw new AppError('SHOPIFY', 502, 'Shopify GraphQL response contained no data');
+    }
+    return body.data;
+  }
+
+  throw new AppError('SHOPIFY', 502, `Shopify GraphQL throttled: ${lastThrottleMessage}`);
+}
+
+/** Postgres stores numeric Shopify ids; GraphQL speaks gids. Convert at the boundary. */
+export function toGid(resource: string, id: number | string): string {
+  return `gid://shopify/${resource}/${id}`;
+}
+
+/**
+ * Inverse of toGid. Throws rather than returning NaN: a silently-NaN product id
+ * would be written into a bigint column as a corrupt row.
+ */
+export function numericIdFromGid(gid: string): number {
+  const match = /^gid:\/\/shopify\/[A-Za-z]+\/(\d+)$/.exec(gid);
+  if (!match) throw new AppError('SHOPIFY', 502, `unexpected Shopify global id: ${gid}`);
+  return Number(match[1]);
+}
+
+/**
+ * A GraphQL mutation can answer 200, pass the `errors` check, and still have
+ * refused the write via `userErrors`. Callers that must fail loudly use this;
+ * callers with a log-and-continue contract check the array themselves.
+ */
+export function assertNoUserErrors(
+  errors: GraphQLUserError[] | undefined | null,
+  context: string,
+): void {
+  if (!errors || errors.length === 0) return;
+  throw new AppError('SHOPIFY', 502, `${context}: ${errors[0].message}`);
 }
 
 function safeEq(a: Buffer, b: Buffer): boolean {
@@ -105,8 +256,9 @@ export function verifySessionToken(
 
 export interface SyncTask {
   storeId: string;
-  mode: 'full' | 'product';
+  mode: 'full' | 'product' | 'collection';
   shopifyProductId?: number;
+  shopifyCollectionId?: number;
 }
 
 export async function enqueueSync(redis: Redis, task: SyncTask): Promise<void> {

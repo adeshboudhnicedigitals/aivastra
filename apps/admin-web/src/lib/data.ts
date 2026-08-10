@@ -10,6 +10,7 @@ export const TONES = [
 ];
 
 export const STATUS_ORDER = [
+  'PENDING_MANNEQUIN',
   'QUEUED',
   'PREPROCESSING',
   'GENERATING',
@@ -19,6 +20,7 @@ export const STATUS_ORDER = [
 
 export function statusBadge(s: string): [string, string] {
   const m: Record<string, [string, string]> = {
+    PENDING_MANNEQUIN: ['info', 'Preparing garment'],
     QUEUED: ['info', 'Queued'],
     PREPROCESSING: ['accent', 'Preprocessing'],
     GENERATING: ['accent', 'Generating'],
@@ -36,6 +38,31 @@ export function statusBadge(s: string): [string, string] {
     archived: ['', 'Archived'],
   };
   return m[s] || ['', s];
+}
+
+export function jobTypeBadge(t: string): [string, string] {
+  const m: Record<string, [string, string]> = {
+    catalog: ['', 'Catalog'],
+    catalog_video: ['success', 'Catalog Video'],
+    tryon: ['info', 'Try On'],
+    saree: ['accent', 'Saree'],
+    saree_mannequin: ['warn', 'Saree Prep'],
+    shopify: ['success', 'Shopify'],
+    merchant_tryon: ['accent', 'Merchant Try-On'],
+    kiosk: ['accent', 'Kiosk'],
+    merchant_catalog: ['accent', 'Try On Library'],
+    merchant_catalog_saree_mannequin: ['warn', 'Try On Library Prep'],
+    api_tryon: ['success', 'API Try On'],
+    api_saree_mannequin: ['success', 'API Saree Prep'],
+    api_catalog: ['success', 'API Catalog'],
+    api: ['success', 'API (legacy)'],
+  };
+  if (!m[t]) {
+    console.warn(
+      `jobTypeBadge: unrecognized job source "${t}" — add it to the label map in apps/admin-web/src/lib/data.ts`,
+    );
+  }
+  return m[t] || ['', t];
 }
 
 export const MOCK_STATS: Stats = {
@@ -56,6 +83,7 @@ export const MOCK_STATS: Stats = {
 
 export const MOCK_FACES: ModelFace[] = [
   {
+    publicApiSlug: null,
     id: 'face_men_01',
     gender: 'men',
     label: 'Male Model A',
@@ -69,6 +97,7 @@ export const MOCK_FACES: ModelFace[] = [
     deletedAt: null,
   },
   {
+    publicApiSlug: null,
     id: 'face_men_02',
     gender: 'men',
     label: 'Male Model B',
@@ -82,6 +111,7 @@ export const MOCK_FACES: ModelFace[] = [
     deletedAt: null,
   },
   {
+    publicApiSlug: null,
     id: 'face_women_01',
     gender: 'women',
     label: 'Female Model A',
@@ -95,6 +125,7 @@ export const MOCK_FACES: ModelFace[] = [
     deletedAt: null,
   },
   {
+    publicApiSlug: null,
     id: 'face_women_02',
     gender: 'women',
     label: 'Female Model B',
@@ -108,6 +139,7 @@ export const MOCK_FACES: ModelFace[] = [
     deletedAt: null,
   },
   {
+    publicApiSlug: null,
     id: 'face_boys_01',
     gender: 'boys',
     label: 'Boys Model A',
@@ -121,6 +153,7 @@ export const MOCK_FACES: ModelFace[] = [
     deletedAt: null,
   },
   {
+    publicApiSlug: null,
     id: 'face_girls_01',
     gender: 'girls',
     label: 'Girls Model A',
@@ -137,6 +170,7 @@ export const MOCK_FACES: ModelFace[] = [
 
 export const MOCK_BACKGROUNDS: ModelBackground[] = [
   {
+    publicApiSlug: null,
     id: 'bg_001',
     label: 'Studio White',
     thumbnailKey: 'bgs/studio-white-thumb.jpg',
@@ -155,6 +189,7 @@ export const MOCK_BACKGROUNDS: ModelBackground[] = [
     deletedAt: null,
   },
   {
+    publicApiSlug: null,
     id: 'bg_002',
     label: 'Urban Street',
     thumbnailKey: 'bgs/urban-thumb.jpg',
@@ -173,6 +208,7 @@ export const MOCK_BACKGROUNDS: ModelBackground[] = [
     deletedAt: null,
   },
   {
+    publicApiSlug: null,
     id: 'bg_003',
     label: 'Office',
     thumbnailKey: 'bgs/office-thumb.jpg',
@@ -191,6 +227,7 @@ export const MOCK_BACKGROUNDS: ModelBackground[] = [
     deletedAt: null,
   },
   {
+    publicApiSlug: null,
     id: 'bg_004',
     label: 'Studio Grey',
     thumbnailKey: 'bgs/studio-grey-thumb.jpg',
@@ -278,6 +315,7 @@ export const MOCK_POSES: ModelPose[] = [
 
 export const MOCK_CATALOG: CatalogItem[] = [
   {
+    publicApiSlug: null,
     id: 'cat_lower_001',
     label: 'Classic Blue Jeans',
     type: 'lower',
@@ -292,6 +330,7 @@ export const MOCK_CATALOG: CatalogItem[] = [
     updatedAt: '2026-05-01T10:00:00Z',
   },
   {
+    publicApiSlug: null,
     id: 'cat_lower_002',
     label: 'Slim Fit Chinos',
     type: 'lower',
@@ -306,6 +345,7 @@ export const MOCK_CATALOG: CatalogItem[] = [
     updatedAt: '2026-05-02T10:00:00Z',
   },
   {
+    publicApiSlug: null,
     id: 'cat_lower_003',
     label: 'Formal Trousers Black',
     type: 'lower',
@@ -320,6 +360,7 @@ export const MOCK_CATALOG: CatalogItem[] = [
     updatedAt: '2026-05-03T10:00:00Z',
   },
   {
+    publicApiSlug: null,
     id: 'cat_lower_004',
     label: 'Track Pants Grey',
     type: 'lower',
@@ -334,6 +375,7 @@ export const MOCK_CATALOG: CatalogItem[] = [
     updatedAt: '2026-05-04T10:00:00Z',
   },
   {
+    publicApiSlug: null,
     id: 'cat_shoe_001',
     label: 'White Sneakers',
     type: 'shoe',
@@ -348,6 +390,7 @@ export const MOCK_CATALOG: CatalogItem[] = [
     updatedAt: '2026-05-01T10:00:00Z',
   },
   {
+    publicApiSlug: null,
     id: 'cat_shoe_002',
     label: 'Oxford Brown',
     type: 'shoe',
@@ -362,6 +405,7 @@ export const MOCK_CATALOG: CatalogItem[] = [
     updatedAt: '2026-05-02T10:00:00Z',
   },
   {
+    publicApiSlug: null,
     id: 'cat_shoe_003',
     label: 'Loafers Tan',
     type: 'shoe',

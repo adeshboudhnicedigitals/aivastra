@@ -7,6 +7,8 @@ export interface ModelFace {
   thumbnailKey: string;
   r2Key: string;
   faceSideR2Key: string | null;
+  /** Non-null = published to the public developer API under this slug. */
+  publicApiSlug: string | null;
   isActive: boolean;
   sortOrder: number;
   deletedAt: string | null;
@@ -23,6 +25,7 @@ export interface ModelBackground {
   categoryId: number | null;
   tags: string[];
   specialTag: CategoryTag | null;
+  publicApiSlug: string | null;
   isActive: boolean;
   isWhiteBg: boolean;
   sortOrder: number;
@@ -51,10 +54,12 @@ export interface GarmentType {
   requiresMannequinStep?: boolean;
   mannequinWorkflowTemplateId?: string | null;
   sareeStep2WorkflowTemplateId?: string | null;
+  mannequinTwoInputWorkflowTemplateId?: string | null;
   upperUploadLabel?: string | null;
   lowerUploadLabel?: string | null;
   requiresThirdUpload?: boolean;
   thirdUploadLabel?: string | null;
+  publicApiSlug?: string | null;
   createdAt: string;
   updatedAt: string;
   poseCount?: number;
@@ -64,7 +69,7 @@ export interface WorkflowOption {
   id: string; // UUID from workflow_templates table
   slug: string;
   label: string;
-  workflowType: 'regular' | 'tryon' | 'saree_step1';
+  workflowType: 'regular' | 'tryon' | 'saree_step1' | 'saree_step1_two_input';
   isActive: boolean;
   poseCount: number;
   defaultFacePhasePrompt: string;
@@ -75,6 +80,7 @@ export interface WorkflowOption {
   sizeNodeIds: string[];
   tryonPersonNodeId: string | null;
   tryonGarmentNodeId: string | null;
+  tryonGarmentNodeId2: string | null;
   tryonOutputNodeId: string | null;
   createdAt: string;
 }
@@ -119,6 +125,14 @@ export interface MappedTemplatePoseWorkflow {
   source: 'auto' | 'manual' | null;
 }
 
+export interface MappedTemplateLook {
+  id: string;
+  poseAssetId: string;
+  poseLabel: string;
+  poseThumbnailUrl: string;
+  backgroundLabel: string;
+  isEnabled: boolean;
+}
 export interface ShotTypeWorkflow {
   shotType: 'full' | 'half' | 'closeup';
   workflowTemplateId: string | null;
@@ -171,6 +185,7 @@ export interface CatalogItem {
   label: string;
   thumbnailKey: string;
   r2Key: string;
+  publicApiSlug: string | null;
   isActive: boolean;
   sortOrder: number;
   subcategoryIds: string[];
@@ -185,14 +200,17 @@ export interface UserMerchant {
   phone: string;
   businessAddress: string;
   isActive: boolean;
+  demoData: boolean;
   kioskEnabled: boolean;
   maxKioskDevices: number;
-  creditBalance: number | null;
+  logoKey: string | null;
+  logoUrl: string | null;
 }
 
 export interface User {
   id: string;
-  email: string;
+  email: string | null;
+  username: string | null;
   displayName: string | null;
   phone: string | null;
   tier: string;
@@ -204,6 +222,8 @@ export interface User {
   hasPassword: boolean;
   hasShopifyStore: boolean;
   isMerchant?: boolean;
+  signupSource?: 'admin' | 'android_google' | null;
+  demoData?: boolean | null;
   balance: number;
   totalJobs: number;
   lastJobAt: string | null;
@@ -216,7 +236,7 @@ export interface User {
     startedAt?: string | null;
     completedAt?: string | null;
     creditsCharged: number;
-    jobType: 'catalogue' | 'tryon' | 'widget' | 'api';
+    jobType: string;
   }[];
   merchant?: UserMerchant | null;
 }
@@ -228,7 +248,8 @@ export type JobStatus =
   | 'UPLOADING'
   | 'COMPLETED'
   | 'FAILED'
-  | 'CANCELLED';
+  | 'CANCELLED'
+  | 'PENDING_MANNEQUIN';
 
 export interface Job {
   id: string;
@@ -249,7 +270,7 @@ export interface Job {
   poseLabel?: string | null;
   hasLower: boolean;
   hasShoe: boolean;
-  jobType?: 'catalogue' | 'tryon' | 'widget' | 'api';
+  jobType?: string;
   outputUrl?: string;
   userHint?: string;
 }
@@ -305,6 +326,18 @@ export interface CreditPlan {
   updatedAt: string;
 }
 
+export interface SignupCampaign {
+  id: string;
+  code: string;
+  name: string;
+  bonusPercent: number;
+  startAt: string;
+  endAt: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ModelPoseAsset {
   id: string;
   label: string;
@@ -317,11 +350,24 @@ export interface ModelPoseAsset {
   promptFacePhase: string | null;
   poseVariant: string | null;
   shotType: 'full' | 'half' | 'closeup' | null;
+  publicApiSlug: string | null;
   scope: 'general' | 'template';
   isActive: boolean;
   sortOrder: number;
   deletedAt: string | null;
   createdAt: string;
+}
+
+export interface SareeMannequinStyle {
+  id: string;
+  label: string;
+  previewImageKey: string | null;
+  mannequinWorkflowTemplateId: string;
+  mannequinTwoInputWorkflowTemplateId: string | null;
+  sortOrder: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface PoseGarmentConfig {

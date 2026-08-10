@@ -5,7 +5,7 @@ import type { GenderSlug, ModelFace } from '../types';
 import { Icon } from './Icons';
 
 interface Props {
-  onDone: (face: ModelFace) => void;
+  onDone: (faces: ModelFace[]) => void;
   onClose: () => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
@@ -31,174 +31,208 @@ function uploadWithProgress(
   });
 }
 
-function PhotoDropzone({
-  label,
-  required,
-  file,
-  onPick,
+interface PickedFile {
+  id: string;
+  file: File;
+  label: string;
+}
+
+function labelFromFilename(name: string): string {
+  return name
+    .replace(/\.[^./]+$/, '')
+    .replace(/[_-]+/g, ' ')
+    .trim();
+}
+
+function MultiPhotoDropzone({
+  files,
+  onFilesChange,
   disabled,
 }: {
-  label: string;
-  required?: boolean;
-  file: File | null;
-  onPick: (f: File) => void;
+  files: PickedFile[];
+  onFilesChange: (f: PickedFile[]) => void;
   disabled: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const preview = file ? URL.createObjectURL(file) : null;
 
   return (
-    <button
-      type="button"
-      onClick={() => !disabled && inputRef.current?.click()}
-      disabled={disabled}
-      style={{
-        display: 'block',
-        width: '100%',
-        aspectRatio: '3 / 4',
-        borderRadius: 'var(--r-lg)',
-        border: `1.5px dashed ${preview ? 'transparent' : 'var(--border-strong)'}`,
-        background: preview ? 'transparent' : 'var(--surface-2)',
-        padding: 0,
-        overflow: 'hidden',
-        position: 'relative',
-        cursor: disabled ? 'not-allowed' : 'pointer',
-      }}
-    >
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/webp"
-        style={{ display: 'none' }}
-        disabled={disabled}
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) onPick(f);
+    <div>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))',
+          gap: 10,
         }}
-      />
-      {preview ? (
-        // biome-ignore lint/performance/noImgElement: admin panel preview
-        <img
-          src={preview}
-          alt=""
-          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-        />
-      ) : (
-        <div
+      >
+        {files.map((pf) => (
+          <div key={pf.id} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div
+              style={{
+                position: 'relative',
+                aspectRatio: '3 / 4',
+                borderRadius: 'var(--r-lg)',
+                overflow: 'hidden',
+                border: '1px solid var(--border)',
+              }}
+            >
+              {/* biome-ignore lint/performance/noImgElement: admin panel preview */}
+              <img
+                src={URL.createObjectURL(pf.file)}
+                alt=""
+                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+              />
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => onFilesChange(files.filter((f) => f.id !== pf.id))}
+                style={{
+                  position: 'absolute',
+                  top: 4,
+                  right: 4,
+                  width: 20,
+                  height: 20,
+                  borderRadius: '50%',
+                  border: 'none',
+                  background: 'rgba(0,0,0,0.6)',
+                  color: '#fff',
+                  fontSize: 12,
+                  lineHeight: 1,
+                  cursor: disabled ? 'not-allowed' : 'pointer',
+                }}
+              >
+                ×
+              </button>
+            </div>
+            <input
+              className="input"
+              style={{ fontSize: 11.5, padding: '4px 6px' }}
+              value={pf.label}
+              disabled={disabled}
+              placeholder="Label"
+              onChange={(e) =>
+                onFilesChange(
+                  files.map((f) => (f.id === pf.id ? { ...f, label: e.target.value } : f)),
+                )
+              }
+            />
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() => !disabled && inputRef.current?.click()}
+          disabled={disabled}
           style={{
-            position: 'absolute',
-            inset: 0,
+            aspectRatio: '3 / 4',
+            borderRadius: 'var(--r-lg)',
+            border: '1.5px dashed var(--border-strong)',
+            background: 'var(--surface-2)',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: 8,
+            gap: 6,
             color: 'var(--muted)',
+            cursor: disabled ? 'not-allowed' : 'pointer',
           }}
         >
-          <Icon.Image />
-          <span style={{ fontSize: 12.5, fontWeight: 500, textAlign: 'center', padding: '0 12px' }}>
-            {label}
-            {required && <span style={{ color: 'var(--danger)' }}> *</span>}
+          <Icon.Add />
+          <span style={{ fontSize: 11, fontWeight: 500 }}>
+            {files.length > 0 ? 'Add more' : 'Add image'}
           </span>
-        </div>
-      )}
-      {preview && (
-        <div
-          style={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            padding: '6px 0',
-            fontSize: 11,
-            fontWeight: 600,
-            textAlign: 'center',
-            color: '#fff',
-            background: 'rgba(0,0,0,0.6)',
-          }}
-        >
-          Replace
-        </div>
-      )}
-    </button>
+        </button>
+      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        multiple
+        style={{ display: 'none' }}
+        disabled={disabled}
+        onChange={(e) => {
+          const picked = Array.from(e.target.files ?? []).map((file) => ({
+            id: crypto.randomUUID(),
+            file,
+            label: labelFromFilename(file.name),
+          }));
+          if (picked.length) onFilesChange([...files, ...picked]);
+          e.target.value = '';
+        }}
+      />
+    </div>
   );
 }
 
 export function AddFaceModal({ onDone, onClose, toast }: Props) {
-  const [label, setLabel] = useState('');
   const [gender, setGender] = useState<GenderSlug>('men');
   const [sortOrder, setSortOrder] = useState(0);
-  const [file, setFile] = useState<File | null>(null);
-  const [sideFile, setSideFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<PickedFile[]>([]);
   const [status, setStatus] = useState<'idle' | 'uploading' | 'confirming'>('idle');
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const busy = status !== 'idle';
+  const multi = files.length > 1;
+  const allLabeled = files.every((f) => f.label.trim());
 
   const handleSubmit = async () => {
-    if (!label.trim()) {
-      setError('Label is required');
+    if (files.length === 0) {
+      setError('At least one face image is required');
       return;
     }
-    if (!file) {
-      setError('Display image is required');
+    if (!allLabeled) {
+      setError('Every image needs a label');
       return;
     }
     setError(null);
     setStatus('uploading');
     setProgress(0);
 
-    const hasSide = !!sideFile;
-    const mainBudget = hasSide ? 50 : 65;
-    const thumbBudget = hasSide ? 20 : 25;
-
+    const created: ModelFace[] = [];
     try {
-      const presign = await apiFetch<{
-        uploadUrl: string;
-        r2Key: string;
-        thumbnailUploadUrl: string;
-        thumbnailKey: string;
-        faceSideUploadUrl: string;
-        faceSideR2Key: string;
-      }>('/admin/assets/faces/presign', {
-        method: 'POST',
-        body: JSON.stringify({ contentType: file.type }),
-      });
-      await uploadWithProgress(presign.uploadUrl, file, (p) =>
-        setProgress(Math.round(p * mainBudget)),
-      );
-      const thumb = await makeThumbnail(file);
-      await uploadWithProgress(presign.thumbnailUploadUrl, thumb, (p) =>
-        setProgress(mainBudget + Math.round(p * thumbBudget)),
-      );
-
-      const confirmBody: Record<string, unknown> = {
-        label: label.trim(),
-        gender,
-        sortOrder,
-        r2Key: presign.r2Key,
-        thumbnailKey: presign.thumbnailKey,
-      };
-      if (sideFile) {
-        await uploadWithProgress(presign.faceSideUploadUrl, sideFile, (p) =>
-          setProgress(mainBudget + thumbBudget + Math.round(p * 20)),
+      for (let i = 0; i < files.length; i++) {
+        const { file, label } = files[i];
+        const presign = await apiFetch<{
+          uploadUrl: string;
+          r2Key: string;
+          thumbnailUploadUrl: string;
+          thumbnailKey: string;
+        }>('/admin/assets/faces/presign', {
+          method: 'POST',
+          body: JSON.stringify({ contentType: file.type }),
+        });
+        await uploadWithProgress(presign.uploadUrl, file, (p) =>
+          setProgress(Math.round(((i + p * 0.75) / files.length) * 100)),
         );
-        confirmBody.faceSideR2Key = presign.faceSideR2Key;
-      }
+        const thumb = await makeThumbnail(file);
+        await uploadWithProgress(presign.thumbnailUploadUrl, thumb, (p) =>
+          setProgress(Math.round(((i + 0.75 + p * 0.25) / files.length) * 100)),
+        );
 
-      setStatus('confirming');
-      setProgress(92);
-      const row = await apiFetch<ModelFace>('/admin/assets/faces/confirm', {
-        method: 'POST',
-        body: JSON.stringify(confirmBody),
-      });
+        setStatus('confirming');
+        const row = await apiFetch<ModelFace>('/admin/assets/faces/confirm', {
+          method: 'POST',
+          body: JSON.stringify({
+            label: label.trim(),
+            gender,
+            sortOrder: sortOrder + i,
+            r2Key: presign.r2Key,
+            thumbnailKey: presign.thumbnailKey,
+          }),
+        });
+        created.push(row);
+        setStatus('uploading');
+      }
       setProgress(100);
-      toast({ title: `${row.label} added` });
-      onDone(row);
+      toast({ title: `${created.length} face${created.length !== 1 ? 's' : ''} added` });
+      onDone(created);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Upload failed');
+      if (created.length > 0) onDone(created);
+      const msg = e instanceof Error ? e.message : 'Upload failed';
+      setError(
+        created.length > 0
+          ? `${created.length} of ${files.length} uploaded, then failed: ${msg}`
+          : msg,
+      );
       setStatus('idle');
       setProgress(0);
     }
@@ -240,36 +274,12 @@ export function AddFaceModal({ onDone, onClose, toast }: Props) {
           )}
 
           <div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <PhotoDropzone
-                label="Display Image"
-                required
-                file={file}
-                onPick={setFile}
-                disabled={busy}
-              />
-              <PhotoDropzone
-                label="ComfyUI Face Image"
-                file={sideFile}
-                onPick={setSideFile}
-                disabled={busy}
-              />
-            </div>
+            <MultiPhotoDropzone files={files} onFilesChange={setFiles} disabled={busy} />
             <span className="hint" style={{ display: 'block', marginTop: 8 }}>
-              ComfyUI face image is optional and can be added later.
+              Label defaults to the file name — edit any of them before uploading.
             </span>
           </div>
 
-          <div className="field">
-            <label>Label</label>
-            <input
-              className="input"
-              value={label}
-              disabled={busy}
-              placeholder="e.g. Model 1 — Men"
-              onChange={(e) => setLabel(e.target.value)}
-            />
-          </div>
           <div className="field-row">
             <div className="field">
               <label>Gender</label>
@@ -317,9 +327,9 @@ export function AddFaceModal({ onDone, onClose, toast }: Props) {
           <button
             className="btn primary"
             onClick={() => void handleSubmit()}
-            disabled={busy || !file || !label.trim()}
+            disabled={busy || files.length === 0 || !allLabeled}
           >
-            <Icon.Upload /> {busy ? 'Uploading…' : 'Add face'}
+            <Icon.Upload /> {busy ? 'Uploading…' : `Add face${multi ? `s (${files.length})` : ''}`}
           </button>
         </div>
       </div>

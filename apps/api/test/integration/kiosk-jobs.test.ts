@@ -60,8 +60,8 @@ async function seedMerchant(app: TestApp, email: string, balance = 100) {
     })
     .returning();
 
-  await app.db.insert(schema.merchantCredits).values({
-    merchantId: client.id,
+  await app.db.insert(schema.userCredits).values({
+    userId: merchantUser.id,
     balance,
   });
 
@@ -241,16 +241,16 @@ describe('kiosk jobs', () => {
 
     const [credits] = await app.db
       .select()
-      .from(schema.merchantCredits)
-      .where(eq(schema.merchantCredits.merchantId, merchant.id));
-    expect(credits.balance).toBe(90);
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, merchant.userId));
+    expect(credits.balance).toBe(95);
 
     const ledgerRows = await app.db
       .select()
-      .from(schema.merchantCreditLedger)
-      .where(eq(schema.merchantCreditLedger.jobId, jobId));
+      .from(schema.creditLedger)
+      .where(eq(schema.creditLedger.jobId, jobId));
     expect(ledgerRows).toHaveLength(1);
-    expect(ledgerRows[0]?.delta).toBe(-10);
+    expect(ledgerRows[0]?.delta).toBe(-5);
     expect(ledgerRows[0]?.reason).toBe('JOB_DISPATCH');
 
     const resultBytes = Buffer.from('completed-kiosk-result');
@@ -380,6 +380,31 @@ describe('kiosk jobs', () => {
     expect(uncart.statusCode).toBe(204);
   });
 
+  it('rejects a kiosk customer photo above the admin-configured limit', async () => {
+    const merchant = await seedMerchant(app, 'kiosk-limit@example.com', 100);
+    const { accessToken } = await claimDevice(app, merchant.id, 'Device 1', 'android-1');
+    const item = await seedCatalogItem(app, merchant.id);
+
+    await app.redis.set(
+      'config:system',
+      JSON.stringify({ uploadLimits: { kioskUploadMaxBytes: 1024 } }),
+    );
+    try {
+      const r2Key = await uploadCustomerPhoto(app, accessToken, Buffer.alloc(2048));
+
+      const jobRes = await app.inject({
+        method: 'POST',
+        url: '/v1/kiosk/jobs',
+        headers: { authorization: `Bearer ${accessToken}` },
+        payload: { merchantCatalogItemId: item.id, customerPhotoKey: r2Key },
+      });
+      expect(jobRes.statusCode).toBe(413);
+      expect(jobRes.json().error.message).toContain('MB limit');
+    } finally {
+      await app.redis.del('config:system');
+    }
+  });
+
   it('rejects a customer photo key presigned by device A when device B submits the job', async () => {
     const merchant = await seedMerchant(app, 'merchant-shared@example.com', 100);
     const deviceA = await claimDevice(app, merchant.id, 'Tablet A', 'android-a');
@@ -402,7 +427,7 @@ describe('kiosk jobs', () => {
   });
 
   it('fails atomically when merchant credits are insufficient', async () => {
-    const merchant = await seedMerchant(app, 'merchant-low-balance@example.com', 5);
+    const merchant = await seedMerchant(app, 'merchant-low-balance@example.com', 4);
     const device = await claimDevice(app, merchant.id, 'Balance Tablet', 'android-balance');
     const item = await seedCatalogItem(app, merchant.id);
     const customerPhotoKey = await uploadCustomerPhoto(
@@ -435,14 +460,14 @@ describe('kiosk jobs', () => {
 
     const [credits] = await app.db
       .select()
-      .from(schema.merchantCredits)
-      .where(eq(schema.merchantCredits.merchantId, merchant.id));
-    expect(credits.balance).toBe(5);
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, merchant.userId));
+    expect(credits.balance).toBe(4);
 
     const ledger = await app.db
       .select()
-      .from(schema.merchantCreditLedger)
-      .where(eq(schema.merchantCreditLedger.merchantId, merchant.id));
+      .from(schema.creditLedger)
+      .where(eq(schema.creditLedger.userId, merchant.userId));
     expect(ledger).toHaveLength(0);
   });
 });

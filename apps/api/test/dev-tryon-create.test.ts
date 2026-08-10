@@ -1,12 +1,13 @@
 import { schema } from '@aivastra/db';
+import { JOB_SOURCE } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { buildTestApp, type TestApp } from './helpers/api.js';
 import { type Containers, startContainers } from './helpers/containers.js';
 import {
   createTestApiKey,
+  createTestDevTryonCategory,
   createTestMerchant,
-  createTestTryonCategory,
 } from './helpers/merchant.js';
 
 let c: Containers;
@@ -69,9 +70,9 @@ beforeAll(async () => {
   setCredits = m.credits;
   ({ key } = await createTestApiKey(app, merchantId));
 
-  await createTestTryonCategory(app, { slug: 'upper', name: 'Upper' });
-  await createTestTryonCategory(app, { slug: 'inactive-cat', name: 'Off', isActive: false });
-  await createTestTryonCategory(app, {
+  await createTestDevTryonCategory(app, { slug: 'upper', name: 'Upper' });
+  await createTestDevTryonCategory(app, { slug: 'inactive-cat', name: 'Off', isActive: false });
+  await createTestDevTryonCategory(app, {
     slug: 'dead-workflow',
     name: 'Dead WF',
     templateIsActive: false,
@@ -100,7 +101,7 @@ describe('POST /v1/dev/tryon', () => {
     expect(body.status).toBe('QUEUED');
 
     const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, body.jobId));
-    expect(job?.source).toBe('api');
+    expect(job?.source).toBe(JOB_SOURCE.API_TRYON);
     // Dispatcher routing precondition (apps/dispatcher/src/job/processor.ts:122-134):
     // merchantId must stay null — a non-null merchantId misroutes the job into
     // processWidgetJob instead of processTryonDirectJob. apiKeyId is the only
@@ -192,6 +193,20 @@ describe('POST /v1/dev/tryon', () => {
   });
 });
 
+describe('POST /v1/dev/tryon upload limit', () => {
+  afterEach(async () => {
+    await app.redis.del('config:system');
+  });
+
+  it('rejects a garment file above the admin-configured limit', async () => {
+    await app.redis.set('config:system', JSON.stringify({ uploadLimits: { devApiMaxBytes: 10 } }));
+    const res = await post(form({ garment: Buffer.alloc(1024) }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.message).toContain('MB limit');
+  });
+});
+
 describe('POST /v1/dev/tryon (JSON/base64 body)', () => {
   it('creates a queued job, deducts credits, and writes the tryon job shape', async () => {
     const before = await balance();
@@ -201,7 +216,7 @@ describe('POST /v1/dev/tryon (JSON/base64 body)', () => {
     expect(body.status).toBe('QUEUED');
 
     const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, body.jobId));
-    expect(job?.source).toBe('api');
+    expect(job?.source).toBe(JOB_SOURCE.API_TRYON);
     // Same dispatcher-routing precondition as the multipart path — see the
     // comment on the multipart test above.
     expect(job?.merchantId).toBeNull();

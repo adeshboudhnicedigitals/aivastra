@@ -3,22 +3,25 @@ import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import {
   DevCategoriesResponse,
+  DevErrorResponse,
   DevJobParams,
   DevJobResponse,
   DevMeResponse,
   DevSareeMannequinJsonBody,
   DevTryonJsonBody,
   DevTryonResponse,
+  JOB_SOURCE,
+  LEGACY_JOB_SOURCE,
 } from '@aivastra/types';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
+import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 import { createDevTryonJob } from './create-job.js';
 import { createDevSareeMannequinJob } from './create-saree-mannequin-job.js';
 import { sniffImageMime } from './image-sniff.js';
 import { hashApiKey } from './keys.js';
 
-const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const EXT_BY_MIME = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
@@ -49,15 +52,15 @@ export async function devRoutes(app: FastifyInstance) {
       schema: {
         tags: ['dev'],
         summary: 'List try-on categories',
-        response: { 200: DevCategoriesResponse },
+        response: { 200: DevCategoriesResponse, 401: DevErrorResponse, 429: DevErrorResponse },
       },
     },
     async () => {
       const rows = await app.db
-        .select({ slug: schema.tryonCategories.slug, name: schema.tryonCategories.name })
-        .from(schema.tryonCategories)
-        .where(eq(schema.tryonCategories.isActive, true))
-        .orderBy(asc(schema.tryonCategories.sortOrder));
+        .select({ slug: schema.devTryonCategories.slug, name: schema.devTryonCategories.name })
+        .from(schema.devTryonCategories)
+        .where(eq(schema.devTryonCategories.isActive, true))
+        .orderBy(asc(schema.devTryonCategories.sortOrder));
       return { categories: rows };
     },
   );
@@ -67,7 +70,16 @@ export async function devRoutes(app: FastifyInstance) {
     {
       preHandler: app.requireApiKey,
       config: rateLimitConfig,
-      schema: { tags: ['dev'], summary: 'Get account info', response: { 200: DevMeResponse } },
+      schema: {
+        tags: ['dev'],
+        summary: 'Get account info',
+        response: {
+          200: DevMeResponse,
+          401: DevErrorResponse,
+          404: DevErrorResponse,
+          429: DevErrorResponse,
+        },
+      },
     },
     async (req) => {
       const [row] = await app.db
@@ -94,10 +106,10 @@ export async function devRoutes(app: FastifyInstance) {
     {
       preHandler: app.requireApiKey,
       config: rateLimitConfig,
-      // Base64 inflates each 10MB image to ~13.4MB of JSON text; the two-image
+      // Base64 inflates each 20MB image to ~26.8MB of JSON text; the two-image
       // JSON path needs more than Fastify's 1MB default. Multipart is unaffected —
       // @fastify/multipart streams via its own `fileSize` limit above, not this.
-      bodyLimit: 30 * 1024 * 1024,
+      bodyLimit: 60 * 1024 * 1024,
       // attachValidation, not the default auto-reject: this route handles multipart
       // and JSON itself (see below) and does its own DevTryonJsonBody.safeParse for
       // the JSON path. `body` here exists so Scalar/the OpenAPI spec can generate a
@@ -115,13 +127,22 @@ export async function devRoutes(app: FastifyInstance) {
           'Returns a job id to poll.',
         consumes: ['multipart/form-data', 'application/json'],
         body: DevTryonJsonBody,
-        response: { 202: DevTryonResponse },
+        response: {
+          202: DevTryonResponse,
+          400: DevErrorResponse,
+          401: DevErrorResponse,
+          402: DevErrorResponse,
+          403: DevErrorResponse,
+          429: DevErrorResponse,
+          503: DevErrorResponse,
+        },
       },
     },
     async (req, reply) => {
       const merchantId = req.merchantId as string;
       const merchantUserId = req.merchantUserId as string;
       const apiKeyId = req.apiKeyId as string;
+      const maxFileBytes = await getUploadLimitBytes(req.server, 'devApiMaxBytes');
 
       let categorySlug: string | undefined;
       const files: Record<string, { buf: Buffer; mime: string }> = {};
@@ -141,8 +162,12 @@ export async function devRoutes(app: FastifyInstance) {
         for (const fieldname of ['person', 'garment'] as const) {
           const raw = parsed.data[fieldname].replace(/^data:[^;]+;base64,/, '');
           const buf = Buffer.from(raw, 'base64');
-          if (buf.length === 0 || buf.length > MAX_FILE_BYTES) {
-            throw new AppError('VALIDATION', 400, `${fieldname} exceeds the 10MB limit`);
+          if (buf.length === 0 || buf.length > maxFileBytes) {
+            throw new AppError(
+              'VALIDATION',
+              400,
+              `${fieldname} exceeds the ${maxFileBytes / (1024 * 1024)}MB limit`,
+            );
           }
           // Magic bytes only — decoding garbage base64 still yields *some* buffer.
           const mime = sniffImageMime(buf);
@@ -159,7 +184,7 @@ export async function devRoutes(app: FastifyInstance) {
         // The global multipart limit is 2.5GB (server.ts) for the admin zip-import
         // route, so this route MUST set its own limits — it does not inherit a safe
         // default.
-        const parts = req.parts({ limits: { fileSize: MAX_FILE_BYTES, files: 2 } });
+        const parts = req.parts({ limits: { fileSize: maxFileBytes, files: 2 } });
         for await (const part of parts) {
           if (part.type === 'field' && part.fieldname === 'category') {
             categorySlug = String(part.value);
@@ -170,10 +195,18 @@ export async function devRoutes(app: FastifyInstance) {
             throw new AppError('VALIDATION', 400, `unexpected file field: ${part.fieldname}`);
           }
           const buf = await part.toBuffer().catch(() => {
-            throw new AppError('VALIDATION', 400, `${part.fieldname} exceeds the 10MB limit`);
+            throw new AppError(
+              'VALIDATION',
+              400,
+              `${part.fieldname} exceeds the ${maxFileBytes / (1024 * 1024)}MB limit`,
+            );
           });
           if (part.file.truncated) {
-            throw new AppError('VALIDATION', 400, `${part.fieldname} exceeds the 10MB limit`);
+            throw new AppError(
+              'VALIDATION',
+              400,
+              `${part.fieldname} exceeds the ${maxFileBytes / (1024 * 1024)}MB limit`,
+            );
           }
           // Magic bytes only — part.mimetype is client-declared and untrusted.
           const mime = sniffImageMime(buf);
@@ -227,8 +260,8 @@ export async function devRoutes(app: FastifyInstance) {
     {
       preHandler: app.requireApiKey,
       config: rateLimitConfig,
-      // One image, base64-inflated ~1.34x — 10MB source caps around 13.4MB of JSON text.
-      bodyLimit: 15 * 1024 * 1024,
+      // One image, base64-inflated ~1.34x — 20MB source caps around 26.8MB of JSON text.
+      bodyLimit: 30 * 1024 * 1024,
       attachValidation: true,
       schema: {
         tags: ['dev'],
@@ -240,13 +273,22 @@ export async function devRoutes(app: FastifyInstance) {
           'Returns a job id to poll.',
         consumes: ['multipart/form-data', 'application/json'],
         body: DevSareeMannequinJsonBody,
-        response: { 202: DevTryonResponse },
+        response: {
+          202: DevTryonResponse,
+          400: DevErrorResponse,
+          401: DevErrorResponse,
+          402: DevErrorResponse,
+          403: DevErrorResponse,
+          429: DevErrorResponse,
+          503: DevErrorResponse,
+        },
       },
     },
     async (req, reply) => {
       const merchantId = req.merchantId as string;
       const merchantUserId = req.merchantUserId as string;
       const apiKeyId = req.apiKeyId as string;
+      const maxFileBytes = await getUploadLimitBytes(req.server, 'devApiMaxBytes');
 
       let garmentFile: { buf: Buffer; mime: string } | undefined;
 
@@ -263,8 +305,12 @@ export async function devRoutes(app: FastifyInstance) {
         }
         const raw = parsed.data.garment.replace(/^data:[^;]+;base64,/, '');
         const buf = Buffer.from(raw, 'base64');
-        if (buf.length === 0 || buf.length > MAX_FILE_BYTES) {
-          throw new AppError('VALIDATION', 400, 'garment exceeds the 10MB limit');
+        if (buf.length === 0 || buf.length > maxFileBytes) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            `garment exceeds the ${maxFileBytes / (1024 * 1024)}MB limit`,
+          );
         }
         const mime = sniffImageMime(buf);
         if (!mime) {
@@ -272,17 +318,25 @@ export async function devRoutes(app: FastifyInstance) {
         }
         garmentFile = { buf, mime };
       } else {
-        const parts = req.parts({ limits: { fileSize: MAX_FILE_BYTES, files: 1 } });
+        const parts = req.parts({ limits: { fileSize: maxFileBytes, files: 1 } });
         for await (const part of parts) {
           if (part.type !== 'file') continue;
           if (part.fieldname !== 'garment') {
             throw new AppError('VALIDATION', 400, `unexpected file field: ${part.fieldname}`);
           }
           const buf = await part.toBuffer().catch(() => {
-            throw new AppError('VALIDATION', 400, 'garment exceeds the 10MB limit');
+            throw new AppError(
+              'VALIDATION',
+              400,
+              `garment exceeds the ${maxFileBytes / (1024 * 1024)}MB limit`,
+            );
           });
           if (part.file.truncated) {
-            throw new AppError('VALIDATION', 400, 'garment exceeds the 10MB limit');
+            throw new AppError(
+              'VALIDATION',
+              400,
+              `garment exceeds the ${maxFileBytes / (1024 * 1024)}MB limit`,
+            );
           }
           const mime = sniffImageMime(buf);
           if (!mime) {
@@ -320,7 +374,12 @@ export async function devRoutes(app: FastifyInstance) {
         tags: ['dev'],
         summary: 'Get try-on job status and result',
         params: DevJobParams,
-        response: { 200: DevJobResponse },
+        response: {
+          200: DevJobResponse,
+          401: DevErrorResponse,
+          404: DevErrorResponse,
+          429: DevErrorResponse,
+        },
       },
     },
     async (req) => {
@@ -337,7 +396,17 @@ export async function devRoutes(app: FastifyInstance) {
         .from(schema.jobs)
         .innerJoin(schema.apiKeys, eq(schema.apiKeys.id, schema.jobs.apiKeyId))
         .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
-        .where(and(eq(schema.jobs.id, id), eq(schema.jobs.source, 'api')))
+        .where(
+          and(
+            eq(schema.jobs.id, id),
+            inArray(schema.jobs.source, [
+              JOB_SOURCE.API_TRYON,
+              JOB_SOURCE.API_SAREE_MANNEQUIN,
+              JOB_SOURCE.API_CATALOG,
+              LEGACY_JOB_SOURCE.API,
+            ]),
+          ),
+        )
         .limit(1);
 
       // Scoped by merchant (via the owning API key), not by key itself: a merchant

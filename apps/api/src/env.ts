@@ -32,10 +32,23 @@ const Env = z.object({
         .map((origin) => origin.trim())
         .filter(Boolean),
     ),
+  /**
+   * Number of reverse proxies in front of this process, passed to Fastify's
+   * `trustProxy`. Production is Cloudflare -> nginx -> api, so 2; a bare local
+   * run has none. Wrong-but-too-high is the dangerous direction — it lets a
+   * client prepend its own X-Forwarded-For entry and choose the IP we attribute
+   * the request to — so this is explicit config rather than a guess, and
+   * defaults to 0 (trust nothing).
+   */
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(10).default(0),
   COOKIE_SECRET: z.string().min(32),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_CALLBACK_URL: z.string().url().optional(),
+  // Extra accepted `aud` values for POST /v1/auth/device-login/google, comma-separated.
+  // Normally unset: the Android ID token's aud is GOOGLE_CLIENT_ID (the Web client ID
+  // passed to Credential Manager as serverClientId).
+  GOOGLE_DEVICE_AUDIENCES: z.string().optional(),
   WEB_URL: z.string().url().default('http://localhost:3000'),
   RESEND_API_KEY: z.string().min(1),
   EMAIL_FROM: z.string().min(1).default('noreply@aivastra.com'),
@@ -47,17 +60,20 @@ const Env = z.object({
   CHATBOT_SERVICE_TOKEN: z.string().optional(),
   SHOPIFY_API_KEY: z.string().optional(),
   SHOPIFY_API_SECRET: z.string().optional(),
-  // Used to build the OAuth redirect_uri (/v1/shopify/auth/callback) — must be a
-  // host that proxies /v1/* to this API, NOT necessarily where the embedded admin
-  // SPA itself is served (see SHOPIFY_ADMIN_URL below).
+  // Used to build the OAuth redirect_uri (/v1/shopify/auth/callback) and the
+  // webhook callback base — must be a host that proxies /v1/* to this API.
+  // Note there is deliberately no "where is the SPA served" counterpart: the
+  // post-install redirect goes back through Shopify (admin.shopify.com/store/
+  // .../apps/...) so that Shopify re-opens the app with the host/id_token params
+  // App Bridge requires. Never redirect at the SPA's own URL directly.
   SHOPIFY_APP_URL: z.string().url().optional(),
-  // Where the embedded admin SPA (apps/shopify) is actually served — used for the
-  // post-install redirect. Falls back to SHOPIFY_APP_URL when unset (dev: both
-  // point at the same ngrok tunnel, so no split is needed there).
-  SHOPIFY_ADMIN_URL: z.string().url().optional(),
   SHOPIFY_SCOPES: z.string().default('read_products'),
   // 32-byte key, base64-encoded (44 chars). Required only when Shopify is enabled.
   SHOPIFY_TOKEN_ENC_KEY: z.string().optional(),
+  // Comma-separated email allowlist for the Catalog Video (PixVerse) feature.
+  // Unset = open to everyone (dev default). Set in production to restrict the
+  // feature to a soft-launch cohort without a code change.
+  CATALOG_VIDEO_ALLOWED_EMAILS: z.string().optional(),
 });
 export type Env = z.infer<typeof Env>;
 export function loadEnv(): Env {

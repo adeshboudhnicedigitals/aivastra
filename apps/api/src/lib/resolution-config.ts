@@ -1,4 +1,10 @@
-import { RESOLUTION_COSTS, type Resolution, SIMPLE_TRYON_COST } from '@aivastra/types';
+import {
+  PIXVERSE_VIDEO_COST,
+  RESOLUTION_COSTS,
+  type Resolution,
+  SAREE_MANNEQUIN_DEV_COST,
+  SIMPLE_TRYON_COST,
+} from '@aivastra/types';
 import type { FastifyInstance } from 'fastify';
 
 const CONFIG_KEY = 'config:system';
@@ -17,6 +23,12 @@ export const DEFAULT_MAX_OUTPUT_PX = 2048;
 export const DEFAULT_TRYON_CONFIG: { creditCost: number } = {
   creditCost: SIMPLE_TRYON_COST,
 };
+
+export const DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG: { creditCost: number } = {
+  creditCost: SAREE_MANNEQUIN_DEV_COST,
+};
+
+export const DEFAULT_PIXVERSE_CONFIG: { creditCost: number } = { creditCost: PIXVERSE_VIDEO_COST };
 
 /**
  * Reads the admin-configured credit cost for a resolution from the same
@@ -70,5 +82,34 @@ export async function getTryonCreditCost(app: FastifyInstance): Promise<number> 
     return typeof cost === 'number' ? cost : SIMPLE_TRYON_COST;
   } catch {
     return SIMPLE_TRYON_COST;
+  }
+}
+
+/**
+ * Reads the admin-configured credit cost for the dev-API saree-mannequin
+ * (step-1) job from the same `config:system` Redis key. Kept separate from
+ * getTryonCreditCost() — this is a standalone, real-GPU dev-API call, not
+ * the shared tryon/saree-step2 price. Falls back to SAREE_MANNEQUIN_DEV_COST
+ * if nothing is stored yet, or the entry is missing/malformed.
+ */
+export async function getSareeMannequinDevCreditCost(app: FastifyInstance): Promise<number> {
+  try {
+    const raw = await app.redis.get(CONFIG_KEY);
+    const cfg = raw ? JSON.parse(raw) : {};
+    const cost = cfg.sareeMannequinDev?.creditCost;
+    return typeof cost === 'number' ? cost : SAREE_MANNEQUIN_DEV_COST;
+  } catch {
+    return SAREE_MANNEQUIN_DEV_COST;
+  }
+}
+
+export async function getPixverseCreditCost(app: FastifyInstance): Promise<number> {
+  try {
+    const raw = await app.redis.get(CONFIG_KEY);
+    const cfg = raw ? JSON.parse(raw) : {};
+    const cost = cfg.pixverse?.creditCost;
+    return typeof cost === 'number' ? cost : PIXVERSE_VIDEO_COST;
+  } catch {
+    return PIXVERSE_VIDEO_COST;
   }
 }

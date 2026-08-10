@@ -91,6 +91,32 @@ export default function CreditAnalysisPage({ toast }: Props) {
   const [detail, setDetail] = useState<CreditUserDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
+  const [isNavOpen, setIsNavOpen] = useState(false);
+  const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
+  const [expandedSubTabMap, setExpandedSubTabMap] = useState<
+    Record<string, 'graph' | 'ledger' | null>
+  >({});
+  const [showAllLedgerMap, setShowAllLedgerMap] = useState<Record<string, boolean>>({});
+  const [userCreditDetailsMap, setUserCreditDetailsMap] = useState<
+    Record<string, CreditUserDetail>
+  >({});
+
+  const toggleMobileUserExpand = async (userId: string) => {
+    const willExpand = expandedUserId !== userId;
+    setExpandedUserId(willExpand ? userId : null);
+    if (willExpand) {
+      try {
+        const params = new URLSearchParams({ days, source });
+        const data = await apiFetch<CreditUserDetail>(
+          `/admin/credit-analysis/users/${userId}?${params}`,
+        );
+        setUserCreditDetailsMap((prev) => ({ ...prev, [userId]: data }));
+      } catch {
+        // Ignore background fetch failure
+      }
+    }
+  };
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -130,6 +156,7 @@ export default function CreditAnalysisPage({ toast }: Props) {
     let cancelled = false;
     setDetail(null);
     setDetailLoading(true);
+
     (async () => {
       try {
         const params = new URLSearchParams({ days, source });
@@ -365,7 +392,8 @@ export default function CreditAnalysisPage({ toast }: Props) {
 
   return (
     <>
-      <div className="page-head">
+      {/* Desktop Header */}
+      <div className="desktop-only page-head">
         <div>
           <h1>Credit Analysis</h1>
           <p className="lede">{loading ? '…' : total} users ranked by credit spend.</p>
@@ -383,6 +411,7 @@ export default function CreditAnalysisPage({ toast }: Props) {
       </div>
 
       <div
+        className="desktop-only"
         style={{
           display: 'flex',
           gap: 12,
@@ -425,11 +454,132 @@ export default function CreditAnalysisPage({ toast }: Props) {
         </select>
       </div>
 
+      {/* Mobile Navigation Accordion Bar */}
+      <div className="mobile-only" style={{ marginBottom: 16 }}>
+        <div style={{ position: 'relative' }}>
+          <button
+            type="button"
+            onClick={() => setIsNavOpen((v) => !v)}
+            style={{
+              width: '100%',
+              padding: '12px 16px',
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              cursor: 'pointer',
+              color: 'var(--ink)',
+              fontSize: 14,
+              fontWeight: 600,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon.Search />
+              <span>Search &amp; Filters</span>
+            </div>
+            <span
+              style={{
+                transform: isNavOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                transition: 'transform 0.2s',
+                display: 'inline-flex',
+              }}
+            >
+              <Icon.Chevron />
+            </span>
+          </button>
+
+          {isNavOpen && (
+            <>
+              <div
+                onClick={() => setIsNavOpen(false)}
+                style={{ position: 'fixed', inset: 0, zIndex: 99, background: 'transparent' }}
+              />
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 6px)',
+                  left: 0,
+                  right: 0,
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                  boxShadow: 'var(--shadow-lg)',
+                  zIndex: 100,
+                  padding: '14px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 12,
+                  maxHeight: '420px',
+                  overflowY: 'auto',
+                }}
+              >
+                {/* Search Input starting first */}
+                <div className="search" style={{ width: '100%' }}>
+                  <Icon.Search />
+                  <input
+                    placeholder="Search by name or email…"
+                    value={query}
+                    onChange={(e) => handleSearch(e.target.value)}
+                  />
+                </div>
+
+                {/* Time Range Filter */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <span className="sub" style={{ fontSize: 12, color: 'var(--muted)' }}>
+                    Time Range:
+                  </span>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                    {(['7', '30', '90', 'all'] as DayRange[]).map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        className={`btn sm ${days === d ? 'primary' : 'ghost'}`}
+                        onClick={() => {
+                          setDays(d);
+                          setPage(0);
+                        }}
+                        style={{ justifyContent: 'center', fontSize: 12 }}
+                      >
+                        {d === 'all' ? 'All' : `${d}d`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Source Filter Dropdown */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <span className="sub" style={{ fontSize: 12, color: 'var(--muted)' }}>
+                    Source Filter:
+                  </span>
+                  <select
+                    className="select"
+                    value={source}
+                    onChange={(e) => {
+                      setSource(e.target.value as SourceFilter);
+                      setPage(0);
+                    }}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: 6, fontSize: 13 }}
+                  >
+                    {(Object.keys(SOURCE_LABELS) as SourceFilter[]).map((s) => (
+                      <option key={s} value={s}>
+                        {SOURCE_LABELS[s]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
       {loading ? (
         <p style={{ color: 'var(--muted)', fontSize: 13, padding: '20px 0' }}>Loading&hellip;</p>
       ) : (
         <>
-          <div className="table-wrap">
+          <div className="desktop-only table-wrap">
             <table className="table">
               <thead>
                 <tr>
@@ -505,6 +655,405 @@ export default function CreditAnalysisPage({ toast }: Props) {
                 )}
               </tbody>
             </table>
+          </div>
+
+          <div className="mobile-only">
+            {rows.map((r) => {
+              const isExpanded = expandedUserId === r.id;
+              const userDetail = userCreditDetailsMap[r.id];
+              const activeSubTab = expandedSubTabMap[r.id] ?? null;
+              const showAllLedger = showAllLedgerMap[r.id] ?? false;
+
+              return (
+                <div
+                  key={r.id}
+                  className="card"
+                  style={{
+                    padding: 0,
+                    overflow: 'hidden',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    background: 'var(--surface)',
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => void toggleMobileUserExpand(r.id)}
+                    style={{
+                      padding: '14px 16px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                      background: 'none',
+                      border: 'none',
+                      width: '100%',
+                      textAlign: 'left',
+                      color: 'inherit',
+                      fontFamily: 'inherit',
+                      fontSize: 'inherit',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        minWidth: 0,
+                        flex: 1,
+                      }}
+                    >
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div
+                          className="semi"
+                          style={{
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            fontSize: 15,
+                            color: 'var(--ink)',
+                            fontWeight: 600,
+                          }}
+                        >
+                          {r.displayName ?? r.email}
+                        </div>
+                        {r.displayName && (
+                          <div
+                            className="sub"
+                            style={{ fontSize: 11, marginTop: 2, color: 'var(--muted)' }}
+                          >
+                            {r.email}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 8 }}>
+                      {r.hasShopifyStore && (
+                        <span
+                          className="badge dot"
+                          style={{
+                            background: 'rgba(76,175,80,0.12)',
+                            color: 'var(--success, #4caf50)',
+                            fontSize: 10,
+                          }}
+                        >
+                          Shopify
+                        </span>
+                      )}
+                      <span
+                        style={{
+                          color: 'var(--muted-2)',
+                          transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                          transition: 'transform 0.2s',
+                          display: 'inline-flex',
+                        }}
+                      >
+                        <Icon.Chevron />
+                      </span>
+                    </div>
+                  </button>
+
+                  {isExpanded && (
+                    <div
+                      style={{
+                        padding: '16px',
+                        borderTop: '1px solid var(--border)',
+                        background: 'var(--surface-2)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 14,
+                        fontSize: 13,
+                      }}
+                    >
+                      {/* 1. Credit Summary Details */}
+                      <div
+                        style={{
+                          background: 'var(--surface)',
+                          padding: '12px',
+                          borderRadius: 8,
+                          border: '1px solid var(--border)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 8,
+                        }}
+                      >
+                        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>
+                          Credit Summary
+                        </div>
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <span style={{ color: 'var(--muted)' }}>Plan</span>
+                          <span className="badge" style={{ textTransform: 'capitalize' }}>
+                            {r.tier}
+                          </span>
+                        </div>
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <span style={{ color: 'var(--muted)' }}>Spent</span>
+                          <span className="mono bold">{r.totalSpent.toLocaleString()} credits</span>
+                        </div>
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <span style={{ color: 'var(--muted)' }}>Jobs</span>
+                          <span className="mono">{r.totalJobs.toLocaleString()}</span>
+                        </div>
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <span style={{ color: 'var(--muted)' }}>Avg / Job</span>
+                          <span className="mono">{r.avgCostPerJob} credits</span>
+                        </div>
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <span style={{ color: 'var(--muted)' }}>Last Activity</span>
+                          <span className="sub">
+                            {r.lastActivityAt
+                              ? new Date(r.lastActivityAt).toLocaleDateString()
+                              : 'No activity'}
+                          </span>
+                        </div>
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <span style={{ color: 'var(--muted)' }}>Balance</span>
+                          <span className="mono bold" style={{ color: 'var(--ink)', fontSize: 14 }}>
+                            {r.balance.toLocaleString()} credits
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Sub-tabs for Daily Spent & Recent Ledger */}
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button
+                          className={`btn sm ${activeSubTab === 'graph' ? 'primary' : 'ghost'}`}
+                          onClick={() =>
+                            setExpandedSubTabMap((prev) => ({
+                              ...prev,
+                              [r.id]: prev[r.id] === 'graph' ? null : 'graph',
+                            }))
+                          }
+                          style={{ flex: 1, justifyContent: 'center' }}
+                        >
+                          Daily Spent Graph
+                        </button>
+                        <button
+                          className={`btn sm ${activeSubTab === 'ledger' ? 'primary' : 'ghost'}`}
+                          onClick={() =>
+                            setExpandedSubTabMap((prev) => ({
+                              ...prev,
+                              [r.id]: prev[r.id] === 'ledger' ? null : 'ledger',
+                            }))
+                          }
+                          style={{ flex: 1, justifyContent: 'center' }}
+                        >
+                          Recent Ledger
+                        </button>
+                      </div>
+
+                      {/* 2. Daily Spent Section */}
+                      {activeSubTab === 'graph' && (
+                        <div
+                          style={{
+                            background: 'var(--surface)',
+                            padding: '12px',
+                            borderRadius: 8,
+                            border: '1px solid var(--border)',
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 700,
+                              color: 'var(--ink)',
+                              marginBottom: 10,
+                            }}
+                          >
+                            Daily Credit Spend Chart
+                          </div>
+                          {userDetail?.dailySpend && userDetail.dailySpend.length > 0 ? (
+                            <ResponsiveContainer width="100%" height={180}>
+                              <BarChart data={userDetail.dailySpend}>
+                                <XAxis
+                                  dataKey="date"
+                                  stroke="var(--muted)"
+                                  fontSize={10}
+                                  tickLine={false}
+                                  axisLine={false}
+                                />
+                                <Tooltip
+                                  cursor={{ fill: 'rgba(128,128,128,0.08)' }}
+                                  contentStyle={{
+                                    background: 'var(--surface-2)',
+                                    border: '1px solid var(--border)',
+                                    borderRadius: 8,
+                                    fontSize: 11,
+                                  }}
+                                />
+                                <Bar dataKey="spent" fill="var(--accent)" radius={[4, 4, 0, 0]} />
+                              </BarChart>
+                            </ResponsiveContainer>
+                          ) : (
+                            <span className="sub" style={{ fontSize: 12, color: 'var(--muted)' }}>
+                              Loading daily spend graph&hellip;
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* 3. Recent Ledger Entries Section */}
+                      {activeSubTab === 'ledger' && (
+                        <div
+                          style={{
+                            background: 'var(--surface)',
+                            padding: '12px',
+                            borderRadius: 8,
+                            border: '1px solid var(--border)',
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              marginBottom: 10,
+                            }}
+                          >
+                            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>
+                              Recent Ledger Entries
+                            </span>
+                            <span className="badge dot" style={{ fontSize: 10 }}>
+                              {SOURCE_LABELS[source]}
+                            </span>
+                          </div>
+                          {(() => {
+                            const activeLedger = userDetail?.ledger
+                              ? source === 'all'
+                                ? userDetail.ledger
+                                : userDetail.ledger.filter((l) => l.source === source)
+                              : [];
+
+                            if (!activeLedger.length) {
+                              return (
+                                <span
+                                  className="sub"
+                                  style={{ fontSize: 12, color: 'var(--muted)' }}
+                                >
+                                  {userDetail
+                                    ? `No ledger entries found for ${SOURCE_LABELS[source]}.`
+                                    : 'Loading ledger data…'}
+                                </span>
+                              );
+                            }
+
+                            return (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                {(showAllLedger ? activeLedger : activeLedger.slice(0, 3)).map(
+                                  (l) => (
+                                    <div
+                                      key={l.id}
+                                      style={{
+                                        padding: '8px 10px',
+                                        borderRadius: 6,
+                                        background: 'var(--surface-2)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        fontSize: 12,
+                                      }}
+                                    >
+                                      <div
+                                        style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+                                      >
+                                        <span
+                                          className="mono bold"
+                                          style={{
+                                            color:
+                                              l.delta < 0
+                                                ? 'var(--danger)'
+                                                : 'var(--success, #4caf50)',
+                                          }}
+                                        >
+                                          {l.delta > 0 ? '+' : ''}
+                                          {l.delta}
+                                        </span>
+                                        <span style={{ color: 'var(--ink)', fontSize: 11 }}>
+                                          {l.reason}
+                                        </span>
+                                      </div>
+                                      <span style={{ fontSize: 10, color: 'var(--muted)' }}>
+                                        {new Date(l.createdAt).toLocaleDateString()}
+                                      </span>
+                                    </div>
+                                  ),
+                                )}
+                                {activeLedger.length > 3 && (
+                                  <button
+                                    className="btn sm ghost"
+                                    onClick={() =>
+                                      setShowAllLedgerMap((prev) => ({
+                                        ...prev,
+                                        [r.id]: !prev[r.id],
+                                      }))
+                                    }
+                                    style={{ width: '100%', marginTop: 4 }}
+                                  >
+                                    {showAllLedger
+                                      ? 'Show less'
+                                      : `Show more (${activeLedger.length - 3} more)`}
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {rows.length === 0 && (
+              <div
+                style={{
+                  textAlign: 'center',
+                  color: 'var(--muted)',
+                  padding: '2.5rem',
+                  border: '1.5px dashed var(--border)',
+                  borderRadius: 8,
+                }}
+              >
+                No users found.
+              </div>
+            )}
           </div>
 
           <Pager

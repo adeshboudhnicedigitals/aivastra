@@ -2,7 +2,7 @@ import { schema } from '@aivastra/db';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { upsertShopifyStore } from '../src/modules/shopify/auth.routes.js';
-import { syncProduct } from '../src/modules/shopify/products.sync.js';
+import { syncOneTask, syncProduct } from '../src/modules/shopify/products.sync.js';
 import { buildTestApp, type TestApp } from './helpers/api.js';
 import { type Containers, startContainers } from './helpers/containers.js';
 
@@ -10,8 +10,6 @@ const ENC_KEY = Buffer.alloc(32, 5).toString('base64');
 let c: Containers;
 let app: TestApp;
 let storeId: string;
-
-let workflowTemplateId: string;
 
 beforeAll(async () => {
   c = await startContainers();
@@ -29,22 +27,6 @@ beforeAll(async () => {
     'read_products',
   );
   storeId = store.id;
-  const [wf] = await app.db
-    .insert(schema.workflowTemplates)
-    .values({
-      slug: 'sync-test',
-      label: 'Sync Test WF',
-      jsonContent: {},
-      faceNodeId: 'x',
-      poseNodeId: 'x',
-      bgNodeId: 'x',
-      upperNodeIds: [],
-      facePhasePromptNode: 'x',
-      garmentPhasePromptNode: 'x',
-      workflowType: 'tryon',
-    })
-    .returning();
-  workflowTemplateId = wf.id;
 });
 afterAll(async () => {
   await app?.close();
@@ -69,7 +51,7 @@ describe('syncProduct', () => {
     await syncProduct(
       app,
       storeId,
-      { id: 42, title: 'Test Product', image: { src: 'https://cdn.shopify.com/x.jpg' } },
+      { id: 42, title: 'Test Product', imageUrl: 'https://cdn.shopify.com/x.jpg' },
       fakeFetch,
     );
     const [row] = await app.db
@@ -92,7 +74,12 @@ describe('syncProduct', () => {
     const fakeFetch = (async () => {
       throw new Error('should not be called');
     }) as typeof fetch;
-    await syncProduct(app, storeId, { id: 43, title: 'No Image Product', image: null }, fakeFetch);
+    await syncProduct(
+      app,
+      storeId,
+      { id: 43, title: 'No Image Product', imageUrl: null },
+      fakeFetch,
+    );
     const [row] = await app.db
       .select()
       .from(schema.shopifyProductGarments)
@@ -122,7 +109,7 @@ describe('syncProduct', () => {
       {
         id: 44,
         title: 'Redirect Check Product',
-        image: { src: 'https://cdn.shopify.com/redirect-check.jpg' },
+        imageUrl: 'https://cdn.shopify.com/redirect-check.jpg',
       },
       fakeFetch,
     );
@@ -140,7 +127,7 @@ describe('syncProduct', () => {
       {
         id: 45,
         title: 'Redirects Elsewhere Product',
-        image: { src: 'https://cdn.shopify.com/redirects-elsewhere.jpg' },
+        imageUrl: 'https://cdn.shopify.com/redirects-elsewhere.jpg',
       },
       redirectingFetch,
     );
@@ -157,7 +144,7 @@ describe('syncProduct', () => {
     expect(row.failedReason).toContain('redirect');
   });
 
-  it('marks failed when the content-length header exceeds the 10MB cap, without downloading the body', async () => {
+  it('marks failed when the content-length header exceeds the 20MB cap, without downloading the body', async () => {
     let arrayBufferCalled = false;
     const fakeFetch = (async () =>
       ({
@@ -168,13 +155,13 @@ describe('syncProduct', () => {
         },
         headers: new Map([
           ['content-type', 'image/jpeg'],
-          ['content-length', String(11 * 1024 * 1024)],
+          ['content-length', String(21 * 1024 * 1024)],
         ]),
       }) as unknown as Response) as typeof fetch;
     await syncProduct(
       app,
       storeId,
-      { id: 46, title: 'Big Product', image: { src: 'https://cdn.shopify.com/big.jpg' } },
+      { id: 46, title: 'Big Product', imageUrl: 'https://cdn.shopify.com/big.jpg' },
       fakeFetch,
     );
     const [row] = await app.db
@@ -187,12 +174,12 @@ describe('syncProduct', () => {
         ),
       );
     expect(row.status).toBe('failed');
-    expect(row.failedReason).toContain('10MB');
+    expect(row.failedReason).toContain('20MB');
     expect(arrayBufferCalled).toBe(false);
   });
 
-  it('marks failed when the actual downloaded body exceeds the 10MB cap (no content-length header)', async () => {
-    const oversized = new Uint8Array(11 * 1024 * 1024);
+  it('marks failed when the actual downloaded body exceeds the 20MB cap (no content-length header)', async () => {
+    const oversized = new Uint8Array(21 * 1024 * 1024);
     const fakeFetch = (async () =>
       ({
         ok: true,
@@ -205,7 +192,7 @@ describe('syncProduct', () => {
       {
         id: 47,
         title: 'Big No Header Product',
-        image: { src: 'https://cdn.shopify.com/big-no-header.jpg' },
+        imageUrl: 'https://cdn.shopify.com/big-no-header.jpg',
       },
       fakeFetch,
     );
@@ -219,19 +206,57 @@ describe('syncProduct', () => {
         ),
       );
     expect(row.status).toBe('failed');
-    expect(row.failedReason).toContain('10MB');
+    expect(row.failedReason).toContain('20MB');
   });
 
-  it('persists product_type/tags/vendor and leaves funnel unassigned with no matching rule', async () => {
+  it('respects an admin-configured limit lower than the default 20MB cap', async () => {
+    await app.redis.set(
+      'config:system',
+      JSON.stringify({ uploadLimits: { shopifyProductSyncMaxBytes: 5 } }),
+    );
+    try {
+      const fakeFetch = (async () =>
+        ({
+          ok: true,
+          arrayBuffer: async () => new Uint8Array([1, 2, 3, 4, 5, 6]).buffer,
+          headers: new Map([['content-type', 'image/jpeg']]),
+        }) as unknown as Response) as typeof fetch;
+      await syncProduct(
+        app,
+        storeId,
+        {
+          id: 48,
+          title: 'Configured Limit Product',
+          imageUrl: 'https://cdn.shopify.com/c.jpg',
+        },
+        fakeFetch,
+      );
+      const [row] = await app.db
+        .select()
+        .from(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, storeId),
+            eq(schema.shopifyProductGarments.shopifyProductId, 48),
+          ),
+        );
+      expect(row.status).toBe('failed');
+      expect(row.failedReason).toContain('MB');
+    } finally {
+      await app.redis.del('config:system');
+    }
+  });
+
+  it('persists product_type/tags/vendor', async () => {
     await syncProduct(
       app,
       storeId,
       {
         id: 501,
         title: 'Test Shirt',
-        image: { src: 'https://cdn.shopify.com/shirt.jpg' },
-        product_type: 'Shirts',
-        tags: 'Sale, Cotton',
+        imageUrl: 'https://cdn.shopify.com/shirt.jpg',
+        productType: 'Shirts',
+        tags: ['Sale', 'Cotton'],
         vendor: 'Acme Co',
       },
       mockFetch,
@@ -249,129 +274,16 @@ describe('syncProduct', () => {
     expect(row.productType).toBe('Shirts');
     expect(row.tags).toEqual(['Sale', 'Cotton']);
     expect(row.vendor).toBe('Acme Co');
-    expect(row.funnelTemplateId).toBeNull();
-    expect(row.funnelAssignmentSource).toBeNull();
   });
 
-  it('auto-assigns a funnel template when an automated rule matches', async () => {
-    const [template] = await app.db
-      .insert(schema.shopifyFunnelTemplates)
-      .values({ slug: 'upper-test', label: 'Upper', workflowTemplateId })
-      .returning();
-    await app.db.insert(schema.shopifyFunnelRules).values({
-      storeId,
-      funnelTemplateId: template.id,
-      mode: 'automated',
-      conditions: [{ field: 'product_type', operator: 'equals', value: 'Shirts' }],
-      priority: 0,
-    });
-
-    await syncProduct(
-      app,
-      storeId,
-      {
-        id: 502,
-        title: 'Auto-Assigned Shirt',
-        image: { src: 'https://cdn.shopify.com/shirt2.jpg' },
-        product_type: 'Shirts',
-        tags: '',
-        vendor: 'Acme Co',
-      },
-      mockFetch,
-    );
-
-    const [row] = await app.db
-      .select()
-      .from(schema.shopifyProductGarments)
-      .where(
-        and(
-          eq(schema.shopifyProductGarments.storeId, storeId),
-          eq(schema.shopifyProductGarments.shopifyProductId, 502),
-        ),
-      );
-    expect(row.funnelTemplateId).toBe(template.id);
-    expect(row.funnelAssignmentSource).toBe('automated');
-  });
-
-  it('does not overwrite a manually-assigned funnel on re-sync', async () => {
-    const [manualTemplate] = await app.db
-      .insert(schema.shopifyFunnelTemplates)
-      .values({ slug: 'manual-test', label: 'Manual Pick', workflowTemplateId })
-      .returning();
-
-    await syncProduct(
-      app,
-      storeId,
-      {
-        id: 503,
-        title: 'Manually Pinned',
-        image: { src: 'https://cdn.shopify.com/shirt3.jpg' },
-        product_type: 'Shirts',
-        tags: '',
-        vendor: '',
-      },
-      mockFetch,
-    );
-    const [before] = await app.db
-      .select()
-      .from(schema.shopifyProductGarments)
-      .where(
-        and(
-          eq(schema.shopifyProductGarments.storeId, storeId),
-          eq(schema.shopifyProductGarments.shopifyProductId, 503),
-        ),
-      );
-    await app.db
-      .update(schema.shopifyProductGarments)
-      .set({ funnelTemplateId: manualTemplate.id, funnelAssignmentSource: 'manual' })
-      .where(eq(schema.shopifyProductGarments.id, before.id));
-
-    await syncProduct(
-      app,
-      storeId,
-      {
-        id: 503,
-        title: 'Manually Pinned (re-synced)',
-        image: { src: 'https://cdn.shopify.com/shirt3.jpg' },
-        product_type: 'Pants',
-        tags: '',
-        vendor: '',
-      },
-      mockFetch,
-    );
-    const [after] = await app.db
-      .select()
-      .from(schema.shopifyProductGarments)
-      .where(
-        and(
-          eq(schema.shopifyProductGarments.storeId, storeId),
-          eq(schema.shopifyProductGarments.shopifyProductId, 503),
-        ),
-      );
-    expect(after.funnelTemplateId).toBe(manualTemplate.id);
-    expect(after.funnelAssignmentSource).toBe('manual');
-  });
-
-  it('persists collections and auto-assigns a funnel via a collections rule', async () => {
-    const [template] = await app.db
-      .insert(schema.shopifyFunnelTemplates)
-      .values({ slug: 'collections-test', label: 'Collections', workflowTemplateId })
-      .returning();
-    await app.db.insert(schema.shopifyFunnelRules).values({
-      storeId,
-      funnelTemplateId: template.id,
-      mode: 'automated',
-      conditions: [{ field: 'collections', operator: 'equals', value: 'Summer Sale' }],
-      priority: 0,
-    });
-
+  it('persists collections when a product belongs to multiple collections', async () => {
     await syncProduct(
       app,
       storeId,
       {
         id: 504,
         title: 'Summer Shirt',
-        image: { src: 'https://cdn.shopify.com/shirt4.jpg' },
+        imageUrl: 'https://cdn.shopify.com/shirt4.jpg',
         collections: ['Summer Sale', 'New Arrivals'],
       },
       mockFetch,
@@ -387,7 +299,172 @@ describe('syncProduct', () => {
         ),
       );
     expect(row.collections).toEqual(['Summer Sale', 'New Arrivals']);
-    expect(row.funnelTemplateId).toBe(template.id);
-    expect(row.funnelAssignmentSource).toBe('automated');
+  });
+});
+
+describe('syncOneTask — full sync pagination', () => {
+  it('threads the cursor across pages and syncs products from both', async () => {
+    let callCount = 0;
+    const originalFetch = global.fetch;
+    global.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (!url.endsWith('/graphql.json')) {
+        throw new Error(`unexpected fetch during full sync: ${url}`);
+      }
+      callCount++;
+      const body = JSON.parse(String(init?.body)) as { variables?: { cursor?: string | null } };
+      if (callCount === 1) {
+        expect(body.variables?.cursor ?? null).toBeNull();
+        return new Response(
+          JSON.stringify({
+            data: {
+              products: {
+                pageInfo: { hasNextPage: true, endCursor: 'p1' },
+                nodes: [
+                  {
+                    id: 'gid://shopify/Product/601',
+                    title: 'Page One Product',
+                    productType: null,
+                    tags: [],
+                    vendor: null,
+                    featuredImage: null,
+                    collections: { nodes: [] },
+                  },
+                ],
+              },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      expect(body.variables?.cursor).toBe('p1');
+      return new Response(
+        JSON.stringify({
+          data: {
+            products: {
+              pageInfo: { hasNextPage: false, endCursor: null },
+              nodes: [
+                {
+                  id: 'gid://shopify/Product/602',
+                  title: 'Page Two Product',
+                  productType: null,
+                  tags: [],
+                  vendor: null,
+                  featuredImage: null,
+                  collections: { nodes: [] },
+                },
+              ],
+            },
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }) as typeof fetch;
+
+    try {
+      await syncOneTask(app, { storeId, mode: 'full' });
+      expect(callCount).toBe(2);
+
+      const rows = await app.db
+        .select()
+        .from(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, storeId),
+            eq(schema.shopifyProductGarments.shopifyProductId, 601),
+          ),
+        );
+      const [row2] = await app.db
+        .select()
+        .from(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, storeId),
+            eq(schema.shopifyProductGarments.shopifyProductId, 602),
+          ),
+        );
+      expect(rows[0]?.title).toBe('Page One Product');
+      expect(row2?.title).toBe('Page Two Product');
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});
+
+describe('syncOneTask — product mode', () => {
+  it('throws SHOPIFY_REAUTH_REQUIRED rather than blanking the garment row, on a 401 from Shopify', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = (async () => new Response('unauthorized', { status: 401 })) as typeof fetch;
+
+    try {
+      await expect(
+        syncOneTask(app, { storeId, mode: 'product', shopifyProductId: 701 }),
+      ).rejects.toMatchObject({ code: 'SHOPIFY_REAUTH_REQUIRED' });
+
+      const rows = await app.db
+        .select()
+        .from(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, storeId),
+            eq(schema.shopifyProductGarments.shopifyProductId, 701),
+          ),
+        );
+      // No garment row written: a store-wide auth failure must not blank a
+      // per-product row.
+      expect(rows).toHaveLength(0);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  it('still records a failure row for a generic (non-auth) fetch failure', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = (async () => new Response('boom', { status: 502 })) as typeof fetch;
+
+    try {
+      await syncOneTask(app, { storeId, mode: 'product', shopifyProductId: 702 });
+
+      const [row] = await app.db
+        .select()
+        .from(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, storeId),
+            eq(schema.shopifyProductGarments.shopifyProductId, 702),
+          ),
+        );
+      expect(row.status).toBe('failed');
+      expect(row.failedReason).toContain('product fetch failed');
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  it('still records a failure row when Shopify reports the product does not exist', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = (async () =>
+      new Response(JSON.stringify({ data: { product: null } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch;
+
+    try {
+      await syncOneTask(app, { storeId, mode: 'product', shopifyProductId: 703 });
+
+      const [row] = await app.db
+        .select()
+        .from(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, storeId),
+            eq(schema.shopifyProductGarments.shopifyProductId, 703),
+          ),
+        );
+      expect(row.status).toBe('failed');
+      expect(row.failedReason).toBe('product not found on Shopify');
+    } finally {
+      global.fetch = originalFetch;
+    }
   });
 });

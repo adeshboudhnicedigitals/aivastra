@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
-import { LockIcon } from '@/components/icons';
+import { Eye, EyeOff, LockIcon } from '@/components/icons';
 import { LogoAuth } from '@/components/logo';
 import { C } from '@/components/tokens';
 
@@ -19,6 +19,7 @@ const fieldWrap: React.CSSProperties = {
 };
 const inputStyle: React.CSSProperties = {
   flex: 1,
+  minWidth: 0,
   background: 'transparent',
   border: 'none',
   outline: 'none',
@@ -36,6 +37,8 @@ function ResetPasswordInner(): React.ReactElement {
 
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
@@ -81,12 +84,14 @@ function ResetPasswordInner(): React.ReactElement {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
+          padding: '24px 16px',
         }}
       >
         <div
           style={{
-            width: 420,
-            padding: 40,
+            width: '100%',
+            maxWidth: 420,
+            padding: 'clamp(24px, 8vw, 40px)',
             background: C.card,
             borderRadius: 16,
             border: `1px solid ${C.border}`,
@@ -110,12 +115,14 @@ function ResetPasswordInner(): React.ReactElement {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
+        padding: '24px 16px',
       }}
     >
       <div
         style={{
-          width: 420,
-          padding: 40,
+          width: '100%',
+          maxWidth: 420,
+          padding: 'clamp(24px, 8vw, 40px)',
           background: C.card,
           borderRadius: 16,
           border: `1px solid ${C.border}`,
@@ -160,14 +167,33 @@ function ResetPasswordInner(): React.ReactElement {
                 </span>
                 <input
                   id="newPassword"
-                  type="password"
+                  type={showNewPassword ? 'text' : 'password'}
                   placeholder="Min. 8 characters"
                   autoComplete="new-password"
                   required
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  style={inputStyle}
+                  style={{ ...inputStyle, paddingRight: 40 }}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPassword((visible) => !visible)}
+                  aria-label={showNewPassword ? 'Hide new password' : 'Show new password'}
+                  aria-pressed={showNewPassword}
+                  title={showNewPassword ? 'Hide new password' : 'Show new password'}
+                  style={{
+                    position: 'absolute',
+                    right: 10,
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: C.mid,
+                    display: 'flex',
+                    padding: 0,
+                  }}
+                >
+                  {showNewPassword ? <EyeOff /> : <Eye />}
+                </button>
               </div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -183,14 +209,35 @@ function ResetPasswordInner(): React.ReactElement {
                 </span>
                 <input
                   id="confirmPassword"
-                  type="password"
+                  type={showConfirmPassword ? 'text' : 'password'}
                   placeholder="Repeat password"
                   autoComplete="new-password"
                   required
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  style={inputStyle}
+                  style={{ ...inputStyle, paddingRight: 40 }}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword((visible) => !visible)}
+                  aria-label={
+                    showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'
+                  }
+                  aria-pressed={showConfirmPassword}
+                  title={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
+                  style={{
+                    position: 'absolute',
+                    right: 10,
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: C.mid,
+                    display: 'flex',
+                    padding: 0,
+                  }}
+                >
+                  {showConfirmPassword ? <EyeOff /> : <Eye />}
+                </button>
               </div>
             </div>
             {error && (

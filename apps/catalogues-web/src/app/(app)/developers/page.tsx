@@ -41,7 +41,7 @@ function QuickstartPanel() {
         <div>
           <h3 style={{ fontSize: 16, fontWeight: 700, color: C.text, margin: 0 }}>Quickstart</h3>
           <p style={{ fontSize: 13, color: C.mid, margin: '4px 0 0' }}>
-            Create an API key below, then call the try-on endpoint directly.
+            Create an API key below, then call the tryon endpoint directly.
           </p>
         </div>
         <a
@@ -65,14 +65,15 @@ function QuickstartPanel() {
       <pre
         style={{
           margin: 0,
-          padding: '16px 18px',
+          padding: '14px 16px',
           borderRadius: 8,
           background: C.dark,
           color: C.onDark,
-          fontFamily: 'monospace',
-          fontSize: 13,
-          lineHeight: 1.6,
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+          fontSize: 12.5,
+          lineHeight: 1.55,
           overflowX: 'auto',
+          boxSizing: 'border-box',
         }}
       >
         {CURL_EXAMPLE}
@@ -86,7 +87,7 @@ export default function DevelopersPage(): React.ReactElement {
     <>
       <TopBar
         title="Developers"
-        subtitle="Manage API keys and monitor your virtual try-on API usage."
+        subtitle="Manage API keys and monitor your virtual tryon API usage."
       />
       <div
         style={{

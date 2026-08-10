@@ -1,5 +1,6 @@
 import { schema } from '@aivastra/db';
-import { eq } from 'drizzle-orm';
+import { WORKER_POOL, workerPoolSchema } from '@aivastra/types';
+import { asc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { requireAdmin } from './guard.js';
@@ -53,7 +54,10 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
     '/admin/workers',
     { preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']) },
     async () => {
-      const dbWorkers = await app.db.select().from(schema.workers);
+      const dbWorkers = await app.db
+        .select()
+        .from(schema.workers)
+        .orderBy(asc(schema.workers.createdAt));
       const results = await Promise.all(
         dbWorkers.map(async (w) => {
           const raw = await app.redis.hget(REGISTRY_KEY, w.id);
@@ -78,6 +82,12 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
     },
   );
 
+  app.get(
+    '/admin/workers/job-types',
+    { preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']) },
+    async () => Object.values(WORKER_POOL),
+  );
+
   app.post(
     '/admin/workers',
     {
@@ -91,7 +101,7 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
           label: z.string().default(''),
           url: z.string().url(),
           apiKey: z.string().min(1),
-          allowedJobTypes: z.array(z.enum(['catalogue', 'tryon', 'saree', 'shopify'])).default([]),
+          allowedJobTypes: z.array(workerPoolSchema).default([]),
         }),
       },
     },
@@ -163,7 +173,7 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
           url: z.string().url().optional(),
           apiKey: z.string().min(1).optional(),
           isActive: z.boolean().optional(),
-          allowedJobTypes: z.array(z.enum(['catalogue', 'tryon', 'saree', 'shopify'])).optional(),
+          allowedJobTypes: z.array(workerPoolSchema).optional(),
         }),
       },
     },

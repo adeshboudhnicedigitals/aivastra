@@ -3,125 +3,303 @@ import { useState } from 'react';
 import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 
+// Accepts a full YouTube URL (youtu.be/<id>, youtube.com/watch?v=<id>,
+// youtube.com/embed/<id>, with or without extra query params) or a bare
+// video ID, and returns just the video ID for embedding/thumbnails.
+function extractYoutubeId(input: string): string {
+  const trimmed = input.trim();
+  try {
+    const url = new URL(trimmed);
+    if (url.hostname === 'youtu.be') return url.pathname.slice(1);
+    if (url.hostname.includes('youtube.com')) {
+      const v = url.searchParams.get('v');
+      if (v) return v;
+      const embedMatch = url.pathname.match(/\/embed\/([^/?]+)/);
+      if (embedMatch?.[1]) return embedMatch[1];
+    }
+  } catch {
+    // Not a URL — assume it's already a bare video ID.
+  }
+  return trimmed;
+}
+
+// `category` must match one of the CATEGORY values below (or 'All Tutorials',
+// which every tutorial matches) — it drives the top filter tabs. `tag` is the
+// small pill shown on the card itself and is independent of `category`.
+const CATEGORY = {
+  ALL: 'All Tutorials',
+  GET_STARTED: 'Get Started',
+  CATALOGUE_STUDIO: 'AI Catalogue Studio',
+  VIRTUAL_TRYON: 'AI Virtual Try-On',
+  BEST_PRACTICES: 'Best Practices',
+} as const;
+
 const TUTORIALS = [
   {
     id: 't1',
-    title: 'Get Started with Ai Vastra and create your first Catalogue...',
+    title: 'Catalogue - Women’s Full Sleeve Shirt',
     tag: 'Catalogue',
+    category: CATEGORY.CATALOGUE_STUDIO,
     duration: '3 mins',
-    thumbnail:
-      'https://images.unsplash.com/photo-1558769132-cb1fac0840c8?auto=format&fit=crop&q=80&w=1200',
-    youtubeId: 'dQw4w9WgXcQ',
+    youtubeUrl: 'https://youtu.be/z1w3tRf0y-o?si=jxz2oCjrdFoG-Oo8',
   },
   {
     id: 't2',
-    title: 'Get Started with Ai Vastra and create your first Try-On...',
+    title: 'Catalogue - Women’s Half Sleeve Shirt',
     tag: 'Try-On',
+    category: CATEGORY.CATALOGUE_STUDIO,
     duration: '3 mins',
-    thumbnail:
-      'https://images.unsplash.com/photo-1571781926291-c477ebfd024b?auto=format&fit=crop&q=80&w=1200',
-    youtubeId: 'dQw4w9WgXcQ',
+    youtubeUrl: 'https://youtu.be/j9-MLutMaB0?si=I0BkFIVRMuedAY-o',
   },
   {
     id: 't3',
-    title: 'Create your first Try-On...',
+    title: 'Catalogue - Women’s Half Sleeve T-shirt',
     tag: 'Try-On',
+    category: CATEGORY.CATALOGUE_STUDIO,
     duration: '3 mins',
-    thumbnail:
-      'https://images.unsplash.com/photo-1616469829581-73993eb86b02?auto=format&fit=crop&q=80&w=800',
-    youtubeId: 'dQw4w9WgXcQ',
+    youtubeUrl: 'https://youtu.be/OvVHS8NRgJA?si=1fQqQiF3vPo8GfC_',
   },
   {
     id: 't4',
-    title: 'Create your first Try-On...',
+    title: 'Catalogue - Women’s Full Sleeve Tshirt',
     tag: 'Try-On',
+    category: CATEGORY.CATALOGUE_STUDIO,
     duration: '3 mins',
-    thumbnail:
-      'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?auto=format&fit=crop&q=80&w=800',
-    youtubeId: 'dQw4w9WgXcQ',
+    youtubeUrl: 'https://youtu.be/E0XD7TXgdlg?si=V3X2CAIcqRoJyHUi',
   },
   {
     id: 't5',
-    title: 'Create your first Try-On...',
+    title: 'Catalogue - Women’s Top',
     tag: 'Try-On',
+    category: CATEGORY.CATALOGUE_STUDIO,
     duration: '3 mins',
-    thumbnail:
-      'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&q=80&w=800',
-    youtubeId: 'dQw4w9WgXcQ',
+    youtubeUrl: 'https://youtu.be/vaXQ0nGl3bg?si=6ybIY8Q8CJO64lw0',
   },
   {
     id: 't6',
-    title: 'Create your first Try-On...',
+    title: 'Catalogue - Women’s Crop Top',
     tag: 'Try-On',
+    category: CATEGORY.CATALOGUE_STUDIO,
     duration: '3 mins',
-    thumbnail:
-      'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&q=80&w=800',
-    youtubeId: 'dQw4w9WgXcQ',
+    youtubeUrl: 'https://youtu.be/zZQ-CM3iwIU?si=hrAGigj7fRhUtA8n',
+  },
+  {
+    id: 't7',
+    title: 'Catalogue - Women’s Hoodie',
+    tag: 'Try-On',
+    category: CATEGORY.CATALOGUE_STUDIO,
+    duration: '3 mins',
+    youtubeUrl: 'https://youtu.be/czK4DzqrN-4?si=4VyawtUruuZfopFA',
+  },
+  {
+    id: 't8',
+    title: 'Catalogue - Women’s Jacket',
+    tag: 'Try-On',
+    category: CATEGORY.CATALOGUE_STUDIO,
+    duration: '3 mins',
+    youtubeUrl: 'https://youtu.be/xGZOseG5Q90?si=yQuSTF91gXRofN2O',
+  },
+  {
+    id: 't9',
+    title: 'Catalogue - Women’s Mini Frock',
+    tag: 'Try-On',
+    category: CATEGORY.CATALOGUE_STUDIO,
+    duration: '3 mins',
+    youtubeUrl: 'https://youtu.be/ozhtfeQcQDU?si=rGEksEGIz2XRxVEG',
+  },
+  {
+    id: 't10',
+    title: 'Catalogue - Women’s Long Frock',
+    tag: 'Try-On',
+    category: CATEGORY.CATALOGUE_STUDIO,
+    duration: '3 mins',
+    youtubeUrl: 'https://youtu.be/KzCvKENy-qI?si=0Zj3LGBtT7hCy18x',
+  },
+  {
+    id: 't11',
+    title: 'Catalogue - Women’s Kurti',
+    tag: 'Try-On',
+    category: CATEGORY.CATALOGUE_STUDIO,
+    duration: '3 mins',
+    youtubeUrl: 'https://youtu.be/JGnymrFSJI8?si=aHlT1cPFsD9Lb6ke',
+  },
+  {
+    id: 't12',
+    title: 'Catalogue - Women’s Kurti & Pyjama',
+    tag: 'Try-On',
+    category: CATEGORY.CATALOGUE_STUDIO,
+    duration: '3 mins',
+    youtubeUrl: 'https://youtu.be/9-fE1n3Hxa4?si=GBdI5jJirvqUh-yk',
+  },
+  {
+    id: 't13',
+    title: 'Catalogue - Women’s Sweatshirt',
+    tag: 'Try-On',
+    category: CATEGORY.CATALOGUE_STUDIO,
+    duration: '3 mins',
+    youtubeUrl: 'https://youtu.be/ciE-fJqNwWs?si=iitOVVh8kNFUS1qJ',
+  },
+  {
+    id: 't14',
+    title: 'Catalogue - Women’s Cocktail',
+    tag: 'Try-On',
+    category: CATEGORY.CATALOGUE_STUDIO,
+    duration: '3 mins',
+    youtubeUrl: 'https://youtu.be/tkjdm-C1fJo?si=tdwvM4mZHn5E0bPj',
+  },
+  {
+    id: 't15',
+    title: 'Catalogue - Women’s Jumpsuit',
+    tag: 'Try-On',
+    category: CATEGORY.CATALOGUE_STUDIO,
+    duration: '3 mins',
+    youtubeUrl: 'https://youtu.be/q09adqU1gg0?si=ZvJMEL8lRjPMY1Ij',
   },
 ];
 
 const TABS = [
-  'All Tutorials',
-  'Get Started',
-  'AI Catalogue Studio',
-  'AI Virtual Try-On',
-  'Best Practices',
+  CATEGORY.ALL,
+  CATEGORY.GET_STARTED,
+  CATEGORY.CATALOGUE_STUDIO,
+  CATEGORY.VIRTUAL_TRYON,
+  CATEGORY.BEST_PRACTICES,
 ];
 
 export default function TutorialsPage() {
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<string>(CATEGORY.ALL);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+
+  const visibleTutorials = TUTORIALS.filter((tutorial) => {
+    const matchesTab = activeTab === CATEGORY.ALL || tutorial.category === activeTab;
+    const matchesSearch =
+      !searchQuery.trim() ||
+      tutorial.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      tutorial.tag.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesTab && matchesSearch;
+  });
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <style>{`
+        .tutorials-page-wrapper {
+          flex: 1;
+          overflow-y: auto;
+          padding: 32px;
+          background: ${C.white};
+          box-sizing: border-box;
+        }
+
+        .filters-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 32px;
+          padding-bottom: 24px;
+          border-bottom: 1px solid ${C.border2};
+          gap: 16px;
+          box-sizing: border-box;
+        }
+
+        .filters-row {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
+        .tutorial-tab-btn {
+          padding: 10px 18px;
+          border-radius: 8px;
+          font-weight: 500;
+          font-size: 14px;
+          cursor: pointer;
+          white-space: nowrap;
+          box-sizing: border-box;
+          font-family: inherit;
+          transition: all 0.15s ease;
+        }
+
+        .search-container {
+          width: 320px;
+          flex-shrink: 0;
+          position: relative;
+          box-sizing: border-box;
+        }
+
         .tutorials-grid {
           display: grid;
           grid-template-columns: repeat(4, 1fr);
           gap: 24px;
           padding-bottom: 40px;
         }
+
         .tutorial-card-large {
           grid-column: span 2;
         }
+
         .tutorial-card-small {
           grid-column: span 1;
-        }
-        .filters-row {
-          display: flex;
-          gap: 12px;
-          overflow-x: auto;
-          scrollbar-width: none;
-        }
-        .filters-row::-webkit-scrollbar {
-          display: none;
-        }
-        .search-container {
-          width: 320px;
-          flex-shrink: 0;
         }
 
         /* Tablet Breakpoint */
         @media (max-width: 1024px) {
-          .tutorials-grid {
-            grid-template-columns: repeat(2, 1fr);
-          }
-          .tutorial-card-large {
-            grid-column: span 2;
+          .tutorials-page-wrapper {
+            padding: 20px;
           }
           .filters-header {
-            flex-direction: column !important;
-            align-items: stretch !important;
+            flex-direction: column;
+            align-items: stretch;
             gap: 16px;
+            margin-bottom: 24px;
+            padding-bottom: 20px;
+          }
+          .filters-row {
+            width: 100%;
           }
           .search-container {
             width: 100%;
+          }
+          .tutorials-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+          }
+          .tutorial-card-large {
+            grid-column: span 2;
           }
         }
 
         /* Mobile Breakpoint */
         @media (max-width: 640px) {
+          .tutorials-page-wrapper {
+            padding: 16px;
+          }
+          .filters-header {
+            margin-bottom: 16px;
+            padding-bottom: 16px;
+            gap: 12px;
+          }
+          .filters-row {
+            display: flex;
+            overflow-x: auto;
+            flex-wrap: nowrap;
+            gap: 8px;
+            width: 100%;
+            padding-bottom: 4px;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+          }
+          .filters-row::-webkit-scrollbar {
+            display: none;
+          }
+          .tutorial-tab-btn {
+            flex-shrink: 0;
+            padding: 8px 14px;
+            font-size: 13px;
+          }
           .tutorials-grid {
             grid-template-columns: 1fr;
+            gap: 16px;
           }
           .tutorial-card-large, .tutorial-card-small {
             grid-column: span 1 !important;
@@ -133,36 +311,22 @@ export default function TutorialsPage() {
         subtitle="Manage your profile, billing, credits, subscriptions, and account activity."
       />
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '32px', background: C.white }}>
+      <div className="tutorials-page-wrapper">
         {/* Filters and Search Row */}
-        <div
-          className="filters-header"
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: 32,
-            paddingBottom: 24,
-            borderBottom: `1px solid ${C.border2}`,
-          }}
-        >
+        <div className="filters-header">
           <div className="filters-row">
-            {TABS.map((tab, idx) => {
-              const isActive = idx === 0;
+            {TABS.map((tab) => {
+              const isActive = tab === activeTab;
               return (
                 <button
                   key={tab}
                   type="button"
+                  className="tutorial-tab-btn"
+                  onClick={() => setActiveTab(tab)}
                   style={{
-                    padding: '10px 18px',
-                    borderRadius: 8,
                     border: `1px solid ${isActive ? C.pink : C.border2}`,
                     background: C.white,
                     color: isActive ? C.pink : C.text,
-                    fontWeight: 500,
-                    fontSize: 14,
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
                   }}
                 >
                   {tab}
@@ -171,7 +335,7 @@ export default function TutorialsPage() {
             })}
           </div>
 
-          <div className="search-container" style={{ position: 'relative' }}>
+          <div className="search-container">
             <div
               style={{
                 position: 'absolute',
@@ -199,6 +363,8 @@ export default function TutorialsPage() {
             </div>
             <input
               type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search tutorials..."
               style={{
                 width: '100%',
@@ -217,10 +383,12 @@ export default function TutorialsPage() {
 
         {/* Grid Area */}
         <div className="tutorials-grid">
-          {TUTORIALS.map((tutorial, index) => {
+          {visibleTutorials.map((tutorial, index) => {
             const isLarge = index < 2;
             const isCatalogue = tutorial.tag === 'Catalogue';
             const isActive = activeVideoId === tutorial.id;
+            const videoId = extractYoutubeId(tutorial.youtubeUrl);
+            const thumbnailUrl = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
 
             return (
               // biome-ignore lint/a11y/useKeyWithClickEvents: tutorial card
@@ -235,7 +403,7 @@ export default function TutorialsPage() {
                   cursor: 'pointer',
                 }}
                 onClick={() => {
-                  if (!isActive && tutorial.youtubeId) {
+                  if (!isActive && videoId) {
                     setActiveVideoId(tutorial.id);
                   }
                 }}
@@ -250,11 +418,11 @@ export default function TutorialsPage() {
                     background: C.border,
                   }}
                 >
-                  {isActive && tutorial.youtubeId ? (
+                  {isActive && videoId ? (
                     <iframe
                       width="100%"
                       height="100%"
-                      src={`https://www.youtube.com/embed/${tutorial.youtubeId}?autoplay=1`}
+                      src={`https://www.youtube.com/embed/${videoId}?autoplay=1`}
                       title={tutorial.title}
                       frameBorder="0"
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
@@ -265,7 +433,7 @@ export default function TutorialsPage() {
                     <>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={tutorial.thumbnail}
+                        src={thumbnailUrl}
                         alt={tutorial.title}
                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                       />
@@ -330,33 +498,6 @@ export default function TutorialsPage() {
                     }}
                   >
                     {tutorial.tag}
-                  </span>
-
-                  {/* Duration */}
-                  <span
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      color: C.mid,
-                      fontSize: 13,
-                      fontWeight: 500,
-                    }}
-                  >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <circle cx="12" cy="12" r="10"></circle>
-                      <polyline points="12 6 12 12 16 14"></polyline>
-                    </svg>
-                    {tutorial.duration}
                   </span>
                 </div>
 

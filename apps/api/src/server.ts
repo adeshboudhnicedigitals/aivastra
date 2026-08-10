@@ -22,6 +22,7 @@ import {
 } from 'fastify-type-provider-zod';
 import type { Env } from './env.js';
 import { AppError } from './lib/errors.js';
+import { isShopifyPreviewOrigin } from './lib/shopify-origin.js';
 import { adminAuthRoutes } from './modules/admin/auth.routes.js';
 import { adminCatalogRoutes } from './modules/admin/catalog.routes.js';
 import { adminCatalogueTemplatesRoutes } from './modules/admin/catalogue-templates.routes.js';
@@ -31,6 +32,9 @@ import { adminContactRoutes } from './modules/admin/contact.routes.js';
 import { adminCreditAnalysisRoutes } from './modules/admin/credit-analysis.routes.js';
 import { adminCreditPlansRoutes } from './modules/admin/creditPlans.routes.js';
 import { adminCreditsRoutes } from './modules/admin/credits.routes.js';
+import { adminDemoCatalogRoutes } from './modules/admin/demo-catalog.routes.js';
+import { adminDevApiRoutes } from './modules/admin/dev-api.routes.js';
+import { adminHeldJobsRoutes } from './modules/admin/held-jobs.routes.js';
 import { adminJobsRoutes } from './modules/admin/jobs.routes.js';
 import { adminMeRoutes } from './modules/admin/me.routes.js';
 import { adminMerchantCatalogRoutes } from './modules/admin/merchant-catalog.routes.js';
@@ -38,6 +42,7 @@ import { adminMerchantsRoutes } from './modules/admin/merchants.routes.js';
 import { adminAssetsRoutes } from './modules/admin/models.routes.js';
 import { adminSareeRoutes } from './modules/admin/saree.routes.js';
 import { adminShopifyFunnelsRoutes } from './modules/admin/shopify-funnels.routes.js';
+import { adminSignupCampaignsRoutes } from './modules/admin/signupCampaigns.routes.js';
 import { adminGarmentTypesRoutes } from './modules/admin/subcategories.routes.js';
 import { adminTryonRoutes } from './modules/admin/tryon.routes.js';
 import { adminUsersRoutes } from './modules/admin/users.routes.js';
@@ -45,8 +50,10 @@ import { adminWorkersRoutes } from './modules/admin/workers.routes.js';
 import { adminWorkflowsRoutes } from './modules/admin/workflows.routes.js';
 import { googleAuthRoutes } from './modules/auth/google.routes.js';
 import { authRoutes } from './modules/auth/routes.js';
+import { backgroundsRoutes } from './modules/backgrounds/routes.js';
 import { catalogRoutes } from './modules/catalog/routes.js';
 import { creditsRoutes } from './modules/credits/routes.js';
+import { devCatalogRoutes } from './modules/dev/catalog.routes.js';
 import { devRoutes } from './modules/dev/routes.js';
 import { jobsRoutes } from './modules/jobs/routes.js';
 import { kioskAuthRoutes } from './modules/kiosk/auth.routes.js';
@@ -56,6 +63,8 @@ import { kioskResultsRoutes } from './modules/kiosk/results.routes.js';
 import { merchantApiKeysRoutes } from './modules/merchant/api-keys.routes.js';
 import { merchantCatalogRoutes } from './modules/merchant/catalog.routes.js';
 import { merchantKioskDevicesRoutes } from './modules/merchant/kiosk-devices.routes.js';
+import { merchantMeRoutes } from './modules/merchant/me.routes.js';
+import { merchantOnboardingRoutes } from './modules/merchant/onboarding.routes.js';
 import { merchantPaymentsRoutes } from './modules/merchant/payments.routes.js';
 import { merchantTryonRoutes } from './modules/merchant/tryon.routes.js';
 import { merchantTryonResultsRoutes } from './modules/merchant/tryon-results.routes.js';
@@ -68,6 +77,7 @@ import { shopifyRoutes } from './modules/shopify/routes.js';
 import { supportRoutes } from './modules/support/routes.js';
 import { uploadsRoutes } from './modules/uploads/routes.js';
 import { authPlugin } from './plugins/auth.js';
+import { catalogCacheInvalidationPlugin } from './plugins/catalog-cache-invalidation.js';
 import { dbPlugin } from './plugins/db.js';
 import { devApiAuthPlugin } from './plugins/dev-api-auth.js';
 import { metricsPlugin } from './plugins/metrics.js';
@@ -97,7 +107,20 @@ function loadDevApiDescription(): string {
 }
 
 export async function buildServer(env: Env) {
-  const app = Fastify({ loggerInstance: createLogger('api') }).withTypeProvider<ZodTypeProvider>();
+  // Behind a reverse proxy on the VPS — without this every request's req.ip
+  // resolves to the proxy's own loopback address, so @fastify/rate-limit
+  // buckets all traffic together as a single client instead of per real
+  // client IP. Not `true`: that would trust the whole X-Forwarded-For chain,
+  // letting a client prepend a value of its choosing and pick its own bucket.
+  //
+  // The count is the number of proxies in front of us. Production is
+  // Cloudflare -> nginx -> here, so req.ip alone still resolves to a
+  // Cloudflare edge address rather than the visitor; the rate limiter's
+  // keyGenerator below prefers CF-Connecting-IP for exactly that reason.
+  const app = Fastify({
+    loggerInstance: createLogger('api'),
+    trustProxy: env.TRUST_PROXY_HOPS,
+  }).withTypeProvider<ZodTypeProvider>();
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
@@ -128,6 +151,7 @@ export async function buildServer(env: Env) {
     origin: async (origin: string | undefined) => {
       if (!origin) return false;
       if (env.CORS_ORIGIN.includes(origin)) return true;
+      if (isShopifyPreviewOrigin(origin)) return true;
 
       const now = Date.now();
       const cached = originCache.get(origin);
@@ -154,6 +178,10 @@ export async function buildServer(env: Env) {
   });
   await app.register(cookie, { secret: env.COOKIE_SECRET });
   await app.register(redisPlugin);
+  // After redisPlugin — the hook bumps a Redis counter. Before the admin routes it
+  // watches, though ordering against them is not strictly required since it is
+  // registered with fastify-plugin and therefore applies app-wide.
+  await app.register(catalogCacheInvalidationPlugin);
   await app.register(rateLimit, {
     max: 200,
     timeWindow: '1 minute',
@@ -163,9 +191,26 @@ export async function buildServer(env: Env) {
     // app.redis's bounded maxRetriesPerRequest (see plugins/redis.ts) so a blip
     // fails fast (and therefore open) instead of hanging.
     skipOnError: true,
+    // req.ip resolves to a Cloudflare edge address in production, and Cloudflare
+    // spreads one visitor across many edge IPs while funnelling many visitors
+    // through each. Bucketing on it therefore does both wrong things at once:
+    // unrelated traffic shares a limit, and a single client's requests scatter
+    // across buckets. CF-Connecting-IP is the visitor address Cloudflare
+    // attaches, so prefer it and fall back to req.ip wherever the header is
+    // absent (local dev, direct-to-origin health checks).
+    keyGenerator: (req) => {
+      const cf = req.headers['cf-connecting-ip'];
+      return (typeof cf === 'string' && cf) || req.ip;
+    },
     allowList: (req) =>
       (req.url.startsWith('/admin/') && !req.url.startsWith('/admin/auth/')) ||
-      req.url === '/v1/payments/webhook',
+      req.url === '/v1/payments/webhook' ||
+      // Shopify's own OAuth/webhook traffic — already authenticated per-request
+      // (HMAC, state nonce, or webhook signature) rather than by this bucket, and
+      // a shared-traffic 429 here reads to Shopify as "app failed to install" /
+      // turns into needless webhook redelivery, not just a slower response.
+      req.url.startsWith('/v1/shopify/webhooks/') ||
+      req.url.startsWith('/v1/shopify/auth'),
   });
   await app.register(sensible);
   await app.register(multipart, { limits: { fileSize: 2.5 * 1024 * 1024 * 1024 } });
@@ -237,6 +282,20 @@ export async function buildServer(env: Env) {
         .code(400)
         .send({ error: { code: 'VALIDATION', message: (err as Error).message } });
     }
+    // Postgres unique_violation. A duplicate value the caller supplied is a client
+    // error, not a 500 — the concrete case this exists for is two assets given the
+    // same public_api_slug (migration 0130), where the admin needs to be told which
+    // constraint they hit rather than seeing "internal error".
+    if ((err as { code?: unknown }).code === '23505') {
+      const constraint = (err as { constraint_name?: string }).constraint_name;
+      app.log.warn({ err, constraint, url: _req.url }, 'unique violation');
+      return reply.code(409).send({
+        error: {
+          code: 'CONFLICT',
+          message: constraint ? `value already in use (${constraint})` : 'value already in use',
+        },
+      });
+    }
     // Generic framework 4xx (e.g. @fastify/rate-limit's 429) — must come AFTER the
     // validation branch, which also carries statusCode 400 but has its own contract.
     const statusCode = (err as { statusCode?: unknown }).statusCode;
@@ -259,19 +318,23 @@ export async function buildServer(env: Env) {
   await app.register(creditsRoutes);
   await app.register(catalogRoutes);
   await app.register(uploadsRoutes);
+  await app.register(backgroundsRoutes);
   await app.register(jobsRoutes);
   await app.register(kioskAuthRoutes);
   await app.register(kioskCatalogRoutes);
   await app.register(kioskJobsRoutes);
   await app.register(kioskResultsRoutes);
   await app.register(merchantCatalogRoutes);
+  await app.register(merchantOnboardingRoutes);
   await app.register(merchantKioskDevicesRoutes);
   await app.register(merchantTryonRoutes);
+  await app.register(merchantMeRoutes);
   await app.register(merchantTryonResultsRoutes);
   await app.register(merchantUploadSessionRoutes);
   await app.register(merchantPaymentsRoutes);
   await app.register(merchantApiKeysRoutes);
   await app.register(devRoutes);
+  await app.register(devCatalogRoutes);
   await app.register(shopifyRoutes);
   await app.register(shopifyCustomerRoutes);
   await app.register(modelsRoutes);
@@ -280,10 +343,13 @@ export async function buildServer(env: Env) {
   await app.register(adminCreditsRoutes);
   await app.register(adminCreditPlansRoutes);
   await app.register(adminCreditAnalysisRoutes);
+  await app.register(adminSignupCampaignsRoutes);
   await app.register(adminCatalogRoutes);
   await app.register(adminChatbotRoutes);
+  await app.register(adminHeldJobsRoutes);
   await app.register(adminJobsRoutes);
   await app.register(adminMerchantCatalogRoutes);
+  await app.register(adminDemoCatalogRoutes);
   await app.register(adminWorkersRoutes);
   await app.register(adminConfigRoutes);
   await app.register(adminMeRoutes);
@@ -293,6 +359,7 @@ export async function buildServer(env: Env) {
   await app.register(adminShopifyFunnelsRoutes);
   await app.register(adminWorkflowsRoutes);
   await app.register(adminTryonRoutes);
+  await app.register(adminDevApiRoutes);
   await app.register(adminSareeRoutes);
   await app.register(adminContactRoutes);
   await app.register(adminMerchantsRoutes);

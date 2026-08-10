@@ -11,11 +11,12 @@ import {
   MerchantCatalogSubcategoryUpdateBody,
   MerchantCatalogUpdateBody,
 } from '@aivastra/types';
-import { and, count, desc, eq, ilike, inArray, or, type SQL } from 'drizzle-orm';
+import { and, count, desc, eq, ilike, inArray, or, type SQL, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { createMerchantCatalogJob, createMerchantSareeMannequinJob } from './create-job.js';
+import { IncludeDemoQuery, loadDemoItems, loadDemoSubcategories } from './demo-catalog-read.js';
 import { assertMerchantUploadKey } from './upload-guard.js';
 
 type MerchantCatalogRow = typeof schema.merchantCatalogItems.$inferSelect;
@@ -66,6 +67,10 @@ async function copyJobOutputIntoProduct(
     sourceKind: 'imported' | 'generated';
     flatSourceKey?: string;
     label?: string;
+    // Held-batch products land inactive: nobody was on screen to give them a
+    // SKU or a price, and the kiosk query filters on isActive. Defaults true so
+    // the interactive /import path is unchanged.
+    isActive?: boolean;
   },
 ): Promise<MerchantCatalogRow> {
   const sourceThumbKey = params.thumbnailKey ?? params.resultKey;
@@ -101,6 +106,7 @@ async function copyJobOutputIntoProduct(
         sourceJobId: params.job.id,
         sourceKind: params.sourceKind,
         flatSourceKey: params.flatSourceKey ?? null,
+        isActive: params.isActive ?? true,
       })
       .returning();
     return item;
@@ -136,12 +142,17 @@ async function serializeSubcategory(
 export async function merchantCatalogRoutes(app: FastifyInstance) {
   app.get(
     '/v1/merchant/catalog/subcategories',
-    { preHandler: app.requireMerchant },
+    {
+      preHandler: app.requireMerchant,
+      schema: {
+        querystring: z.object({ category: z.string().optional(), includeDemo: IncludeDemoQuery }),
+      },
+    },
     async (req) => {
       const merchantId = req.merchantClientId;
       if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
-      const { category } = req.query as { category?: string };
+      const { category, includeDemo } = req.query as { category?: string; includeDemo: boolean };
       const where = category
         ? and(
             eq(schema.merchantCatalogSubcategories.merchantId, merchantId),
@@ -149,10 +160,53 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
           )
         : eq(schema.merchantCatalogSubcategories.merchantId, merchantId);
 
-      // Merchant catalogue only supports the saree (mannequin) pipeline — filter out any
-      // subcategory whose garment type doesn't require the mannequin step (e.g. stray
-      // "shirts"-style rows from before this was enforced on create/update below), the same
-      // way the self-provisioning branch already restricts what it seeds.
+      // General-purpose: lists subcategories across every garment type for this
+      // merchant/category, backed by the same unfiltered /v1/models/garment-types
+      // list the web catalogue-manager already uses. The saree Android app has its
+      // own dedicated GET /v1/merchant/catalog/saree-subcategories below — do not
+      // add a requiresMannequinStep filter here, it would break every non-saree
+      // category's ability to create/list subcategories.
+      const rows = await app.db
+        .select()
+        .from(schema.merchantCatalogSubcategories)
+        .where(where)
+        .orderBy(
+          schema.merchantCatalogSubcategories.sortOrder,
+          desc(schema.merchantCatalogSubcategories.createdAt),
+        );
+
+      const own = await Promise.all(rows.map((row) => serializeSubcategory(app, row)));
+      if (!includeDemo) return { items: own };
+      // Demo rows go last so the merchant's real products lead on the kiosk.
+      const demo = await loadDemoSubcategories(app, merchantId, { category });
+      return { items: [...own, ...demo] };
+    },
+  );
+
+  app.get(
+    '/v1/merchant/catalog/saree-subcategories',
+    {
+      preHandler: app.requireMerchant,
+      schema: {
+        querystring: z.object({ category: z.string().optional(), includeDemo: IncludeDemoQuery }),
+      },
+    },
+    async (req) => {
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
+
+      const { category, includeDemo } = req.query as { category?: string; includeDemo: boolean };
+      const where = category
+        ? and(
+            eq(schema.merchantCatalogSubcategories.merchantId, merchantId),
+            eq(schema.merchantCatalogSubcategories.category, category),
+          )
+        : eq(schema.merchantCatalogSubcategories.merchantId, merchantId);
+
+      // Dedicated to the saree catalogue Android app — only ever shows/creates
+      // subcategories for garment types that use the mannequin (saree) pipeline.
+      // Does not affect the general /v1/merchant/catalog/subcategories endpoint
+      // the web catalogue-manager uses for every other category/garment type.
       const merchantCatalogSubcategoryColumns = {
         id: schema.merchantCatalogSubcategories.id,
         merchantId: schema.merchantCatalogSubcategories.merchantId,
@@ -182,7 +236,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
       // No admin UI creates these rows, so a merchant who has never been
       // seeded for this category would otherwise be stuck forever with an
       // empty picker. Self-provision one subcategory per active admin
-      // garment type for the category on first read.
+      // saree garment type for the category on first read.
       if (rows.length === 0 && category) {
         const garmentTypes = await app.db
           .select({ id: schema.garmentSubcategories.id, label: schema.garmentSubcategories.label })
@@ -191,9 +245,6 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
             and(
               eq(schema.garmentSubcategories.genderSlug, category),
               eq(schema.garmentSubcategories.isActive, true),
-              // Merchant catalogue only supports the saree (mannequin) pipeline —
-              // garmentSubcategories also holds the unrelated customer-studio
-              // upper/lower garment taxonomy for the same genders.
               eq(schema.garmentSubcategories.requiresMannequinStep, true),
             ),
           )
@@ -228,7 +279,10 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         }
       }
 
-      return { items: await Promise.all(rows.map((row) => serializeSubcategory(app, row))) };
+      const own = await Promise.all(rows.map((row) => serializeSubcategory(app, row)));
+      if (!includeDemo) return { items: own };
+      const demo = await loadDemoSubcategories(app, merchantId, { category, mannequinOnly: true });
+      return { items: [...own, ...demo] };
     },
   );
 
@@ -247,9 +301,6 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
           and(
             eq(schema.garmentSubcategories.id, body.garmentSubcategoryId),
             eq(schema.garmentSubcategories.isActive, true),
-            // Merchant catalogue only supports the saree (mannequin) pipeline — see the
-            // matching filter on GET above.
-            eq(schema.garmentSubcategories.requiresMannequinStep, true),
           ),
         )
         .limit(1);
@@ -295,9 +346,6 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
             and(
               eq(schema.garmentSubcategories.id, body.garmentSubcategoryId),
               eq(schema.garmentSubcategories.isActive, true),
-              // Merchant catalogue only supports the saree (mannequin) pipeline — see the
-              // matching filter on GET above.
-              eq(schema.garmentSubcategories.requiresMannequinStep, true),
             ),
           )
           .limit(1);
@@ -408,35 +456,58 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
     },
   );
 
-  app.get('/v1/merchant/catalog', { preHandler: app.requireMerchant }, async (req) => {
-    const merchantId = req.merchantClientId;
-    if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
+  app.get(
+    '/v1/merchant/catalog',
+    {
+      preHandler: app.requireMerchant,
+      schema: {
+        querystring: z.object({
+          search: z.string().optional(),
+          subcategoryId: z.string().optional(),
+          includeDemo: IncludeDemoQuery,
+        }),
+      },
+    },
+    async (req) => {
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
-    const { search = '', subcategoryId } = req.query as { search?: string; subcategoryId?: string };
-    const conditions: (SQL | undefined)[] = [
-      eq(schema.merchantCatalogItems.merchantId, merchantId),
-    ];
-    if (search.trim()) {
-      const pattern = `%${search.trim()}%`;
-      // Merchants search by SKU as often as by label — match either.
-      conditions.push(
-        or(
-          ilike(schema.merchantCatalogItems.label, pattern),
-          ilike(schema.merchantCatalogItems.sku, pattern),
-        ),
-      );
-    }
-    if (subcategoryId)
-      conditions.push(eq(schema.merchantCatalogItems.subcategoryId, subcategoryId));
+      const {
+        search = '',
+        subcategoryId,
+        includeDemo,
+      } = req.query as { search?: string; subcategoryId?: string; includeDemo: boolean };
+      const conditions: (SQL | undefined)[] = [
+        eq(schema.merchantCatalogItems.merchantId, merchantId),
+      ];
+      if (search.trim()) {
+        const pattern = `%${search.trim()}%`;
+        // Merchants search by SKU as often as by label — match either.
+        conditions.push(
+          or(
+            ilike(schema.merchantCatalogItems.label, pattern),
+            ilike(schema.merchantCatalogItems.sku, pattern),
+          ),
+        );
+      }
+      if (subcategoryId)
+        conditions.push(eq(schema.merchantCatalogItems.subcategoryId, subcategoryId));
 
-    const items = await app.db
-      .select()
-      .from(schema.merchantCatalogItems)
-      .where(and(...conditions))
-      .orderBy(schema.merchantCatalogItems.sortOrder, desc(schema.merchantCatalogItems.createdAt));
+      const items = await app.db
+        .select()
+        .from(schema.merchantCatalogItems)
+        .where(and(...conditions))
+        .orderBy(
+          schema.merchantCatalogItems.sortOrder,
+          desc(schema.merchantCatalogItems.createdAt),
+        );
 
-    return { items: await Promise.all(items.map((item) => serializeCatalogItem(app, item))) };
-  });
+      const own = await Promise.all(items.map((item) => serializeCatalogItem(app, item)));
+      if (!includeDemo) return { items: own };
+      const demo = await loadDemoItems(app, merchantId, { subcategoryId, search });
+      return { items: [...own, ...demo] };
+    },
+  );
 
   app.post(
     '/v1/merchant/catalog',
@@ -513,9 +584,38 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         if (!subcategory) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
       }
 
+      const [existing] = await app.db
+        .select()
+        .from(schema.merchantCatalogItems)
+        .where(
+          and(
+            eq(schema.merchantCatalogItems.id, id),
+            eq(schema.merchantCatalogItems.merchantId, merchantId),
+          ),
+        )
+        .limit(1);
+      if (!existing) throw new AppError('NOT_FOUND', 404, 'catalog item not found');
+
+      // A held-batch product is materialized inactive with ₹0 prices and no SKU
+      // (see /reconcile-held). Filling those in is what publishes it to the
+      // kiosk. The ₹0 test is what distinguishes it from a product the merchant
+      // priced and then deliberately switched off — that one stays off.
+      const isPendingHeldProduct =
+        !existing.isActive &&
+        existing.sourceKind === 'generated' &&
+        existing.actualPricePaise === 0 &&
+        existing.offerPricePaise === 0;
+      const completesDetails =
+        !!body.sku?.trim() &&
+        body.actualPrice !== undefined &&
+        body.actualPrice > 0 &&
+        body.offerPrice !== undefined;
+      const autoActivate = isPendingHeldProduct && completesDetails && body.isActive === undefined;
+
       const [updated] = await app.db
         .update(schema.merchantCatalogItems)
         .set({
+          ...(autoActivate ? { isActive: true } : {}),
           ...(body.subcategoryId !== undefined ? { subcategoryId: body.subcategoryId } : {}),
           ...(body.label !== undefined ? { label: body.label } : {}),
           ...(body.sku !== undefined ? { sku: body.sku?.trim() || null } : {}),
@@ -725,6 +825,37 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
     },
   );
 
+  app.get('/v1/merchant/catalog/saree-styles', { preHandler: app.requireMerchant }, async () => {
+    const rows = await app.db
+      .select({
+        id: schema.sareeMannequinStyles.id,
+        label: schema.sareeMannequinStyles.label,
+        previewImageKey: schema.sareeMannequinStyles.previewImageKey,
+        sortOrder: schema.sareeMannequinStyles.sortOrder,
+        mannequinTwoInputWorkflowTemplateId:
+          schema.sareeMannequinStyles.mannequinTwoInputWorkflowTemplateId,
+      })
+      .from(schema.sareeMannequinStyles)
+      .where(eq(schema.sareeMannequinStyles.isActive, true))
+      .orderBy(schema.sareeMannequinStyles.sortOrder, schema.sareeMannequinStyles.label);
+
+    const items = await Promise.all(
+      rows.map(async (row) => ({
+        id: row.id,
+        label: row.label,
+        previewUrl: row.previewImageKey
+          ? await app.storage
+              .presignGet(row.previewImageKey, 3600)
+              .then((result) => result.url)
+              .catch(() => null)
+          : null,
+        sortOrder: row.sortOrder,
+        supportsTwoInput: row.mannequinTwoInputWorkflowTemplateId !== null,
+      })),
+    );
+    return { items };
+  });
+
   app.post(
     '/v1/merchant/catalog/generate',
     { preHandler: app.requireMerchant, schema: { body: MerchantCatalogGenerateBody } },
@@ -732,9 +863,8 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
       const merchantId = req.merchantClientId;
       if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
-      const { subcategoryId, flatImageKey, mannequinOnly } = req.body as z.infer<
-        typeof MerchantCatalogGenerateBody
-      >;
+      const { subcategoryId, flatImageKey, mannequinOnly, sareeStyleId, secondFlatImageKey } =
+        req.body as z.infer<typeof MerchantCatalogGenerateBody>;
 
       const [row] = await app.db
         .select({
@@ -762,6 +892,8 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
             garmentSubcategoryId: row.garmentSubcategoryId,
             flatImageKey,
             merchantId,
+            sareeStyleId,
+            secondFlatImageKey,
           })
         : await createMerchantCatalogJob(app, {
             userId: row.userId,
@@ -819,6 +951,10 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
             flatImageKey,
             subcategoryId,
             merchantId,
+            // Every bulk-flat batch is held for admin release — see Task 3's
+            // POST /admin/held-jobs/release. The single-item /generate route
+            // stays interactive because the merchant is waiting on it.
+            hold: true,
           });
           jobIds.push(jobId);
         } catch (err) {
@@ -832,10 +968,9 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         }
       }
 
-      if (jobIds.length === 0) {
-        throw new AppError('VALIDATION', 400, 'all images in the batch failed to enqueue');
-      }
-
+      // Always return per-item failures rather than throwing, even when every
+      // item failed — the client needs the real reason for each row (e.g. a
+      // missing admin default), not a generic "all failed" message.
       reply.code(201);
       return { jobIds, failures };
     },
@@ -931,6 +1066,119 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         : null;
 
       return { jobId: job.id, status: job.status, resultUrl, errorCode: job.errorCode };
+    },
+  );
+
+  /**
+   * Materializes completed held-batch jobs into products. The interactive
+   * generate flow finalizes each job from the browser via /import, but a held
+   * batch completes hours or days after the merchant closed the app — so the
+   * app calls this on load instead. Rows land isActive=false; PATCHing in a SKU
+   * and prices is what publishes them to the kiosk.
+   */
+  app.post(
+    '/v1/merchant/catalog/reconcile-held',
+    { preHandler: app.requireMerchant },
+    async (req) => {
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
+
+      const [client] = await app.db
+        .select({ userId: schema.merchants.userId })
+        .from(schema.merchants)
+        .where(eq(schema.merchants.id, merchantId))
+        .limit(1);
+      if (!client) throw new AppError('NOT_FOUND', 404, 'merchant not found');
+
+      const rows = await app.db
+        .select({
+          jobId: schema.jobs.id,
+          catalogueId: schema.jobs.catalogueId,
+          resultKey: schema.jobOutputs.resultKey,
+          thumbnailKey: schema.jobOutputs.thumbnailKey,
+          flatKey: schema.jobInputs.upperGarmentKey,
+          params: schema.jobInputs.params,
+        })
+        .from(schema.jobs)
+        .innerJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+        .innerJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
+        .where(
+          and(
+            eq(schema.jobs.userId, client.userId),
+            eq(schema.jobs.status, 'COMPLETED'),
+            sql`${schema.jobInputs.params}->>'heldBatch' = 'true'`,
+            sql`coalesce(${schema.jobInputs.params}->>'heldReconciled', 'false') <> 'true'`,
+          ),
+        )
+        .limit(200);
+
+      const created: Awaited<ReturnType<typeof serializeCatalogItem>>[] = [];
+      let failed = 0;
+      for (const row of rows) {
+        const subcategoryId = (row.params as { subcategoryId?: string } | null)?.subcategoryId;
+        if (!row.resultKey || !subcategoryId) {
+          failed++;
+          app.log.warn(
+            { jobId: row.jobId, hasResultKey: !!row.resultKey, subcategoryId },
+            'reconcile-held: job has incomplete data, cannot finalize',
+          );
+          continue;
+        }
+        try {
+          const item = await copyJobOutputIntoProduct(app, {
+            merchantId,
+            subcategoryId,
+            job: { id: row.jobId, catalogueId: row.catalogueId },
+            resultKey: row.resultKey,
+            thumbnailKey: row.thumbnailKey,
+            sourceKind: 'generated',
+            flatSourceKey: row.flatKey ?? undefined,
+            isActive: false,
+          });
+          created.push(await serializeCatalogItem(app, item));
+        } catch (err) {
+          // 409 = a concurrent reconcile already claimed this job and created
+          // its product — still mark reconciled below so this job stops being
+          // re-selected, exactly as if this call had won the race itself.
+          if (!(err instanceof AppError && err.statusCode === 409)) {
+            failed++;
+            app.log.warn({ err, jobId: row.jobId }, 'reconcile-held: failed to finalize job');
+            continue;
+          }
+        }
+        // Marks the job reconciled regardless of who actually created the
+        // product (this call or a concurrent one), so a merchant deleting the
+        // resulting product later never makes reconcile-held resurrect it —
+        // idempotency lives on the job, not on whether the product row exists.
+        try {
+          await app.db
+            .update(schema.jobInputs)
+            .set({
+              params: sql`${schema.jobInputs.params} || '{"heldReconciled": true}'::jsonb`,
+            })
+            .where(eq(schema.jobInputs.jobId, row.jobId));
+        } catch (err) {
+          // The product was already created (or a concurrent call already
+          // created it) — only the reconciled-marker write failed. Count it
+          // as failed so it's visible, but don't let it take down the whole
+          // response; the job stays selectable next time, which will retry
+          // this stamp (copyJobOutputIntoProduct's own 409 guard makes that
+          // safe even if the product now exists).
+          failed++;
+          app.log.warn(
+            { err, jobId: row.jobId },
+            'reconcile-held: failed to stamp reconciled marker',
+          );
+        }
+      }
+
+      if (failed > 0) {
+        app.log.error(
+          { failed, total: rows.length },
+          'reconcile-held: some jobs failed to finalize',
+        );
+      }
+      return { created, failed };
     },
   );
 }

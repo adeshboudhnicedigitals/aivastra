@@ -3,7 +3,7 @@ import { LoginBody } from '@aivastra/types';
 import { zodResolver } from '@hookform/resolvers/zod';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import type { z } from 'zod';
 import { Eye, EyeOff, GiftIcon, LockIcon, MailIcon } from '@/components/icons';
@@ -16,6 +16,7 @@ import { initToken } from '@/lib/api';
 type LoginForm = z.infer<typeof LoginBody>;
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
 const fieldWrap: React.CSSProperties = {
   position: 'relative',
@@ -96,8 +97,24 @@ function LoginFormInner() {
   const searchParams = useSearchParams();
   const nextPath = searchParams.get('next') ?? '/studio';
   const resetSuccess = searchParams.get('reset') === '1';
+  const googleErrorCode = searchParams.get('error');
+  const googleErrorMessage = googleErrorCode
+    ? "Google sign-in didn't go through — please try again."
+    : '';
   const [error, setError] = useState('');
   const [showPwd, setShowPwd] = useState(false);
+  const [freeCredits, setFreeCredits] = useState(100);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`${API_URL}/v1/config/free-plan`, { signal: controller.signal })
+      .then((res) => res.json())
+      .then((data: { credits?: number }) => {
+        if (typeof data.credits === 'number' && data.credits > 0) setFreeCredits(data.credits);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
 
   const {
     register,
@@ -186,6 +203,21 @@ function LoginFormInner() {
             </div>
           )}
 
+          {googleErrorMessage && (
+            <div
+              style={{
+                padding: '10px 14px',
+                borderRadius: 8,
+                background: 'rgba(220,38,38,0.06)',
+                border: '1px solid rgba(220,38,38,0.25)',
+                fontSize: 13,
+                color: C.pink,
+              }}
+            >
+              {googleErrorMessage}
+            </div>
+          )}
+
           <div>
             <h1 style={{ fontWeight: 700, fontSize: 22, color: C.text, marginBottom: 4 }}>
               Welcome Back
@@ -193,7 +225,7 @@ function LoginFormInner() {
             <div
               style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, color: C.mid }}
             >
-              <GiftIcon /> <span>Get 100 Free credits to start.</span>
+              <GiftIcon /> <span>Get {freeCredits} Free credits to start.</span>
             </div>
           </div>
 
@@ -206,7 +238,7 @@ function LoginFormInner() {
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <label htmlFor="email" style={{ fontWeight: 700, fontSize: 14, color: C.text }}>
-                Email*
+                Email or Username*
               </label>
               <div style={fieldWrap}>
                 <span style={{ position: 'absolute', left: 12, color: C.mid, display: 'flex' }}>
@@ -214,9 +246,9 @@ function LoginFormInner() {
                 </span>
                 <input
                   id="email"
-                  type="email"
-                  placeholder="Enter your email"
-                  autoComplete="email"
+                  type="text"
+                  placeholder="Enter your email or username"
+                  autoComplete="username"
                   style={inputStyle}
                   {...register('email')}
                 />

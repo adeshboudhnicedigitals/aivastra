@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { signAccess } from '../../src/modules/auth/service';
 import { buildTestApp, type TestApp } from '../helpers/api';
@@ -9,7 +9,7 @@ import { type Containers, startContainers } from '../helpers/containers';
 const JWT_SECRET = 'test-jwt-secret-0123456789abcdef-32min';
 const secret = new TextEncoder().encode(JWT_SECRET);
 
-async function createMerchant(app: TestApp, email: string) {
+async function createMerchant(app: TestApp, email: string, balance = 100) {
   const [merchantUser] = await app.db
     .insert(schema.users)
     .values({ email, passwordHash: 'unused' })
@@ -25,6 +25,7 @@ async function createMerchant(app: TestApp, email: string) {
       userId: merchantUser.id,
     })
     .returning();
+  await app.db.insert(schema.userCredits).values({ userId: merchantUser.id, balance });
   return { merchant, merchantUser };
 }
 
@@ -111,7 +112,7 @@ describe('merchant try-on jobs', () => {
     await c?.stop();
   });
 
-  it('presigns a customer photo, creates a job with zero credits charged, and rejects a photo key from a different merchant', async () => {
+  it('presigns a customer photo, creates a job charging the admin-configured tryon cost, and rejects a photo key from a different merchant', async () => {
     const { merchant, merchantUser } = await createMerchant(app, 'tryon-a@example.com');
     const { merchant: otherMerchant } = await createMerchant(app, 'tryon-b@example.com');
     const auth = await authHeader(merchantUser.id);
@@ -139,10 +140,16 @@ describe('merchant try-on jobs', () => {
     const { jobId } = created.json() as { jobId: string };
 
     const [jobRow] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
-    expect(jobRow.creditsCharged).toBe(0);
+    expect(jobRow.creditsCharged).toBe(5); // SIMPLE_TRYON_COST default, no config:system override in this test
     expect(jobRow.merchantId).toBe(merchant.id);
     expect(jobRow.userId).toBe(merchantUser.id);
     expect(jobRow.source).toBe('merchant_tryon');
+
+    const [credits] = await app.db
+      .select()
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, merchantUser.id));
+    expect(credits.balance).toBe(95);
 
     const otherAuth = await authHeader(
       (await createMerchant(app, 'tryon-c@example.com')).merchantUser.id,
@@ -155,6 +162,83 @@ describe('merchant try-on jobs', () => {
     });
     expect(crossMerchant.statusCode).toBe(404);
     void otherMerchant;
+  });
+
+  it('402s with no job row when merchant credits are insufficient', async () => {
+    const { merchant, merchantUser } = await createMerchant(
+      app,
+      'tryon-low-balance@example.com',
+      2,
+    );
+    const auth = await authHeader(merchantUser.id);
+    const garmentType = await seedGarmentTypeWithWorkflow(app);
+    const item = await seedCatalogItem(app, merchant.id, garmentType.id);
+
+    const presigned = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/tryon/presign',
+      headers: auth,
+      payload: { contentType: 'image/jpeg', contentLength: 1024 },
+    });
+    const { r2Key } = presigned.json() as { r2Key: string };
+    await app.storage.putObject(r2Key, Buffer.from('photo'), 'image/jpeg');
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/tryon/jobs',
+      headers: auth,
+      payload: { merchantCatalogItemId: item.id, customerPhotoKey: r2Key },
+    });
+    expect(created.statusCode).toBe(402);
+    expect(created.json()).toMatchObject({
+      error: { code: 'INSUFFICIENT_CREDITS', message: 'insufficient credits' },
+    });
+
+    const jobs = await app.db
+      .select({ id: schema.jobs.id })
+      .from(schema.jobs)
+      .where(eq(schema.jobs.merchantId, merchant.id));
+    expect(jobs).toHaveLength(0);
+
+    const [credits] = await app.db
+      .select()
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, merchantUser.id));
+    expect(credits.balance).toBe(2);
+  });
+
+  it('rejects a customer photo above the admin-configured limit', async () => {
+    const { merchant, merchantUser } = await createMerchant(app, 'tryon-limit@example.com');
+    const auth = await authHeader(merchantUser.id);
+    const garmentType = await seedGarmentTypeWithWorkflow(app);
+    const item = await seedCatalogItem(app, merchant.id, garmentType.id);
+
+    await app.redis.set(
+      'config:system',
+      JSON.stringify({ uploadLimits: { merchantTryonMaxBytes: 1024 } }),
+    );
+    try {
+      const presigned = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/tryon/presign',
+        headers: auth,
+        payload: { contentType: 'image/jpeg', contentLength: 2048 },
+      });
+      expect(presigned.statusCode).toBe(200);
+      const { r2Key } = presigned.json() as { r2Key: string };
+      await app.storage.putObject(r2Key, Buffer.alloc(2048), 'image/jpeg');
+
+      const jobRes = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/tryon/jobs',
+        headers: auth,
+        payload: { merchantCatalogItemId: item.id, customerPhotoKey: r2Key },
+      });
+      expect(jobRes.statusCode).toBe(413);
+      expect(jobRes.json().error.message).toContain('MB limit');
+    } finally {
+      await app.redis.del('config:system');
+    }
   });
 
   it('returns job status scoped to the owning merchant, 404s for another merchant', async () => {
@@ -201,7 +285,7 @@ describe('merchant try-on jobs', () => {
     });
     expect(crossMerchant.statusCode).toBe(404);
   });
-  it('cancels a queued job without touching credits', async () => {
+  it('cancels a queued job and refunds the charged credits', async () => {
     const { merchant, merchantUser } = await createMerchant(app, 'tryon-g@example.com');
     const auth = await authHeader(merchantUser.id);
     const garmentType = await seedGarmentTypeWithWorkflow(app);
@@ -224,6 +308,12 @@ describe('merchant try-on jobs', () => {
     });
     const { jobId } = created.json() as { jobId: string };
 
+    const [creditsAfterCreate] = await app.db
+      .select()
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, merchantUser.id));
+    expect(creditsAfterCreate.balance).toBe(95); // 100 - 5 (SIMPLE_TRYON_COST default)
+
     const cancelled = await app.inject({
       method: 'DELETE',
       url: `/v1/merchant/tryon/jobs/${jobId}`,
@@ -232,12 +322,36 @@ describe('merchant try-on jobs', () => {
     expect(cancelled.statusCode).toBe(200);
     expect((cancelled.json() as { status: string }).status).toBe('CANCELLED');
 
+    const [creditsAfterCancel] = await app.db
+      .select()
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, merchantUser.id));
+    expect(creditsAfterCancel.balance).toBe(100); // fully refunded
+
+    const [ledgerRow] = await app.db
+      .select()
+      .from(schema.creditLedger)
+      .where(
+        and(
+          eq(schema.creditLedger.jobId, jobId),
+          eq(schema.creditLedger.reason, 'REFUND_CANCELLED'),
+        ),
+      );
+    expect(ledgerRow).toBeDefined();
+    expect(ledgerRow.delta).toBe(5);
+
     const cancelledAgain = await app.inject({
       method: 'DELETE',
       url: `/v1/merchant/tryon/jobs/${jobId}`,
       headers: auth,
     });
     expect(cancelledAgain.statusCode).toBe(409);
+
+    const [creditsAfterSecondCancel] = await app.db
+      .select()
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, merchantUser.id));
+    expect(creditsAfterSecondCancel.balance).toBe(100); // unaffected by failed second cancel
   });
   it('rejects a job when the garment type has no tryon category configured', async () => {
     const { merchant, merchantUser } = await createMerchant(app, 'tryon-d@example.com');

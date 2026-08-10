@@ -5,17 +5,22 @@ import {
   AssetContentType,
   ConfirmModelBackgroundBody,
   ConfirmModelFaceBody,
+  ConfirmSampleVideoBody,
   PatchModelBackgroundBody,
   PatchModelFaceBody,
+  PatchSampleVideoBody,
   PresignModelBackgroundBody,
   PresignModelFaceBody,
+  PresignSampleVideoBody,
+  PublicApiSlugField,
 } from '@aivastra/types';
 import AdmZip from 'adm-zip';
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import sharp from 'sharp';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 import { requireAdmin } from './guard.js';
 
 export async function adminAssetsRoutes(app: FastifyInstance) {
@@ -29,7 +34,8 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     const rows = await app.db
       .select()
       .from(schema.modelFaces)
-      .where(isNull(schema.modelFaces.deletedAt));
+      .where(isNull(schema.modelFaces.deletedAt))
+      .orderBy(schema.modelFaces.sortOrder);
     return { items: rows };
   });
 
@@ -195,7 +201,9 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
             genderSlug ? eq(schema.modelBackgrounds.genderSlug, genderSlug) : undefined,
             categoryId ? eq(schema.modelBackgrounds.categoryId, categoryId) : undefined,
             uncategorized ? isNull(schema.modelBackgrounds.categoryId) : undefined,
-            scope === 'all' ? undefined : eq(schema.modelBackgrounds.scope, scope ?? 'general'),
+            scope === 'all'
+              ? ne(schema.modelBackgrounds.scope, 'user')
+              : eq(schema.modelBackgrounds.scope, scope ?? 'general'),
           ),
         );
       return { items: rows };
@@ -375,6 +383,124 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     },
   );
 
+  // ── Sample Videos (PixVerse catalog-video templates) ─────────────────────
+
+  app.get('/admin/assets/sample-videos', { preHandler: RW }, async () => {
+    const rows = await app.db
+      .select()
+      .from(schema.sampleVideos)
+      .where(isNull(schema.sampleVideos.deletedAt))
+      .orderBy(schema.sampleVideos.sortOrder);
+    return {
+      items: await Promise.all(
+        rows.map(async (row) => {
+          const [video, thumbnail] = await Promise.all([
+            app.storage.presignGet(row.videoR2Key, 3_600),
+            app.storage.presignGet(row.thumbnailR2Key, 3_600),
+          ]);
+
+          return {
+            ...row,
+            videoUrl: video.url,
+            thumbnailUrl: thumbnail.url,
+          };
+        }),
+      ),
+    };
+  });
+
+  app.post(
+    '/admin/assets/sample-videos/presign',
+    { preHandler: RW, schema: { body: PresignSampleVideoBody } },
+    async (req) => {
+      const { videoContentType, thumbnailContentType } = req.body as {
+        videoContentType: string;
+        thumbnailContentType: string;
+      };
+      const newId = randomUUID();
+      const videoR2Key = keys.sampleVideo(newId);
+      const thumbnailR2Key = keys.sampleVideoThumb(newId);
+      const [video, thumbnail] = await Promise.all([
+        app.storage.presignPut(videoR2Key, videoContentType, 50_000_000, 300),
+        app.storage.presignPut(thumbnailR2Key, thumbnailContentType, 5_000_000, 300),
+      ]);
+      return {
+        videoUploadUrl: video.url,
+        videoR2Key,
+        thumbnailUploadUrl: thumbnail.url,
+        thumbnailR2Key,
+      };
+    },
+  );
+
+  app.post(
+    '/admin/assets/sample-videos',
+    { preHandler: RW, schema: { body: ConfirmSampleVideoBody } },
+    async (req) => {
+      const body = req.body as {
+        title: string;
+        videoR2Key: string;
+        thumbnailR2Key: string;
+        prompt: string;
+        sortOrder: number;
+      };
+      const [row] = await app.db
+        .insert(schema.sampleVideos)
+        .values({
+          title: body.title,
+          videoR2Key: body.videoR2Key,
+          thumbnailR2Key: body.thumbnailR2Key,
+          prompt: body.prompt,
+          sortOrder: body.sortOrder,
+        })
+        .returning();
+      const [video, thumbnail] = await Promise.all([
+        app.storage.presignGet(row.videoR2Key, 3_600),
+        app.storage.presignGet(row.thumbnailR2Key, 3_600),
+      ]);
+
+      return {
+        ...row,
+        videoUrl: video.url,
+        thumbnailUrl: thumbnail.url,
+      };
+    },
+  );
+
+  app.patch(
+    '/admin/assets/sample-videos/:id',
+    { preHandler: RW, schema: { params: uuidParam, body: PatchSampleVideoBody } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const body = req.body as Record<string, unknown>;
+      const [updated] = await app.db
+        .update(schema.sampleVideos)
+        .set({ ...(body as object), updatedAt: new Date() })
+        .where(eq(schema.sampleVideos.id, id))
+        .returning({ id: schema.sampleVideos.id });
+      if (!updated) throw new AppError('NOT_FOUND', 404, 'sample video not found');
+      return { ok: true };
+    },
+  );
+
+  app.delete(
+    '/admin/assets/sample-videos/:id',
+    { preHandler: D, schema: { params: uuidParam } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const [row] = await app.db
+        .select()
+        .from(schema.sampleVideos)
+        .where(eq(schema.sampleVideos.id, id));
+      if (!row) throw new AppError('NOT_FOUND', 404, 'sample video not found');
+      await app.db
+        .update(schema.sampleVideos)
+        .set({ deletedAt: new Date() })
+        .where(eq(schema.sampleVideos.id, id));
+      return { ok: true };
+    },
+  );
+
   // (model_poses routes removed — pose-assets is the single source of truth)
 
   // ── Pose Assets (centralised R2 object management) ───────────────────────
@@ -407,6 +533,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           poseVariant: schema.modelPoseAssets.poseVariant,
           shotType: schema.modelPoseAssets.shotType,
           displayName: schema.modelPoseAssets.displayName,
+          publicApiSlug: schema.modelPoseAssets.publicApiSlug,
           isActive: schema.modelPoseAssets.isActive,
           sortOrder: schema.modelPoseAssets.sortOrder,
           createdAt: schema.modelPoseAssets.createdAt,
@@ -556,6 +683,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           promptFacePhase: z.string().nullable().optional(),
           isActive: z.boolean().optional(),
           sortOrder: z.number().int().optional(),
+          publicApiSlug: PublicApiSlugField,
         }),
       },
     },
@@ -572,6 +700,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         promptFacePhase?: string | null;
         isActive?: boolean;
         sortOrder?: number;
+        publicApiSlug?: string | null;
       };
 
       const set: Record<string, unknown> = {};
@@ -586,6 +715,8 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       if (body.promptFacePhase !== undefined) set.promptFacePhase = body.promptFacePhase || null;
       if (body.isActive !== undefined) set.isActive = body.isActive;
       if (body.sortOrder !== undefined) set.sortOrder = body.sortOrder;
+      // Already normalized ('' -> null) by PublicApiSlugField.
+      if (body.publicApiSlug !== undefined) set.publicApiSlug = body.publicApiSlug;
 
       const [updated] = await app.db
         .update(schema.modelPoseAssets)
@@ -705,7 +836,12 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       app.db
         .select()
         .from(schema.modelBackgrounds)
-        .where(sql`${schema.modelBackgrounds.deletedAt} IS NOT NULL`)
+        .where(
+          and(
+            sql`${schema.modelBackgrounds.deletedAt} IS NOT NULL`,
+            ne(schema.modelBackgrounds.scope, 'user'),
+          ),
+        )
         .orderBy(schema.modelBackgrounds.deletedAt),
       app.db
         .select({
@@ -846,8 +982,12 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
 
   // ── Bulk import from ZIP ──────────────────────────────────────────────────
   app.post('/admin/assets/bulk-import', { preHandler: RW }, async (req, reply) => {
-    const data = await req.file();
+    const maxBulkImportBytes = await getUploadLimitBytes(app, 'bulkImportMaxBytes');
+    const data = await req.file({ limits: { fileSize: maxBulkImportBytes } });
     if (!data) throw new AppError('VALIDATION', 400, 'no file uploaded');
+
+    // Buffering below can either throw or mark the stream truncated when it hits the
+    // limit, depending on multipart parser behavior. Normalize both cases below.
 
     // Read metadata fields from form
     const fields = data.fields as Record<string, { value?: string }>;
@@ -863,7 +1003,20 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     }
 
     // Buffer the ZIP
-    const zipBuffer = await data.toBuffer();
+    const zipBuffer = await data.toBuffer().catch(() => {
+      throw new AppError(
+        'VALIDATION',
+        413,
+        `uploaded ZIP exceeds ${maxBulkImportBytes / (1024 * 1024)}MB limit`,
+      );
+    });
+    if (data.file.truncated) {
+      throw new AppError(
+        'VALIDATION',
+        413,
+        `uploaded ZIP exceeds ${maxBulkImportBytes / (1024 * 1024)}MB limit`,
+      );
+    }
     const zip = new AdmZip(zipBuffer);
     const entries = zip.getEntries().filter((e) => !e.isDirectory);
 
@@ -1112,4 +1265,101 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     });
     reply.raw.end();
   });
+
+  // ── Saree Mannequin Styles ──────────────────────────────────────────────
+
+  app.get('/admin/assets/saree-styles', { preHandler: RW }, async () => {
+    const rows = await app.db
+      .select()
+      .from(schema.sareeMannequinStyles)
+      .orderBy(schema.sareeMannequinStyles.sortOrder, schema.sareeMannequinStyles.label);
+    return { items: rows };
+  });
+
+  app.post(
+    '/admin/assets/saree-styles/presign',
+    { preHandler: RW, schema: { body: z.object({ contentType: AssetContentType }) } },
+    async (req) => {
+      const { contentType } = req.body as { contentType: string };
+      const r2Key = keys.sareeStyle(randomUUID());
+      const presign = await app.storage.presignPut(r2Key, contentType, 5_000_000, 300);
+      return { r2Key, uploadUrl: presign.url };
+    },
+  );
+
+  app.post(
+    '/admin/assets/saree-styles',
+    {
+      preHandler: RW,
+      schema: {
+        body: z.object({
+          label: z.string().min(1),
+          previewImageKey: z.string().optional(),
+          mannequinWorkflowTemplateId: z.string().uuid(),
+          mannequinTwoInputWorkflowTemplateId: z.string().uuid().optional(),
+          sortOrder: z.number().int().optional(),
+          isActive: z.boolean().optional(),
+        }),
+      },
+    },
+    async (req, reply) => {
+      const body = req.body as {
+        label: string;
+        previewImageKey?: string;
+        mannequinWorkflowTemplateId: string;
+        mannequinTwoInputWorkflowTemplateId?: string;
+        sortOrder?: number;
+        isActive?: boolean;
+      };
+      const [inserted] = await app.db
+        .insert(schema.sareeMannequinStyles)
+        .values({
+          label: body.label,
+          previewImageKey: body.previewImageKey ?? null,
+          mannequinWorkflowTemplateId: body.mannequinWorkflowTemplateId,
+          mannequinTwoInputWorkflowTemplateId: body.mannequinTwoInputWorkflowTemplateId ?? null,
+          sortOrder: body.sortOrder ?? 0,
+          isActive: body.isActive ?? true,
+        })
+        .returning();
+      reply.code(201);
+      return inserted;
+    },
+  );
+
+  app.patch(
+    '/admin/assets/saree-styles/:id',
+    {
+      preHandler: RW,
+      schema: {
+        params: uuidParam,
+        body: z.object({
+          label: z.string().min(1).optional(),
+          previewImageKey: z.string().optional(),
+          mannequinWorkflowTemplateId: z.string().uuid().optional(),
+          mannequinTwoInputWorkflowTemplateId: z.string().uuid().optional(),
+          sortOrder: z.number().int().optional(),
+          isActive: z.boolean().optional(),
+        }),
+      },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const body = req.body as {
+        label?: string;
+        previewImageKey?: string;
+        mannequinWorkflowTemplateId?: string;
+        mannequinTwoInputWorkflowTemplateId?: string;
+        sortOrder?: number;
+        isActive?: boolean;
+      };
+      const [updated] = await app.db
+        .update(schema.sareeMannequinStyles)
+        .set({ ...body, updatedAt: new Date() })
+        .where(eq(schema.sareeMannequinStyles.id, id))
+        .returning();
+      if (!updated) throw new AppError('NOT_FOUND', 404, 'saree style not found');
+      return updated;
+    },
+  );
 }
