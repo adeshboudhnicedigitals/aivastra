@@ -14,7 +14,6 @@ import aivastra.nice.aivastraadmin.dialog.UploadPhotoDialog
 import aivastra.nice.aivastraadmin.utils.ViewControll
 import aivastra.nice.aivastraadmin.viewmodels.MerchantCatalogSubcategory
 import aivastra.nice.aivastraadmin.viewmodels.ProductUploadViewModel
-import aivastra.nice.aivastraadmin.viewmodels.SareeStyle
 import aivastra.nice.interactive.Loader.LoaderManager
 import android.Manifest
 import android.app.Activity
@@ -574,7 +573,6 @@ class UploadVastraFragment : Fragment(), View.OnClickListener {
             }
             uploadPhotoDialog.show(childFragmentManager, "UploadPhotoDialog")
         }
-        }
     }
 
     private fun initViewAddProduct(resultUrl: String) {
@@ -709,52 +707,6 @@ class UploadVastraFragment : Fragment(), View.OnClickListener {
             if (errorMsg != null) {
                 ViewControll.showSnackErrorMsg(requireActivity(), errorMsg)
             }
-        }
-    }
-
-    private fun getSareeStyleData(){
-        productUploadViewmodel.fetchSareeStyles()
-        productUploadViewmodel.sareeStyles.observe(viewLifecycleOwner){styleList->
-            if(styleList!=null){
-                setSareeStyleCards(styleList)
-            }
-        }
-    }
-
-    // No styles configured yet (admin hasn't added any) is a valid state — the
-    // merchant app keeps working, generate() just omits sareeStyleId and the
-    // backend falls back to the garment type's own mannequin workflow.
-    private fun setSareeStyleCards(styleList: List<SareeStyle>) {
-        binding.llSareeStyles.removeAllViews()
-        if (styleList.size <= 1) {
-            binding.hsvSareeStyles.isVisible = false
-            selectedStyleId = styleList.firstOrNull()?.id
-            return
-        }
-        binding.hsvSareeStyles.isVisible = true
-        val inflater = LayoutInflater.from(requireActivity())
-        val cardViews = mutableListOf<View>()
-        styleList.forEachIndexed { index, style ->
-            val card = inflater.inflate(R.layout.item_saree_style, binding.llSareeStyles, false)
-            val img = card.findViewById<ImageView>(R.id.img_style_preview)
-            val label = card.findViewById<TextView>(R.id.tv_style_label)
-            label.text = style.label
-            if (style.previewUrl != null) {
-                Glide.with(requireActivity()).load(style.previewUrl).into(img)
-            }
-            card.setOnClickListener {
-                selectedStyleId = style.id
-                cardViews.forEach { current -> current.setBackgroundResource(R.drawable.bg_style_card_unselected) }
-                card.setBackgroundResource(R.drawable.bg_style_card_selected)
-            }
-            if (index == 0) {
-                selectedStyleId = style.id
-                card.setBackgroundResource(R.drawable.bg_style_card_selected)
-            }
-            (card.layoutParams as? ViewGroup.MarginLayoutParams)?.marginEnd =
-                resources.getDimensionPixelSize(R.dimen._8sdp)
-            cardViews.add(card)
-            binding.llSareeStyles.addView(card)
         }
     }
 
