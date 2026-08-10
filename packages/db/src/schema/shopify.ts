@@ -107,6 +107,17 @@ export const shopifyStores = pgTable('shopify_stores', {
   uninstalledAt: timestamp('uninstalled_at', { withTimezone: true }),
   settings: jsonb('settings').$type<ShopifyStoreSettings>().notNull().default({}),
   syncCursor: text('sync_cursor'),
+  // Shopify App Pricing state — populated by billing.ts's syncStoreSubscription,
+  // never written from a client-trusted value. null planHandle means "no plan
+  // selected yet" (distinct from "was on a plan, now cancelled", which is
+  // subscriptionStatus === 'cancelled' with planHandle still set to the last plan).
+  planHandle: text('plan_handle'),
+  subscriptionStatus: text('subscription_status'), // 'active' | 'cancelled' | 'frozen' | null
+  // The Partner API's activeSubscription.currentBillingCycle.startTime. When a
+  // poll observes this value change, a new billing cycle started — that's the
+  // renewal signal, since Shopify App Pricing sends no renewal webhook.
+  currentBillingCycleStart: timestamp('current_billing_cycle_start', { withTimezone: true }),
+  lastBillingSyncAt: timestamp('last_billing_sync_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
