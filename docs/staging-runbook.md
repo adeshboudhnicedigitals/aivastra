@@ -144,8 +144,8 @@ location /v1/ {
     proxy_set_header X-Forwarded-Proto $scheme;
 }
 
-location /shopify-admin {
-    proxy_pass http://127.0.0.1:3103;
+location /shopify-admin/ {
+    proxy_pass http://127.0.0.1:3103/;
     proxy_set_header Host $host;
 }
 
