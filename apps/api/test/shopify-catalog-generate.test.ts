@@ -25,19 +25,6 @@ beforeAll(async () => {
     SHOPIFY_API_KEY: API_KEY,
   });
 
-  const owner = await app.db
-    .insert(schema.users)
-    .values({
-      email: `catalog-gen-${Date.now()}@example.com`,
-      passwordHash: null,
-      displayName: 'Owner',
-      companyName: null,
-      emailVerified: true,
-      tier: 'free',
-    })
-    .returning();
-  await app.db.insert(schema.userCredits).values({ userId: owner[0].id, balance: 1000 });
-
   const store = await upsertShopifyStore(
     app,
     {
@@ -50,10 +37,7 @@ beforeAll(async () => {
     'tok',
     'read_products',
   );
-  await app.db
-    .update(schema.shopifyStores)
-    .set({ ownerUserId: owner[0].id })
-    .where(eq(schema.shopifyStores.id, store.id));
+  await app.db.insert(schema.shopifyStoreCredits).values({ storeId: store.id, balance: 1000 });
   storeId = store.id;
   token = signSessionToken('catalog-generate-test.myshopify.com', API_SECRET, API_KEY);
 
@@ -165,7 +149,7 @@ describe('POST /v1/shopify/catalog/generate', () => {
     expect(res.statusCode).toBe(401);
   });
 
-  it('creates one job per look, billed to the store owner', async () => {
+  it('creates one job per look, billed to the store', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/v1/shopify/catalog/generate',
@@ -189,6 +173,11 @@ describe('POST /v1/shopify/catalog/generate', () => {
       .where(eq(schema.shopifyCatalogJobs.jobId, body.jobIds[0]));
     expect(tracked.storeId).toBe(storeId);
     expect(tracked.shopifyProductId).toBe(12345);
+    const [credits] = await app.db
+      .select()
+      .from(schema.shopifyStoreCredits)
+      .where(eq(schema.shopifyStoreCredits.storeId, storeId));
+    expect(credits.balance).toBeLessThan(1000);
   });
 
   it('deletes the uploaded R2 object when createJob fails afterward', async () => {
@@ -222,7 +211,7 @@ describe('POST /v1/shopify/catalog/generate', () => {
     putObjectSpy.mockRestore();
   });
 
-  it('rejects when the store has no linked owner', async () => {
+  it('creates jobs when the store has no linked owner', async () => {
     const unlinked = await upsertShopifyStore(
       app,
       {
@@ -240,6 +229,7 @@ describe('POST /v1/shopify/catalog/generate', () => {
       API_SECRET,
       API_KEY,
     );
+    await app.db.insert(schema.shopifyStoreCredits).values({ storeId: unlinked.id, balance: 1000 });
     const res = await app.inject({
       method: 'POST',
       url: '/v1/shopify/catalog/generate',
@@ -253,8 +243,7 @@ describe('POST /v1/shopify/catalog/generate', () => {
         resolution: 'HD',
       },
     });
-    expect(res.statusCode).toBe(402);
-    void unlinked;
+    expect(res.statusCode).toBe(201);
   });
 
   it("rejects a sourceImageUrl that isn't one of the product's current live images", async () => {

@@ -12,7 +12,7 @@ import type { Redis } from 'ioredis';
 import { AppError } from '../../lib/errors.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
-import { atomicDeduct, refundAndMarkFailed } from '../credits/ledger.js';
+import { atomicDeductStore, refundStoreAndMarkFailed } from '../credits/shopify-ledger.js';
 import { resolveEffectiveEnabled } from './activation.js';
 import { mintAccountLinkCode } from './customer-auth.js';
 import {
@@ -138,27 +138,22 @@ function writeSseHeaders(reply: FastifyReply): void {
 }
 
 /**
- * Resolves which aivastra account bills this store's try-on jobs and confirms
- * that account can afford one. Throws INSUFFICIENT_CREDITS (402) for both an
- * unlinked store and a merchant who's actually out of credits — the widget
- * shows the same generic message either way.
+ * Confirms this store's own credit balance can afford one try-on job. Throws
+ * INSUFFICIENT_CREDITS (402) either way — the widget shows the same generic
+ * message for "never granted a balance" and "balance too low".
  */
-async function requireStoreOwnerWithCredits(
+async function requireStoreHasCredits(
   app: FastifyInstance,
   store: typeof schema.shopifyStores.$inferSelect,
   jobCost: number,
-): Promise<string> {
-  if (!store.ownerUserId) {
-    throw new AppError('INSUFFICIENT_CREDITS', 402, 'Store is not linked to a billing account');
-  }
+): Promise<void> {
   const [credits] = await app.db
-    .select({ balance: schema.userCredits.balance })
-    .from(schema.userCredits)
-    .where(eq(schema.userCredits.userId, store.ownerUserId));
+    .select({ balance: schema.shopifyStoreCredits.balance })
+    .from(schema.shopifyStoreCredits)
+    .where(eq(schema.shopifyStoreCredits.storeId, store.id));
   if (!credits || credits.balance < jobCost) {
     throw new AppError('INSUFFICIENT_CREDITS', 402, 'insufficient credits');
   }
-  return store.ownerUserId;
 }
 
 /**
@@ -268,7 +263,7 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
       const store = req.shopifyStoreRow as typeof schema.shopifyStores.$inferSelect;
 
       const jobCost = await getTryonCreditCost(app);
-      const userId = await requireStoreOwnerWithCredits(app, store, jobCost);
+      await requireStoreHasCredits(app, store, jobCost);
 
       const {
         customerPhotoKey,
@@ -399,7 +394,6 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
           // biome-ignore lint/suspicious/noExplicitAny: Drizzle infers non-null for nullable FKs. The plan explicitly notes this is the intended pattern.
           await (tx.insert(schema.jobs).values as any)({
             id: jobId,
-            userId,
             shopifyStoreId: storeId,
             shopifyShopperId: shopper?.id ?? null,
             customerPhotoKey,
@@ -423,7 +417,7 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
               workflowTemplateId,
             },
           });
-          await atomicDeduct(tx as never, userId, jobCost, jobId);
+          await atomicDeductStore(tx as never, storeId, jobCost, jobId);
         });
         jobCommitted = true;
 
@@ -463,11 +457,11 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
             );
             // One atomic, idempotent transaction: the refund, its ledger
             // entry, and the FAILED transition either all land or none do —
-            // see refundAndMarkFailed for why the old two-step version could
+            // see refundStoreAndMarkFailed for why the old two-step version could
             // leave a partially-compensated job after a crash.
-            const { compensated } = await refundAndMarkFailed(
+            const { compensated } = await refundStoreAndMarkFailed(
               app.db,
-              userId,
+              storeId,
               jobCost,
               jobId,
               'REFUND_ENQUEUE_FAIL',
@@ -536,7 +530,6 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
     { preHandler: app.requireShopifyStoreKey },
     async (req, reply) => {
       const storeId = req.shopifyStoreId as string;
-      const store = req.shopifyStoreRow as typeof schema.shopifyStores.$inferSelect;
       const { id } = req.params as { id: string };
 
       const [job] = await app.db
@@ -547,13 +540,9 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
       if (!job || job.shopifyStoreId !== storeId) {
         throw new AppError('NOT_FOUND', 404, 'Job not found');
       }
-      if (!store.ownerUserId) {
-        throw new AppError('NOT_FOUND', 404, 'Job not found');
-      }
-
       writeSseHeaders(reply);
       const sub: Redis = app.redisSub.duplicate();
-      const channel = `sse:events:${store.ownerUserId}`;
+      const channel = `sse:events:store:${storeId}`;
       sub.on('error', (err) => req.log.warn({ err, channel }, 'sse subscriber error'));
       await sub.subscribe(channel);
       sub.on('message', (_ch, raw) => {

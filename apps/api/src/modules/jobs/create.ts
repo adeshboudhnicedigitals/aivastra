@@ -74,13 +74,20 @@ export async function resolveMannequinGarmentKey(
  */
 export async function verifyGarmentKey(
   app: FastifyInstance,
-  userId: string,
+  userId: string | null,
   key: string,
   trustedGarmentKeys?: Set<string>,
 ): Promise<void> {
   if (trustedGarmentKeys?.has(key)) {
     await assertGarmentObjectValid(app, key);
     return;
+  }
+  if (userId === null) {
+    // A null userId (store-billed caller) must never reach here — every key that
+    // caller passes is expected to already be in trustedGarmentKeys (see Task 5's
+    // createShopifyStoreCatalogJob). Reaching this branch means a code path there
+    // is passing an unverified key, which is a bug, not a recoverable case.
+    throw new AppError('FORBIDDEN', 403, 'garment key ownership cannot be verified');
   }
   await assertOwnsUploadKey(app, userId, key);
 }
@@ -157,7 +164,7 @@ export function createTryonPlanCache(): TryonPlanCache {
  */
 export async function resolveTryonPlan(
   app: FastifyInstance,
-  userId: string,
+  userId: string | null,
   body:
     | z.infer<typeof CreateTryOnJobRequest>
     | {
@@ -392,7 +399,7 @@ export async function resolveTryonPlan(
                 ne(schema.modelBackgrounds.scope, 'user'),
                 and(
                   eq(schema.modelBackgrounds.scope, 'user'),
-                  eq(schema.modelBackgrounds.userId, userId),
+                  userId !== null ? eq(schema.modelBackgrounds.userId, userId) : sql`false`,
                 ),
               ),
             ),
