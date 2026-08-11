@@ -1051,6 +1051,13 @@
       "when": 1786320000000,
       "tag": "0149_shopify_subscription_period",
       "breakpoints": false
+    },
+    {
+      "idx": 150,
+      "version": "7",
+      "when": 1786434016350,
+      "tag": "0150_shopify_store_credits",
+      "breakpoints": true
     }
   ]
 }

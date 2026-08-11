@@ -130,6 +130,31 @@ export const shopifyStores = pgTable('shopify_stores', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const shopifyStoreCredits = pgTable('shopify_store_credits', {
+  storeId: uuid('store_id')
+    .primaryKey()
+    .references(() => shopifyStores.id, { onDelete: 'cascade' }),
+  balance: integer('balance').notNull().default(0),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const shopifyCreditLedger = pgTable('shopify_credit_ledger', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  storeId: uuid('store_id')
+    .notNull()
+    .references(() => shopifyStores.id, { onDelete: 'cascade' }),
+  delta: integer('delta').notNull(),
+  reason: text('reason').notNull(),
+  jobId: uuid('job_id'),
+  // Idempotency key for non-job-triggered grants (trial, subscription cycle).
+  // Mirrors credit_ledger.external_ref (migration 0148) and the (job_id, reason)
+  // partial unique index (migration 0074) — both re-created by hand below since
+  // drizzle-kit generate does not express partial unique indexes from pgTable
+  // column definitions alone.
+  externalRef: text('external_ref'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const shopifyFunnelTemplates = pgTable(
   'shopify_funnel_templates',
   {
