@@ -14,15 +14,12 @@ export async function shopifyBillingRoutes(app: FastifyInstance) {
     const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
     const result = await syncStoreSubscription(app, store);
 
-    let creditBalance: number | null = null;
-    if (store.ownerUserId) {
-      const [row] = await app.db
-        .select({ balance: schema.userCredits.balance })
-        .from(schema.userCredits)
-        .where(eq(schema.userCredits.userId, store.ownerUserId))
-        .limit(1);
-      creditBalance = row?.balance ?? 0;
-    }
+    const [creditRow] = await app.db
+      .select({ balance: schema.shopifyStoreCredits.balance })
+      .from(schema.shopifyStoreCredits)
+      .where(eq(schema.shopifyStoreCredits.storeId, store.id))
+      .limit(1);
+    const creditBalance = creditRow?.balance ?? 0;
 
     return {
       planHandle: result.planHandle,
