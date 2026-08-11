@@ -33,6 +33,10 @@ export const payments = pgTable('payments', {
   gstPaise: integer('gst_paise').notNull(),
   totalPaise: integer('total_paise').notNull(),
   credits: integer('credits').notNull(),
+  // Optional — captured at order-creation time (POST /v1/payments/orders).
+  // Independent of users.gstin: pre-filled from the profile value but
+  // editable per purchase without writing back to the profile.
+  gstin: text('gstin'),
   status: text('status').notNull().default('created'), // created | paid | failed
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   paidAt: timestamp('paid_at', { withTimezone: true }),
@@ -76,4 +80,26 @@ export const creditRequests = pgTable('credit_requests', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
   reviewedBy: uuid('reviewed_by'),
+});
+
+// One row per payment that successfully issued a GST invoice. The unique
+// paymentId is what makes issueInvoiceIfNeeded's insert idempotent under
+// the verify+webhook race — a second concurrent attempt just no-ops.
+export const invoices = pgTable('invoices', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  paymentId: uuid('payment_id')
+    .notNull()
+    .unique()
+    .references(() => payments.id, { onDelete: 'cascade' }),
+  invoiceNumber: text('invoice_number').notNull().unique(),
+  r2Key: text('r2_key').notNull(),
+  issuedAt: timestamp('issued_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// One row per Indian financial year (Apr 1 - Mar 31), e.g. "2026-27".
+// nextNumber is incremented transactionally (single upsert statement) so
+// invoice numbers stay gap-free and race-safe under concurrent purchases.
+export const invoiceSequences = pgTable('invoice_sequences', {
+  financialYear: text('financial_year').primaryKey(),
+  nextNumber: integer('next_number').notNull().default(1),
 });

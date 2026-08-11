@@ -25,6 +25,10 @@ export const users = pgTable(
     displayName: text('display_name'),
     phone: text('phone'), // nullable — user-provided, no format enforcement
     companyName: text('company_name'),
+    // Optional — customer-supplied GST registration number, editable via
+    // PATCH /v1/me. Pre-fills (but does not sync with) the per-purchase
+    // gstin captured on `payments` at checkout.
+    gstin: text('gstin'),
     // FK to credit_plans.slug added in migration 0080 (ON DELETE RESTRICT) — not
     // declared via .references() here to avoid a circular import with credits.ts.
     tier: text('tier').notNull().default('free'),
