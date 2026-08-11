@@ -5,9 +5,7 @@ import { Switch } from '../../components/Switch';
 import { apiErrorMessage, apiFetch } from '../../lib/data';
 import type { CreditPlan } from '../../types';
 
-interface ToastFn {
-  (t: { kind?: 'error'; title: string; body?: string }): void;
-}
+type ToastFn = (t: { kind?: 'error'; title: string; body?: string }) => void;
 
 const EMPTY_FORM = {
   slug: '',
@@ -401,311 +399,305 @@ export default function PurchasablePlansTab({ toast }: Props) {
 
   return (
     <>
-          <div
-            style={{
-              background: 'var(--surface-2)',
-              border: '1px solid var(--border)',
-              borderRadius: 'var(--r-lg)',
-              padding: '24px 32px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 40,
-              flexWrap: 'wrap',
-            }}
-          >
-            <div style={{ flex: 1, minWidth: 280 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-                <div
-                  style={{
-                    background: 'var(--ink)',
-                    color: 'var(--bg)',
-                    width: 32,
-                    height: 32,
-                    borderRadius: '50%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Icon.Coin style={{ width: 16, height: 16 }} />
-                </div>
-                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: 'var(--ink)' }}>
-                  Free Signup Plan
-                </h3>
-              </div>
-              <div style={{ color: 'var(--muted)', fontSize: 14, lineHeight: 1.5, maxWidth: 500 }}>
-                New users are automatically granted a one-time credit allocation at signup. This
-                system-owned plan is permanent and free.
-              </div>
-            </div>
-
-            {plansLoading ? (
-              <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
-            ) : freePlan ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
-                <div>
-                  <div
-                    style={{
-                      fontSize: 12,
-                      color: 'var(--muted)',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.05em',
-                      marginBottom: 4,
-                    }}
-                  >
-                    Allocation
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                    <div
-                      style={{
-                        fontSize: 32,
-                        fontWeight: 700,
-                        letterSpacing: '-0.02em',
-                        color: 'var(--ink)',
-                      }}
-                    >
-                      {freePlan.credits.toLocaleString()}
-                    </div>
-                    <div style={{ fontSize: 14, color: 'var(--muted)' }}>credits</div>
-                  </div>
-                </div>
-
-                <div style={{ width: 1, height: 48, background: 'var(--border)' }} />
-
-                <div>
-                  <div
-                    style={{
-                      fontSize: 12,
-                      color: 'var(--muted)',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.05em',
-                      marginBottom: 4,
-                    }}
-                  >
-                    Queue
-                  </div>
-                  <div style={{ fontSize: 18, fontWeight: 500, color: 'var(--ink)', marginTop: 8 }}>
-                    {freePlan.queueStream === 'priority'
-                      ? 'Priority'
-                      : freePlan.queueStream === 'normal'
-                        ? 'Normal'
-                        : 'Low'}
-                  </div>
-                </div>
-
-                <div style={{ marginLeft: 16 }}>
-                  <button
-                    className="btn"
-                    onClick={() => setPlanModal({ open: true, plan: freePlan })}
-                  >
-                    <Icon.Edit /> Edit
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div style={{ color: 'var(--danger)', fontSize: 13 }}>
-                Free plan missing. Run migrations to seed it.
-              </div>
-            )}
-          </div>
-
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: 20,
-              marginTop: 32,
-            }}
-          >
-            <h3
+      <div
+        style={{
+          background: 'var(--surface-2)',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--r-lg)',
+          padding: '24px 32px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 40,
+          flexWrap: 'wrap',
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 280 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+            <div
               style={{
-                margin: 0,
-                fontSize: 18,
-                fontWeight: 500,
-                color: 'var(--ink)',
+                background: 'var(--ink)',
+                color: 'var(--bg)',
+                width: 32,
+                height: 32,
+                borderRadius: '50%',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 8,
+                justifyContent: 'center',
               }}
             >
-              <Icon.Coin /> Paid Credit Plans
+              <Icon.Coin style={{ width: 16, height: 16 }} />
+            </div>
+            <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: 'var(--ink)' }}>
+              Free Signup Plan
             </h3>
-            <button
-              className="btn sm primary"
-              onClick={() => setPlanModal({ open: true, plan: null })}
-            >
-              <Icon.Add /> Add paid plan
-            </button>
           </div>
+          <div style={{ color: 'var(--muted)', fontSize: 14, lineHeight: 1.5, maxWidth: 500 }}>
+            New users are automatically granted a one-time credit allocation at signup. This
+            system-owned plan is permanent and free.
+          </div>
+        </div>
 
-          {plansLoading ? (
-            <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
-          ) : (
-            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 24 }}>
-              {paidPlans.map((p) => (
-                <div
-                  key={p.id}
-                  className="card"
-                  style={{
-                    flex: '1 1 300px',
-                    maxWidth: 380,
-                    padding: 24,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    position: 'relative',
-                    overflow: 'hidden',
-                    opacity: p.isActive ? 1 : 0.6,
-                    borderColor: p.isHighlighted && p.isActive ? 'var(--accent)' : 'var(--border)',
-                  }}
-                >
-                  {p.isHighlighted && p.isActive && (
-                    <div
-                      style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        height: 4,
-                        background: 'var(--accent)',
-                      }}
-                    />
-                  )}
-
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'flex-start',
-                      marginBottom: 16,
-                    }}
-                  >
-                    <div style={{ minWidth: 0, flex: 1, paddingRight: 8 }}>
-                      <div
-                        style={{
-                          fontSize: 16,
-                          fontWeight: 600,
-                          color: 'var(--ink)',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                        }}
-                      >
-                        {p.name}
-                      </div>
-                      <div
-                        className="mono"
-                        style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}
-                      >
-                        {p.slug}
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
-                      {p.badge && <span className="badge warn">{p.badge}</span>}
-                      {!p.isActive && <span className="badge dot">Inactive</span>}
-                    </div>
-                  </div>
-
-                  <div style={{ marginBottom: 24 }}>
-                    <div
-                      style={{
-                        fontSize: 28,
-                        fontWeight: 700,
-                        letterSpacing: '-0.02em',
-                        color: 'var(--ink)',
-                      }}
-                    >
-                      ₹
-                      {((p.basePaise * 1.18) / 100).toLocaleString('en-IN', {
-                        maximumFractionDigits: 2,
-                      })}
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-                      ₹{(p.basePaise / 100).toLocaleString('en-IN')} + 18% GST
-                    </div>
-                  </div>
-
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 12,
-                      marginBottom: 28,
-                      flex: 1,
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 10,
-                        fontSize: 13.5,
-                        color: 'var(--ink)',
-                      }}
-                    >
-                      <Icon.Coin style={{ color: 'var(--accent)', width: 16, height: 16 }} />
-                      <span>
-                        <strong className="mono">{p.credits.toLocaleString()}</strong> credits
-                      </span>
-                    </div>
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 10,
-                        fontSize: 13.5,
-                        color: 'var(--muted)',
-                      }}
-                    >
-                      <Icon.Workflow style={{ width: 16, height: 16 }} />
-                      <span>
-                        {p.queueStream === 'priority'
-                          ? 'Priority'
-                          : p.queueStream === 'normal'
-                            ? 'Normal'
-                            : 'Low'}{' '}
-                        queue processing
-                      </span>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
-                    <button
-                      className="btn sm"
-                      style={{ flex: 1, justifyContent: 'center' }}
-                      onClick={() => setPlanModal({ open: true, plan: p })}
-                    >
-                      Edit Plan
-                    </button>
-                    <button
-                      className="btn sm ghost"
-                      style={{ color: 'var(--danger)', padding: '0 10px' }}
-                      onClick={() => setConfirmDelete(p)}
-                      title="Delete Plan"
-                    >
-                      <Icon.Trash />
-                    </button>
-                  </div>
-                </div>
-              ))}
-
-              {paidPlans.length === 0 && (
+        {plansLoading ? (
+          <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+        ) : freePlan ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
+            <div>
+              <div
+                style={{
+                  fontSize: 12,
+                  color: 'var(--muted)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  marginBottom: 4,
+                }}
+              >
+                Allocation
+              </div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
                 <div
                   style={{
-                    gridColumn: '1 / -1',
-                    textAlign: 'center',
-                    padding: '40px 20px',
-                    color: 'var(--muted)',
-                    background: 'var(--surface-2)',
-                    borderRadius: 'var(--r-lg)',
-                    border: '1px dashed var(--border)',
+                    fontSize: 32,
+                    fontWeight: 700,
+                    letterSpacing: '-0.02em',
+                    color: 'var(--ink)',
                   }}
                 >
-                  No paid plans yet — click "Add paid plan" to create one.
+                  {freePlan.credits.toLocaleString()}
                 </div>
+                <div style={{ fontSize: 14, color: 'var(--muted)' }}>credits</div>
+              </div>
+            </div>
+
+            <div style={{ width: 1, height: 48, background: 'var(--border)' }} />
+
+            <div>
+              <div
+                style={{
+                  fontSize: 12,
+                  color: 'var(--muted)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  marginBottom: 4,
+                }}
+              >
+                Queue
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 500, color: 'var(--ink)', marginTop: 8 }}>
+                {freePlan.queueStream === 'priority'
+                  ? 'Priority'
+                  : freePlan.queueStream === 'normal'
+                    ? 'Normal'
+                    : 'Low'}
+              </div>
+            </div>
+
+            <div style={{ marginLeft: 16 }}>
+              <button className="btn" onClick={() => setPlanModal({ open: true, plan: freePlan })}>
+                <Icon.Edit /> Edit
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ color: 'var(--danger)', fontSize: 13 }}>
+            Free plan missing. Run migrations to seed it.
+          </div>
+        )}
+      </div>
+
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: 20,
+          marginTop: 32,
+        }}
+      >
+        <h3
+          style={{
+            margin: 0,
+            fontSize: 18,
+            fontWeight: 500,
+            color: 'var(--ink)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <Icon.Coin /> Paid Credit Plans
+        </h3>
+        <button className="btn sm primary" onClick={() => setPlanModal({ open: true, plan: null })}>
+          <Icon.Add /> Add paid plan
+        </button>
+      </div>
+
+      {plansLoading ? (
+        <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+      ) : (
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 24 }}>
+          {paidPlans.map((p) => (
+            <div
+              key={p.id}
+              className="card"
+              style={{
+                flex: '1 1 300px',
+                maxWidth: 380,
+                padding: 24,
+                display: 'flex',
+                flexDirection: 'column',
+                position: 'relative',
+                overflow: 'hidden',
+                opacity: p.isActive ? 1 : 0.6,
+                borderColor: p.isHighlighted && p.isActive ? 'var(--accent)' : 'var(--border)',
+              }}
+            >
+              {p.isHighlighted && p.isActive && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: 4,
+                    background: 'var(--accent)',
+                  }}
+                />
               )}
+
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'flex-start',
+                  marginBottom: 16,
+                }}
+              >
+                <div style={{ minWidth: 0, flex: 1, paddingRight: 8 }}>
+                  <div
+                    style={{
+                      fontSize: 16,
+                      fontWeight: 600,
+                      color: 'var(--ink)',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                  >
+                    {p.name}
+                  </div>
+                  <div
+                    className="mono"
+                    style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}
+                  >
+                    {p.slug}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+                  {p.badge && <span className="badge warn">{p.badge}</span>}
+                  {!p.isActive && <span className="badge dot">Inactive</span>}
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 24 }}>
+                <div
+                  style={{
+                    fontSize: 28,
+                    fontWeight: 700,
+                    letterSpacing: '-0.02em',
+                    color: 'var(--ink)',
+                  }}
+                >
+                  ₹
+                  {((p.basePaise * 1.18) / 100).toLocaleString('en-IN', {
+                    maximumFractionDigits: 2,
+                  })}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                  ₹{(p.basePaise / 100).toLocaleString('en-IN')} + 18% GST
+                </div>
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 12,
+                  marginBottom: 28,
+                  flex: 1,
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    fontSize: 13.5,
+                    color: 'var(--ink)',
+                  }}
+                >
+                  <Icon.Coin style={{ color: 'var(--accent)', width: 16, height: 16 }} />
+                  <span>
+                    <strong className="mono">{p.credits.toLocaleString()}</strong> credits
+                  </span>
+                </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    fontSize: 13.5,
+                    color: 'var(--muted)',
+                  }}
+                >
+                  <Icon.Workflow style={{ width: 16, height: 16 }} />
+                  <span>
+                    {p.queueStream === 'priority'
+                      ? 'Priority'
+                      : p.queueStream === 'normal'
+                        ? 'Normal'
+                        : 'Low'}{' '}
+                    queue processing
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
+                <button
+                  className="btn sm"
+                  style={{ flex: 1, justifyContent: 'center' }}
+                  onClick={() => setPlanModal({ open: true, plan: p })}
+                >
+                  Edit Plan
+                </button>
+                <button
+                  className="btn sm ghost"
+                  style={{ color: 'var(--danger)', padding: '0 10px' }}
+                  onClick={() => setConfirmDelete(p)}
+                  title="Delete Plan"
+                >
+                  <Icon.Trash />
+                </button>
+              </div>
+            </div>
+          ))}
+
+          {paidPlans.length === 0 && (
+            <div
+              style={{
+                gridColumn: '1 / -1',
+                textAlign: 'center',
+                padding: '40px 20px',
+                color: 'var(--muted)',
+                background: 'var(--surface-2)',
+                borderRadius: 'var(--r-lg)',
+                border: '1px dashed var(--border)',
+              }}
+            >
+              No paid plans yet — click "Add paid plan" to create one.
             </div>
           )}
+        </div>
+      )}
 
       {planModal.open && (
         <PlanModal

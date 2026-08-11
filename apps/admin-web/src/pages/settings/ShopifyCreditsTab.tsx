@@ -93,9 +93,7 @@ export default function ShopifyCreditsTab({ toast }: Props) {
                 }}
               >
                 <span className="setting-lbl">Trial Credits</span>
-                <div
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}
-                >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
                   <input
                     className="input"
                     type="number"
@@ -151,9 +149,7 @@ export default function ShopifyCreditsTab({ toast }: Props) {
                           }))
                         }
                       />
-                      <span
-                        style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}
-                      >
+                      <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
                         credits / cycle
                       </span>
                     </div>
