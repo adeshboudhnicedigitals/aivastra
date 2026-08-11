@@ -114,6 +114,7 @@ export async function modelsRoutes(app: FastifyInstance) {
           id: schema.modelFaces.id,
           gender: schema.modelFaces.gender,
           label: schema.modelFaces.label,
+          continent: schema.modelFaces.continent,
           thumbnailUrl: schema.modelFaces.thumbnailKey,
           tags: schema.modelFaces.tags,
         })

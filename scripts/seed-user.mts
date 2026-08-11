@@ -2,9 +2,8 @@
  * Seed a regular catalogue-web user.
  * Usage:  tsx --env-file=.env scripts/seed-user.ts
  */
-import { createDb, schema } from '@aivastra/db';
-import { and, eq } from 'drizzle-orm';
-import { hashPassword } from '../apps/api/src/modules/auth/service';
+import { and, createDb, eq, schema } from '@aivastra/db';
+import { hashPassword } from '../apps/api/src/modules/auth/service.js';
 
 const EMAIL = 'chand@gmail.com';
 const PASSWORD = 'Chand@123';

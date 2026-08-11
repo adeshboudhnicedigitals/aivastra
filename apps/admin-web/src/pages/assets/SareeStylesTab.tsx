@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AssetThumb } from '../../components/AssetThumb';
+import { EditDrawer } from '../../components/EditDrawer';
 import { Icon } from '../../components/Icons';
 import { SearchableSelect } from '../../components/SearchableSelect';
 import { Switch } from '../../components/Switch';
@@ -114,123 +115,112 @@ function StyleModal({
   };
 
   return (
-    <div className="modal-overlay" onClick={() => !saving && onClose()}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
-        <div className="modal-head">
-          <h3>{existing ? 'Edit style' : 'New saree style'}</h3>
-        </div>
-        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
-            Label
-            <input
-              className="input"
-              value={label}
-              disabled={saving}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder="e.g. Style 1"
-            />
-          </label>
+    <EditDrawer
+      onClose={onClose}
+      title={existing ? 'Edit style' : 'New saree style'}
+      width="min(460px, calc(100vw - 40px))"
+      saving={saving}
+      onSave={() => void save()}
+      saveDisabled={!label.trim() || !workflowTemplateId}
+      saveLabel={existing ? 'Save' : 'Create'}
+    >
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
+        Label
+        <input
+          className="input"
+          value={label}
+          disabled={saving}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder="e.g. Style 1"
+        />
+      </label>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            {previewUrl ? (
-              // biome-ignore lint/performance/noImgElement: admin panel
-              <img
-                src={previewUrl}
-                alt=""
-                style={{ width: 72, height: 92, objectFit: 'cover', borderRadius: 8 }}
-              />
-            ) : (
-              <AssetThumb
-                thumbnailKey={existing?.previewImageKey ?? undefined}
-                r2Key={existing?.previewImageKey ?? undefined}
-                label={label || 'Style'}
-                storageBase={storagePublicUrl}
-                w={72}
-                h={92}
-              />
-            )}
-            <button
-              type="button"
-              className="btn sm"
-              disabled={saving}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <Icon.Upload /> {existing?.previewImageKey || file ? 'Replace image' : 'Upload image'}
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              style={{ display: 'none' }}
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            />
-          </div>
-
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
-            Mannequin workflow
-            <SearchableSelect
-              options={singleInputWorkflows.map((workflow) => ({
-                id: workflow.id,
-                label: workflow.label,
-              }))}
-              value={workflowTemplateId}
-              disabled={saving}
-              onChange={setWorkflowTemplateId}
-              placeholder="— search workflow —"
-            />
-          </label>
-
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
-            Two-Input Mannequin (Body + Pallu) Workflow
-            <SearchableSelect
-              options={twoInputWorkflows.map((workflow) => ({
-                id: workflow.id,
-                label: workflow.label,
-              }))}
-              value={twoInputWorkflowTemplateId}
-              disabled={saving}
-              emptyLabel="— none —"
-              onChange={setTwoInputWorkflowTemplateId}
-              placeholder="— search workflow —"
-            />
-            <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-              Optional. When set, this style can also be used for the "Body & Pallu" two-image
-              upload mode.
-            </span>
-          </label>
-
-          <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
-              Sort order
-              <input
-                type="number"
-                className="input"
-                style={{ width: 90 }}
-                value={sortOrder}
-                disabled={saving}
-                onChange={(e) => setSortOrder(Number(e.target.value))}
-              />
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-              Active
-              <Switch checked={isActive} onChange={setIsActive} />
-            </label>
-          </div>
-        </div>
-        <div className="modal-foot">
-          <button className="btn ghost" disabled={saving} onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            className="btn"
-            disabled={saving || !label.trim() || !workflowTemplateId}
-            onClick={save}
-          >
-            {saving ? 'Saving…' : existing ? 'Save' : 'Create'}
-          </button>
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        {previewUrl ? (
+          // biome-ignore lint/performance/noImgElement: admin panel
+          <img
+            src={previewUrl}
+            alt=""
+            style={{ width: 72, height: 92, objectFit: 'cover', borderRadius: 8 }}
+          />
+        ) : (
+          <AssetThumb
+            thumbnailKey={existing?.previewImageKey ?? undefined}
+            r2Key={existing?.previewImageKey ?? undefined}
+            label={label || 'Style'}
+            storageBase={storagePublicUrl}
+            w={72}
+            h={92}
+          />
+        )}
+        <button
+          type="button"
+          className="btn sm"
+          disabled={saving}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <Icon.Upload /> {existing?.previewImageKey || file ? 'Replace image' : 'Upload image'}
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          style={{ display: 'none' }}
+          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+        />
       </div>
-    </div>
+
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
+        Mannequin workflow
+        <SearchableSelect
+          options={singleInputWorkflows.map((workflow) => ({
+            id: workflow.id,
+            label: workflow.label,
+          }))}
+          value={workflowTemplateId}
+          disabled={saving}
+          onChange={setWorkflowTemplateId}
+          placeholder="— search workflow —"
+        />
+      </label>
+
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
+        Two-Input Mannequin (Body + Pallu) Workflow
+        <SearchableSelect
+          options={twoInputWorkflows.map((workflow) => ({
+            id: workflow.id,
+            label: workflow.label,
+          }))}
+          value={twoInputWorkflowTemplateId}
+          disabled={saving}
+          emptyLabel="— none —"
+          onChange={setTwoInputWorkflowTemplateId}
+          placeholder="— search workflow —"
+        />
+        <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+          Optional. When set, this style can also be used for the "Body & Pallu" two-image upload
+          mode.
+        </span>
+      </label>
+
+      <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
+          Sort order
+          <input
+            type="number"
+            className="input"
+            style={{ width: 90 }}
+            value={sortOrder}
+            disabled={saving}
+            onChange={(e) => setSortOrder(Number(e.target.value))}
+          />
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+          Active
+          <Switch checked={isActive} onChange={setIsActive} />
+        </label>
+      </div>
+    </EditDrawer>
   );
 }
 

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { useAuth } from '../context/AuthContext';
@@ -327,9 +328,17 @@ export default function SareePage({ toast, onNav }: Props) {
         className="card"
         style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 8,
+          }}
+        >
           <span style={{ fontSize: 14, fontWeight: 600 }}>1. ComfyUI Workflow</span>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {workflow && (
               <button className="btn ghost" onClick={handleDeactivateWorkflow}>
                 Deactivate
@@ -597,7 +606,15 @@ export default function SareePage({ toast, onNav }: Props) {
         className="card"
         style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 8,
+          }}
+        >
           <span style={{ fontSize: 14, fontWeight: 600 }}>5. Worker Selection</span>
           <button className="btn ghost sm" onClick={() => onNav('workers')}>
             Edit workers →
@@ -611,150 +628,126 @@ export default function SareePage({ toast, onNav }: Props) {
         {workers.length === 0 ? (
           <div style={{ fontSize: 12, color: 'var(--muted)' }}>No workers registered.</div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-            <thead>
-              <tr style={{ textAlign: 'left', color: 'var(--muted)' }}>
-                <th style={{ padding: '6px 8px' }}>Label</th>
-                <th style={{ padding: '6px 8px' }}>URL</th>
-                <th style={{ padding: '6px 8px' }}>Active</th>
-                <th style={{ padding: '6px 8px' }}>Job types</th>
-                <th style={{ padding: '6px 8px' }}>Saree-capable</th>
-              </tr>
-            </thead>
-            <tbody>
-              {workers.map((w) => {
-                const capable = w.allowedJobTypes.includes('saree');
-                return (
-                  <tr key={w.id} style={{ borderTop: '1px solid var(--border)' }}>
-                    <td style={{ padding: '6px 8px' }}>{w.label || w.id}</td>
-                    <td style={{ padding: '6px 8px' }}>
-                      <code style={{ fontSize: 10 }}>{w.url}</code>
-                    </td>
-                    <td style={{ padding: '6px 8px' }}>{w.isActive ? 'Yes' : 'No'}</td>
-                    <td style={{ padding: '6px 8px' }}>
-                      {(w.allowedJobTypes ?? []).join(', ') || '(any)'}
-                    </td>
-                    <td style={{ padding: '6px 8px' }}>
-                      {capable ? (
-                        <span
-                          style={{
-                            fontSize: 10,
-                            fontWeight: 600,
-                            padding: '2px 7px',
-                            borderRadius: 10,
-                            background: 'rgba(76,175,80,0.12)',
-                            color: '#4caf50',
-                          }}
-                        >
-                          Yes
-                        </span>
-                      ) : (
-                        <span style={{ fontSize: 10, color: 'var(--muted)' }}>No</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ textAlign: 'left', color: 'var(--muted)' }}>
+                  <th style={{ padding: '6px 8px' }}>Label</th>
+                  <th style={{ padding: '6px 8px' }}>URL</th>
+                  <th style={{ padding: '6px 8px' }}>Active</th>
+                  <th style={{ padding: '6px 8px' }}>Job types</th>
+                  <th style={{ padding: '6px 8px' }}>Saree-capable</th>
+                </tr>
+              </thead>
+              <tbody>
+                {workers.map((w) => {
+                  const capable = w.allowedJobTypes.includes('saree');
+                  return (
+                    <tr key={w.id} style={{ borderTop: '1px solid var(--border)' }}>
+                      <td style={{ padding: '6px 8px' }}>{w.label || w.id}</td>
+                      <td style={{ padding: '6px 8px' }}>
+                        <code style={{ fontSize: 10 }}>{w.url}</code>
+                      </td>
+                      <td style={{ padding: '6px 8px' }}>{w.isActive ? 'Yes' : 'No'}</td>
+                      <td style={{ padding: '6px 8px' }}>
+                        {(w.allowedJobTypes ?? []).join(', ') || '(any)'}
+                      </td>
+                      <td style={{ padding: '6px 8px' }}>
+                        {capable ? (
+                          <span
+                            style={{
+                              fontSize: 10,
+                              fontWeight: 600,
+                              padding: '2px 7px',
+                              borderRadius: 10,
+                              background: 'rgba(76,175,80,0.12)',
+                              color: '#4caf50',
+                            }}
+                          >
+                            Yes
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: 10, color: 'var(--muted)' }}>No</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
       {wfModal && (
-        <div className="modal-overlay" onClick={() => !wfSaving && setWfModal(false)}>
-          <div
-            className="modal"
-            onClick={(e) => e.stopPropagation()}
-            style={{ width: 'min(520px, calc(100vw - 40px))' }}
-          >
-            <div className="modal-head">
-              <h3>Upload saree workflow JSON</h3>
-              <button
-                className="btn sm ghost"
-                onClick={() => setWfModal(false)}
-                disabled={wfSaving}
-                style={{ marginLeft: 'auto' }}
-              >
-                <Icon.Close />
-              </button>
-            </div>
-            <div
-              className="modal-body"
-              style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
-            >
-              <div className="field">
-                <label>Label</label>
-                <input
-                  className="input"
-                  value={wfLabel}
-                  disabled={wfSaving}
-                  placeholder="e.g. Saree default"
-                  onChange={(e) => handleWfLabelChange(e.target.value)}
-                />
-              </div>
-              <div className="field">
-                <label>
-                  Slug{' '}
-                  <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 400 }}>
-                    (auto-derived, editable)
-                  </span>
-                </label>
-                <input
-                  className="input"
-                  value={wfSlug}
-                  disabled={wfSaving}
-                  placeholder="kebab-case"
-                  onChange={(e) => {
-                    setSlugEdited(true);
-                    setWfSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'));
-                  }}
-                />
-              </div>
-              <div className="field">
-                <label>ComfyUI JSON file</label>
-                <label
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '6px 12px',
-                    border: '1.5px dashed var(--border)',
-                    borderRadius: 7,
-                    cursor: wfSaving ? 'not-allowed' : 'pointer',
-                    background: 'var(--surface-2)',
-                    fontSize: 12,
-                    color: 'var(--muted)',
-                    userSelect: 'none',
-                    width: 'fit-content',
-                  }}
-                >
-                  <Icon.Workflow />
-                  {wfFile ? wfFile.name : 'Choose .json file'}
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="application/json"
-                    disabled={wfSaving}
-                    style={{ display: 'none' }}
-                    onChange={(e) => setWfFile(e.target.files?.[0] ?? null)}
-                  />
-                </label>
-              </div>
-            </div>
-            <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setWfModal(false)} disabled={wfSaving}>
-                Cancel
-              </button>
-              <button
-                className="btn primary"
-                disabled={wfSaving || !wfFile || !wfLabel.trim() || !wfSlug.trim()}
-                onClick={() => void handleUploadWorkflow()}
-              >
-                {wfSaving ? 'Uploading…' : 'Upload'}
-              </button>
-            </div>
+        <EditDrawer
+          onClose={() => setWfModal(false)}
+          title="Upload saree workflow JSON"
+          width="min(520px, calc(100vw - 40px))"
+          saving={wfSaving}
+          onSave={() => void handleUploadWorkflow()}
+          saveLabel="Upload"
+          saveDisabled={!wfFile || !wfLabel.trim() || !wfSlug.trim()}
+        >
+          <div className="field">
+            <label>Label</label>
+            <input
+              className="input"
+              value={wfLabel}
+              disabled={wfSaving}
+              placeholder="e.g. Saree default"
+              onChange={(e) => handleWfLabelChange(e.target.value)}
+            />
           </div>
-        </div>
+          <div className="field">
+            <label>
+              Slug{' '}
+              <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 400 }}>
+                (auto-derived, editable)
+              </span>
+            </label>
+            <input
+              className="input"
+              value={wfSlug}
+              disabled={wfSaving}
+              placeholder="kebab-case"
+              onChange={(e) => {
+                setSlugEdited(true);
+                setWfSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'));
+              }}
+            />
+          </div>
+          <div className="field">
+            <label>ComfyUI JSON file</label>
+            <label
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 12px',
+                border: '1.5px dashed var(--border)',
+                borderRadius: 7,
+                cursor: wfSaving ? 'not-allowed' : 'pointer',
+                background: 'var(--surface-2)',
+                fontSize: 12,
+                color: 'var(--muted)',
+                userSelect: 'none',
+                width: 'fit-content',
+              }}
+            >
+              <Icon.Workflow />
+              {wfFile ? wfFile.name : 'Choose .json file'}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/json"
+                disabled={wfSaving}
+                style={{ display: 'none' }}
+                onChange={(e) => setWfFile(e.target.files?.[0] ?? null)}
+              />
+            </label>
+          </div>
+        </EditDrawer>
       )}
     </div>
   );
