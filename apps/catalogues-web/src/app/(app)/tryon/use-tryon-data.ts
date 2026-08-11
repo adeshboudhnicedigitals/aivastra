@@ -159,6 +159,10 @@ export function useTryOnData() {
   };
 
   const pickFile = (file: File, setFile: (f: File) => void, setPreview: (s: string) => void) => {
+    if (file.size > 10 * 1024 * 1024) {
+      setError('File exceeds 10 MB. Please choose a smaller image.');
+      return;
+    }
     setFile(file);
     const reader = new FileReader();
     reader.onload = (e) => setPreview(e.target?.result as string);
