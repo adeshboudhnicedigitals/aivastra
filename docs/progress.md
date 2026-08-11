@@ -1,3 +1,17 @@
+## 2026-08-11 — Shopify store credit decoupling (Task 6)
+
+**Done**
+- Shopify storefront-widget try-ons now check, deduct, and compensate `shopify_store_credits` through the store-scoped ledger. Shopify-created jobs leave `userId` null.
+- Storefront job SSE subscriptions now use `sse:events:store:${storeId}`, with no account-link guard.
+- Updated the customer-widget and shopper-limit integration fixtures/assertions to seed and verify store credit and ledger records.
+- Verified `pnpm --filter @aivastra/api typecheck` and both affected integration suites (31 tests).
+
+**Failed / Not Done**
+- None.
+
+**Open Questions / Decisions**
+- None.
+
 ## 2026-08-09 — Batch catalog generation
 
 **Done**
