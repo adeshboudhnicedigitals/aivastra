@@ -327,13 +327,39 @@ export async function processJob(
       })
       .from(schema.garmentSubcategories)
       .where(eq(schema.garmentSubcategories.id, inputs.garmentTypeId));
+
+    // Per-(pose, garment-type) prompt/workflow overrides — looked up once and
+    // applied to both branches below. Flat-saree jobs still get the garment
+    // type's fixed step-2 workflow (workflowTemplateId override is gated off
+    // for them further down), but the prompt fields must still flow through so
+    // an admin's pose_garment_configs edit for a saree pose actually takes
+    // effect instead of silently falling back to the pose's shared base prompt.
+    const [cfgRow] = await db
+      .select({
+        workflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
+        promptFacePhase: schema.poseGarmentConfigs.promptFacePhase,
+        promptGarmentPhase: schema.poseGarmentConfigs.promptGarmentPhase,
+      })
+      .from(schema.poseGarmentConfigs)
+      .where(
+        and(
+          eq(schema.poseGarmentConfigs.poseAssetId, inputs.poseId),
+          eq(schema.poseGarmentConfigs.subcategoryId, inputs.garmentTypeId),
+        ),
+      );
+    if (cfgRow) {
+      if (cfgRow.promptFacePhase) effectivePromptFacePhase = cfgRow.promptFacePhase;
+      if (cfgRow.promptGarmentPhase) effectivePromptGarmentPhase = cfgRow.promptGarmentPhase;
+    }
+
     if (garmentTypeRow?.requiresMannequinStep) {
       // Flat-saree (and any future two-pass) garment types use ONE workflow for
-      // every pose, set directly on the garment type — bypasses the normal
-      // per-pose pose_garment_configs override entirely (a saree pose's own
-      // workflow assignment, if any, is ignored). Flat-saree jobs never carry
-      // a catalogue-template-mapping snapshot, so in practice this is the
-      // top-precedence tier whenever it applies.
+      // every pose, set directly on the garment type — the pose's own
+      // workflow assignment (and any pose_garment_configs.workflowTemplateId
+      // override) is ignored for workflow selection. Flat-saree jobs never
+      // carry a catalogue-template-mapping snapshot, so in practice this is
+      // the top-precedence tier whenever it applies. Prompt overrides from
+      // pose_garment_configs (applied above) still take effect, though.
       effectiveWorkflowTemplateId = garmentTypeRow.sareeStep2WorkflowTemplateId;
 
       // Callers that hand the dispatcher a raw (never-mannequin-processed) flat
@@ -385,25 +411,8 @@ export async function processJob(
           return;
         }
       }
-    } else {
-      const [cfgRow] = await db
-        .select({
-          workflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
-          promptFacePhase: schema.poseGarmentConfigs.promptFacePhase,
-          promptGarmentPhase: schema.poseGarmentConfigs.promptGarmentPhase,
-        })
-        .from(schema.poseGarmentConfigs)
-        .where(
-          and(
-            eq(schema.poseGarmentConfigs.poseAssetId, inputs.poseId),
-            eq(schema.poseGarmentConfigs.subcategoryId, inputs.garmentTypeId),
-          ),
-        );
-      if (cfgRow) {
-        if (cfgRow.workflowTemplateId) effectiveWorkflowTemplateId = cfgRow.workflowTemplateId;
-        if (cfgRow.promptFacePhase) effectivePromptFacePhase = cfgRow.promptFacePhase;
-        if (cfgRow.promptGarmentPhase) effectivePromptGarmentPhase = cfgRow.promptGarmentPhase;
-      }
+    } else if (cfgRow?.workflowTemplateId) {
+      effectiveWorkflowTemplateId = cfgRow.workflowTemplateId;
     }
   }
 

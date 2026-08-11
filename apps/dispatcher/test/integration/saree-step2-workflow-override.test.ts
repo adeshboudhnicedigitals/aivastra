@@ -179,4 +179,118 @@ describe('dispatcher — saree step-2 workflow override', () => {
     );
     expect(obj.$metadata.httpStatusCode).toBe(200);
   });
+
+  it('applies pose_garment_configs.promptGarmentPhase, not the pose base value', async () => {
+    const [user] = await env.db
+      .insert(schema.users)
+      .values({
+        email: `step2-prompt-override-${Date.now()}@test.com`,
+        passwordHash: 'x',
+        tier: 'free',
+      })
+      .returning();
+    await env.db.insert(schema.userCredits).values({ userId: user.id, balance: 100 });
+
+    const [workflow] = await env.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `saree-step2-${Date.now()}`,
+        label: 'Saree Step 2',
+        ...baseWorkflowFields({}),
+      })
+      .returning();
+
+    const [garmentType] = await env.db
+      .insert(schema.garmentSubcategories)
+      .values({
+        genderSlug: 'women',
+        slug: `flat-saree-prompt-${Date.now()}`,
+        label: 'Flat Saree',
+        requiresMannequinStep: true,
+        sareeStep2WorkflowTemplateId: workflow.id,
+      })
+      .returning();
+
+    const [face] = await env.db
+      .insert(schema.modelFaces)
+      .values({
+        gender: 'women',
+        label: 'F',
+        r2Key: 'f.jpg',
+        thumbnailKey: 'f.jpg',
+        faceSideR2Key: 'f.jpg',
+      })
+      .returning();
+    const [bg] = await env.db
+      .insert(schema.modelBackgrounds)
+      .values({ label: 'Bg', r2Key: 'b.jpg', thumbnailKey: 'b.jpg' })
+      .returning();
+    // Pose's own base prompt is the generic, wrong wording — the
+    // pose_garment_configs override for this garment type must win instead.
+    const [pose] = await env.db
+      .insert(schema.modelPoseAssets)
+      .values({
+        label: 'Pose',
+        r2Key: 'p.jpg',
+        thumbnailKey: 'p.jpg',
+        workflowTemplateId: workflow.id,
+        promptGarmentPhase: 'wear image3 upper and lower and footwear',
+      })
+      .returning();
+    await env.db.insert(schema.poseGarmentConfigs).values({
+      poseAssetId: pose.id,
+      subcategoryId: garmentType.id,
+      promptGarmentPhase: 'wear image3 blouse and saree',
+    });
+
+    const [job] = await env.db
+      .insert(schema.jobs)
+      .values({ userId: user.id, status: 'QUEUED', priority: false, creditsCharged: 1 })
+      .returning();
+    await env.db.insert(schema.jobInputs).values({
+      jobId: job.id,
+      upperGarmentKey: `outputs/${job.id}-mannequin/result.png`,
+      faceId: face.id,
+      backgroundId: bg.id,
+      poseId: pose.id,
+      garmentTypeId: garmentType.id,
+    });
+
+    for (const key of [`outputs/${job.id}-mannequin/result.png`, 'f.jpg', 'b.jpg', 'p.jpg']) {
+      await env.s3.send(
+        new PutObjectCommand({
+          Bucket: env.r2Bucket,
+          Key: key,
+          Body: Buffer.from('stub'),
+          ContentType: 'image/jpeg',
+        }),
+      );
+    }
+
+    const log = createLogger('test');
+    await processJob(
+      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      job.id,
+      user.id,
+      'jobs:normal',
+      '1-2',
+    );
+
+    const [completedJob] = await env.db
+      .select()
+      .from(schema.jobs)
+      .where(eq(schema.jobs.id, job.id));
+    expect(completedJob?.status).toBe('COMPLETED');
+
+    const [dispatchEvent] = await env.db
+      .select()
+      .from(schema.jobEvents)
+      .where(
+        and(eq(schema.jobEvents.jobId, job.id), eq(schema.jobEvents.eventType, 'COMFY_DISPATCH')),
+      );
+    const promptNode = (
+      dispatchEvent?.payload as { prompt?: Record<string, { inputs?: { prompt?: string } }> }
+    )?.prompt?.f;
+    expect(promptNode?.inputs?.prompt).toBe('wear image3 blouse and saree');
+  });
 });
