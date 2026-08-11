@@ -1,3 +1,16 @@
+## 2026-08-11 — Shopify store credit decoupling (Task 13)
+
+**Done**
+- Shipped store-scoped Shopify credits and ledger handling, removal of the Shopify account-link flow, and the read-only Admin Shopify Stores page.
+- Full repository typecheck and build passed. The dispatcher suite passed (4 files, 54 tests).
+
+**Failed / Not Done**
+- The Task 13 orphan-reference check still finds live API source references to `ownerUserId` outside the retained schema column: `admin/credit-analysis.routes.ts`, `admin/users.routes.ts`, `auth/routes.ts`, and `shopify/billing.routes.ts`. Full API integration output did not reach a final Vitest summary in this environment and requires follow-up confirmation.
+- Manual dev-store end-to-end verification was not run: it requires an authenticated Shopify CLI session and a configured development store.
+
+**Open Questions / Decisions**
+- Non-goals retained by design: `shopify_stores.ownerUserId` remains as an unused schema column; no historical user-credit data migration was performed.
+
 ## 2026-08-11 — Shopify store credit decoupling (Task 6)
 
 **Done**
