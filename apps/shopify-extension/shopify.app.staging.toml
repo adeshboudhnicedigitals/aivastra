@@ -2,13 +2,16 @@
 #
 # Staging-only app config — separate Partner Dashboard app record from both the
 # production "AiVastra" app (shopify.app.toml) and the local-dev "AiVastra Dev"
-# app (shopify.app.dev.toml). Points at the stable staging-app.aivastra.com
-# domain so it never conflicts with the dev app's rotating ngrok tunnel. Deploy
-# with `shopify app deploy --config staging` from this directory.
+# app (shopify.app.dev.toml). Points at staging-admin.aivastra.com, which is
+# where /shopify-admin, /admin/, and /v1/ actually live per the vhost split
+# documented in docs/staging-runbook.md — staging-app.aivastra.com serves only
+# the catalogues-web app and has no /shopify-admin route, unlike prod where a
+# single domain does both jobs. Deploy with `shopify app deploy --config
+# staging` from this directory.
 
 client_id = "b8098c4cd5deecfbe6b637090b650036"
 name = "AiVastra Staging"
-application_url = "https://staging-app.aivastra.com/shopify-admin/embedded"
+application_url = "https://staging-admin.aivastra.com/shopify-admin/embedded"
 embedded = true
 
 [access_scopes]
@@ -19,13 +22,13 @@ optional_scopes = [ ]
 
 [auth]
 redirect_urls = [
-  "https://staging-app.aivastra.com/v1/shopify/auth/callback"
+  "https://staging-admin.aivastra.com/v1/shopify/auth/callback"
 ]
 
 [webhooks]
 api_version = "2026-07"
 
   [webhooks.privacy_compliance]
-  customer_deletion_url = "https://staging-app.aivastra.com/v1/shopify/webhooks/customers_redact"
-  customer_data_request_url = "https://staging-app.aivastra.com/v1/shopify/webhooks/customers_data_request"
-  shop_deletion_url = "https://staging-app.aivastra.com/v1/shopify/webhooks/shop_redact"
+  customer_deletion_url = "https://staging-admin.aivastra.com/v1/shopify/webhooks/customers_redact"
+  customer_data_request_url = "https://staging-admin.aivastra.com/v1/shopify/webhooks/customers_data_request"
+  shop_deletion_url = "https://staging-admin.aivastra.com/v1/shopify/webhooks/shop_redact"
