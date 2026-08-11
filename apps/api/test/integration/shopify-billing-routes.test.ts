@@ -35,7 +35,7 @@ describe('GET /v1/shopify/billing/confirm', () => {
         tier: 'free',
       })
       .returning();
-    await app.db.insert(schema.userCredits).values({ userId: user.id, balance: 0 });
+    await app.db.insert(schema.userCredits).values({ userId: user.id, balance: 999 });
     const [store] = await app.db
       .insert(schema.shopifyStores)
       .values({
@@ -46,6 +46,7 @@ describe('GET /v1/shopify/billing/confirm', () => {
         ownerUserId: user.id,
       })
       .returning();
+    await app.db.insert(schema.shopifyStoreCredits).values({ storeId: store.id, balance: 250 });
 
     const syncSpy = vi.spyOn(billing, 'syncStoreSubscription').mockResolvedValue({
       planHandle: 'pro',
@@ -61,13 +62,12 @@ describe('GET /v1/shopify/billing/confirm', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    // The owner's userCredits row exists (balance 0) and syncStoreSubscription
-    // is mocked, so the route reports the real balance it read back, not the
-    // mocked creditsGranted from the sync call.
+    // The owner's userCredits row is deliberately unrelated. The route reports
+    // the store-scoped balance, not the mocked creditsGranted from the sync call.
     expect(res.json()).toEqual({
       planHandle: 'pro',
       subscriptionStatus: 'active',
-      creditBalance: 0,
+      creditBalance: 250,
     });
     // Asserted positionally rather than via toHaveBeenCalledWith so the deep
     // equality check never has to walk the whole Fastify instance.
@@ -136,7 +136,7 @@ describe('GET /v1/shopify/billing/confirm', () => {
     expect(res.statusCode).toBe(401);
   });
 
-  it('reports a null credit balance for a store with no linked owner', async () => {
+  it('reports a zero credit balance when the store has no credit row', async () => {
     const [store] = await app.db
       .insert(schema.shopifyStores)
       .values({
@@ -164,7 +164,7 @@ describe('GET /v1/shopify/billing/confirm', () => {
     expect(res.json()).toEqual({
       planHandle: null,
       subscriptionStatus: 'cancelled',
-      creditBalance: null,
+      creditBalance: 0,
     });
 
     syncSpy.mockRestore();
