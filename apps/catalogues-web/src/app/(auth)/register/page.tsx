@@ -215,6 +215,7 @@ function RegisterFormInner() {
                   autoComplete="name"
                   aria-required="true"
                   style={inputStyle}
+                  suppressHydrationWarning
                   {...register('displayName')}
                 />
               </div>
@@ -239,6 +240,7 @@ function RegisterFormInner() {
                   placeholder="Enter your email"
                   autoComplete="email"
                   style={inputStyle}
+                  suppressHydrationWarning
                   {...register('email')}
                 />
               </div>
@@ -261,6 +263,7 @@ function RegisterFormInner() {
                   placeholder="Enter password"
                   autoComplete="new-password"
                   style={inputStyle}
+                  suppressHydrationWarning
                   {...register('password')}
                 />
               </div>
