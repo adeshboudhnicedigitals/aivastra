@@ -3,7 +3,6 @@ import { AppProvider, Banner, Box, Frame, Navigation, Spinner } from '@shopify/p
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AppNavMenu, NAV_ITEMS } from './components/AppNavMenu';
-import { LinkAccountGate } from './components/LinkAccountGate';
 import { apiFetch, setShopDomain } from './lib/api';
 import {
   AppBridgeTimeoutError,
@@ -22,7 +21,6 @@ import WidgetDesignPage from './pages/WidgetDesignPage';
 import type { ShopifyMe } from './types';
 
 export default function App() {
-  const [me, setMe] = useState<ShopifyMe | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
@@ -35,7 +33,6 @@ export default function App() {
       .then((res) => {
         clearRecoveryReloadMarker();
         setShopDomain(res.store.shopDomain);
-        setMe(res);
         setLoading(false);
       })
       .catch((err) => {
@@ -85,14 +82,6 @@ export default function App() {
             {error}
           </Banner>
         </Box>
-      </AppProvider>
-    );
-  }
-
-  if (!me?.store.ownerUserId) {
-    return (
-      <AppProvider i18n={{}}>
-        <LinkAccountGate onLinked={load} />
       </AppProvider>
     );
   }
