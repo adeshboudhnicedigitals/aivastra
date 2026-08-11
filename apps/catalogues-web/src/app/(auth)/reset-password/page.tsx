@@ -174,6 +174,7 @@ function ResetPasswordInner(): React.ReactElement {
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   style={{ ...inputStyle, paddingRight: 40 }}
+                  suppressHydrationWarning
                 />
                 <button
                   type="button"
@@ -216,6 +217,7 @@ function ResetPasswordInner(): React.ReactElement {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   style={{ ...inputStyle, paddingRight: 40 }}
+                  suppressHydrationWarning
                 />
                 <button
                   type="button"
