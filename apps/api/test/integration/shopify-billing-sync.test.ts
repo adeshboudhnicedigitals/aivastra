@@ -244,6 +244,95 @@ describe('syncStoreSubscription', () => {
     expect(balanceRow?.balance).toBe(5000);
   });
 
+  it('grants nothing for a test subscription unless explicitly allowed', async () => {
+    // Shopify marks a charge `test` when it will never bill — always the case on
+    // a development store, which any Partner can create for free without limit.
+    // Once the app is publicly installable, granting here means anyone can take
+    // the top plan's credits and repeat with a fresh store.
+    const store = await seedStore();
+
+    const result = await syncStoreSubscription(app, store, {
+      getActiveSubscription: async () => sub({ name: 'Pro', test: true }),
+    });
+
+    expect(result.creditsGranted).toBe(0);
+    // Plan state is still recorded — an operator needs to see that the store
+    // sits on a test 'pro' subscription, which is exactly the abuse signal.
+    expect(result.planHandle).toBe('pro');
+    expect(result.subscriptionStatus).toBe('active');
+
+    const [balanceRow] = await app.db
+      .select({ balance: schema.shopifyStoreCredits.balance })
+      .from(schema.shopifyStoreCredits)
+      .where(eq(schema.shopifyStoreCredits.storeId, store.id));
+    expect(balanceRow?.balance).toBeUndefined();
+
+    const ledger = await app.db
+      .select()
+      .from(schema.shopifyCreditLedger)
+      .where(eq(schema.shopifyCreditLedger.storeId, store.id));
+    expect(ledger).toHaveLength(0);
+
+    // Marker left alone, matching the FROZEN/unmapped-plan behaviour: if the
+    // same subscription later stops being a test charge, that cycle still pays.
+    const [updatedStore] = await app.db
+      .select()
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, store.id));
+    expect(updatedStore?.currentSubscriptionId).toBeNull();
+    expect(updatedStore?.currentPeriodEnd).toBeNull();
+  });
+
+  it('grants a test subscription when SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS is set, tagged as test', async () => {
+    // Staging and local development need this path: a dev store is the only way
+    // to exercise the paid flow end to end, so refusing outright would leave
+    // billing untestable everywhere.
+    const permissive = await buildTestApp(c, { SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS: true });
+    try {
+      const [store] = await permissive.db
+        .insert(schema.shopifyStores)
+        .values({
+          shopDomain: `test-allow-${Date.now()}.myshopify.com`,
+          shopifyShopId: Date.now() + 1,
+          accessToken: 'enc',
+          scope: 'read_products',
+        })
+        .returning();
+
+      const result = await syncStoreSubscription(permissive, store, {
+        getActiveSubscription: async () => sub({ name: 'Pro', test: true }),
+      });
+
+      expect(result.creditsGranted).toBe(22000);
+
+      // Tagged distinctly so test-funded credits never masquerade as revenue
+      // when the ledger is reconciled against Shopify payouts.
+      const ledger = await permissive.db
+        .select()
+        .from(schema.shopifyCreditLedger)
+        .where(eq(schema.shopifyCreditLedger.storeId, store.id));
+      expect(ledger).toHaveLength(1);
+      expect(ledger[0]?.reason).toBe('SHOPIFY_SUBSCRIPTION_TEST');
+    } finally {
+      await permissive.close();
+    }
+  });
+
+  it('tags a real subscription as SHOPIFY_SUBSCRIPTION, not the test reason', async () => {
+    const store = await seedStore();
+
+    await syncStoreSubscription(app, store, {
+      getActiveSubscription: async () => sub({ name: 'Growth' }),
+    });
+
+    const ledger = await app.db
+      .select()
+      .from(schema.shopifyCreditLedger)
+      .where(eq(schema.shopifyCreditLedger.storeId, store.id));
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]?.reason).toBe('SHOPIFY_SUBSCRIPTION');
+  });
+
   it('grants the admin-overridden amount when a planCredits override is configured', async () => {
     const store = await seedStore();
     await app.redis.set(

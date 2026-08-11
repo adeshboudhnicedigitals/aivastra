@@ -80,6 +80,17 @@ const Env = z.object({
   // Shopify-hosted plan-selection page URL:
   // https://admin.shopify.com/store/:store_handle/charges/:app_handle/pricing_plans
   SHOPIFY_APP_HANDLE: z.string().optional(),
+  // Grant subscription credits for Shopify *test* charges (AppSubscription.test),
+  // which is what every development store produces — Shopify never bills them.
+  // Off unless the value is exactly 'true', so production grants only against
+  // money that actually moved; set it on staging/dev so the paid flow stays
+  // testable there. See syncStoreSubscription in modules/shopify/billing.ts.
+  //
+  // Deliberately not z.coerce.boolean() like R2_FORCE_PATH_STYLE above:
+  // coercion follows JS truthiness, so the string 'false' — the obvious way to
+  // write "off" in a .env — coerces to true. That failure mode is silent and
+  // hands out free product, so this one accepts only the literal 'true'.
+  SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS: z.preprocess((v) => v === 'true', z.boolean()).default(false),
   // Comma-separated email allowlist for the Catalog Video (PixVerse) feature.
   // Unset = open to everyone (dev default). Set in production to restrict the
   // feature to a soft-launch cohort without a code change.
