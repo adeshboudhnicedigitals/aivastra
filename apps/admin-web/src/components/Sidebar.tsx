@@ -131,6 +131,12 @@ const groups: NavGroup[] = [
         icon: Icon.Coin,
         roles: ['SUPER_ADMIN', 'SUPPORT', 'ADMIN'],
       },
+      {
+        k: 'shopify-stores',
+        label: 'Shopify Stores',
+        icon: Icon.Coin,
+        roles: ['SUPER_ADMIN', 'SUPPORT', 'ADMIN'],
+      },
     ],
   },
   {
