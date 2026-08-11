@@ -136,6 +136,7 @@ export default function ForgotPasswordPage(): React.ReactElement {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   style={inputStyle}
+                  suppressHydrationWarning
                 />
               </div>
             </div>
