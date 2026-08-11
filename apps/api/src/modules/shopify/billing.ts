@@ -90,6 +90,36 @@ export async function syncStoreSubscription(
     );
   }
 
+  // Shopify marks a subscription `test` when no money will ever change hands —
+  // always the case on a development store, which any Shopify Partner can
+  // create for free and without limit. Granting against one is giving product
+  // away exactly like granting against a PENDING charge, only worse: once the
+  // app is publicly installable, anyone can install it on their own dev store,
+  // pick the top plan, take the credits, and repeat with a fresh store. Credits
+  // are GPU spend, so that converts straight into cost.
+  //
+  // Gated rather than refused outright because a dev store is also the only way
+  // to exercise the paid path end to end — blocking it unconditionally would
+  // leave the billing flow untestable anywhere. Staging and local set the flag;
+  // production does not, and its default is off.
+  // `=== true` rather than a truthiness check: callers that build an Env object
+  // directly instead of parsing it (the test harness casts one `as Env`) leave
+  // this undefined, and a gate guarding revenue should read as denied for
+  // anything that is not explicitly the boolean true.
+  const testSubscriptionAllowed =
+    !subscription.test || app.env.SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS === true;
+
+  if (subscription.test && !testSubscriptionAllowed) {
+    // Deliberately warn, not error: on a public app this is someone probing for
+    // free credits, and on a real store it means Shopify sent a test charge we
+    // did not expect. Either way an operator wants to see it, and neither is a
+    // fault in this process.
+    app.log.warn(
+      { storeId: store.id, shopDomain: store.shopDomain, planName: subscription.name },
+      'shopify test subscription — no credits granted (set SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS=true to allow)',
+    );
+  }
+
   // A grant is only possible when we know how much, and the subscription is
   // actually live. PENDING (merchant hasn't approved the
   // charge yet), FROZEN, DECLINED and EXPIRED all mean Shopify is not billing
@@ -97,19 +127,19 @@ export async function syncStoreSubscription(
   let grantable = false;
   let creditsGranted = 0;
 
-  if (amount !== null && subscription.status === 'ACTIVE') {
+  if (amount !== null && subscription.status === 'ACTIVE' && testSubscriptionAllowed) {
     grantable = true;
     if (isNewCycle) {
       const externalRef = `shopify_subscription:${store.id}:${subscription.id}:${
         periodEnd?.toISOString() ?? 'none'
       }`;
-      const { granted } = await grantStore(
-        app.db,
-        store.id,
-        amount,
-        'SHOPIFY_SUBSCRIPTION',
-        externalRef,
-      );
+      // Distinct reason so test-funded credits stay separable from paid ones in
+      // the ledger forever. `reason` is free text and is only ever written, so
+      // this needs no migration and breaks no reader. Without it a test grant is
+      // indistinguishable from a real one after the fact, and reconciling the
+      // ledger against Shopify payouts becomes guesswork.
+      const reason = subscription.test ? 'SHOPIFY_SUBSCRIPTION_TEST' : 'SHOPIFY_SUBSCRIPTION';
+      const { granted } = await grantStore(app.db, store.id, amount, reason, externalRef);
       if (granted) creditsGranted = amount;
     }
   }
