@@ -77,12 +77,11 @@ export interface ShopifyMe {
   store: {
     shopDomain: string;
     settings: ShopifyStoreSettings;
-    ownerUserId: string | null;
     connectedSince: string;
     planHandle: string | null;
     subscriptionStatus: string | null;
   };
-  creditBalance: number | null;
+  creditBalance: number;
   stats: ShopifyStats;
 }
 

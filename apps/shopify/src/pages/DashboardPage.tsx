@@ -7,7 +7,6 @@ import {
   Card,
   InlineGrid,
   InlineStack,
-  Modal,
   Page,
   ProgressBar,
   SkeletonBodyText,
@@ -81,8 +80,6 @@ export default function DashboardPage() {
   const [confirming, setConfirming] = useState(false);
   const [openingEditor, setOpeningEditor] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [showDisconnect, setShowDisconnect] = useState(false);
-  const [disconnecting, setDisconnecting] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const navigate = useNavigate();
 
@@ -122,20 +119,6 @@ export default function DashboardPage() {
       setError((err as Error).message);
     } finally {
       setOpeningEditor(false);
-    }
-  }
-
-  async function disconnectAccount() {
-    setDisconnecting(true);
-    setError(null);
-    try {
-      await apiFetch('/v1/shopify/store/account/unlink', { method: 'POST' });
-      // Full reload so App.tsx re-fetches /v1/shopify/me from scratch and
-      // re-gates to LinkAccountGate now that ownerUserId is cleared server-side.
-      window.location.reload();
-    } catch (err) {
-      setError((err as Error).message);
-      setDisconnecting(false);
     }
   }
 
@@ -337,38 +320,13 @@ export default function DashboardPage() {
           <Button variant="plain" onClick={() => navigate('/manage')}>
             Manage Products
           </Button>
-          <InlineStack gap="400" blockAlign="center">
-            {me?.store.connectedSince && (
-              <Text as="span" tone="subdued">
-                Connected since {new Date(me.store.connectedSince).toLocaleDateString()}
-              </Text>
-            )}
-            <Button variant="plain" tone="critical" onClick={() => setShowDisconnect(true)}>
-              Disconnect account
-            </Button>
-          </InlineStack>
+          {me?.store.connectedSince && (
+            <Text as="span" tone="subdued">
+              Connected since {new Date(me.store.connectedSince).toLocaleDateString()}
+            </Text>
+          )}
         </InlineStack>
       </BlockStack>
-
-      <Modal
-        open={showDisconnect}
-        onClose={() => setShowDisconnect(false)}
-        title="Disconnect AiVastra?"
-        primaryAction={{
-          content: 'Disconnect',
-          destructive: true,
-          loading: disconnecting,
-          onAction: disconnectAccount,
-        }}
-        secondaryActions={[{ content: 'Cancel', onAction: () => setShowDisconnect(false) }]}
-      >
-        <Modal.Section>
-          <Text as="p">
-            Shoppers will stop seeing the Try It On button on your storefront until you reconnect.
-            Your AiVastra account, credits, and history stay safe at app.aivastra.com.
-          </Text>
-        </Modal.Section>
-      </Modal>
 
       {toastMessage && <Toast content={toastMessage} onDismiss={() => setToastMessage(null)} />}
     </Page>
