@@ -1,3 +1,49 @@
+## 2026-08-11 - Add 10MB file size validation on Try-On page (catalogues-web)
+
+**Done**
+- Added 10 MB (`10 * 1024 * 1024` bytes) file size validation to `pickFile` in `apps/catalogues-web/src/app/(app)/tryon/use-tryon-data.ts`.
+- When a user uploads or drops a person image exceeding 10 MB on the Try-On page, `pickFile` blocks the file and displays the error message `"File exceeds 10 MB. Please choose a smaller image."`.
+- Verified with `pnpm --filter @aivastra/web typecheck`.
+
+**Failed / Not Done**
+- None.
+
+**Open Questions / Decisions**
+- None.
+
+
+## 2026-08-11 - Fix toast text contrast in dark mode (catalogues-web)
+
+**Done**
+- Fixed toast notification text visibility in dark mode (`html.dark`) where `color: C.white` mapped to `#1c1c1c` on a `C.dark` (`#141414`) background, making upload error messages ("File exceeds 10 MB. Please choose a smaller image.") unreadable.
+- Updated toast container in `apps/catalogues-web/src/app/(app)/studio/page.tsx` and tooltips in `apps/catalogues-web/src/components/ui/tooltip.tsx` to use `C.onDark` (`#fefefe`), ensuring crisp white text on dark background in both light and dark mode.
+- Verified with `pnpm --filter @aivastra/web typecheck`.
+
+**Failed / Not Done**
+- None.
+
+**Open Questions / Decisions**
+- None.
+
+
+## 2026-08-11 — Fix React Hydration Error caused by Browser Extensions (catalogues-web)
+
+**Done**
+- Fixed Next.js React hydration error (`fdprocessedid` attribute mismatch on `<input>` elements) caused by browser autofill / password manager extensions.
+- Added `suppressHydrationWarning` to input fields across authentication and gate forms:
+  - `apps/catalogues-web/src/app/(auth)/login/page.tsx`
+  - `apps/catalogues-web/src/app/(auth)/register/page.tsx`
+  - `apps/catalogues-web/src/app/(auth)/forgot-password/page.tsx`
+  - `apps/catalogues-web/src/app/(auth)/reset-password/page.tsx`
+  - `apps/catalogues-web/src/app/tryon-library-app/AuthGate.tsx`
+- Verified typechecking with `pnpm --filter @aivastra/web typecheck`.
+
+**Failed / Not Done**
+- None.
+
+**Open Questions / Decisions**
+- None.
+
 ## 2026-08-10 — Unified EditDrawer migration (admin-web)
 
 **Done**
