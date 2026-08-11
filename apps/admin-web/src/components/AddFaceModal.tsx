@@ -1,10 +1,15 @@
 import { useRef, useState } from 'react';
+import { slugifyContinent } from '../lib/continents';
 import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
-import type { GenderSlug, ModelFace } from '../types';
+import type { Continent, GenderSlug, ModelFace } from '../types';
+import { EditDrawer } from './EditDrawer';
 import { Icon } from './Icons';
 
+const ADD_NEW = '__add_new__';
+
 interface Props {
+  knownContinents: { value: Continent; label: string }[];
   onDone: (faces: ModelFace[]) => void;
   onClose: () => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
@@ -162,8 +167,11 @@ function MultiPhotoDropzone({
   );
 }
 
-export function AddFaceModal({ onDone, onClose, toast }: Props) {
+export function AddFaceModal({ knownContinents, onDone, onClose, toast }: Props) {
   const [gender, setGender] = useState<GenderSlug>('men');
+  const [continent, setContinent] = useState<Continent | ''>('');
+  const [addingContinent, setAddingContinent] = useState(false);
+  const [newContinentLabel, setNewContinentLabel] = useState('');
   const [sortOrder, setSortOrder] = useState(0);
   const [files, setFiles] = useState<PickedFile[]>([]);
   const [status, setStatus] = useState<'idle' | 'uploading' | 'confirming'>('idle');
@@ -183,6 +191,13 @@ export function AddFaceModal({ onDone, onClose, toast }: Props) {
       setError('Every image needs a label');
       return;
     }
+    if (addingContinent && !newContinentLabel.trim()) {
+      setError('Enter a name for the new continent, or cancel');
+      return;
+    }
+    const resolvedContinent = addingContinent
+      ? slugifyContinent(newContinentLabel) || null
+      : continent || null;
     setError(null);
     setStatus('uploading');
     setProgress(0);
@@ -214,6 +229,7 @@ export function AddFaceModal({ onDone, onClose, toast }: Props) {
           body: JSON.stringify({
             label: label.trim(),
             gender,
+            continent: resolvedContinent,
             sortOrder: sortOrder + i,
             r2Key: presign.r2Key,
             thumbnailKey: presign.thumbnailKey,
@@ -239,100 +255,122 @@ export function AddFaceModal({ onDone, onClose, toast }: Props) {
   };
 
   return (
-    <div className="modal-overlay" onClick={busy ? undefined : onClose}>
-      <div
-        className="modal"
-        onClick={(e) => e.stopPropagation()}
-        style={{ width: 'min(560px, calc(100vw - 60px))' }}
-      >
-        <div className="modal-head">
-          <h3>Add Model Face</h3>
-          <button
-            className="btn sm ghost"
-            onClick={onClose}
+    <EditDrawer
+      onClose={onClose}
+      title="Add Model Face"
+      width="min(640px, calc(100vw - 60px))"
+      saving={busy}
+      onSave={() => void handleSubmit()}
+      saveLabel={busy ? 'Uploading…' : `Add face${multi ? `s (${files.length})` : ''}`}
+      saveDisabled={files.length === 0 || !allLabeled}
+    >
+      {error && (
+        <div
+          style={{
+            color: 'var(--danger)',
+            fontSize: 13,
+            padding: '8px 12px',
+            borderRadius: 'var(--r)',
+            background: 'var(--danger-soft)',
+            border: '1px solid var(--danger-border)',
+          }}
+        >
+          {error}
+        </div>
+      )}
+
+      <div>
+        <MultiPhotoDropzone files={files} onFilesChange={setFiles} disabled={busy} />
+        <span className="hint" style={{ display: 'block', marginTop: 8 }}>
+          Label defaults to the file name — edit any of them before uploading.
+        </span>
+      </div>
+
+      <div className="field-row">
+        <div className="field">
+          <label>Gender</label>
+          <select
+            className="select"
+            value={gender}
             disabled={busy}
-            style={{ marginLeft: 'auto' }}
+            onChange={(e) => setGender(e.target.value as GenderSlug)}
           >
-            <Icon.Close />
-          </button>
+            <option value="men">Men</option>
+            <option value="women">Women</option>
+            <option value="boys">Boys</option>
+            <option value="girls">Girls</option>
+          </select>
         </div>
-
-        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {error && (
-            <div
-              style={{
-                color: 'var(--danger)',
-                fontSize: 13,
-                padding: '8px 12px',
-                borderRadius: 'var(--r)',
-                background: 'var(--danger-soft)',
-                border: '1px solid var(--danger-border)',
-              }}
-            >
-              {error}
-            </div>
-          )}
-
-          <div>
-            <MultiPhotoDropzone files={files} onFilesChange={setFiles} disabled={busy} />
-            <span className="hint" style={{ display: 'block', marginTop: 8 }}>
-              Label defaults to the file name — edit any of them before uploading.
-            </span>
-          </div>
-
-          <div className="field-row">
-            <div className="field">
-              <label>Gender</label>
-              <select
-                className="select"
-                value={gender}
-                disabled={busy}
-                onChange={(e) => setGender(e.target.value as GenderSlug)}
-              >
-                <option value="men">Men</option>
-                <option value="women">Women</option>
-                <option value="boys">Boys</option>
-                <option value="girls">Girls</option>
-              </select>
-            </div>
-            <div className="field">
-              <label>Sort order</label>
-              <input
-                className="input"
-                type="number"
-                min={0}
-                value={sortOrder}
-                disabled={busy}
-                onChange={(e) => setSortOrder(Number(e.target.value))}
-              />
-            </div>
-          </div>
-
-          {busy && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                {status === 'uploading' ? `Uploading… ${progress}%` : 'Saving…'}
-              </div>
-              <div className="bar-track">
-                <div className="bar-fill accent" style={{ width: `${progress}%` }} />
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="modal-foot">
-          <button className="btn ghost" onClick={onClose} disabled={busy}>
-            Cancel
-          </button>
-          <button
-            className="btn primary"
-            onClick={() => void handleSubmit()}
-            disabled={busy || files.length === 0 || !allLabeled}
-          >
-            <Icon.Upload /> {busy ? 'Uploading…' : `Add face${multi ? `s (${files.length})` : ''}`}
-          </button>
+        <div className="field">
+          <label>Sort order</label>
+          <input
+            className="input"
+            type="number"
+            min={0}
+            value={sortOrder}
+            disabled={busy}
+            onChange={(e) => setSortOrder(Number(e.target.value))}
+          />
         </div>
       </div>
-    </div>
+
+      <div className="field">
+        <label>Continent</label>
+        {addingContinent ? (
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input
+              className="input"
+              placeholder="e.g. Middle East"
+              value={newContinentLabel}
+              disabled={busy}
+              onChange={(e) => setNewContinentLabel(e.target.value)}
+            />
+            <button
+              type="button"
+              className="btn sm ghost"
+              disabled={busy}
+              onClick={() => {
+                setAddingContinent(false);
+                setNewContinentLabel('');
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <select
+            className="select"
+            value={continent}
+            disabled={busy}
+            onChange={(e) => {
+              if (e.target.value === ADD_NEW) {
+                setAddingContinent(true);
+                return;
+              }
+              setContinent(e.target.value as Continent | '');
+            }}
+          >
+            <option value="">Unassigned (shown as "Global" in studio)</option>
+            {knownContinents.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+            <option value={ADD_NEW}>+ Add new continent…</option>
+          </select>
+        )}
+      </div>
+
+      {busy && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+            {status === 'uploading' ? `Uploading… ${progress}%` : 'Saving…'}
+          </div>
+          <div className="bar-track">
+            <div className="bar-fill accent" style={{ width: `${progress}%` }} />
+          </div>
+        </div>
+      )}
+    </EditDrawer>
   );
 }

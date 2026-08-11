@@ -19,6 +19,48 @@
 - Updated the customer-widget and shopper-limit integration fixtures/assertions to seed and verify store credit and ledger records.
 - Verified `pnpm --filter @aivastra/api typecheck` and both affected integration suites (31 tests).
 
+## 2026-08-10 — Unified EditDrawer migration (admin-web)
+
+**Done**
+- Completed the 11-task migration standardizing every add/edit popup in `apps/admin-web` onto a single shared `EditDrawer` component (`apps/admin-web/src/components/EditDrawer.tsx`).
+- Migrated all ~30 add/edit modals and legacy drawers across the admin SPA:
+  - Task 1: Shared `EditDrawer` component + `AddFaceModal` / `EditFaceModal`
+  - Task 2: `AddGarmentTypeModal` / `EditGarmentTypeModal`
+  - Task 3: Garment type prompt overrides / pose config modals
+  - Task 4: Background add / edit modals
+  - Task 5: Pose upload modal
+  - Task 6: Catalog tab add/edit categories & batch upload modals
+  - Task 7: Catalogue templates, sample videos, and saree styles modals
+  - Task 8: Workflow upload & edit modals with KSampler validation
+  - Task 9: Users page modals (Reset Password, Adjust credits, Grant merchant access, Edit merchant details, Create User)
+  - Task 10: Shopify funnels, Try-on categories & sample images, Dev API categories modals
+  - Task 11: Settings credit plans & campaigns, Chatbot Q&A (scrim normalized to modal-overlay), Kiosk demo items, sets & subcategories
+- Validated with clean `tsc -b` and production Vite build (`pnpm --filter @aivastra/admin build`).
+
+**Failed / Not Done**
+- None.
+
+**Open Questions / Decisions**
+- None.
+
+## 2026-08-10 — Unified EditDrawer migration (admin-web)
+
+**Done**
+- Completed the 11-task migration standardizing every add/edit popup in `apps/admin-web` onto a single shared `EditDrawer` component (`apps/admin-web/src/components/EditDrawer.tsx`).
+- Migrated all ~30 add/edit modals and legacy drawers across the admin SPA:
+  - Task 1: Shared `EditDrawer` component + `AddFaceModal` / `EditFaceModal`
+  - Task 2: `AddGarmentTypeModal` / `EditGarmentTypeModal`
+  - Task 3: Garment type prompt overrides / pose config modals
+  - Task 4: Background add / edit modals
+  - Task 5: Pose upload modal
+  - Task 6: Catalog tab add/edit categories & batch upload modals
+  - Task 7: Catalogue templates, sample videos, and saree styles modals
+  - Task 8: Workflow upload & edit modals with KSampler validation
+  - Task 9: Users page modals (Reset Password, Adjust credits, Grant merchant access, Edit merchant details, Create User)
+  - Task 10: Shopify funnels, Try-on categories & sample images, Dev API categories modals
+  - Task 11: Settings credit plans & campaigns, Chatbot Q&A (scrim normalized to modal-overlay), Kiosk demo items, sets & subcategories
+- Validated with clean `tsc -b` and production Vite build (`pnpm --filter @aivastra/admin build`).
+
 **Failed / Not Done**
 - None.
 
@@ -114,6 +156,52 @@
 - None.
 
 ### Open Questions / Decisions
+- None.
+
+## 2026-08-06 — Local seed images added
+
+**Done**
+- Seeded 1,539 model images (faces, poses, footwear, lower garments, backgrounds) into PostgreSQL & MinIO via pnpm seed:model-images.
+- Seeded 51 garment subcategories (men, women, boys, girls) into PostgreSQL & MinIO via pnpm seed:garment-types.
+
+**Failed / Not Done**
+- None.
+
+**Open Questions / Decisions**
+- None.
+
+## 2026-08-06 — Initial codebase setup & dev environment launched
+
+**Done**
+- Cloned repository into D:\\AI vastra.
+- Copied .env.example to .env and initialized workspace configuration.
+- Installed dependencies across all workspace packages (pnpm install).
+- Started local Docker infrastructure (aivastra-postgres, aivastra-redis, aivastra-minio).
+- Applied database schema migrations (pnpm db:migrate).
+- Compiled @aivastra/* workspace packages.
+- Started dev servers (pnpm dev): api (4000), catalogues-web (3000), admin-web (5173), shopify (5174), dispatcher (4100).
+
+**Failed / Not Done**
+- pnpm db:seed skipped due to tier constraint in seed script.
+
+**Open Questions / Decisions**
+- None.
+
+## 2026-08-06 — Initial codebase setup & dev environment launched
+
+**Done**
+- Cloned repository into `D:\AI vastra`.
+- Copied `.env.example` to `.env` and initialized workspace configuration.
+- Installed dependencies across all workspace packages (`pnpm install`).
+- Started local Docker infrastructure (`aivastra-postgres`, `aivastra-redis`, `aivastra-minio`).
+- Applied database schema migrations (`pnpm db:migrate`).
+- Compiled `@aivastra/*` workspace packages (`pnpm --filter './packages/*' -r run build`).
+- Started dev servers (`pnpm dev`): `api` (4000), `catalogues-web` (3000), `admin-web` (5173), `shopify` (5174), `dispatcher` (4100).
+
+**Failed / Not Done**
+- `pnpm db:seed` failed on seed data tier constraint — skipped for local run.
+
+**Open Questions / Decisions**
 - None.
 
 ## 2026-08-06 — Duplicate pose images, catalog-video thumbnail bug, upload-your-own-image source

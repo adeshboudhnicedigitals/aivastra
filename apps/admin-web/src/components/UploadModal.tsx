@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
-import { Icon } from './Icons';
+import { EditDrawer } from './EditDrawer';
 import { Switch } from './Switch';
 
 export type FieldDef =
@@ -181,161 +181,142 @@ export function UploadModal({
   };
 
   return (
-    <div className="modal-overlay" onClick={busy ? undefined : onClose}>
-      <div
-        className="modal"
-        onClick={(e) => e.stopPropagation()}
-        style={{ width: 'min(520px, calc(100vw - 80px))' }}
-      >
-        <div className="modal-head">
-          <h3>{title}</h3>
-          <button
-            className="btn sm ghost"
-            onClick={onClose}
-            disabled={busy}
-            style={{ marginLeft: 'auto' }}
+    <EditDrawer
+      onClose={onClose}
+      title={title}
+      width="min(520px, calc(100vw - 80px))"
+      saving={busy}
+      onSave={() => void handleSubmit()}
+      saveLabel="Upload"
+      saveDisabled={!file}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {error && (
+          <div
+            style={{
+              color: 'var(--danger)',
+              fontSize: 13,
+              padding: '8px 12px',
+              borderRadius: 6,
+              background: 'var(--danger-soft)',
+              border: '1px solid var(--danger-border)',
+            }}
           >
-            <Icon.Close />
-          </button>
+            {error}
+          </div>
+        )}
+
+        {/* Primary file picker */}
+        <div className="field">
+          <label>Display Image</label>
+          {preview && (
+            // biome-ignore lint/performance/noImgElement: preview of uploaded image
+            <img
+              src={preview}
+              alt="preview"
+              style={{
+                width: 72,
+                height: 96,
+                objectFit: 'cover',
+                borderRadius: 6,
+                border: '1px solid var(--border)',
+                marginBottom: 8,
+                display: 'block',
+              }}
+            />
+          )}
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            disabled={busy}
+            onChange={handleFileChange}
+            style={{ fontSize: 13 }}
+          />
         </div>
 
-        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {error && (
-            <div
-              style={{
-                color: 'var(--danger)',
-                fontSize: 13,
-                padding: '8px 12px',
-                borderRadius: 6,
-                background: 'var(--danger-soft)',
-                border: '1px solid var(--danger-border)',
-              }}
-            >
-              {error}
-            </div>
-          )}
-
-          {/* Primary file picker */}
+        {/* Optional secondary file picker (e.g. ComfyUI-specific image) */}
+        {secondaryUpload && (
           <div className="field">
-            <label>Display Image</label>
-            {preview && (
-              // biome-ignore lint/performance/noImgElement: preview of uploaded image
-              <img
-                src={preview}
-                alt="preview"
-                style={{
-                  width: 72,
-                  height: 96,
-                  objectFit: 'cover',
-                  borderRadius: 6,
-                  border: '1px solid var(--border)',
-                  marginBottom: 8,
-                  display: 'block',
-                }}
-              />
-            )}
+            <label>
+              {secondaryUpload.label}
+              {!secondaryUpload.required && (
+                <span style={{ color: 'var(--muted)', fontWeight: 400, marginLeft: 4 }}>
+                  (optional — can be set later)
+                </span>
+              )}
+            </label>
             <input
               type="file"
               accept="image/jpeg,image/png,image/webp"
               disabled={busy}
-              onChange={handleFileChange}
+              onChange={(e) => setSecondaryFile(e.target.files?.[0] ?? null)}
               style={{ fontSize: 13 }}
             />
           </div>
+        )}
 
-          {/* Optional secondary file picker (e.g. ComfyUI-specific image) */}
-          {secondaryUpload && (
-            <div className="field">
-              <label>
-                {secondaryUpload.label}
-                {!secondaryUpload.required && (
-                  <span style={{ color: 'var(--muted)', fontWeight: 400, marginLeft: 4 }}>
-                    (optional — can be set later)
-                  </span>
-                )}
-              </label>
+        {/* Dynamic fields */}
+        {fields.map((f) => (
+          <div key={f.name} className="field">
+            <label>{f.label}</label>
+            {f.type === 'text' && (
               <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
+                className="input"
+                value={values[f.name] as string}
                 disabled={busy}
-                onChange={(e) => setSecondaryFile(e.target.files?.[0] ?? null)}
-                style={{ fontSize: 13 }}
+                placeholder={f.placeholder}
+                onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}
               />
-            </div>
-          )}
+            )}
+            {f.type === 'select' && (
+              <select
+                className="select"
+                value={values[f.name] as string}
+                disabled={busy}
+                onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}
+              >
+                {f.options.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            )}
+            {f.type === 'number' && (
+              <input
+                className="input"
+                type="number"
+                value={values[f.name] as number}
+                disabled={busy}
+                min={f.min}
+                onChange={(e) => setValues((v) => ({ ...v, [f.name]: Number(e.target.value) }))}
+                style={{ width: 100 }}
+              />
+            )}
+            {f.type === 'toggle' && (
+              <Switch
+                checked={values[f.name] as boolean}
+                onChange={() => {
+                  if (busy) return;
+                  setValues((v) => ({ ...v, [f.name]: !v[f.name] }));
+                }}
+              />
+            )}
+          </div>
+        ))}
 
-          {/* Dynamic fields */}
-          {fields.map((f) => (
-            <div key={f.name} className="field">
-              <label>{f.label}</label>
-              {f.type === 'text' && (
-                <input
-                  className="input"
-                  value={values[f.name] as string}
-                  disabled={busy}
-                  placeholder={f.placeholder}
-                  onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}
-                />
-              )}
-              {f.type === 'select' && (
-                <select
-                  className="select"
-                  value={values[f.name] as string}
-                  disabled={busy}
-                  onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}
-                >
-                  {f.options.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              )}
-              {f.type === 'number' && (
-                <input
-                  className="input"
-                  type="number"
-                  value={values[f.name] as number}
-                  disabled={busy}
-                  min={f.min}
-                  onChange={(e) => setValues((v) => ({ ...v, [f.name]: Number(e.target.value) }))}
-                  style={{ width: 100 }}
-                />
-              )}
-              {f.type === 'toggle' && (
-                <Switch
-                  checked={values[f.name] as boolean}
-                  onChange={() => {
-                    if (busy) return;
-                    setValues((v) => ({ ...v, [f.name]: !v[f.name] }));
-                  }}
-                />
-              )}
+        {/* Progress bar */}
+        {busy && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+              {status === 'uploading' ? `Uploading… ${progress}%` : 'Saving…'}
             </div>
-          ))}
-
-          {/* Progress bar */}
-          {busy && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                {status === 'uploading' ? `Uploading… ${progress}%` : 'Saving…'}
-              </div>
-              <div className="bar-track">
-                <div className="bar-fill accent" style={{ width: `${progress}%` }} />
-              </div>
+            <div className="bar-track">
+              <div className="bar-fill accent" style={{ width: `${progress}%` }} />
             </div>
-          )}
-        </div>
-
-        <div className="modal-foot">
-          <button className="btn ghost" onClick={onClose} disabled={busy}>
-            Cancel
-          </button>
-          <button className="btn primary" onClick={handleSubmit} disabled={busy || !file}>
-            <Icon.Upload /> Upload
-          </button>
-        </div>
+          </div>
+        )}
       </div>
-    </div>
+    </EditDrawer>
   );
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
 import { KV } from '../components/KV';
 import { NameAvatar } from '../components/NameAvatar';
@@ -721,7 +722,7 @@ export default function UsersPage({ onNav, toast }: Props) {
           </p>
         ) : (
           <>
-            <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+            <div className="stat-grid">
               <button className="stat" onClick={openPlanEditor} title="Change credit plan">
                 <div className="lbl">
                   <Icon.Credit /> Current plan
@@ -772,7 +773,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                 <h3>Account details</h3>
               </div>
               <div className="card-body">
-                <div className="kv-grid" style={{ gridTemplateColumns: '112px 1fr' }}>
+                <div className="kv-grid">
                   <KV k="Phone" v={u.phone ? `+91 ${u.phone}` : 'Not provided'} />
                   <KV
                     k="Authentication"
@@ -843,10 +844,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                     </button>
                   </div>
                 ) : (
-                  <div
-                    className="kv-grid"
-                    style={{ gridTemplateColumns: 'auto 1fr auto 1fr auto 1fr', columnGap: 28 }}
-                  >
+                  <div className="kv-grid-3-col">
                     <KV
                       k="Status"
                       v={<StatusBadge status={u.merchant.isActive ? 'active' : 'inactive'} />}
@@ -983,40 +981,28 @@ export default function UsersPage({ onNav, toast }: Props) {
         )}
 
         {resettingPassword && (
-          <div className="modal-overlay" onClick={() => setResettingPassword(false)}>
-            <div className="modal" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-head">
-                <h3>Reset Password</h3>
-              </div>
-              <div className="modal-body">
-                <div className="field">
-                  <label>New password</label>
-                  <input
-                    className="input"
-                    type="password"
-                    value={newPasswordInput}
-                    onChange={(e) => setNewPasswordInput(e.target.value)}
-                    placeholder="At least 8 characters with a letter and number"
-                  />
-                </div>
-              </div>
-              <div className="modal-foot">
-                <button className="btn ghost" onClick={() => setResettingPassword(false)}>
-                  Cancel
-                </button>
-                <button
-                  className="btn primary"
-                  onClick={async () => {
-                    await handleResetPassword(newPasswordInput);
-                    setResettingPassword(false);
-                  }}
-                  disabled={!newPasswordInput}
-                >
-                  Reset Password
-                </button>
-              </div>
+          <EditDrawer
+            onClose={() => setResettingPassword(false)}
+            title="Reset Password"
+            width="min(420px, calc(100vw - 40px))"
+            onSave={async () => {
+              await handleResetPassword(newPasswordInput);
+              setResettingPassword(false);
+            }}
+            saveLabel="Reset Password"
+            saveDisabled={!newPasswordInput}
+          >
+            <div className="field">
+              <label>New password</label>
+              <input
+                className="input"
+                type="password"
+                value={newPasswordInput}
+                onChange={(e) => setNewPasswordInput(e.target.value)}
+                placeholder="At least 8 characters with a letter and number"
+              />
             </div>
-          </div>
+          </EditDrawer>
         )}
 
         {confirmSuspend && (
@@ -1154,265 +1140,227 @@ export default function UsersPage({ onNav, toast }: Props) {
         )}
 
         {grantUserId && (
-          <div className="modal-overlay" onClick={closeAdjustCredits}>
-            <div className="modal" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-head">
-                <h3>Adjust credits — {userLabel(u)}</h3>
-              </div>
-              <div
-                className="modal-body"
-                style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
-              >
-                <div className="field">
-                  <label>Action</label>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button
-                      type="button"
-                      className={`btn${grantMode === 'grant' ? ' primary' : ' ghost'}`}
-                      style={{ flex: 1 }}
-                      onClick={() => setGrantMode('grant')}
-                    >
-                      + Grant
-                    </button>
-                    <button
-                      type="button"
-                      className={`btn${grantMode === 'deduct' ? ' danger' : ' ghost'}`}
-                      style={{ flex: 1 }}
-                      onClick={() => setGrantMode('deduct')}
-                    >
-                      − Deduct
-                    </button>
-                  </div>
-                </div>
-                <div className="field">
-                  <label>Amount</label>
-                  <input
-                    className="input"
-                    type="number"
-                    min={1}
-                    max={10000}
-                    value={grantAmount}
-                    onChange={(e) => setGrantAmount(e.target.value)}
-                    placeholder={
-                      grantMode === 'grant'
-                        ? 'Credits to add (max 10,000)'
-                        : `Credits to remove (max ${u.balance.toLocaleString()})`
-                    }
-                  />
-                  {grantMode === 'deduct' && (
-                    <p className="hint">Current balance: {u.balance.toLocaleString()} credits</p>
-                  )}
-                </div>
-                <div className="field">
-                  <label>Reason</label>
-                  <textarea
-                    className="input"
-                    value={grantReason}
-                    onChange={(e) => setGrantReason(e.target.value)}
-                    placeholder={
-                      grantMode === 'grant'
-                        ? 'e.g. Customer support, bulk top-up'
-                        : 'e.g. Refund correction, duplicate charge'
-                    }
-                    rows={3}
-                  />
+          <EditDrawer
+            onClose={closeAdjustCredits}
+            title={`Adjust credits — ${userLabel(u)}`}
+            width="min(480px, calc(100vw - 40px))"
+            saving={granting}
+            onSave={handleGrant}
+            saveLabel={
+              granting
+                ? grantMode === 'grant'
+                  ? 'Granting…'
+                  : 'Deducting…'
+                : grantMode === 'grant'
+                  ? `Grant ${grantAmount ? parseInt(grantAmount, 10).toLocaleString() : ''} credits`
+                  : `Deduct ${grantAmount ? parseInt(grantAmount, 10).toLocaleString() : ''} credits`
+            }
+            saveDisabled={granting || !grantAmount || parseInt(grantAmount, 10) < 1}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div className="field">
+                <label>Action</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    className={`btn${grantMode === 'grant' ? ' primary' : ' ghost'}`}
+                    style={{ flex: 1 }}
+                    onClick={() => setGrantMode('grant')}
+                  >
+                    + Grant
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn${grantMode === 'deduct' ? ' danger' : ' ghost'}`}
+                    style={{ flex: 1 }}
+                    onClick={() => setGrantMode('deduct')}
+                  >
+                    − Deduct
+                  </button>
                 </div>
               </div>
-              <div className="modal-foot">
-                <button className="btn ghost" onClick={closeAdjustCredits}>
-                  Cancel
-                </button>
-                <button
-                  className={`btn ${grantMode === 'grant' ? 'primary' : 'danger'}`}
-                  onClick={handleGrant}
-                  disabled={granting || !grantAmount || parseInt(grantAmount, 10) < 1}
-                >
-                  {granting
-                    ? grantMode === 'grant'
-                      ? 'Granting…'
-                      : 'Deducting…'
-                    : grantMode === 'grant'
-                      ? `Grant ${grantAmount ? parseInt(grantAmount, 10).toLocaleString() : ''} credits`
-                      : `Deduct ${grantAmount ? parseInt(grantAmount, 10).toLocaleString() : ''} credits`}
-                </button>
+              <div className="field">
+                <label>Amount</label>
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  max={10000}
+                  value={grantAmount}
+                  onChange={(e) => setGrantAmount(e.target.value)}
+                  placeholder={
+                    grantMode === 'grant'
+                      ? 'Credits to add (max 10,000)'
+                      : `Credits to remove (max ${u.balance.toLocaleString()})`
+                  }
+                />
+                {grantMode === 'deduct' && (
+                  <p className="hint">Current balance: {u.balance.toLocaleString()} credits</p>
+                )}
+              </div>
+              <div className="field">
+                <label>Reason</label>
+                <textarea
+                  className="input"
+                  value={grantReason}
+                  onChange={(e) => setGrantReason(e.target.value)}
+                  placeholder={
+                    grantMode === 'grant'
+                      ? 'e.g. Customer support, bulk top-up'
+                      : 'e.g. Refund correction, duplicate charge'
+                  }
+                  rows={3}
+                />
               </div>
             </div>
-          </div>
+          </EditDrawer>
         )}
 
         {showGrantMerchant && (
-          <div className="modal-overlay" onClick={() => setShowGrantMerchant(false)}>
-            <div className="modal" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-head">
-                <h3>Grant merchant access — {userLabel(u)}</h3>
+          <EditDrawer
+            onClose={() => setShowGrantMerchant(false)}
+            title={`Grant merchant access — ${userLabel(u)}`}
+            width="min(520px, calc(100vw - 40px))"
+            saving={grantingMerchant}
+            onSave={() => void handleGrantMerchant()}
+            saveLabel={grantingMerchant ? 'Granting…' : 'Grant access'}
+            saveDisabled={grantingMerchant || !grantMerchantForm.companyName.trim()}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div className="field">
+                <label>Company name</label>
+                <input
+                  className="input"
+                  value={grantMerchantForm.companyName}
+                  onChange={(e) =>
+                    setGrantMerchantForm((f) => ({ ...f, companyName: e.target.value }))
+                  }
+                  placeholder="e.g. XYZ Family Mall"
+                />
               </div>
-              <div
-                className="modal-body"
-                style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
-              >
-                <div className="field">
-                  <label>Company name</label>
-                  <input
-                    className="input"
-                    value={grantMerchantForm.companyName}
-                    onChange={(e) =>
-                      setGrantMerchantForm((f) => ({ ...f, companyName: e.target.value }))
-                    }
-                    placeholder="e.g. XYZ Family Mall"
-                  />
-                </div>
-                <div className="field-row">
-                  <div className="field">
-                    <label>Contact name</label>
-                    <input
-                      className="input"
-                      value={grantMerchantForm.contactName}
-                      onChange={(e) =>
-                        setGrantMerchantForm((f) => ({ ...f, contactName: e.target.value }))
-                      }
-                      placeholder="Optional — defaults to account name"
-                    />
-                  </div>
-                  <div className="field">
-                    <label>Phone</label>
-                    <input
-                      className="input"
-                      value={grantMerchantForm.phone}
-                      onChange={(e) =>
-                        setGrantMerchantForm((f) => ({ ...f, phone: e.target.value }))
-                      }
-                      placeholder="Optional"
-                    />
-                  </div>
-                </div>
-                <div className="field">
-                  <label>Business address</label>
-                  <input
-                    className="input"
-                    value={grantMerchantForm.businessAddress}
-                    onChange={(e) =>
-                      setGrantMerchantForm((f) => ({ ...f, businessAddress: e.target.value }))
-                    }
-                    placeholder="Optional — can be filled in later via Edit"
-                  />
-                </div>
-                <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>
-                  This instantly grants {userContact(u)} access to the catalogue manager, using
-                  their existing login.
-                </p>
-              </div>
-              <div className="modal-foot">
-                <button className="btn ghost" onClick={() => setShowGrantMerchant(false)}>
-                  Cancel
-                </button>
-                <button
-                  className="btn primary"
-                  onClick={() => void handleGrantMerchant()}
-                  disabled={grantingMerchant || !grantMerchantForm.companyName.trim()}
-                >
-                  {grantingMerchant ? 'Granting…' : 'Grant access'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {showEditMerchant && u.merchant && (
-          <div className="modal-overlay" onClick={() => setShowEditMerchant(false)}>
-            <div className="modal" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-head">
-                <h3>Edit merchant details</h3>
-              </div>
-              <div
-                className="modal-body"
-                style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
-              >
-                <div className="field">
-                  <label>Logo</label>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    {detail.merchant?.logoUrl && (
-                      // biome-ignore lint/performance/noImgElement: admin SPA, not Next.js
-                      <img
-                        src={detail.merchant.logoUrl}
-                        alt="Merchant logo"
-                        style={{
-                          width: 48,
-                          height: 48,
-                          objectFit: 'contain',
-                          borderRadius: 6,
-                          border: '1px solid var(--border)',
-                        }}
-                      />
-                    )}
-                    <label className="btn sm ghost" style={{ cursor: 'pointer' }}>
-                      {uploadingLogo ? 'Uploading…' : 'Upload logo'}
-                      <input
-                        type="file"
-                        accept="image/png,image/jpeg,image/webp"
-                        style={{ display: 'none' }}
-                        disabled={uploadingLogo}
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) void handleLogoUpload(file);
-                          e.target.value = '';
-                        }}
-                      />
-                    </label>
-                  </div>
-                </div>
-                <div className="field">
-                  <label>Company name</label>
-                  <input
-                    className="input"
-                    value={merchantEditForm.companyName}
-                    onChange={(e) =>
-                      setMerchantEditForm((f) => ({ ...f, companyName: e.target.value }))
-                    }
-                  />
-                </div>
+              <div className="field-row">
                 <div className="field">
                   <label>Contact name</label>
                   <input
                     className="input"
-                    value={merchantEditForm.contactName}
+                    value={grantMerchantForm.contactName}
                     onChange={(e) =>
-                      setMerchantEditForm((f) => ({ ...f, contactName: e.target.value }))
+                      setGrantMerchantForm((f) => ({ ...f, contactName: e.target.value }))
                     }
+                    placeholder="Optional — defaults to account name"
                   />
                 </div>
                 <div className="field">
                   <label>Phone</label>
                   <input
                     className="input"
-                    value={merchantEditForm.phone}
-                    onChange={(e) => setMerchantEditForm((f) => ({ ...f, phone: e.target.value }))}
-                  />
-                </div>
-                <div className="field">
-                  <label>Business address</label>
-                  <input
-                    className="input"
-                    value={merchantEditForm.businessAddress}
-                    onChange={(e) =>
-                      setMerchantEditForm((f) => ({ ...f, businessAddress: e.target.value }))
-                    }
+                    value={grantMerchantForm.phone}
+                    onChange={(e) => setGrantMerchantForm((f) => ({ ...f, phone: e.target.value }))}
+                    placeholder="Optional"
                   />
                 </div>
               </div>
-              <div className="modal-foot">
-                <button className="btn ghost" onClick={() => setShowEditMerchant(false)}>
-                  Cancel
-                </button>
-                <button
-                  className="btn primary"
-                  onClick={() => void handleMerchantEditSave()}
-                  disabled={savingMerchantEdit}
-                >
-                  {savingMerchantEdit ? 'Saving…' : 'Save changes'}
-                </button>
+              <div className="field">
+                <label>Business address</label>
+                <input
+                  className="input"
+                  value={grantMerchantForm.businessAddress}
+                  onChange={(e) =>
+                    setGrantMerchantForm((f) => ({ ...f, businessAddress: e.target.value }))
+                  }
+                  placeholder="Optional — can be filled in later via Edit"
+                />
+              </div>
+              <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>
+                This instantly grants {userContact(u)} access to the catalogue manager, using their
+                existing login.
+              </p>
+            </div>
+          </EditDrawer>
+        )}
+
+        {showEditMerchant && u.merchant && (
+          <EditDrawer
+            onClose={() => setShowEditMerchant(false)}
+            title="Edit merchant details"
+            width="min(520px, calc(100vw - 40px))"
+            saving={savingMerchantEdit}
+            onSave={() => void handleMerchantEditSave()}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div className="field">
+                <label>Logo</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  {detail.merchant?.logoUrl && (
+                    // biome-ignore lint/performance/noImgElement: admin SPA, not Next.js
+                    <img
+                      src={detail.merchant.logoUrl}
+                      alt="Merchant logo"
+                      style={{
+                        width: 48,
+                        height: 48,
+                        objectFit: 'contain',
+                        borderRadius: 6,
+                        border: '1px solid var(--border)',
+                      }}
+                    />
+                  )}
+                  <label className="btn sm ghost" style={{ cursor: 'pointer' }}>
+                    {uploadingLogo ? 'Uploading…' : 'Upload logo'}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      style={{ display: 'none' }}
+                      disabled={uploadingLogo}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) void handleLogoUpload(file);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
+              <div className="field">
+                <label>Company name</label>
+                <input
+                  className="input"
+                  value={merchantEditForm.companyName}
+                  onChange={(e) =>
+                    setMerchantEditForm((f) => ({ ...f, companyName: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="field">
+                <label>Contact name</label>
+                <input
+                  className="input"
+                  value={merchantEditForm.contactName}
+                  onChange={(e) =>
+                    setMerchantEditForm((f) => ({ ...f, contactName: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="field">
+                <label>Phone</label>
+                <input
+                  className="input"
+                  value={merchantEditForm.phone}
+                  onChange={(e) => setMerchantEditForm((f) => ({ ...f, phone: e.target.value }))}
+                />
+              </div>
+              <div className="field">
+                <label>Business address</label>
+                <input
+                  className="input"
+                  value={merchantEditForm.businessAddress}
+                  onChange={(e) =>
+                    setMerchantEditForm((f) => ({ ...f, businessAddress: e.target.value }))
+                  }
+                />
               </div>
             </div>
-          </div>
+          </EditDrawer>
         )}
       </>
     );
@@ -1794,91 +1742,72 @@ export default function UsersPage({ onNav, toast }: Props) {
         </>
       )}
       {showCreateUser && (
-        <div className="modal-overlay" onClick={() => setShowCreateUser(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head">
-              <h3>Create User</h3>
+        <EditDrawer
+          onClose={() => setShowCreateUser(false)}
+          title="Create User"
+          width="min(480px, calc(100vw - 40px))"
+          saving={creatingUser}
+          onSave={() => void handleCreateUser()}
+          saveLabel={creatingUser ? 'Creating…' : 'Create User'}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>
+              Give the account a username and password now. Email and phone are optional here — the
+              customer will be prompted to add them the first time they log in.
+            </p>
+            {createUserError && (
+              <div className="banner warn">
+                <p style={{ margin: 0, fontSize: 13 }}>{createUserError}</p>
+              </div>
+            )}
+            <div className="field">
+              <label>Username</label>
+              <input
+                className="input"
+                value={createUserForm.username}
+                onChange={(e) => setCreateUserForm((f) => ({ ...f, username: e.target.value }))}
+                placeholder="e.g. priya_shop1"
+              />
             </div>
-            <div
-              className="modal-body"
-              style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
-            >
-              <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>
-                Give the account a username and password now. Email and phone are optional here —
-                the customer will be prompted to add them the first time they log in.
-              </p>
-              {createUserError && (
-                <div className="banner warn">
-                  <p style={{ margin: 0, fontSize: 13 }}>{createUserError}</p>
-                </div>
-              )}
-              <div className="field">
-                <label>Username</label>
-                <input
-                  className="input"
-                  value={createUserForm.username}
-                  onChange={(e) => setCreateUserForm((f) => ({ ...f, username: e.target.value }))}
-                  placeholder="e.g. priya_shop1"
-                />
-              </div>
-              <div className="field">
-                <label>Password</label>
-                <input
-                  className="input"
-                  value={createUserForm.password}
-                  onChange={(e) => setCreateUserForm((f) => ({ ...f, password: e.target.value }))}
-                  placeholder="Share this with the customer directly"
-                />
-              </div>
-              <div className="field">
-                <label>Full name</label>
-                <input
-                  className="input"
-                  value={createUserForm.displayName}
-                  onChange={(e) =>
-                    setCreateUserForm((f) => ({ ...f, displayName: e.target.value }))
-                  }
-                />
-              </div>
-              <div className="field-row">
-                <div className="field">
-                  <label>Email</label>
-                  <input
-                    className="input"
-                    value={createUserForm.email}
-                    onChange={(e) => setCreateUserForm((f) => ({ ...f, email: e.target.value }))}
-                    placeholder="Optional"
-                  />
-                </div>
-                <div className="field">
-                  <label>Phone</label>
-                  <input
-                    className="input"
-                    value={createUserForm.phone}
-                    onChange={(e) => setCreateUserForm((f) => ({ ...f, phone: e.target.value }))}
-                    placeholder="Optional — 10-digit mobile number"
-                  />
-                </div>
-              </div>
+            <div className="field">
+              <label>Password</label>
+              <input
+                className="input"
+                value={createUserForm.password}
+                onChange={(e) => setCreateUserForm((f) => ({ ...f, password: e.target.value }))}
+                placeholder="Share this with the customer directly"
+              />
             </div>
-            <div className="modal-foot">
-              <button
-                className="btn ghost"
-                onClick={() => setShowCreateUser(false)}
-                disabled={creatingUser}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn"
-                onClick={() => void handleCreateUser()}
-                disabled={creatingUser}
-              >
-                {creatingUser ? 'Creating…' : 'Create User'}
-              </button>
+            <div className="field">
+              <label>Full name</label>
+              <input
+                className="input"
+                value={createUserForm.displayName}
+                onChange={(e) => setCreateUserForm((f) => ({ ...f, displayName: e.target.value }))}
+              />
+            </div>
+            <div className="field-row">
+              <div className="field">
+                <label>Email</label>
+                <input
+                  className="input"
+                  value={createUserForm.email}
+                  onChange={(e) => setCreateUserForm((f) => ({ ...f, email: e.target.value }))}
+                  placeholder="Optional"
+                />
+              </div>
+              <div className="field">
+                <label>Phone</label>
+                <input
+                  className="input"
+                  value={createUserForm.phone}
+                  onChange={(e) => setCreateUserForm((f) => ({ ...f, phone: e.target.value }))}
+                  placeholder="Optional — 10-digit mobile number"
+                />
+              </div>
             </div>
           </div>
-        </div>
+        </EditDrawer>
       )}
 
       {showBulkDeleteConfirm && (
