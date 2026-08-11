@@ -39,19 +39,7 @@ describe('syncStoreSubscription', () => {
     await c?.stop();
   });
 
-  async function seedOwnerAndStore() {
-    const [user] = await app.db
-      .insert(schema.users)
-      .values({
-        email: `owner-${Date.now()}-${Math.random()}@example.com`,
-        passwordHash: null,
-        displayName: 'Store Owner',
-        companyName: null,
-        emailVerified: true,
-        tier: 'free',
-      })
-      .returning();
-    await app.db.insert(schema.userCredits).values({ userId: user.id, balance: 0 });
+  async function seedStore() {
     const [store] = await app.db
       .insert(schema.shopifyStores)
       .values({
@@ -59,14 +47,13 @@ describe('syncStoreSubscription', () => {
         shopifyShopId: Date.now(),
         accessToken: 'enc',
         scope: 'read_products',
-        ownerUserId: user.id,
       })
       .returning();
-    return { user, store };
+    return store;
   }
 
   it('grants credits and persists plan state on first sync with an active subscription', async () => {
-    const { user, store } = await seedOwnerAndStore();
+    const store = await seedStore();
 
     const result = await syncStoreSubscription(app, store, {
       getActiveSubscription: async () => sub(),
@@ -79,9 +66,9 @@ describe('syncStoreSubscription', () => {
     });
 
     const [balanceRow] = await app.db
-      .select({ balance: schema.userCredits.balance })
-      .from(schema.userCredits)
-      .where(eq(schema.userCredits.userId, user.id));
+      .select({ balance: schema.shopifyStoreCredits.balance })
+      .from(schema.shopifyStoreCredits)
+      .where(eq(schema.shopifyStoreCredits.storeId, store.id));
     expect(balanceRow?.balance).toBe(5000);
 
     const [updatedStore] = await app.db
@@ -96,7 +83,7 @@ describe('syncStoreSubscription', () => {
 
   it('matches the plan name case-insensitively', async () => {
     // We do not control how the plan gets capitalized in Partner Dashboard.
-    const { user, store } = await seedOwnerAndStore();
+    const store = await seedStore();
 
     const result = await syncStoreSubscription(app, store, {
       getActiveSubscription: async () => sub({ name: '  STARTER ' }),
@@ -105,14 +92,14 @@ describe('syncStoreSubscription', () => {
     expect(result.planHandle).toBe('starter');
     expect(result.creditsGranted).toBe(1925);
     const [balanceRow] = await app.db
-      .select({ balance: schema.userCredits.balance })
-      .from(schema.userCredits)
-      .where(eq(schema.userCredits.userId, user.id));
+      .select({ balance: schema.shopifyStoreCredits.balance })
+      .from(schema.shopifyStoreCredits)
+      .where(eq(schema.shopifyStoreCredits.storeId, store.id));
     expect(balanceRow?.balance).toBe(1925);
   });
 
   it('does not re-grant credits on a second sync within the same billing cycle', async () => {
-    const { user, store } = await seedOwnerAndStore();
+    const store = await seedStore();
     const activeSub = sub({ name: 'starter' });
     await syncStoreSubscription(app, store, { getActiveSubscription: async () => activeSub });
     const [restored] = await app.db
@@ -126,14 +113,14 @@ describe('syncStoreSubscription', () => {
 
     expect(second.creditsGranted).toBe(0);
     const [balanceRow] = await app.db
-      .select({ balance: schema.userCredits.balance })
-      .from(schema.userCredits)
-      .where(eq(schema.userCredits.userId, user.id));
+      .select({ balance: schema.shopifyStoreCredits.balance })
+      .from(schema.shopifyStoreCredits)
+      .where(eq(schema.shopifyStoreCredits.storeId, store.id));
     expect(balanceRow?.balance).toBe(1925); // only granted once
   });
 
   it('grants again when the billing period advances (renewal)', async () => {
-    const { user, store } = await seedOwnerAndStore();
+    const store = await seedStore();
     await syncStoreSubscription(app, store, {
       getActiveSubscription: async () => sub({ name: 'starter' }),
     });
@@ -149,9 +136,9 @@ describe('syncStoreSubscription', () => {
 
     expect(renewed.creditsGranted).toBe(1925);
     const [balanceRow] = await app.db
-      .select({ balance: schema.userCredits.balance })
-      .from(schema.userCredits)
-      .where(eq(schema.userCredits.userId, user.id));
+      .select({ balance: schema.shopifyStoreCredits.balance })
+      .from(schema.shopifyStoreCredits)
+      .where(eq(schema.shopifyStoreCredits.storeId, store.id));
     expect(balanceRow?.balance).toBe(3850); // 1925 + 1925
   });
 
@@ -159,7 +146,7 @@ describe('syncStoreSubscription', () => {
     // A mid-cycle upgrade may leave the period end alone and issue a new
     // AppSubscription id instead. Shopify's exact behavior here is unverified,
     // so the cycle key covers both id and period end.
-    const { user, store } = await seedOwnerAndStore();
+    const store = await seedStore();
     await syncStoreSubscription(app, store, {
       getActiveSubscription: async () => sub({ name: 'starter' }),
     });
@@ -175,14 +162,14 @@ describe('syncStoreSubscription', () => {
 
     expect(upgraded.creditsGranted).toBe(5000);
     const [balanceRow] = await app.db
-      .select({ balance: schema.userCredits.balance })
-      .from(schema.userCredits)
-      .where(eq(schema.userCredits.userId, user.id));
+      .select({ balance: schema.shopifyStoreCredits.balance })
+      .from(schema.shopifyStoreCredits)
+      .where(eq(schema.shopifyStoreCredits.storeId, store.id));
     expect(balanceRow?.balance).toBe(6925); // 1925 + 5000
   });
 
   it('marks the store cancelled and grants nothing when there is no active subscription', async () => {
-    const { store } = await seedOwnerAndStore();
+    const store = await seedStore();
 
     const result = await syncStoreSubscription(app, store, {
       getActiveSubscription: async () => null,
@@ -203,7 +190,7 @@ describe('syncStoreSubscription', () => {
   it('persists the real status and grants nothing for a non-ACTIVE subscription', async () => {
     // Previously the status was hardcoded to 'active' for any non-null
     // subscription, so a frozen shop looked healthy and got credited.
-    const { user, store } = await seedOwnerAndStore();
+    const store = await seedStore();
 
     const result = await syncStoreSubscription(app, store, {
       getActiveSubscription: async () => sub({ name: 'growth', status: 'FROZEN' }),
@@ -212,10 +199,10 @@ describe('syncStoreSubscription', () => {
     expect(result.subscriptionStatus).toBe('frozen');
     expect(result.creditsGranted).toBe(0);
     const [balanceRow] = await app.db
-      .select({ balance: schema.userCredits.balance })
-      .from(schema.userCredits)
-      .where(eq(schema.userCredits.userId, user.id));
-    expect(balanceRow?.balance).toBe(0);
+      .select({ balance: schema.shopifyStoreCredits.balance })
+      .from(schema.shopifyStoreCredits)
+      .where(eq(schema.shopifyStoreCredits.storeId, store.id));
+    expect(balanceRow?.balance).toBeUndefined();
     const [updatedStore] = await app.db
       .select()
       .from(schema.shopifyStores)
@@ -226,85 +213,11 @@ describe('syncStoreSubscription', () => {
     expect(updatedStore?.currentPeriodEnd).toBeNull();
   });
 
-  it('grants nothing for a store with no owner yet (unlinked account)', async () => {
-    const [store] = await app.db
-      .insert(schema.shopifyStores)
-      .values({
-        shopDomain: `unlinked-${Date.now()}.myshopify.com`,
-        shopifyShopId: Date.now(),
-        accessToken: 'enc',
-        scope: 'read_products',
-      })
-      .returning();
-
-    const result = await syncStoreSubscription(app, store!, {
-      getActiveSubscription: async () => sub({ name: 'pro' }),
-    });
-
-    expect(result.creditsGranted).toBe(0);
-  });
-
-  it('grants credits for the still-unbilled cycle once an owner-less store gets linked to an owner', async () => {
-    // Regression: the trailing store update used to advance the cycle marker
-    // unconditionally, even when ownerUserId was null and no grant could
-    // happen. That permanently marked the cycle "seen," so a later sync after
-    // the store got linked to an owner would see isNewCycle === false and never
-    // grant credits the merchant actually paid for. The marker must only
-    // advance when there was someone to grant to.
-    const [store] = await app.db
-      .insert(schema.shopifyStores)
-      .values({
-        shopDomain: `unlinked-renewal-${Date.now()}.myshopify.com`,
-        shopifyShopId: Date.now(),
-        accessToken: 'enc',
-        scope: 'read_products',
-      })
-      .returning();
-    const activeSub = sub({ name: 'starter' });
-
-    const first = await syncStoreSubscription(app, store!, {
-      getActiveSubscription: async () => activeSub,
-    });
-    expect(first.creditsGranted).toBe(0);
-
-    const [user] = await app.db
-      .insert(schema.users)
-      .values({
-        email: `owner-${Date.now()}-${Math.random()}@example.com`,
-        passwordHash: null,
-        displayName: 'Store Owner',
-        companyName: null,
-        emailVerified: true,
-        tier: 'free',
-      })
-      .returning();
-    await app.db.insert(schema.userCredits).values({ userId: user.id, balance: 0 });
-    await app.db
-      .update(schema.shopifyStores)
-      .set({ ownerUserId: user.id })
-      .where(eq(schema.shopifyStores.id, store!.id));
-    const [linked] = await app.db
-      .select()
-      .from(schema.shopifyStores)
-      .where(eq(schema.shopifyStores.id, store!.id));
-
-    const second = await syncStoreSubscription(app, linked!, {
-      getActiveSubscription: async () => activeSub,
-    });
-
-    expect(second.creditsGranted).toBe(1925);
-    const [balanceRow] = await app.db
-      .select({ balance: schema.userCredits.balance })
-      .from(schema.userCredits)
-      .where(eq(schema.userCredits.userId, user.id));
-    expect(balanceRow?.balance).toBe(1925);
-  });
-
   it('does not forfeit the cycle when the plan name is unrecognized', async () => {
     // An unmapped plan name means we cannot know how many credits were paid
     // for. Grant nothing, but leave the cycle marker alone so that fixing the
     // mapping (or the Partner Dashboard name) still pays out that cycle.
-    const { user, store } = await seedOwnerAndStore();
+    const store = await seedStore();
 
     const unmapped = await syncStoreSubscription(app, store, {
       getActiveSubscription: async () => sub({ name: 'Enterprise' }),
@@ -325,14 +238,14 @@ describe('syncStoreSubscription', () => {
 
     expect(fixed.creditsGranted).toBe(5000);
     const [balanceRow] = await app.db
-      .select({ balance: schema.userCredits.balance })
-      .from(schema.userCredits)
-      .where(eq(schema.userCredits.userId, user.id));
+      .select({ balance: schema.shopifyStoreCredits.balance })
+      .from(schema.shopifyStoreCredits)
+      .where(eq(schema.shopifyStoreCredits.storeId, store.id));
     expect(balanceRow?.balance).toBe(5000);
   });
 
   it('grants the admin-overridden amount when a planCredits override is configured', async () => {
-    const { user, store } = await seedOwnerAndStore();
+    const store = await seedStore();
     await app.redis.set(
       'config:system',
       JSON.stringify({ shopify: { planCredits: { growth: 9000 } } }),
@@ -345,9 +258,9 @@ describe('syncStoreSubscription', () => {
 
       expect(result.creditsGranted).toBe(9000);
       const [balanceRow] = await app.db
-        .select({ balance: schema.userCredits.balance })
-        .from(schema.userCredits)
-        .where(eq(schema.userCredits.userId, user.id));
+        .select({ balance: schema.shopifyStoreCredits.balance })
+        .from(schema.shopifyStoreCredits)
+        .where(eq(schema.shopifyStoreCredits.storeId, store.id));
       expect(balanceRow?.balance).toBe(9000);
     } finally {
       await app.redis.del('config:system');
@@ -367,18 +280,7 @@ describe('grantShopifyTrialCredits', () => {
     await c?.stop();
   });
 
-  async function seedOwnerAndStore() {
-    const [user] = await app.db
-      .insert(schema.users)
-      .values({
-        email: `trial-owner-${Date.now()}-${Math.random()}@example.com`,
-        passwordHash: null,
-        displayName: 'Trial Store Owner',
-        companyName: null,
-        emailVerified: true,
-        tier: 'free',
-      })
-      .returning();
+  async function seedStore() {
     const [store] = await app.db
       .insert(schema.shopifyStores)
       .values({
@@ -386,48 +288,50 @@ describe('grantShopifyTrialCredits', () => {
         shopifyShopId: Date.now(),
         accessToken: 'enc',
         scope: 'read_products',
-        ownerUserId: user.id,
       })
       .returning();
-    return { user, store };
+    return store;
   }
 
   it('grants the configured trial credits on first call', async () => {
-    const { user, store } = await seedOwnerAndStore();
+    const store = await seedStore();
 
-    const result = await grantShopifyTrialCredits(app, store, user.id);
+    const result = await grantShopifyTrialCredits(app, store);
 
     expect(result.creditsGranted).toBe(25);
     const [balanceRow] = await app.db
-      .select({ balance: schema.userCredits.balance })
-      .from(schema.userCredits)
-      .where(eq(schema.userCredits.userId, user.id));
+      .select({ balance: schema.shopifyStoreCredits.balance })
+      .from(schema.shopifyStoreCredits)
+      .where(eq(schema.shopifyStoreCredits.storeId, store.id));
     expect(balanceRow?.balance).toBe(25);
     const [ledgerRow] = await app.db
-      .select({ reason: schema.creditLedger.reason, externalRef: schema.creditLedger.externalRef })
-      .from(schema.creditLedger)
-      .where(eq(schema.creditLedger.userId, user.id));
+      .select({
+        reason: schema.shopifyCreditLedger.reason,
+        externalRef: schema.shopifyCreditLedger.externalRef,
+      })
+      .from(schema.shopifyCreditLedger)
+      .where(eq(schema.shopifyCreditLedger.storeId, store.id));
     expect(ledgerRow?.reason).toBe('SHOPIFY_TRIAL');
     expect(ledgerRow?.externalRef).toBe(`shopify_trial:${store.id}`);
   });
 
   it('does not re-grant on a second call for the same store', async () => {
-    const { user, store } = await seedOwnerAndStore();
-    await grantShopifyTrialCredits(app, store, user.id);
+    const store = await seedStore();
+    await grantShopifyTrialCredits(app, store);
 
-    const second = await grantShopifyTrialCredits(app, store, user.id);
+    const second = await grantShopifyTrialCredits(app, store);
 
     expect(second.creditsGranted).toBe(0);
     const [balanceRow] = await app.db
-      .select({ balance: schema.userCredits.balance })
-      .from(schema.userCredits)
-      .where(eq(schema.userCredits.userId, user.id));
+      .select({ balance: schema.shopifyStoreCredits.balance })
+      .from(schema.shopifyStoreCredits)
+      .where(eq(schema.shopifyStoreCredits.storeId, store.id));
     expect(balanceRow?.balance).toBe(25); // only granted once
   });
 
-  it('grants again for a second, different store linked to the same owner', async () => {
-    const { user, store: firstStore } = await seedOwnerAndStore();
-    await grantShopifyTrialCredits(app, firstStore, user.id);
+  it('grants again for a second, different store', async () => {
+    const firstStore = await seedStore();
+    await grantShopifyTrialCredits(app, firstStore);
 
     const [secondStore] = await app.db
       .insert(schema.shopifyStores)
@@ -436,31 +340,30 @@ describe('grantShopifyTrialCredits', () => {
         shopifyShopId: Date.now() + 1,
         accessToken: 'enc',
         scope: 'read_products',
-        ownerUserId: user.id,
       })
       .returning();
 
-    const result = await grantShopifyTrialCredits(app, secondStore!, user.id);
+    const result = await grantShopifyTrialCredits(app, secondStore!);
 
     expect(result.creditsGranted).toBe(25);
     const [balanceRow] = await app.db
-      .select({ balance: schema.userCredits.balance })
-      .from(schema.userCredits)
-      .where(eq(schema.userCredits.userId, user.id));
-    expect(balanceRow?.balance).toBe(50); // 25 + 25, one per store
+      .select({ balance: schema.shopifyStoreCredits.balance })
+      .from(schema.shopifyStoreCredits)
+      .where(eq(schema.shopifyStoreCredits.storeId, secondStore!.id));
+    expect(balanceRow?.balance).toBe(25);
   });
 
   it('short-circuits without a DB write when the admin sets trial credits to 0', async () => {
-    const { user, store } = await seedOwnerAndStore();
+    const store = await seedStore();
     await app.redis.set('config:system', JSON.stringify({ shopify: { trialCredits: 0 } }));
 
     try {
-      const result = await grantShopifyTrialCredits(app, store, user.id);
+      const result = await grantShopifyTrialCredits(app, store);
       expect(result.creditsGranted).toBe(0);
       const ledgerRows = await app.db
         .select()
-        .from(schema.creditLedger)
-        .where(eq(schema.creditLedger.userId, user.id));
+        .from(schema.shopifyCreditLedger)
+        .where(eq(schema.shopifyCreditLedger.storeId, store.id));
       expect(ledgerRows).toHaveLength(0);
     } finally {
       await app.redis.del('config:system');

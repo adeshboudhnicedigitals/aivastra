@@ -1,7 +1,8 @@
 import { schema } from '@aivastra/db';
-import { eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { getShopifyPlanCredits, getShopifyTrialCredits } from '../../lib/resolution-config.js';
+import { grantStore } from '../credits/shopify-ledger.js';
 import { normalizePlanName } from './billing-plans.js';
 import {
   type ActiveSubscription,
@@ -33,7 +34,7 @@ interface SyncDeps {
  * authenticates the request. There is no org-level equivalent.
  *
  * Idempotency is enforced by the (external_ref) partial unique index on
- * credit_ledger (migration 0148), keyed on storeId + the subscription id + the
+ * shopify_credit_ledger (migration 0150), keyed on storeId + the subscription id + the
  * period end. That, not application-level locking, is what makes this safe to
  * call concurrently from both the redirect-confirm route and the scheduler poll
  * for the same store — matches the existing atomicDeduct/refund idiom in
@@ -89,50 +90,34 @@ export async function syncStoreSubscription(
     );
   }
 
-  // A grant is only possible when we know who to credit, how much, and the
-  // subscription is actually live. PENDING (merchant hasn't approved the
+  // A grant is only possible when we know how much, and the subscription is
+  // actually live. PENDING (merchant hasn't approved the
   // charge yet), FROZEN, DECLINED and EXPIRED all mean Shopify is not billing
   // the merchant, so granting against them would be giving product away.
-  const ownerUserId = store.ownerUserId;
   let grantable = false;
   let creditsGranted = 0;
 
-  if (ownerUserId !== null && amount !== null && subscription.status === 'ACTIVE') {
+  if (amount !== null && subscription.status === 'ACTIVE') {
     grantable = true;
     if (isNewCycle) {
       const externalRef = `shopify_subscription:${store.id}:${subscription.id}:${
         periodEnd?.toISOString() ?? 'none'
       }`;
-      const granted = await app.db.transaction(async (tx) => {
-        const inserted = await tx
-          .insert(schema.creditLedger)
-          .values({
-            userId: ownerUserId,
-            delta: amount,
-            reason: 'SHOPIFY_SUBSCRIPTION',
-            externalRef,
-          })
-          .onConflictDoNothing()
-          .returning({ id: schema.creditLedger.id });
-        if (!inserted.length) return false; // already granted for this cycle
-        await tx
-          .insert(schema.userCredits)
-          .values({ userId: ownerUserId, balance: amount })
-          .onConflictDoUpdate({
-            target: schema.userCredits.userId,
-            set: { balance: sql`${schema.userCredits.balance} + ${amount}`, updatedAt: new Date() },
-          });
-        return true;
-      });
+      const { granted } = await grantStore(
+        app.db,
+        store.id,
+        amount,
+        'SHOPIFY_SUBSCRIPTION',
+        externalRef,
+      );
       if (granted) creditsGranted = amount;
     }
   }
 
   // Only advance the stored cycle marker when a grant was actually possible.
-  // If there was no owner to credit, or the plan name didn't map to a credit
-  // amount, or the subscription wasn't ACTIVE, this cycle was never billed to
-  // anyone — leaving the marker at its previous value (possibly still null)
-  // means a later sync, once the store gets an owner / the plan mapping is
+  // If the plan name didn't map to a credit amount, or the subscription wasn't
+  // ACTIVE, this cycle was never billed — leaving the marker at its previous
+  // value (possibly still null) means a later sync, once the plan mapping is
   // fixed / the subscription goes live, still sees isNewCycle === true for the
   // same cycle and grants it. Advancing unconditionally would silently mark an
   // unbilled cycle as "seen" and the merchant would never get those credits.
@@ -159,12 +144,11 @@ export async function syncStoreSubscription(
 
 /**
  * Grants a one-time, admin-configured number of free trial credits to a
- * store's owner the moment the store first gets linked to an AiVastra
- * account (POST /v1/shopify/store/account/link). Independent of Shopify's
- * own day-based trialDays billing trial and of any paid subscription — this
- * exists so a merchant can try the feature before picking a plan.
+ * store at install time, called from provisionShopifyStore. Independent of
+ * Shopify's own day-based trialDays billing trial and of any paid subscription
+ * — this exists so a merchant can try the feature before picking a plan.
  *
- * Idempotent via the same external_ref partial unique index (migration 0148)
+ * Idempotent via the same external_ref partial unique index (migration 0150)
  * syncStoreSubscription relies on above, keyed on store id alone so this is
  * strictly one-time per store: unlinking and relinking the same store does
  * not re-grant, but a different store linked to the same owner does.
@@ -172,29 +156,12 @@ export async function syncStoreSubscription(
 export async function grantShopifyTrialCredits(
   app: FastifyInstance,
   store: Store,
-  userId: string,
 ): Promise<{ creditsGranted: number }> {
   const amount = await getShopifyTrialCredits(app);
   if (amount <= 0) return { creditsGranted: 0 };
 
   const externalRef = `shopify_trial:${store.id}`;
-  const granted = await app.db.transaction(async (tx) => {
-    const inserted = await tx
-      .insert(schema.creditLedger)
-      .values({ userId, delta: amount, reason: 'SHOPIFY_TRIAL', externalRef })
-      .onConflictDoNothing()
-      .returning({ id: schema.creditLedger.id });
-    if (!inserted.length) return false;
-    await tx
-      .insert(schema.userCredits)
-      .values({ userId, balance: amount })
-      .onConflictDoUpdate({
-        target: schema.userCredits.userId,
-        set: { balance: sql`${schema.userCredits.balance} + ${amount}`, updatedAt: new Date() },
-      });
-    return true;
-  });
-
+  const { granted } = await grantStore(app.db, store.id, amount, 'SHOPIFY_TRIAL', externalRef);
   return { creditsGranted: granted ? amount : 0 };
 }
 
