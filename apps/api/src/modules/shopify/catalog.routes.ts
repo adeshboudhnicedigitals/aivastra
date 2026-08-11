@@ -6,7 +6,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
-import { createJob } from '../jobs/create.js';
+import { createShopifyStoreCatalogJob } from './catalog-job.js';
 import { createProductMedia } from './catalog-publish.js';
 import { fetchLiveProductImages } from './products.routes.js';
 import { assertShopifyCdn } from './products.sync.js';
@@ -106,10 +106,6 @@ export async function shopifyCatalogRoutes(app: FastifyInstance) {
         );
       }
 
-      if (!store.ownerUserId) {
-        throw new AppError('INSUFFICIENT_CREDITS', 402, 'Store is not linked to a billing account');
-      }
-
       // Confirm sourceImageUrl is actually one of the CURRENT images on this specific
       // product, not just any allowlisted Shopify CDN URL — mirrors the same check in
       // PATCH /v1/shopify/products/:id (products.routes.ts).
@@ -129,11 +125,11 @@ export async function shopifyCatalogRoutes(app: FastifyInstance) {
         body.sourceImageUrl,
       );
 
-      let jobResult: Awaited<ReturnType<typeof createJob>>;
+      let jobResult: Awaited<ReturnType<typeof createShopifyStoreCatalogJob>>;
       try {
-        jobResult = await createJob(
+        jobResult = await createShopifyStoreCatalogJob(
           app,
-          store.ownerUserId,
+          store,
           {
             inputs: {
               upperGarmentKey: r2Key,

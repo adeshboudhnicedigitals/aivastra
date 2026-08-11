@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import { encryptToken } from '../../lib/crypto.js';
 import { AppError } from '../../lib/errors.js';
-import { resolveAccountLinkCode } from './customer-auth.js';
+import { grantShopifyTrialCredits } from './billing.js';
 import { writeWidgetKeyMetafield } from './metafields.js';
 import { numericIdFromGid, shopifyGraphQL, verifyQueryHmac } from './service.js';
 import { type TokenGrant, toTokenGrant } from './token.js';
@@ -174,6 +174,8 @@ export async function provisionShopifyStore(
   };
 
   const store = await upsertShopifyStore(app, details, accessToken, scope, grant);
+  const { creditsGranted } = await grantShopifyTrialCredits(app, store);
+  log.debug({ storeId: store.id, creditsGranted }, 'shopify trial credit grant');
   await writeWidgetKeyMetafield(shop, accessToken, details.shopifyShopId, store.storeKey, log);
   // Reauthorization can be reached only after a widget-config PATCH has
   // already committed Postgres and Shopify rejected the old token. Publish
@@ -265,38 +267,6 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
     if (!app.env.SHOPIFY_API_KEY) throw new AppError('CONFIG', 500, 'SHOPIFY_API_KEY missing');
     return reply.redirect(buildPostInstallRedirect(q.shop, app.env.SHOPIFY_API_KEY));
   });
-
-  app.post(
-    '/v1/shopify/store/account/link',
-    { preHandler: app.requireShopifySession },
-    async (req) => {
-      const { code } = req.body as { code?: string };
-      if (!code) throw new AppError('VALIDATION', 400, 'code is required');
-      const userId = await resolveAccountLinkCode(app.redis, code);
-      if (!userId) throw new AppError('UNAUTHORIZED', 401, 'Link code invalid or expired');
-      const store = req.shopifyStore;
-      if (!store) throw new AppError('FORBIDDEN', 403, 'Store not installed');
-      await app.db
-        .update(schema.shopifyStores)
-        .set({ ownerUserId: userId, updatedAt: new Date() })
-        .where(eq(schema.shopifyStores.id, store.id));
-      return { ok: true };
-    },
-  );
-
-  app.post(
-    '/v1/shopify/store/account/unlink',
-    { preHandler: app.requireShopifySession },
-    async (req) => {
-      const store = req.shopifyStore;
-      if (!store) throw new AppError('FORBIDDEN', 403, 'Store not installed');
-      await app.db
-        .update(schema.shopifyStores)
-        .set({ ownerUserId: null, updatedAt: new Date() })
-        .where(eq(schema.shopifyStores.id, store.id));
-      return { ok: true };
-    },
-  );
 }
 
 declare module 'fastify' {

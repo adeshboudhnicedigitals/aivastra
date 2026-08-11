@@ -51,7 +51,6 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
 
   const topics = [
     'app_uninstalled',
-    'app_subscriptions_update',
     'products_update',
     'products_delete',
     'customers_data_request',
@@ -151,9 +150,6 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
             }
             break;
           }
-          case 'app_subscriptions_update':
-            req.log.info({ topic, shopDomain }, 'subscription updated');
-            break;
         }
       } catch (err) {
         req.log.error({ err, topic }, 'webhook post-processing failed');
@@ -186,7 +182,6 @@ export const registerWebhooksDecorator = fp(async (app: FastifyInstance) => {
     // per-shop registration call exists for them.
     const map: Record<string, string> = {
       'app/uninstalled': `${base}/app_uninstalled`,
-      'app_subscriptions/update': `${base}/app_subscriptions_update`,
       'products/update': `${base}/products_update`,
       'products/delete': `${base}/products_delete`,
     };
