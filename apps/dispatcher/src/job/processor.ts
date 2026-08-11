@@ -1943,8 +1943,8 @@ async function processWidgetJob(
 
 // ── Shopify job processor ──────────────────────────────────────────────────
 //
-// Shopify jobs are widget jobs (shopifyStoreId set, real userId set, routed
-// through processWidgetJob) but they use the shared GPU worker pool — the exact
+// Shopify jobs are widget jobs (shopifyStoreId set, routed through processWidgetJob)
+// but they use the shared GPU worker pool — the exact
 // ComfyUI/patcher/upload helpers imported at the top of this file — instead of
 // the dedicated widget ComfyUI VPS. Structurally this mirrors processSareeJob:
 // load one workflow_templates row by ID and reuse its tryon*_node_id columns
@@ -1952,7 +1952,7 @@ async function processWidgetJob(
 // tryonOutputNodeId = output node) — the same "reuse the generic tryon* columns
 // for a non-tryon job kind" precedent saree established. Failure handling
 // follows the same pattern: no MAX_ATTEMPTS retry-then-terminate —
-// any terminal failure goes straight to markShopifyFailed (user credit refund).
+// any terminal failure goes straight to markShopifyFailed (store credit refund).
 
 async function processShopifyJob(
   cfg: ProcessorConfig,
@@ -1967,9 +1967,7 @@ async function processShopifyJob(
 ): Promise<void> {
   const { db, redis, pub, s3, r2Bucket } = cfg;
   const jobId = job.id;
-  // biome-ignore lint/style/noNonNullAssertion: userId/shopifyStoreId guaranteed non-null for shopify jobs routed through this path
-  const userId = job.userId!;
-  // biome-ignore lint/style/noNonNullAssertion: userId/shopifyStoreId guaranteed non-null for shopify jobs routed through this path
+  // biome-ignore lint/style/noNonNullAssertion: shopifyStoreId guaranteed non-null for shopify jobs routed through this path
   const shopifyStoreId = job.shopifyStoreId!;
   const { creditsCharged } = job;
 
@@ -1986,7 +1984,6 @@ async function processShopifyJob(
     await markShopifyFailed(
       cfg,
       jobId,
-      userId,
       shopifyStoreId,
       creditsCharged,
       stream,
@@ -2014,7 +2011,6 @@ async function processShopifyJob(
     await markShopifyFailed(
       cfg,
       jobId,
-      userId,
       shopifyStoreId,
       creditsCharged,
       stream,
@@ -2034,7 +2030,6 @@ async function processShopifyJob(
     await markShopifyFailed(
       cfg,
       jobId,
-      userId,
       shopifyStoreId,
       creditsCharged,
       stream,
@@ -2046,7 +2041,7 @@ async function processShopifyJob(
     return;
   }
 
-  await transitionJob(db, pub, jobId, '', 'PREPROCESSING', {}, jobLog);
+  await transitionJob(db, pub, jobId, '', 'PREPROCESSING', { shopifyStoreId }, jobLog);
 
   // Shopify jobs route to workers with 'shopify' in their allowedJobTypes. An admin
   // must configure at least one such worker (or one with an empty allowedJobTypes,
@@ -2060,7 +2055,6 @@ async function processShopifyJob(
       await markShopifyFailed(
         cfg,
         jobId,
-        userId,
         shopifyStoreId,
         creditsCharged,
         stream,
@@ -2124,7 +2118,15 @@ async function processShopifyJob(
       workflow[garmentNodeId].inputs!.image = garmentFile;
     }
 
-    await transitionJob(db, pub, jobId, '', 'GENERATING', { workerId: w.id }, jobLog);
+    await transitionJob(
+      db,
+      pub,
+      jobId,
+      '',
+      'GENERATING',
+      { workerId: w.id, shopifyStoreId },
+      jobLog,
+    );
     const clientUuid = randomUUID();
     const comfyStartedAt = Date.now();
     const { promptId } = await submitPrompt(w.url, w.apiKey, clientUuid, workflow, jobLog);
@@ -2153,7 +2155,7 @@ async function processShopifyJob(
     );
     comfyRequestDuration.observe((Date.now() - comfyStartedAt) / 1000);
 
-    await transitionJob(db, pub, jobId, '', 'UPLOADING', {}, jobLog);
+    await transitionJob(db, pub, jobId, '', 'UPLOADING', { shopifyStoreId }, jobLog);
     const outputImages = await fetchHistory(w.url, w.apiKey, promptId, jobLog, outputNodeId);
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images for shopify job');
@@ -2168,7 +2170,8 @@ async function processShopifyJob(
     const { resultKey } = await finalizeOutput({
       imageBytes,
       jobId,
-      userId,
+      userId: '',
+      shopifyStoreId,
       jobWatermark: job.watermark,
       db,
       pub,
@@ -2188,7 +2191,6 @@ async function processShopifyJob(
     await markShopifyFailed(
       cfg,
       jobId,
-      userId,
       shopifyStoreId,
       creditsCharged,
       stream,
@@ -2277,7 +2279,6 @@ async function markWidgetFailed(
 async function markShopifyFailed(
   cfg: ProcessorConfig,
   jobId: string,
-  userId: string,
   shopifyStoreId: string,
   creditsCharged: number,
   stream: string,
@@ -2291,27 +2292,30 @@ async function markShopifyFailed(
   await db.transaction(async (tx) => {
     const existing = await tx
       .select()
-      .from(schema.creditLedger)
+      .from(schema.shopifyCreditLedger)
       .where(
         and(
-          eq(schema.creditLedger.jobId, jobId),
-          eq(schema.creditLedger.reason, 'JOB_FAIL_REFUND'),
+          eq(schema.shopifyCreditLedger.jobId, jobId),
+          eq(schema.shopifyCreditLedger.reason, 'JOB_FAIL_REFUND'),
         ),
       );
     if (existing.length) return;
     await tx
-      .update(schema.userCredits)
-      .set({ balance: sql`${schema.userCredits.balance} + ${creditsCharged}` })
-      .where(eq(schema.userCredits.userId, userId));
-    await tx
-      .insert(schema.creditLedger)
-      .values({ userId, delta: creditsCharged, reason: 'JOB_FAIL_REFUND', jobId });
+      .update(schema.shopifyStoreCredits)
+      .set({ balance: sql`${schema.shopifyStoreCredits.balance} + ${creditsCharged}` })
+      .where(eq(schema.shopifyStoreCredits.storeId, shopifyStoreId));
+    await tx.insert(schema.shopifyCreditLedger).values({
+      storeId: shopifyStoreId,
+      delta: creditsCharged,
+      reason: 'JOB_FAIL_REFUND',
+      jobId,
+    });
   });
 
-  await transitionJob(db, pub, jobId, userId, 'FAILED', { errorCode }, log);
+  await transitionJob(db, pub, jobId, '', 'FAILED', { errorCode, shopifyStoreId }, log);
   await redis.xack(stream, 'dispatcher-cg', messageId);
   recordJobOutcome('failed', startedAt);
-  log.warn({ jobId, shopifyStoreId, errorCode }, 'shopify job FAILED — user credits refunded');
+  log.warn({ jobId, shopifyStoreId, errorCode }, 'shopify job FAILED — store credits refunded');
 }
 
 // ── Regular job failure handling ───────────────────────────────────────────

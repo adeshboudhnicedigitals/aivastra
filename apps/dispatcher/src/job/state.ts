@@ -25,6 +25,12 @@ export interface TransitionOptions {
    * The resultKey/thumbnailKey are still included in the SSE payload.
    */
   skipOutputInsert?: boolean;
+  /**
+   * Store-billed Shopify jobs only: SSE publishes to `sse:events:store:${shopifyStoreId}`
+   * instead of `sse:events:${userId}`. Callers on this path pass userId as '' (mirrors
+   * the existing kiosk-job convention of an empty userId for jobs with no real user).
+   */
+  shopifyStoreId?: string;
 }
 
 export async function transitionJob(
@@ -74,10 +80,10 @@ export async function transitionJob(
     payload: opts as Record<string, unknown>,
   });
 
+  const channelId = opts.shopifyStoreId ? `store:${opts.shopifyStoreId}` : userId;
   const ssePayload = JSON.stringify({ jobId, userId, type: 'STATUS', status, ...opts });
-  await Promise.all([
-    pub.publish(`sse:events:${userId}`, ssePayload),
-    pub.publish('sse:events:admin', ssePayload),
-  ]);
-  log.info({ jobId, userId, status }, 'job state transition');
+  const publishes = [pub.publish('sse:events:admin', ssePayload)];
+  if (channelId) publishes.push(pub.publish(`sse:events:${channelId}`, ssePayload));
+  await Promise.all(publishes);
+  log.info({ jobId, userId, channelId, status }, 'job state transition');
 }
