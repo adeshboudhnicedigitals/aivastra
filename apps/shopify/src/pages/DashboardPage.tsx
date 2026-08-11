@@ -166,6 +166,32 @@ export default function DashboardPage() {
         {error && <Banner tone="critical">{error}</Banner>}
 
         <Card>
+          <InlineStack align="space-between" blockAlign="center">
+            <InlineStack gap="300" blockAlign="center">
+              <Badge
+                tone={me?.store.subscriptionStatus === 'active' ? 'success' : 'attention'}
+                size="large"
+              >
+                {me?.store.planHandle
+                  ? `${PLAN_LABELS[me.store.planHandle] ?? me.store.planHandle} plan`
+                  : 'No plan selected'}
+              </Badge>
+              {me?.store.planHandle && me.store.subscriptionStatus !== 'active' && (
+                <Text as="span" tone="subdued">
+                  {me.store.subscriptionStatus}
+                </Text>
+              )}
+              <Text as="span" variant="headingLg">
+                {me?.creditBalance ?? 0} credits
+              </Text>
+            </InlineStack>
+            <Button onClick={() => navigate('/pricing')}>
+              {me?.store.planHandle ? 'Manage plan' : 'Choose a plan'}
+            </Button>
+          </InlineStack>
+        </Card>
+
+        <Card>
           <BlockStack gap="400">
             <ProgressBar progress={(doneCount / 3) * 100} size="small" />
             <InlineStack align="space-between" blockAlign="center">
@@ -254,31 +280,7 @@ export default function DashboardPage() {
           </Card>
         </InlineGrid>
 
-        <InlineGrid columns={{ xs: 1, sm: 3 }} gap="400">
-          <Card>
-            <BlockStack gap="300">
-              <Text as="p" tone="subdued">
-                Credit balance
-              </Text>
-              <Text as="p" variant="heading2xl">
-                {me?.creditBalance ?? 0}
-              </Text>
-              {me?.store.planHandle ? (
-                <Text as="p" tone="subdued">
-                  {PLAN_LABELS[me.store.planHandle] ?? me.store.planHandle} plan
-                  {me.store.subscriptionStatus !== 'active'
-                    ? ` — ${me.store.subscriptionStatus}`
-                    : ''}
-                </Text>
-              ) : null}
-              <Box>
-                <Button onClick={() => navigate('/pricing')}>
-                  {me?.store.planHandle ? 'Manage plan' : 'Choose a plan'}
-                </Button>
-              </Box>
-            </BlockStack>
-          </Card>
-
+        <InlineGrid columns={{ xs: 1, sm: 2 }} gap="400">
           <Card>
             <BlockStack gap="200">
               <Text as="h2" variant="headingMd">
