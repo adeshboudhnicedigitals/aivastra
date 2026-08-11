@@ -35,7 +35,7 @@ export function Tooltip({
             left: '50%',
             transform: 'translateX(-50%)',
             background: C.dark,
-            color: C.white,
+            color: C.onDark,
             fontSize: 12,
             fontWeight: 500,
             padding: '6px 12px',
