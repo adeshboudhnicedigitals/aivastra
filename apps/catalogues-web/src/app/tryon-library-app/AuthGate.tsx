@@ -81,6 +81,7 @@ function LoginFormInner({ onLoggedIn }: { onLoggedIn: () => void }) {
             value={identifier}
             onChange={(e) => setIdentifier(e.target.value)}
             required
+            suppressHydrationWarning
             style={{
               height: 44,
               borderRadius: 8,
@@ -101,6 +102,7 @@ function LoginFormInner({ onLoggedIn }: { onLoggedIn: () => void }) {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
+            suppressHydrationWarning
             style={{
               height: 44,
               borderRadius: 8,
