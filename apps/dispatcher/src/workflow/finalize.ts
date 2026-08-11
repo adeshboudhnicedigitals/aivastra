@@ -29,6 +29,7 @@ export interface FinalizeOutputOpts {
   imageBytes: Uint8Array;
   jobId: string;
   userId: string;
+  shopifyStoreId?: string;
   /** Whether this job has the watermark flag set (snapshotted at creation). */
   jobWatermark: boolean;
   /** Result image encoding — defaults to 'png'. 'webp' re-encodes at q90 (smaller payload). */
@@ -161,7 +162,7 @@ export async function finalizeOutput(opts: FinalizeOutputOpts): Promise<{
     jobId,
     userId,
     'COMPLETED',
-    { resultKey, thumbnailKey, skipOutputInsert: true },
+    { resultKey, thumbnailKey, skipOutputInsert: true, shopifyStoreId: opts.shopifyStoreId },
     jobLog,
   );
 

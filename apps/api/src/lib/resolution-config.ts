@@ -6,6 +6,12 @@ import {
   SIMPLE_TRYON_COST,
 } from '@aivastra/types';
 import type { FastifyInstance } from 'fastify';
+import {
+  DEFAULT_CREDITS_BY_PLAN_HANDLE,
+  normalizePlanName,
+  SHOPIFY_PLAN_HANDLES,
+  type ShopifyPlanHandle,
+} from '../modules/shopify/billing-plans.js';
 
 const CONFIG_KEY = 'config:system';
 
@@ -29,6 +35,8 @@ export const DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG: { creditCost: number } = {
 };
 
 export const DEFAULT_PIXVERSE_CONFIG: { creditCost: number } = { creditCost: PIXVERSE_VIDEO_COST };
+
+export const DEFAULT_SHOPIFY_TRIAL_CONFIG: { trialCredits: number } = { trialCredits: 25 };
 
 /**
  * Reads the admin-configured credit cost for a resolution from the same
@@ -111,5 +119,49 @@ export async function getPixverseCreditCost(app: FastifyInstance): Promise<numbe
     return typeof cost === 'number' ? cost : PIXVERSE_VIDEO_COST;
   } catch {
     return PIXVERSE_VIDEO_COST;
+  }
+}
+
+/**
+ * Reads the admin-configured number of free trial credits granted once,
+ * automatically, when a Shopify store first links to an AiVastra account
+ * (see grantShopifyTrialCredits in modules/shopify/billing.ts). Independent
+ * of Shopify's own day-based trialDays billing trial. Falls back to
+ * DEFAULT_SHOPIFY_TRIAL_CONFIG.trialCredits if nothing is stored yet, or the
+ * entry is missing/malformed.
+ */
+export async function getShopifyTrialCredits(app: FastifyInstance): Promise<number> {
+  try {
+    const raw = await app.redis.get(CONFIG_KEY);
+    const cfg = raw ? JSON.parse(raw) : {};
+    const credits = cfg.shopify?.trialCredits;
+    return typeof credits === 'number' ? credits : DEFAULT_SHOPIFY_TRIAL_CONFIG.trialCredits;
+  } catch {
+    return DEFAULT_SHOPIFY_TRIAL_CONFIG.trialCredits;
+  }
+}
+
+/**
+ * Reads the admin-configured credit grant for one Shopify Managed Pricing
+ * plan (starter/growth/pro) from the same `config:system` Redis key the
+ * admin panel edits. Returns null for a plan name that doesn't match one of
+ * SHOPIFY_PLAN_HANDLES — same "unrecognized plan grants nothing" behavior
+ * creditsForPlanName had. Falls back to DEFAULT_CREDITS_BY_PLAN_HANDLE for a
+ * known handle if nothing is stored yet, or the entry is missing/malformed.
+ */
+export async function getShopifyPlanCredits(
+  app: FastifyInstance,
+  planName: string,
+): Promise<number | null> {
+  const handle = normalizePlanName(planName);
+  if (!(SHOPIFY_PLAN_HANDLES as readonly string[]).includes(handle)) return null;
+  const knownHandle = handle as ShopifyPlanHandle;
+  try {
+    const raw = await app.redis.get(CONFIG_KEY);
+    const cfg = raw ? JSON.parse(raw) : {};
+    const credits = cfg.shopify?.planCredits?.[knownHandle];
+    return typeof credits === 'number' ? credits : DEFAULT_CREDITS_BY_PLAN_HANDLE[knownHandle];
+  } catch {
+    return DEFAULT_CREDITS_BY_PLAN_HANDLE[knownHandle];
   }
 }

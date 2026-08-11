@@ -76,6 +76,10 @@ const Env = z.object({
   SHOPIFY_SCOPES: z.string().default('read_products'),
   // 32-byte key, base64-encoded (44 chars). Required only when Shopify is enabled.
   SHOPIFY_TOKEN_ENC_KEY: z.string().optional(),
+  // The app's handle as configured in Partner Dashboard, used to build the
+  // Shopify-hosted plan-selection page URL:
+  // https://admin.shopify.com/store/:store_handle/charges/:app_handle/pricing_plans
+  SHOPIFY_APP_HANDLE: z.string().optional(),
   // Comma-separated email allowlist for the Catalog Video (PixVerse) feature.
   // Unset = open to everyone (dev default). Set in production to restrict the
   // feature to a soft-launch cohort without a code change.

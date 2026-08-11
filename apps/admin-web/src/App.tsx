@@ -20,6 +20,7 @@ import RecycleBinPage from './pages/RecycleBinPage';
 import SareePage from './pages/SareePage';
 import SettingsPage from './pages/SettingsPage';
 import ShopifyFunnelsPage from './pages/ShopifyFunnelsPage';
+import ShopifyStoresPage from './pages/ShopifyStoresPage';
 import TryonPage from './pages/TryonPage';
 import UsersPage from './pages/UsersPage';
 import WorkersPage from './pages/WorkersPage';
@@ -46,6 +47,7 @@ const PATH_LABELS: Record<string, string> = {
   saree: 'Saree',
   'shopify-funnels': 'Shopify',
   'credit-analysis': 'Credit Analysis',
+  'shopify-stores': 'Shopify Stores',
 };
 
 function readStoredTheme(): Theme {
@@ -234,6 +236,7 @@ export default function App() {
             <Route path="/workflows" element={<WorkflowsPage {...pageProps} />} />
             <Route path="/shopify-funnels" element={<ShopifyFunnelsPage {...pageProps} />} />
             <Route path="/credit-analysis" element={<CreditAnalysisPage {...pageProps} />} />
+            <Route path="/shopify-stores" element={<ShopifyStoresPage {...pageProps} />} />
             <Route path="/tryon" element={<TryonPage {...pageProps} />} />
             <Route path="/demo-catalog" element={<DemoCatalogPage {...pageProps} />} />
             <Route path="/dev-api" element={<DevApiPage {...pageProps} />} />

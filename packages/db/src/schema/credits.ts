@@ -55,6 +55,11 @@ export const creditLedger = pgTable('credit_ledger', {
   reason: text('reason').notNull(),
   jobId: uuid('job_id'),
   adminId: uuid('admin_id'),
+  // Idempotency key for non-job-triggered grants (e.g. a Shopify subscription
+  // billing-cycle grant). Mirrors the (job_id, reason) partial unique index
+  // pattern below for job-triggered ones — see migration 0074 for that one,
+  // and this task's migration for this one.
+  externalRef: text('external_ref'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

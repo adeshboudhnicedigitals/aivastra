@@ -139,6 +139,19 @@ export const SystemConfigBody = z.object({
     })
     .optional(),
   pixverse: z.object({ creditCost: z.number().int().positive().max(1_000) }).optional(),
+  shopify: z
+    .object({
+      trialCredits: z.number().int().min(0).max(1000).optional(),
+      planCredits: z
+        .object({
+          starter: z.number().int().positive().max(1_000_000),
+          growth: z.number().int().positive().max(1_000_000),
+          pro: z.number().int().positive().max(1_000_000),
+        })
+        .partial()
+        .optional(),
+    })
+    .optional(),
   // Admin-configurable per-surface upload size ceilings. Each replaces a previously
   // hardcoded byte constant (see apps/api/src/lib/upload-limits-config.ts for
   // defaults/readers). Omitted = fall back to the hardcoded default. No minimum
