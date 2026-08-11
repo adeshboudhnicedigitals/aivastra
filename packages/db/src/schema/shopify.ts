@@ -107,8 +107,52 @@ export const shopifyStores = pgTable('shopify_stores', {
   uninstalledAt: timestamp('uninstalled_at', { withTimezone: true }),
   settings: jsonb('settings').$type<ShopifyStoreSettings>().notNull().default({}),
   syncCursor: text('sync_cursor'),
+  // Shopify App Pricing state — populated by billing.ts's syncStoreSubscription,
+  // never written from a client-trusted value. Holds the normalized (trimmed +
+  // lowercased) AppSubscription.name, since the Admin API exposes no plan
+  // handle. null means "no plan selected yet" (distinct from "was on a plan,
+  // now cancelled", which is subscriptionStatus === 'cancelled' with
+  // planHandle still set to the last plan).
+  planHandle: text('plan_handle'),
+  // Lowercased AppSubscriptionStatus: 'active' | 'cancelled' | 'declined' |
+  // 'expired' | 'frozen' | 'pending' | null.
+  subscriptionStatus: text('subscription_status'),
+  // The pair that identifies the billing cycle credits were last granted for:
+  // the Admin API's AppSubscription.id and its currentPeriodEnd. When a poll
+  // observes *either* change, a new cycle started — that's the renewal signal,
+  // since Shopify App Pricing sends no renewal webhook. Both are needed because
+  // a plan change may either advance the period end on the same subscription or
+  // replace the subscription with a new id.
+  currentSubscriptionId: text('current_subscription_id'),
+  currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
+  lastBillingSyncAt: timestamp('last_billing_sync_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const shopifyStoreCredits = pgTable('shopify_store_credits', {
+  storeId: uuid('store_id')
+    .primaryKey()
+    .references(() => shopifyStores.id, { onDelete: 'cascade' }),
+  balance: integer('balance').notNull().default(0),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const shopifyCreditLedger = pgTable('shopify_credit_ledger', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  storeId: uuid('store_id')
+    .notNull()
+    .references(() => shopifyStores.id, { onDelete: 'cascade' }),
+  delta: integer('delta').notNull(),
+  reason: text('reason').notNull(),
+  jobId: uuid('job_id'),
+  // Idempotency key for non-job-triggered grants (trial, subscription cycle).
+  // Mirrors credit_ledger.external_ref (migration 0148) and the (job_id, reason)
+  // partial unique index (migration 0074) — both re-created by hand below since
+  // drizzle-kit generate does not express partial unique indexes from pgTable
+  // column definitions alone.
+  externalRef: text('external_ref'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const shopifyFunnelTemplates = pgTable(

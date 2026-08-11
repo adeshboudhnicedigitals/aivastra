@@ -3,7 +3,6 @@ import { AppProvider, Banner, Box, Frame, Navigation, Spinner } from '@shopify/p
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AppNavMenu, NAV_ITEMS } from './components/AppNavMenu';
-import { LinkAccountGate } from './components/LinkAccountGate';
 import { apiFetch, setShopDomain } from './lib/api';
 import {
   AppBridgeTimeoutError,
@@ -12,15 +11,16 @@ import {
 } from './lib/appBridge';
 import { runNavGuard } from './lib/navGuard';
 import AnalyticsPage from './pages/AnalyticsPage';
+import BillingCallbackPage from './pages/BillingCallbackPage';
 import DashboardPage from './pages/DashboardPage';
 import ManagePage from './pages/ManagePage';
+import PricingPage from './pages/PricingPage';
 import SettingsPage from './pages/SettingsPage';
 import SupportPage from './pages/SupportPage';
 import WidgetDesignPage from './pages/WidgetDesignPage';
 import type { ShopifyMe } from './types';
 
 export default function App() {
-  const [me, setMe] = useState<ShopifyMe | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
@@ -33,7 +33,6 @@ export default function App() {
       .then((res) => {
         clearRecoveryReloadMarker();
         setShopDomain(res.store.shopDomain);
-        setMe(res);
         setLoading(false);
       })
       .catch((err) => {
@@ -87,14 +86,6 @@ export default function App() {
     );
   }
 
-  if (!me?.store.ownerUserId) {
-    return (
-      <AppProvider i18n={{}}>
-        <LinkAccountGate onLinked={load} />
-      </AppProvider>
-    );
-  }
-
   // window.shopify is only defined inside the Shopify admin iframe (see
   // lib/appBridge.ts). Outside it, <ui-nav-menu> renders nothing, so Frame's
   // own `navigation` prop supplies a usable dev nav instead — Polaris's
@@ -128,9 +119,11 @@ export default function App() {
           <Route path="/" element={<DashboardPage />} />
           <Route path="/manage" element={<ManagePage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route path="/pricing" element={<PricingPage />} />
           <Route path="/widget-design" element={<WidgetDesignPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/support" element={<SupportPage />} />
+          <Route path="/billing/callback" element={<BillingCallbackPage />} />
           {/* Merchants may have bookmarked the old path while it was the only
               product surface. */}
           <Route path="/products" element={<Navigate to="/manage" replace />} />

@@ -1,3 +1,24 @@
+## 2026-08-11 — Shopify store credit decoupling (Task 13)
+
+**Done**
+- Shipped store-scoped Shopify credits and ledger handling, removal of the Shopify account-link flow, and the read-only Admin Shopify Stores page.
+- Full repository typecheck and build passed. The dispatcher suite passed (4 files, 54 tests).
+
+**Failed / Not Done**
+- The Task 13 orphan-reference check still finds live API source references to `ownerUserId` outside the retained schema column: `admin/credit-analysis.routes.ts`, `admin/users.routes.ts`, `auth/routes.ts`, and `shopify/billing.routes.ts`. Full API integration output did not reach a final Vitest summary in this environment and requires follow-up confirmation.
+- Manual dev-store end-to-end verification was not run: it requires an authenticated Shopify CLI session and a configured development store.
+
+**Open Questions / Decisions**
+- Non-goals retained by design: `shopify_stores.ownerUserId` remains as an unused schema column; no historical user-credit data migration was performed.
+
+## 2026-08-11 — Shopify store credit decoupling (Task 6)
+
+**Done**
+- Shopify storefront-widget try-ons now check, deduct, and compensate `shopify_store_credits` through the store-scoped ledger. Shopify-created jobs leave `userId` null.
+- Storefront job SSE subscriptions now use `sse:events:store:${storeId}`, with no account-link guard.
+- Updated the customer-widget and shopper-limit integration fixtures/assertions to seed and verify store credit and ledger records.
+- Verified `pnpm --filter @aivastra/api typecheck` and both affected integration suites (31 tests).
+
 ## 2026-08-10 — Unified EditDrawer migration (admin-web)
 
 **Done**
@@ -6221,3 +6242,17 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 ---
 
 <!-- Add new entries above this line, newest first -->
+## 2026-08-10 — Shopify in-app pricing page
+
+**Done**
+- Added a three-tier `/pricing` page to `apps/shopify`, using display-only plan comparison data for Starter ($29, 1,925 credits, 385 try-ons), Growth ($59, 5,000 credits, 1,000 try-ons), and Pro ($229, 22,000 credits, 4,400 try-ons). It shows shared features, analytics/support/branding differences, Growth’s Best value badge, and the active subscription’s Current plan state.
+- Extracted `resolvePlanSelectionUrl()` so plan-picker URL construction and the missing-app-handle error are shared. The actual subscription selection remains Shopify-hosted; no per-tier picker URLs or navigation items were added.
+- Rewired the Dashboard plan card to navigate in-app to `/pricing` and removed its now-dead direct redirect code.
+- Reconciled API cycle credit grants and the documented Pro price with the supplied pricing sheet: Starter 1,925, Growth 5,000, Pro 22,000; Pro is $229/month.
+- Completed fresh-agent implementation plus independent code and spec-compliance reviews for each of the five plan tasks. Focused billing tests, feature-data tests, Shopify-admin test suite review, and Shopify-admin TypeScript checks passed.
+
+**Failed / Not Done**
+- The two required authenticated browser smoke checks remain unperformed: direct visual verification of `/pricing`, and Dashboard-plan-card navigation to `/pricing`. The environment could serve the Vite route but had no safe embedded Shopify/browser session, so both plan checkboxes remain intentionally unchecked.
+
+**Open Questions / Decisions**
+- Confirm in the Partner Dashboard that Pro’s configured recurring charge is $229/month; this repository cannot inspect or modify that external configuration.

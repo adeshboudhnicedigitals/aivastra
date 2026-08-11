@@ -207,6 +207,7 @@ services:
         VITE_SHOPIFY_API_KEY: ${VITE_SHOPIFY_API_KEY}
         VITE_AIVASTRA_APP_URL: ${VITE_AIVASTRA_APP_URL:-https://staging-app.aivastra.com}
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://staging-app.aivastra.com}
+        VITE_SHOPIFY_APP_HANDLE: ${VITE_SHOPIFY_APP_HANDLE}
     container_name: aivastra-staging-shopify-admin
     restart: unless-stopped
     ports:
