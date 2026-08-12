@@ -1593,6 +1593,22 @@ export default function StudioPage(): React.ReactElement {
           grid-template-columns: repeat(5, minmax(0, 1fr));
           gap: 16px;
         }
+        .sel-card-label-box {
+          display: -webkit-box !important;
+          -webkit-line-clamp: 2 !important;
+          -webkit-box-orient: vertical !important;
+          overflow: hidden !important;
+          text-overflow: ellipsis !important;
+          font-size: 12px;
+          line-height: 1.25 !important;
+          height: 36px !important;
+          max-height: 36px !important;
+          box-sizing: border-box !important;
+          width: 100% !important;
+          text-align: center !important;
+          word-break: break-word !important;
+          overflow-wrap: anywhere !important;
+        }
         .studio-platforms-grid {
           display: grid;
           grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1639,12 +1655,9 @@ export default function StudioPage(): React.ReactElement {
             gap: 10px;
           }
           .garment-card, .visual-card-wrapper {
-            max-width: 125px;
+            max-width: 100%;
             margin: 0 auto;
             width: 100%;
-          }
-          .garment-card .sel-card-image {
-            max-height: 110px;
           }
           .gender-card-hover {
             height: 56px !important;
@@ -1677,10 +1690,18 @@ export default function StudioPage(): React.ReactElement {
             gap: 8px;
           }
           .garment-card, .visual-card-wrapper {
-            max-width: 115px;
+            max-width: 100%;
           }
-          .garment-card .sel-card-image {
-            max-height: 100px;
+          .sel-card-label-box {
+            -webkit-line-clamp: 3 !important;
+            font-size: 11.5px !important;
+            height: 46px !important;
+            max-height: 46px !important;
+            line-height: 1.25 !important;
+          }
+          .studio-select-modal-grid {
+            grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+            gap: 10px !important;
           }
         }
         @media (max-width: 480px) {
@@ -1711,11 +1732,19 @@ export default function StudioPage(): React.ReactElement {
             grid-template-columns: repeat(3, minmax(0, 1fr));
             gap: 6px;
           }
-          .garment-card, .visual-card-wrapper {
-            max-width: 100px;
+          .studio-select-modal-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+            gap: 8px !important;
           }
-          .garment-card .sel-card-image {
-            max-height: 90px;
+          .garment-card, .visual-card-wrapper {
+            max-width: 100%;
+          }
+          .sel-card-label-box {
+            -webkit-line-clamp: 3 !important;
+            font-size: 11px !important;
+            height: 44px !important;
+            max-height: 44px !important;
+            line-height: 1.25 !important;
           }
           .gender-card-hover {
             height: 52px !important;
@@ -3083,7 +3112,7 @@ export default function StudioPage(): React.ReactElement {
                           imageUrl={template.thumbnailUrl}
                           label={template.id === 'custom' ? undefined : template.label}
                           w="100%"
-                          ratio={215.2 / 212.67}
+                          ratio={3 / 4}
                           imageObjectPosition="top center"
                           fillHeight={template.id === 'custom'}
                           emptyContent={
@@ -3141,7 +3170,7 @@ export default function StudioPage(): React.ReactElement {
                       title="Select a Ready-Made Catalogue Template"
                       items={catalogueTemplates.filter((template) => template.id !== 'custom')}
                       selectedIds={[catalogueTemplateId]}
-                      aspect={215.2 / 282}
+                      aspect={3 / 4}
                       columns={5}
                       onSelect={(id) => {
                         handleCatalogueTemplateSelect(id);
@@ -3178,7 +3207,7 @@ export default function StudioPage(): React.ReactElement {
                               onClick={() => handleLookToggle(look.id)}
                               imageUrl={look.poseThumbnailUrl}
                               w="100%"
-                              ratio={215.2 / 212.67}
+                              ratio={3 / 4}
                               imageObjectPosition="top center"
                             />
                           ))}
@@ -3772,7 +3801,7 @@ export default function StudioPage(): React.ReactElement {
                             // card height other sections get from image + label row
                             // (~28px) combined - so pose cards stay the same height as
                             // the rest of the grid without leaving blank space below.
-                            ratio={215.2 / (212.67 + 28)}
+                            ratio={3 / 4}
                             // Center-crop was cutting off heads/hair on portrait pose
                             // shots - anchor the crop to the top instead.
                             imageObjectPosition="top"
@@ -3885,7 +3914,7 @@ export default function StudioPage(): React.ReactElement {
                                 }
                                 imageUrl={i.thumbnailUrl}
                                 w="100%"
-                                ratio={215.2 / 212.67}
+                                ratio={3 / 4}
                               />
                             ));
                           })()}
@@ -4558,7 +4587,7 @@ export default function StudioPage(): React.ReactElement {
                         }}
                         imageUrl={i.thumbnailUrl}
                         w="100%"
-                        ratio={215.2 / 212.67}
+                        ratio={3 / 4}
                         borderWidth={3}
                       />
                     ))}
