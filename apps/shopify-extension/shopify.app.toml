@@ -29,6 +29,15 @@ redirect_urls = [
   "https://app.aivastra.com/v1/shopify/auth/callback"
 ]
 
+# SEC-7.1: the storefront tryon widget's requests get proxied through Shopify
+# (which signs each one — see apps/api/src/plugins/shopify-widget-auth.ts)
+# instead of calling app.aivastra.com directly with a static, page-source-visible
+# X-Widget-Key. /apps/widget/* on any shop's storefront hits this.
+[app_proxy]
+url = "https://app.aivastra.com/v1/shopify/proxy"
+subpath = "widget"
+prefix = "apps"
+
 [webhooks]
 api_version = "2026-07"
 

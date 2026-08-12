@@ -25,6 +25,12 @@ redirect_urls = [
   "https://staging-admin.aivastra.com/v1/shopify/auth/callback"
 ]
 
+# Mirrors shopify.app.toml — see that file for why.
+[app_proxy]
+url = "https://staging-admin.aivastra.com/v1/shopify/proxy"
+subpath = "widget"
+prefix = "apps"
+
 [webhooks]
 api_version = "2026-07"
 

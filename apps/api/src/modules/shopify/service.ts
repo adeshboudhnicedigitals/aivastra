@@ -216,6 +216,32 @@ export function verifyQueryHmac(query: Record<string, string>, secret: string): 
   return safeEq(Buffer.from(digest, 'utf8'), Buffer.from(hmac, 'utf8'));
 }
 
+/**
+ * App Proxy signature verification (distinct scheme from verifyQueryHmac's OAuth
+ * `hmac` param above — this is `signature`, not `hmac`). Per Shopify's docs:
+ * exclude `signature`, format each remaining param as `key=value1,value2` (comma
+ * joins multi-values), sort by key, and concatenate with NO delimiter between
+ * pairs — unlike the OAuth scheme's `&`-joined string. Getting this delimiter
+ * wrong silently breaks every request rather than failing loudly, so don't
+ * "simplify" it to match verifyQueryHmac above.
+ */
+export function verifyAppProxySignature(
+  query: Record<string, string | string[]>,
+  secret: string,
+): boolean {
+  const { signature, ...rest } = query;
+  if (!signature || typeof signature !== 'string') return false;
+  const msg = Object.keys(rest)
+    .sort()
+    .map((k) => {
+      const v = rest[k];
+      return `${k}=${Array.isArray(v) ? v.join(',') : v}`;
+    })
+    .join('');
+  const digest = createHmac('sha256', secret).update(msg).digest('hex');
+  return safeEq(Buffer.from(digest, 'utf8'), Buffer.from(signature, 'utf8'));
+}
+
 export function shopHostFromDomain(domain: string): string {
   return domain.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
 }

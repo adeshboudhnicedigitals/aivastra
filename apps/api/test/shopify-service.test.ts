@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
+  verifyAppProxySignature,
   verifyQueryHmac,
   verifySessionToken,
   verifyWebhookHmac,
@@ -59,6 +60,49 @@ describe('shopify service', () => {
       SECRET,
     );
     expect(() => verifySessionToken(token, SECRET, API_KEY)).toThrow();
+  });
+
+  it('verifies a valid app proxy signature (sorted, no delimiter, comma-joined multi-values)', () => {
+    const params: Record<string, string | string[]> = {
+      shop: 'a.myshopify.com',
+      path_prefix: '/apps/widget',
+      timestamp: '1317327555',
+      extra: ['1', '2'],
+    };
+    // Independently built oracle string, per Shopify's documented app-proxy
+    // algorithm — NOT '&'-joined like verifyQueryHmac's OAuth scheme above.
+    const msg = Object.keys(params)
+      .sort()
+      .map((k) => {
+        const v = params[k];
+        return `${k}=${Array.isArray(v) ? v.join(',') : v}`;
+      })
+      .join('');
+    const signature = createHmac('sha256', SECRET).update(msg).digest('hex');
+    expect(verifyAppProxySignature({ ...params, signature }, SECRET)).toBe(true);
+  });
+
+  it('rejects a tampered app proxy param and a missing signature', () => {
+    const params: Record<string, string> = { shop: 'a.myshopify.com', timestamp: '1317327555' };
+    const msg = Object.keys(params)
+      .sort()
+      .map((k) => `${k}=${params[k]}`)
+      .join('');
+    const signature = createHmac('sha256', SECRET).update(msg).digest('hex');
+    expect(
+      verifyAppProxySignature({ ...params, signature, shop: 'evil.myshopify.com' }, SECRET),
+    ).toBe(false);
+    expect(verifyAppProxySignature({ ...params }, SECRET)).toBe(false);
+  });
+
+  it('does not accept an OAuth-style "&"-joined signature (distinct scheme from verifyQueryHmac)', () => {
+    const params: Record<string, string> = { shop: 'a.myshopify.com', timestamp: '1' };
+    const ampersandJoined = Object.keys(params)
+      .sort()
+      .map((k) => `${k}=${params[k]}`)
+      .join('&');
+    const wrongSignature = createHmac('sha256', SECRET).update(ampersandJoined).digest('hex');
+    expect(verifyAppProxySignature({ ...params, signature: wrongSignature }, SECRET)).toBe(false);
   });
 
   it('rejects an expired session token', () => {
