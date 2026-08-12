@@ -648,6 +648,12 @@ export default function CataloguePage({
       const hasActive = d.jobs.some((j) => !TERMINAL.includes(j.status));
       return hasActive ? 5_000 : 5 * 60 * 1000;
     },
+    // Override providers.tsx's global refetchOnWindowFocus:false /
+    // refetchIntervalInBackground default (also false) for this query only, so
+    // this poll — the fallback for a dropped SSE event — keeps running while the
+    // tab is backgrounded and catches up immediately on refocus.
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
   });
 
   useJobStream(
