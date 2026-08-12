@@ -123,11 +123,22 @@ export function GstinConfirmModal({
             still get a tax invoice for your records.
           </div>
           <input
-            className="input"
             placeholder="GSTIN (e.g. 27AAPFU0939F1ZV)"
             value={gstin}
             onChange={(e) => setGstin(e.target.value.toUpperCase())}
-            style={{ width: '100%' }}
+            style={{
+              width: '100%',
+              height: 44,
+              borderRadius: 8,
+              background: C.white,
+              border: `1px solid ${error ? C.pink : C.border}`,
+              fontFamily: 'inherit',
+              fontSize: 14,
+              color: C.text,
+              padding: '0 14px',
+              outline: 'none',
+              boxSizing: 'border-box',
+            }}
           />
           {error && <div style={{ fontSize: 12, color: C.pink, marginTop: 6 }}>{error}</div>}
         </div>
