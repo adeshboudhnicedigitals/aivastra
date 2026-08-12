@@ -2,7 +2,11 @@
 
 ## Branch Policy
 
-- `main` — protected. PRs into `main` are only accepted **from `dev`**. No other branch merges directly into `main`. **GitHub-enforced:** no direct push, force-push, or delete; `ci-gate` check must pass before merge.
+- `main` — protected. PRs into `main` are only accepted from `dev`, or from a
+  `hotfix/*` branch for true emergencies. **GitHub-enforced:** no direct push,
+  force-push, or delete; the required `ci-gate` check must pass before merge,
+  and `ci-gate` itself fails on any PR into `main` whose head isn't `dev` or
+  `hotfix/*` (the `branch-source-gate` job in `ci.yml`).
 - `dev` — feature/fix branches must raise a PR **into `dev`**. Direct push to `dev` is not hard-blocked, but strongly discouraged — go through a PR even for small changes. Not GitHub-enforced — convention only.
 - Feature branches — branch off `dev`, raise PR back into `dev`.
 
@@ -10,7 +14,25 @@
 feature/foo ─┐
 fix/bar     ─┼─▶ PR ─▶ dev ─▶ PR ─▶ main
 chore/baz   ─┘
+
+hotfix/foo ───────────────▶ PR ─▶ main ─▶ PR ─▶ dev  (back-merge, same day)
 ```
+
+## Hotfix Back-Merge
+
+A `hotfix/*` branch that merges straight into `main` bypasses `dev`, so `dev`
+is now missing that commit and will silently drop it on the next promotion PR
+unless it's merged back.
+
+**Immediately after a hotfix lands on `main`:** open a second PR, same branch
+or a fresh one off `main`, merging `main` into `dev` (or cherry-pick the
+hotfix commit onto a `chore/backmerge-*` branch off `dev` if `main` has
+diverged further). Merge it before starting any other work on `dev` — a
+promotion PR opened before the back-merge will look like it's reverting the
+hotfix.
+
+Verify with `git merge-base --is-ancestor <hotfix-sha> origin/dev` — should
+print nothing and exit 0 once the back-merge is in.
 
 ## Commit & Push Policy
 
