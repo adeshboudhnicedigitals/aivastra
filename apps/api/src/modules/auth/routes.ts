@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import { LoginBody, RegisterBody, WebLoginBody } from '@aivastra/types';
+import { Gstin, LoginBody, RegisterBody, WebLoginBody } from '@aivastra/types';
 import { and, desc, eq, exists, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -536,6 +536,7 @@ export async function authRoutes(app: FastifyInstance) {
         phone: schema.users.phone,
         username: schema.users.username,
         companyName: schema.users.companyName,
+        gstin: schema.users.gstin,
         tier: schema.users.tier,
         passwordHash: schema.users.passwordHash,
         defaultResolution: schema.users.defaultResolution,
@@ -596,6 +597,7 @@ export async function authRoutes(app: FastifyInstance) {
             .nullable()
             .optional(),
           companyName: z.string().max(160).nullable().optional(),
+          gstin: Gstin,
           defaultResolution: z.enum(['HD', '2K', '4K']).optional(),
           defaultAspectRatio: z.enum(['1:1', '2:3', '3:4', '4:5']).optional(),
           defaultPlatform: z.string().max(60).optional(),
@@ -608,6 +610,7 @@ export async function authRoutes(app: FastifyInstance) {
         email,
         phone,
         companyName,
+        gstin,
         defaultResolution,
         defaultAspectRatio,
         defaultPlatform,
@@ -616,6 +619,7 @@ export async function authRoutes(app: FastifyInstance) {
         email?: string;
         phone?: string | null;
         companyName?: string | null;
+        gstin?: string;
         defaultResolution?: string;
         defaultAspectRatio?: string;
         defaultPlatform?: string;
@@ -658,6 +662,7 @@ export async function authRoutes(app: FastifyInstance) {
             ...(email !== undefined ? { email } : {}),
             ...(phone !== undefined ? { phone: phone ?? null } : {}),
             ...(companyName !== undefined ? { companyName: companyName?.trim() || null } : {}),
+            ...(gstin !== undefined ? { gstin: gstin.trim().toUpperCase() || null } : {}),
             ...(defaultResolution !== undefined ? { defaultResolution } : {}),
             ...(defaultAspectRatio !== undefined ? { defaultAspectRatio } : {}),
             ...(defaultPlatform !== undefined ? { defaultPlatform } : {}),
@@ -669,6 +674,7 @@ export async function authRoutes(app: FastifyInstance) {
             displayName: schema.users.displayName,
             phone: schema.users.phone,
             companyName: schema.users.companyName,
+            gstin: schema.users.gstin,
             tier: schema.users.tier,
             defaultResolution: schema.users.defaultResolution,
             defaultAspectRatio: schema.users.defaultAspectRatio,
