@@ -10,7 +10,7 @@ export function createDb(url: string): { db: DB; close: () => Promise<void> } {
   return { db, close: () => client.end({ timeout: 5 }) };
 }
 
-export { and, eq, inArray, or, sql } from 'drizzle-orm';
+export { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
 export * as schema from './schema/index.js';
 export type {
   ShopifyWidgetBehavior,

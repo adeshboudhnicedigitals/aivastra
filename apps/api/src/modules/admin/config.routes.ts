@@ -1,6 +1,6 @@
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
-import { PresignAppVideoBody, SystemConfigBody } from '@aivastra/types';
+import { DEFAULT_MAX_BATCH_JOBS, PresignAppVideoBody, SystemConfigBody } from '@aivastra/types';
 import { and, count, countDistinct, eq, gte, lt, lte, sql, sum } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import {
@@ -8,9 +8,11 @@ import {
   DEFAULT_PIXVERSE_CONFIG,
   DEFAULT_RESOLUTION_CONFIG,
   DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG,
+  DEFAULT_SHOPIFY_TRIAL_CONFIG,
   DEFAULT_TRYON_CONFIG,
 } from '../../lib/resolution-config.js';
 import { DEFAULT_UPLOAD_LIMITS } from '../../lib/upload-limits-config.js';
+import { DEFAULT_CREDITS_BY_PLAN_HANDLE } from '../shopify/billing-plans.js';
 import { requireAdmin } from './guard.js';
 
 const KEY = 'config:system';
@@ -45,9 +47,14 @@ export async function adminConfigRoutes(app: FastifyInstance) {
       const cfg = raw ? JSON.parse(raw) : {};
       cfg.resolutions = cfg.resolutions ?? DEFAULT_RESOLUTION_CONFIG;
       cfg.maxOutputPx = cfg.maxOutputPx ?? DEFAULT_MAX_OUTPUT_PX;
+      cfg.maxBatchJobs = cfg.maxBatchJobs ?? DEFAULT_MAX_BATCH_JOBS;
       cfg.tryon = cfg.tryon ?? DEFAULT_TRYON_CONFIG;
       cfg.sareeMannequinDev = cfg.sareeMannequinDev ?? DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG;
       cfg.pixverse = cfg.pixverse ?? DEFAULT_PIXVERSE_CONFIG;
+      cfg.shopify = {
+        trialCredits: cfg.shopify?.trialCredits ?? DEFAULT_SHOPIFY_TRIAL_CONFIG.trialCredits,
+        planCredits: { ...DEFAULT_CREDITS_BY_PLAN_HANDLE, ...cfg.shopify?.planCredits },
+      };
       cfg.uploadLimits = { ...DEFAULT_UPLOAD_LIMITS, ...cfg.uploadLimits };
       return cfg;
     },

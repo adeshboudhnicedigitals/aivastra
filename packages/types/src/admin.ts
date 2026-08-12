@@ -110,6 +110,9 @@ export const SystemConfigBody = z.object({
   // final image resolution is a product/pricing decision, unlike latentMaxPx
   // (per-template, VRAM-bound diffusion canvas size).
   maxOutputPx: z.number().int().min(512).max(4096).optional(),
+  // Ceiling on jobs per Studio batch submission (createBatch.ts) — same number
+  // GET /v1/catalogues?batchId uses to size its row cap, so the two stay in sync.
+  maxBatchJobs: z.number().int().min(1).max(2000).optional(),
   // Admin-fixed inputs for merchant catalogue-manager's constrained "flat garment
   // -> catalogue image" generation. Keyed by category so studio-style face/background
   // variety per gender is preserved without per-merchant or per-item picking.
@@ -136,6 +139,19 @@ export const SystemConfigBody = z.object({
     })
     .optional(),
   pixverse: z.object({ creditCost: z.number().int().positive().max(1_000) }).optional(),
+  shopify: z
+    .object({
+      trialCredits: z.number().int().min(0).max(1000).optional(),
+      planCredits: z
+        .object({
+          starter: z.number().int().positive().max(1_000_000),
+          growth: z.number().int().positive().max(1_000_000),
+          pro: z.number().int().positive().max(1_000_000),
+        })
+        .partial()
+        .optional(),
+    })
+    .optional(),
   // Admin-configurable per-surface upload size ceilings. Each replaces a previously
   // hardcoded byte constant (see apps/api/src/lib/upload-limits-config.ts for
   // defaults/readers). Omitted = fall back to the hardcoded default. No minimum
@@ -163,16 +179,32 @@ export const SystemConfigBody = z.object({
 export const AssetContentType = z.enum(['image/jpeg', 'image/png', 'image/webp']);
 const GenderEnum = z.enum(['men', 'women', 'boys', 'girls']);
 
+// Studio "Choose AI Model" picker groups faces by continent. Null/omitted =
+// unassigned, shown under the "Global" bucket until an admin categorizes it.
+// Continents are admin-defined slugs, not a fixed enum -- admins can add new
+// ones from the admin UI (Faces tab) without a migration.
+export const ContinentSlug = z
+  .string()
+  .trim()
+  .min(1)
+  .max(40)
+  .regex(
+    /^[a-z0-9]+(_[a-z0-9]+)*$/,
+    'continent must be lowercase letters, numbers, and underscores',
+  );
+
 export const PresignModelFaceBody = z.object({
   contentType: AssetContentType,
 });
 export const ConfirmModelFaceBody = z.object({
   label: z.string().min(1).max(120),
   gender: GenderEnum,
+  continent: ContinentSlug.nullable().optional(),
   r2Key: z.string().min(1),
   thumbnailKey: z.string().min(1),
   faceSideR2Key: z.string().min(1).optional(),
   sortOrder: z.number().int().default(0),
+  tags: z.array(z.string().min(1).max(40)).max(20).optional(),
 });
 /**
  * Opts an asset into the public developer API and names it there.
@@ -203,12 +235,14 @@ export const PublicApiSlugField = z
 export const PatchModelFaceBody = z.object({
   label: z.string().min(1).max(120).optional(),
   gender: GenderEnum.optional(),
+  continent: ContinentSlug.nullable().optional(),
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
   r2Key: z.string().optional(),
   thumbnailKey: z.string().optional(),
   faceSideR2Key: z.string().nullable().optional(),
   publicApiSlug: PublicApiSlugField,
+  tags: z.array(z.string().min(1).max(40)).max(20).optional(),
 });
 
 // Backgrounds are now global — no faceId
@@ -392,6 +426,19 @@ export const UpdateWorkflowBody = z.object({
   resultNodeId: z.string().min(1).nullable().optional(),
   facePhasePromptNode: z.string().min(1).optional(),
   garmentPhasePromptNode: z.string().min(1).optional(),
+  // Prompt TEXT (not which node holds it — see facePhasePromptNode/garmentPhasePromptNode
+  // above for that). No .min(1) here on purpose: emptiness rules differ per field and are
+  // enforced in the route handler (garmentPhasePrompt must be non-empty, facePhasePrompt may
+  // be empty).
+  garmentPhasePrompt: z.string().optional(),
+  facePhasePrompt: z.string().optional(),
+  // KSampler settings — found by class_type scan, not a stored node-id column (every
+  // real workflow has exactly one KSampler). steps<1 means no generation happens;
+  // denoise is bounded to its defined semantic range [0,1]; cfg has no fixed ceiling
+  // since it varies by model/LoRA.
+  ksamplerSteps: z.number().int().min(1).optional(),
+  ksamplerCfg: z.number().min(0).optional(),
+  ksamplerDenoise: z.number().min(0).max(1).optional(),
   // Tryon workflow node IDs
   tryonPersonNodeId: z.string().min(1).nullable().optional(),
   tryonGarmentNodeId: z.string().min(1).nullable().optional(),

@@ -218,21 +218,23 @@ describe('google oauth', () => {
     expect(storedUserId).toBeTruthy();
   });
 
-  it('GET /v1/auth/google/callback with mismatched state returns 400', async () => {
+  it('GET /v1/auth/google/callback with mismatched state redirects to login with error reason', async () => {
     const res = await app.inject({
       method: 'GET',
       url: '/v1/auth/google/callback?code=auth_code&state=wrong-state',
       headers: { cookie: 'google_state=correct-state' },
     });
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location as string).toContain('error=google_invalid_state');
   });
 
-  it('GET /v1/auth/google/callback returns 400 when state cookie is missing', async () => {
+  it('GET /v1/auth/google/callback redirects to login with error reason when state cookie is missing', async () => {
     const res = await app.inject({
       method: 'GET',
       url: '/v1/auth/google/callback?code=auth_code&state=some-state',
     });
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location as string).toContain('error=google_invalid_state');
   });
 
   it('GET /v1/auth/google/callback links Google to existing email/password account', async () => {

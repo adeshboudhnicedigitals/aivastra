@@ -20,6 +20,12 @@ describe('refusals are recorded as server-written events', () => {
     await c.stop();
   });
 
+  // Store credits are keyed by store id, not by any linked user — this map
+  // just lets seedStore look up the balance a preceding seedOwner call meant
+  // for it, mirroring the same pattern in shopify-customer.test.ts /
+  // shopify-limits.test.ts.
+  const ownerBalances = new Map<string, number>();
+
   async function seedOwner(balance: number) {
     const [user] = await app.db
       .insert(schema.users)
@@ -32,7 +38,7 @@ describe('refusals are recorded as server-written events', () => {
         tier: 'free',
       })
       .returning();
-    await app.db.insert(schema.userCredits).values({ userId: user.id, balance });
+    ownerBalances.set(user.id, balance);
     return user;
   }
 
@@ -45,9 +51,12 @@ describe('refusals are recorded as server-written events', () => {
         shopifyShopId: Date.now() * 1000 + shopIdCounter++,
         accessToken: 'enc',
         scope: 'read_products',
-        ownerUserId,
       })
       .returning();
+    const balance = ownerUserId ? ownerBalances.get(ownerUserId) : undefined;
+    if (balance !== undefined) {
+      await app.db.insert(schema.shopifyStoreCredits).values({ storeId: store.id, balance });
+    }
     return store;
   }
 

@@ -112,34 +112,25 @@ describe('GET /v1/shopify/me stats', () => {
   });
 });
 
-describe('GET /v1/shopify/me ownerUserId + creditBalance', () => {
-  it('is unlinked by default: ownerUserId null, creditBalance null', async () => {
+describe('GET /v1/shopify/me creditBalance', () => {
+  it('is 0 for a store with no shopify_store_credits row yet', async () => {
     const res = await app.inject({
       method: 'GET',
       url: '/v1/shopify/me',
       headers: { authorization: `Bearer ${token}` },
     });
-    expect(res.json().store.ownerUserId).toBeNull();
-    expect(res.json().creditBalance).toBeNull();
+    expect(res.json().store).not.toHaveProperty('ownerUserId');
+    expect(res.json().creditBalance).toBe(0);
   });
 
-  it("reflects the linked user's credit balance once ownerUserId is set", async () => {
-    const [user] = await app.db
-      .insert(schema.users)
-      .values({ email: `me-owner-${randomUUID()}@test.com`, displayName: 'Owner' })
-      .returning();
-    await app.db.insert(schema.userCredits).values({ userId: user.id, balance: 42 });
-    await app.db
-      .update(schema.shopifyStores)
-      .set({ ownerUserId: user.id })
-      .where(eq(schema.shopifyStores.id, storeId));
+  it("reflects the store's own shopify_store_credits balance", async () => {
+    await app.db.insert(schema.shopifyStoreCredits).values({ storeId, balance: 42 });
 
     const res = await app.inject({
       method: 'GET',
       url: '/v1/shopify/me',
       headers: { authorization: `Bearer ${token}` },
     });
-    expect(res.json().store.ownerUserId).toBe(user.id);
     expect(res.json().creditBalance).toBe(42);
   });
 });
@@ -157,6 +148,37 @@ describe('GET /v1/shopify/me store.connectedSince', () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(res.json().store.connectedSince).toBe(store.installedAt.toISOString());
+  });
+});
+
+describe('GET /v1/shopify/me store.planHandle and store.subscriptionStatus', () => {
+  it('includes plan handle and subscription status in the store object', async () => {
+    const planStore = await upsertShopifyStore(
+      app,
+      {
+        shopifyShopId: 777,
+        shopDomain: 'plan-test.myshopify.com',
+        myshopifyDomain: 'plan-test.myshopify.com',
+        name: 'Plan Test Store',
+        email: 'plan@test.com',
+      },
+      'tok',
+      'read_products',
+    );
+    const planToken = signSessionToken('plan-test.myshopify.com', API_SECRET, API_KEY);
+
+    await app.db
+      .update(schema.shopifyStores)
+      .set({ planHandle: 'growth', subscriptionStatus: 'active' })
+      .where(eq(schema.shopifyStores.id, planStore.id));
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/me',
+      headers: { authorization: `Bearer ${planToken}` },
+    });
+    expect(res.json().store.planHandle).toBe('growth');
+    expect(res.json().store.subscriptionStatus).toBe('active');
   });
 });
 

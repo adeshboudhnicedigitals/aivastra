@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
 import type { CatalogueTemplate, GenderSlug, ModelBackground, ModelPoseAsset } from '../types';
+import { EditDrawer } from './EditDrawer';
 import { Icon } from './Icons';
 
 async function putFile(url: string, file: Blob): Promise<void> {
@@ -416,33 +417,19 @@ export function EditCatalogueTemplateModal({
 
   return (
     <>
-      <div className="modal-overlay" onClick={saving ? undefined : onClose}>
-        <div
-          className="drawer"
-          onClick={(e) => e.stopPropagation()}
-          style={{ width: 'min(720px, calc(100vw - 60px))' }}
-        >
-          <div className="drawer-head">
-            <h2>{isEditing ? 'Edit Catalogue Template' : 'New Catalogue Template'}</h2>
-            <button
-              className="btn sm ghost"
-              onClick={onClose}
-              disabled={saving}
-              style={{ marginLeft: 'auto' }}
-            >
-              <Icon.Close />
-            </button>
-          </div>
-
-          <div
-            className="drawer-body"
-            style={{ display: 'flex', flexDirection: 'column', gap: 18 }}
-          >
-            <div className="card">
-              <div className="card-head">
-                <h3>Template Info</h3>
-              </div>
-              <div className="card-body" style={{ display: 'flex', gap: 16 }}>
+      <EditDrawer
+        onClose={onClose}
+        title={isEditing ? 'Edit Catalogue Template' : 'New Catalogue Template'}
+        width="min(720px, calc(100vw - 60px))"
+        saving={saving}
+        onSave={() => void handleSave()}
+        saveDisabled={!label.trim() || uploadInFlight}
+        saveLabel={uploadInFlight ? 'Uploading…' : 'Save template'}
+        sections={[
+          {
+            title: 'Template Info',
+            children: (
+              <div style={{ display: 'flex', gap: 16 }}>
                 <UploadTile
                   label="Cover"
                   previewUrl={coverPreviewUrl}
@@ -505,23 +492,33 @@ export function EditCatalogueTemplateModal({
                   </div>
                 </div>
               </div>
-            </div>
-
-            <div className="card">
-              <div className="card-head">
-                <h3>Looks</h3>
-                <span className="sub">{validLooks.length} ready</span>
-                <button
-                  type="button"
-                  className="btn sm ghost"
-                  style={{ marginLeft: 'auto' }}
-                  disabled={saving}
-                  onClick={addLookRow}
+            ),
+          },
+          {
+            title: 'Looks',
+            flush: true,
+            children: (
+              <>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    padding: '14px 18px',
+                    borderBottom: '1px solid var(--border)',
+                  }}
                 >
-                  <Icon.Add /> Add look
-                </button>
-              </div>
-              <div className="card-body" style={{ padding: 0 }}>
+                  <span className="sub">{validLooks.length} ready</span>
+                  <button
+                    type="button"
+                    className="btn sm ghost"
+                    style={{ marginLeft: 'auto' }}
+                    disabled={saving}
+                    onClick={addLookRow}
+                  >
+                    <Icon.Add /> Add look
+                  </button>
+                </div>
                 {!looksLoaded ? (
                   <div className="empty">Loading looks…</div>
                 ) : looks.length === 0 ? (
@@ -592,25 +589,11 @@ export function EditCatalogueTemplateModal({
                     </div>
                   ))
                 )}
-              </div>
-            </div>
-          </div>
-
-          <div className="drawer-foot">
-            <button className="btn ghost" onClick={onClose} disabled={saving}>
-              Cancel
-            </button>
-            <button
-              className="btn primary"
-              onClick={handleSave}
-              disabled={saving || !label.trim() || uploadInFlight}
-              title={uploadInFlight ? 'Wait for uploads to finish' : undefined}
-            >
-              {saving ? 'Saving…' : uploadInFlight ? 'Uploading…' : 'Save template'}
-            </button>
-          </div>
-        </div>
-      </div>
+              </>
+            ),
+          },
+        ]}
+      />
 
       <input
         ref={thumbInputRef}

@@ -1016,6 +1016,55 @@
       "when": 1785710400000,
       "tag": "0144_drop_merchant_credits",
       "breakpoints": true
+    },
+    {
+      "idx": 145,
+      "version": "7",
+      "when": 1785796800000,
+      "tag": "0145_model_face_tags",
+      "breakpoints": true
+    },
+    {
+      "idx": 146,
+      "version": "7",
+      "when": 1786213085334,
+      "tag": "0146_jobs_batch_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 147,
+      "version": "7",
+      "when": 1786266000000,
+      "tag": "0147_drop_orphaned_jobs_batch_id_fkey",
+      "breakpoints": true
+    },
+    {
+      "idx": 148,
+      "version": "7",
+      "when": 1786266060000,
+      "tag": "0148_model_face_continent",
+      "breakpoints": true
+    },
+    {
+      "idx": 149,
+      "version": "7",
+      "when": 1723344000000,
+      "tag": "0149_shopify_subscription_columns",
+      "breakpoints": false
+    },
+    {
+      "idx": 150,
+      "version": "7",
+      "when": 1786320000000,
+      "tag": "0150_shopify_subscription_period",
+      "breakpoints": false
+    },
+    {
+      "idx": 151,
+      "version": "7",
+      "when": 1786434016350,
+      "tag": "0151_shopify_store_credits",
+      "breakpoints": true
     }
   ]
 }

@@ -58,15 +58,12 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
   app.get('/v1/shopify/me', { preHandler: app.requireShopifySession }, async (req) => {
     const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
 
-    let creditBalance: number | null = null;
-    if (store.ownerUserId) {
-      const [row] = await app.db
-        .select({ balance: schema.userCredits.balance })
-        .from(schema.userCredits)
-        .where(eq(schema.userCredits.userId, store.ownerUserId))
-        .limit(1);
-      creditBalance = row?.balance ?? 0;
-    }
+    const [creditRow] = await app.db
+      .select({ balance: schema.shopifyStoreCredits.balance })
+      .from(schema.shopifyStoreCredits)
+      .where(eq(schema.shopifyStoreCredits.storeId, store.id))
+      .limit(1);
+    const creditBalance = creditRow?.balance ?? 0;
 
     const [{ totalTryOns }] = await app.db
       .select({ totalTryOns: count() })
@@ -117,8 +114,9 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
       store: {
         shopDomain: store.shopDomain,
         settings: store.settings,
-        ownerUserId: store.ownerUserId,
         connectedSince: store.installedAt.toISOString(),
+        planHandle: store.planHandle,
+        subscriptionStatus: store.subscriptionStatus,
       },
       creditBalance,
       stats: {

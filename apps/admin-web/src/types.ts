@@ -1,12 +1,19 @@
 export type GenderSlug = 'men' | 'women' | 'boys' | 'girls';
 
+// Free-form slug, admin-defined (see ContinentSlug in @aivastra/types) — not a
+// fixed set. apps/admin-web/src/lib/continents.ts holds the preset list plus
+// slugify/label helpers.
+export type Continent = string;
+
 export interface ModelFace {
   id: string;
   gender: GenderSlug;
+  continent: Continent | null;
   label: string;
   thumbnailKey: string;
   r2Key: string;
   faceSideR2Key: string | null;
+  tags: string[];
   /** Non-null = published to the public developer API under this slug. */
   publicApiSlug: string | null;
   isActive: boolean;
@@ -74,6 +81,10 @@ export interface WorkflowOption {
   poseCount: number;
   defaultFacePhasePrompt: string;
   defaultGarmentPhasePrompt: string;
+  facePhasePromptNode: string | null;
+  ksamplerSteps: number | null;
+  ksamplerCfg: number | null;
+  ksamplerDenoise: number | null;
   lowerNodeId: string | null;
   shoeNodeId: string | null;
   thirdNodeId: string | null;
@@ -239,6 +250,16 @@ export interface User {
     jobType: string;
   }[];
   merchant?: UserMerchant | null;
+}
+
+export interface CreditLedgerEntry {
+  id: string;
+  userId: string;
+  delta: number;
+  reason: string;
+  jobId: string | null;
+  adminId: string | null;
+  createdAt: string;
 }
 
 export type JobStatus =

@@ -139,6 +139,47 @@ describe('getValidAccessToken', () => {
     expect(f).not.toHaveBeenCalled();
   });
 
+  it('demands reauthorization when the stored token was encrypted under another key', async () => {
+    // Reachable two ways in practice: rotating SHOPIFY_TOKEN_ENC_KEY, and
+    // restoring a database dump into an environment holding a different key —
+    // how staging receives production's rows. Raw, AES-GCM authentication
+    // failure throws a bare node:crypto Error that nothing matches on, so it
+    // escaped as a 500 and the hourly billing sync logged it forever with no
+    // route to recovery. As SHOPIFY_REAUTH_REQUIRED the SPA can send the
+    // merchant through reauth, which rewrites the column under the live key.
+    const store = await seedStore({
+      accessToken: encryptToken('at', Buffer.alloc(32, 99).toString('base64')),
+      refreshToken: null,
+      tokenExpiresAt: null,
+      refreshTokenExpiresAt: null,
+    });
+    const f = stubFetch({});
+
+    await expect(getValidAccessToken(app, store)).rejects.toMatchObject({
+      code: 'SHOPIFY_REAUTH_REQUIRED',
+      statusCode: 403,
+    });
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it('demands reauthorization when only the refresh half fails to decrypt', async () => {
+    // The access token decrypts but is expired, so recovery depends on the
+    // refresh half — which is ciphertext under a key we no longer hold. Without
+    // the wrapper this path threw the raw crypto error from inside the refresh
+    // lock, leaving the caller with a 500 rather than a recoverable signal.
+    const store = await seedStore({
+      refreshToken: encryptToken('rt', Buffer.alloc(32, 99).toString('base64')),
+      tokenExpiresAt: new Date(Date.now() - 1000),
+      refreshTokenExpiresAt: new Date(Date.now() + 86400_000),
+    });
+    const f = stubFetch({});
+
+    await expect(getValidAccessToken(app, store)).rejects.toMatchObject({
+      code: 'SHOPIFY_REAUTH_REQUIRED',
+    });
+    expect(f).not.toHaveBeenCalled();
+  });
+
   it('refreshes once when callers race, not once per caller', async () => {
     // Refresh tokens are single-use: a second concurrent rotation with the same
     // token is what orphans a store.

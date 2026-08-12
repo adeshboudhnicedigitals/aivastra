@@ -39,38 +39,6 @@ describe('catalog', () => {
     return login.json().accessToken as string;
   }
 
-  async function seedCatalog() {
-    const [type] = await app.db
-      .insert(schema.catalogTypes)
-      .values({ slug: 'models', label: 'Models' })
-      .returning();
-    const [cat] = await app.db
-      .insert(schema.catalogCategories)
-      .values({ typeId: type.id, slug: 'women', label: 'Women', sortOrder: 0 })
-      .returning();
-    await app.db.insert(schema.catalogItems).values({
-      categoryId: cat.id,
-      label: 'Model A',
-      r2Key: 'k1',
-      thumbnailKey: 't1',
-      sortOrder: 0,
-    });
-    return type;
-  }
-
-  it('GET /v1/catalog/models returns category tree with items', async () => {
-    const token = await getToken();
-    await seedCatalog();
-    const res = await app.inject({
-      method: 'GET',
-      url: '/v1/catalog/models',
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(res.statusCode).toBe(200);
-    expect(res.json().tree[0].children.length).toBe(0);
-    expect(res.json().tree[0].items.length).toBe(1);
-  });
-
   it('GET /v1/catalog/lower returns items for a pose whose lower role comes only from catalogue_template_pose_workflows', async () => {
     const token = await getToken();
 

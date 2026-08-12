@@ -250,6 +250,7 @@ function LoginFormInner() {
                   placeholder="Enter your email or username"
                   autoComplete="username"
                   style={inputStyle}
+                  suppressHydrationWarning
                   {...register('email')}
                 />
               </div>
@@ -290,6 +291,7 @@ function LoginFormInner() {
                   placeholder="Enter password"
                   autoComplete="current-password"
                   style={{ ...inputStyle, paddingRight: 36 }}
+                  suppressHydrationWarning
                   {...register('password')}
                 />
                 <button

@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import type { CatalogCategory, CategoryTag, ModelBackground } from '../types';
+import { EditDrawer } from './EditDrawer';
 import { Icon } from './Icons';
 import { PublicApiSlugField } from './PublicApiSlugField';
 import { SearchableSelect } from './SearchableSelect';
@@ -136,195 +137,169 @@ export function EditBackgroundModal({
   };
 
   return (
-    <div className="modal-overlay" onClick={saving || replaceUploading ? undefined : onClose}>
+    <EditDrawer
+      onClose={onClose}
+      title="Edit background"
+      width="min(640px, calc(100vw - 40px))"
+      thumbnail={{ thumbnailKey: background.thumbnailKey, storagePublicUrl }}
+      saving={saving || replaceUploading}
+      onSave={handleSave}
+      saveDisabled={!form.label.trim()}
+    >
       <div
-        className="modal"
-        onClick={(e) => e.stopPropagation()}
-        style={{ width: 'min(640px, calc(100vw - 40px))' }}
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: 14,
+        }}
       >
-        <div className="modal-head">
-          <h3>Edit background</h3>
-          <button
-            className="btn sm ghost"
-            onClick={onClose}
-            disabled={saving || replaceUploading}
-            style={{ marginLeft: 'auto' }}
-          >
-            <Icon.Close />
-          </button>
+        <div className="field">
+          <label>Label</label>
+          <input
+            className="input"
+            value={form.label}
+            disabled={saving}
+            placeholder="e.g. Studio White"
+            onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
+          />
         </div>
-
-        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-              gap: 14,
-            }}
-          >
-            <div className="field">
-              <label>Label</label>
-              <input
-                className="input"
-                value={form.label}
-                disabled={saving}
-                placeholder="e.g. Studio White"
-                onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
-              />
-            </div>
-            <div className="field">
-              <label>Sort order</label>
-              <input
-                className="input"
-                type="number"
-                min={0}
-                value={form.sortOrder}
-                disabled={saving}
-                onChange={(e) => setForm((f) => ({ ...f, sortOrder: Number(e.target.value) }))}
-              />
-            </div>
-            <PublicApiSlugField
-              value={form.publicApiSlug}
-              disabled={saving}
-              kind="backdrop"
-              onChange={(v) => setForm((f) => ({ ...f, publicApiSlug: v }))}
-            />
-            <div className="field">
-              <label>Gender</label>
-              <select
-                className="select"
-                value={form.genderSlug}
-                disabled={saving}
-                onChange={(e) => setForm((f) => ({ ...f, genderSlug: e.target.value }))}
-              >
-                <option value="">All genders</option>
-                <option value="men">Men</option>
-                <option value="women">Women</option>
-                <option value="boys">Boys</option>
-                <option value="girls">Girls</option>
-              </select>
-            </div>
-            <div className="field">
-              <label>Category</label>
-              <SearchableSelect
-                options={categories.map((c) => ({ id: String(c.id), label: c.label }))}
-                value={form.categoryId != null ? String(form.categoryId) : ''}
-                disabled={saving}
-                placeholder="— search category —"
-                emptyLabel="Uncategorized"
-                onChange={(id) => setForm((f) => ({ ...f, categoryId: id ? Number(id) : null }))}
-              />
-            </div>
-            <div className="field">
-              <label>
-                Tags <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
-              </label>
-              <input
-                className="input"
-                value={form.tagsInput}
-                disabled={saving}
-                placeholder="e.g. warm tone, sunset, indoor"
-                onChange={(e) => setForm((f) => ({ ...f, tagsInput: e.target.value }))}
-              />
-            </div>
-            <div className="field">
-              <label>
-                Special tag{' '}
-                <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
-              </label>
-              <select
-                className="select"
-                value={form.specialTag}
-                disabled={saving}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, specialTag: e.target.value as CategoryTag | '' }))
-                }
-              >
-                <option value="">No tag</option>
-                {SPECIAL_TAG_OPTIONS.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0 }}>
-            Tags are comma-separated and independent of category — lets you group backgrounds across
-            categories (e.g. all "warm tone" backgrounds).
-          </p>
-          <div className="field">
-            <label>Replace image</label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              {(replacePreview ??
-                (storagePublicUrl && background.thumbnailKey
-                  ? `${storagePublicUrl}/${background.thumbnailKey}`
-                  : null)) && (
-                // biome-ignore lint/performance/noImgElement: thumbnail preview
-                <img
-                  src={replacePreview ?? `${storagePublicUrl}/${background.thumbnailKey}`}
-                  alt=""
-                  style={{
-                    width: 56,
-                    height: 56,
-                    objectFit: 'cover',
-                    borderRadius: 6,
-                    border: '1px solid var(--border)',
-                  }}
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = 'none';
-                  }}
-                />
-              )}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <input
-                  ref={replaceRef}
-                  type="file"
-                  accept="image/*"
-                  style={{ display: 'none' }}
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    setReplaceFile(file);
-                    setReplacePreview(URL.createObjectURL(file));
-                  }}
-                />
-                <button
-                  type="button"
-                  className="btn sm ghost"
-                  disabled={saving || replaceUploading}
-                  onClick={() => replaceRef.current?.click()}
-                >
-                  <Icon.Image /> {replaceFile ? replaceFile.name : 'Pick new image'}
-                </button>
-                {replaceFile && (
-                  <button
-                    type="button"
-                    className="btn sm primary"
-                    disabled={replaceUploading}
-                    onClick={handleReplaceImage}
-                  >
-                    {replaceUploading ? 'Uploading…' : 'Upload & replace'}
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
+        <div className="field">
+          <label>Sort order</label>
+          <input
+            className="input"
+            type="number"
+            min={0}
+            value={form.sortOrder}
+            disabled={saving}
+            onChange={(e) => setForm((f) => ({ ...f, sortOrder: Number(e.target.value) }))}
+          />
         </div>
-
-        <div className="modal-foot">
-          <button className="btn ghost" onClick={onClose} disabled={saving || replaceUploading}>
-            Cancel
-          </button>
-          <button
-            className="btn primary"
-            onClick={handleSave}
-            disabled={saving || replaceUploading || !form.label.trim()}
+        <PublicApiSlugField
+          value={form.publicApiSlug}
+          disabled={saving}
+          kind="backdrop"
+          onChange={(v) => setForm((f) => ({ ...f, publicApiSlug: v }))}
+        />
+        <div className="field">
+          <label>Gender</label>
+          <select
+            className="select"
+            value={form.genderSlug}
+            disabled={saving}
+            onChange={(e) => setForm((f) => ({ ...f, genderSlug: e.target.value }))}
           >
-            {saving ? 'Saving…' : 'Save changes'}
-          </button>
+            <option value="">All genders</option>
+            <option value="men">Men</option>
+            <option value="women">Women</option>
+            <option value="boys">Boys</option>
+            <option value="girls">Girls</option>
+          </select>
+        </div>
+        <div className="field">
+          <label>Category</label>
+          <SearchableSelect
+            options={categories.map((c) => ({ id: String(c.id), label: c.label }))}
+            value={form.categoryId != null ? String(form.categoryId) : ''}
+            disabled={saving}
+            placeholder="— search category —"
+            emptyLabel="Uncategorized"
+            onChange={(id) => setForm((f) => ({ ...f, categoryId: id ? Number(id) : null }))}
+          />
+        </div>
+        <div className="field">
+          <label>
+            Tags <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
+          </label>
+          <input
+            className="input"
+            value={form.tagsInput}
+            disabled={saving}
+            placeholder="e.g. warm tone, sunset, indoor"
+            onChange={(e) => setForm((f) => ({ ...f, tagsInput: e.target.value }))}
+          />
+        </div>
+        <div className="field">
+          <label>
+            Special tag <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
+          </label>
+          <select
+            className="select"
+            value={form.specialTag}
+            disabled={saving}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, specialTag: e.target.value as CategoryTag | '' }))
+            }
+          >
+            <option value="">No tag</option>
+            {SPECIAL_TAG_OPTIONS.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
-    </div>
+      <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0 }}>
+        Tags are comma-separated and independent of category — lets you group backgrounds across
+        categories (e.g. all "warm tone" backgrounds).
+      </p>
+      <div className="field">
+        <label>Replace image</label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {(replacePreview ??
+            (storagePublicUrl && background.thumbnailKey
+              ? `${storagePublicUrl}/${background.thumbnailKey}`
+              : null)) && (
+            // biome-ignore lint/performance/noImgElement: thumbnail preview
+            <img
+              src={replacePreview ?? `${storagePublicUrl}/${background.thumbnailKey}`}
+              alt=""
+              style={{
+                width: 56,
+                height: 56,
+                objectFit: 'cover',
+                borderRadius: 6,
+                border: '1px solid var(--border)',
+              }}
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = 'none';
+              }}
+            />
+          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <input
+              ref={replaceRef}
+              type="file"
+              accept="image/*"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                setReplaceFile(file);
+                setReplacePreview(URL.createObjectURL(file));
+              }}
+            />
+            <button
+              type="button"
+              className="btn sm ghost"
+              disabled={saving || replaceUploading}
+              onClick={() => replaceRef.current?.click()}
+            >
+              <Icon.Image /> {replaceFile ? replaceFile.name : 'Pick new image'}
+            </button>
+            {replaceFile && (
+              <button
+                type="button"
+                className="btn sm primary"
+                disabled={replaceUploading}
+                onClick={handleReplaceImage}
+              >
+                {replaceUploading ? 'Uploading…' : 'Upload & replace'}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </EditDrawer>
   );
 }

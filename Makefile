@@ -1,7 +1,7 @@
 # Aivastra — Makefile shortcuts
 # Requires: pnpm, docker, node >=20
 
-.PHONY: setup sync dev dev-api dev-web dev-dispatcher dev-admin build test typecheck lint docker-up docker-down docker-reset db-generate db-migrate seed-catalog health prod-up prod-down prod-restart prod-bootstrap prod-logs prod-ps shopify-deploy shopify-deploy-dev
+.PHONY: setup sync dev dev-api dev-web dev-dispatcher dev-admin build test typecheck lint docker-up docker-down docker-reset db-generate db-migrate seed-catalog health prod-up prod-down prod-restart prod-bootstrap prod-logs prod-ps shopify-deploy shopify-deploy-dev shopify-deploy-staging shopify-dev shopify-dev-dev
 
 setup:
 	cp .env.example .env
@@ -74,12 +74,34 @@ seed-catalog:
 	pnpm seed:catalog
 
 shopify-deploy:
-	cd apps/shopify-extension && npx shopify app deploy
+	cd apps/shopify-extension && npx shopify app deploy --allow-updates
 
 # Deploys shopify.app.dev.toml (separate Partner Dashboard app, ngrok-tunneled)
 # instead of the prod app's shopify.app.toml -- never omit --config here.
 shopify-deploy-dev:
-	cd apps/shopify-extension && npx shopify app deploy --config dev
+	cd apps/shopify-extension && npx shopify app deploy --config dev --allow-updates
+
+# Deploys shopify.app.staging.toml (separate Partner Dashboard app, pinned to
+# staging-app.aivastra.com) -- never omit --config here.
+shopify-deploy-staging:
+	cd apps/shopify-extension && npx shopify app deploy --config staging --allow-updates
+
+# Runs `shopify app dev` against shopify.app.toml (prod "AiVastra" app, org Nice
+# Interactive). app_home resolves to the already-registered prod URL
+# (app.aivastra.com) -- this hits the PRODUCTION backend/DB, not local, even
+# though it installs on a dev store. Use for real end-to-end billing tests
+# against prod-registered Managed Pricing plans.
+shopify-dev:
+	cd apps/shopify-extension && npx shopify app dev
+
+# Runs `shopify app dev` against shopify.app.dev.toml (separate "AiVastra Dev"
+# Partner Dashboard app). Needs the local API running (pnpm --filter
+# @aivastra/api dev, port 4000) and an ngrok tunnel on the reserved domain
+# (ngrok http 4000 --domain=wispy-plaza-mullets.ngrok-free.dev) live first, or
+# auth/billing callbacks will fail. Needs its own Starter/Growth/Pro Managed
+# Pricing plans set up on the AiVastra Dev app in Partner Dashboard.
+shopify-dev-dev:
+	cd apps/shopify-extension && npx shopify app dev --config dev
 
 # ── Production (VPS only) ──────────────────────────────────────────────────
 # Always pass --env-file .env.production so Compose var-substitution (${VAR}

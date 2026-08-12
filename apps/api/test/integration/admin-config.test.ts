@@ -70,6 +70,57 @@ describe('admin config', () => {
     expect(getRes2.json().pixverse.creditCost).toBe(35);
   });
 
+  it('GET /admin/config default-fills shopify trial credits, and PATCH persists an override', async () => {
+    const getRes = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
+    expect(getRes.statusCode).toBe(200);
+    expect(getRes.json().shopify.trialCredits).toBe(25);
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: '/admin/config',
+      headers: { ...adminAuth, 'content-type': 'application/json' },
+      payload: JSON.stringify({ shopify: { trialCredits: 50 } }),
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const getRes2 = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
+    expect(getRes2.json().shopify.trialCredits).toBe(50);
+  });
+
+  it('GET /admin/config default-fills shopify plan credits, and a partial PATCH keeps other plans at default', async () => {
+    const getRes = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
+    expect(getRes.statusCode).toBe(200);
+    expect(getRes.json().shopify.planCredits).toEqual({ starter: 1925, growth: 5000, pro: 22000 });
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: '/admin/config',
+      headers: { ...adminAuth, 'content-type': 'application/json' },
+      payload: JSON.stringify({ shopify: { planCredits: { starter: 3000 } } }),
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const getRes2 = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
+    expect(getRes2.json().shopify.planCredits).toEqual({ starter: 3000, growth: 5000, pro: 22000 });
+  });
+
+  it('GET /admin/config default-fills maxBatchJobs, and PATCH persists an override', async () => {
+    const getRes = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
+    expect(getRes.statusCode).toBe(200);
+    expect(getRes.json().maxBatchJobs).toBe(200);
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: '/admin/config',
+      headers: { ...adminAuth, 'content-type': 'application/json' },
+      payload: JSON.stringify({ maxBatchJobs: 350 }),
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const getRes2 = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
+    expect(getRes2.json().maxBatchJobs).toBe(350);
+  });
+
   it('PATCH accepts merchantCatalogDefaults with lowerCatalogId and shoeCatalogId', async () => {
     const patchRes = await app.inject({
       method: 'PATCH',

@@ -52,13 +52,6 @@ describe('dispatcher shopify job routing', () => {
   });
 
   async function seedShopifyJob() {
-    const [user] = await env.db
-      .insert(schema.users)
-      .values({ email: `shopify-user-${Date.now()}@test.com`, displayName: 'Test Shopper' })
-      .returning();
-    if (!user) throw new Error('failed to seed user');
-    await env.db.insert(schema.userCredits).values({ userId: user.id, balance: 5 });
-
     const [store] = await env.db
       .insert(schema.shopifyStores)
       .values({
@@ -95,7 +88,6 @@ describe('dispatcher shopify job routing', () => {
 
     // biome-ignore lint/suspicious/noExplicitAny: db insert mocking
     const [job] = await (env.db.insert(schema.jobs).values as any)({
-      userId: user.id,
       shopifyStoreId: store.id,
       customerPhotoKey: `widget-inputs/${store.id}/photo.jpg`,
       status: 'QUEUED',
@@ -128,20 +120,12 @@ describe('dispatcher shopify job routing', () => {
 
     return {
       jobId: job?.id as string,
-      userId: user.id,
       storeId: store.id,
       templateId: template?.id as string,
     };
   }
 
   async function seedShopifyJobViaFunnel(opts: { withFunnel: boolean }) {
-    const [user] = await env.db
-      .insert(schema.users)
-      .values({ email: `shopify-funnel-user-${Date.now()}@test.com`, displayName: 'Test Shopper' })
-      .returning();
-    if (!user) throw new Error('failed to seed user');
-    await env.db.insert(schema.userCredits).values({ userId: user.id, balance: 5 });
-
     const [store] = await env.db
       .insert(schema.shopifyStores)
       .values({
@@ -152,6 +136,7 @@ describe('dispatcher shopify job routing', () => {
       })
       .returning();
 
+    let funnelWorkflowId: string | undefined;
     let funnelTemplateIdToAssign: string | undefined;
     if (opts.withFunnel) {
       const [funnelWorkflow] = await env.db
@@ -184,6 +169,7 @@ describe('dispatcher shopify job routing', () => {
           workflowTemplateId: funnelWorkflow.id,
         })
         .returning();
+      funnelWorkflowId = funnelWorkflow.id;
       funnelTemplateIdToAssign = funnelTemplate.id;
     }
 
@@ -201,7 +187,6 @@ describe('dispatcher shopify job routing', () => {
 
     // biome-ignore lint/suspicious/noExplicitAny: db insert mocking
     const [job] = await (env.db.insert(schema.jobs).values as any)({
-      userId: user.id,
       shopifyStoreId: store.id,
       customerPhotoKey: `widget-inputs/${store.id}/photo.jpg`,
       status: 'QUEUED',
@@ -215,7 +200,10 @@ describe('dispatcher shopify job routing', () => {
       faceId: null,
       backgroundId: null,
       poseId: null,
-      params: { kind: 'shopify' },
+      params: {
+        kind: 'shopify',
+        ...(funnelWorkflowId ? { workflowTemplateId: funnelWorkflowId } : {}),
+      },
     });
 
     for (const key of [`widget-inputs/${store.id}/photo.jpg`, garmentKey]) {
@@ -229,13 +217,13 @@ describe('dispatcher shopify job routing', () => {
       );
     }
 
-    return { jobId: job?.id as string, userId: user.id, storeId: store.id };
+    return { jobId: job?.id as string, storeId: store.id };
   }
 
   const STARTING_BALANCE = 100;
 
-  async function seedLinkedShopifyJob(_opts: { withFunnel: boolean } = { withFunnel: false }) {
-    const shopDomain = `linked-${Date.now()}.myshopify.com`;
+  async function seedStoreBilledShopifyJob(_opts: { withFunnel: boolean } = { withFunnel: false }) {
+    const shopDomain = `store-billed-${Date.now()}.myshopify.com`;
     const [store] = await env.db
       .insert(schema.shopifyStores)
       .values({
@@ -247,24 +235,17 @@ describe('dispatcher shopify job routing', () => {
       .returning();
     if (!store) throw new Error('failed to seed store');
 
-    const [user] = await env.db
-      .insert(schema.users)
-      .values({ email: `shopify-user-${Date.now()}@test.com`, displayName: 'Test Shopper' })
-      .returning();
-    if (!user) throw new Error('failed to seed user');
-
     await env.db
-      .insert(schema.userCredits)
-      .values({ userId: user.id, balance: STARTING_BALANCE - 5 })
+      .insert(schema.shopifyStoreCredits)
+      .values({ storeId: store.id, balance: STARTING_BALANCE - 5 })
       .onConflictDoUpdate({
-        target: schema.userCredits.userId,
-        set: { balance: sql`${schema.userCredits.balance} - 5` },
+        target: schema.shopifyStoreCredits.storeId,
+        set: { balance: sql`${schema.shopifyStoreCredits.balance} - 5` },
       });
 
     const jobId = crypto.randomUUID();
     await env.db.insert(schema.jobs).values({
       id: jobId,
-      userId: user.id,
       shopifyStoreId: store.id,
       customerPhotoKey: 'widget-inputs/x/photo.jpg',
       status: 'QUEUED',
@@ -282,7 +263,7 @@ describe('dispatcher shopify job routing', () => {
       // biome-ignore lint/suspicious/noExplicitAny: mock type
     } as any);
 
-    return { jobId, userId: user.id, storeId: store.id };
+    return { jobId, storeId: store.id };
   }
 
   it("resolves the workflow via the product's funnel template", async () => {
@@ -361,8 +342,8 @@ describe('dispatcher shopify job routing', () => {
     expect(worker.get(WORKER_ID)?.status).toBe('IDLE');
   });
 
-  it('refunds user_credits (not widget_client_credits) on terminal failure for a linked shopify job', async () => {
-    const { jobId, userId } = await seedLinkedShopifyJob({ withFunnel: false });
+  it('refunds shopify_store_credits on terminal failure for a store-billed shopify job', async () => {
+    const { jobId, storeId } = await seedStoreBilledShopifyJob({ withFunnel: false });
 
     const cfg = {
       db: env.db,
@@ -383,8 +364,8 @@ describe('dispatcher shopify job routing', () => {
 
       const [credits] = await env.db
         .select()
-        .from(schema.userCredits)
-        .where(eq(schema.userCredits.userId, userId));
+        .from(schema.shopifyStoreCredits)
+        .where(eq(schema.shopifyStoreCredits.storeId, storeId));
       expect(credits?.balance).toBe(STARTING_BALANCE);
     } finally {
       await registerWorkers(redis, [
@@ -403,21 +384,21 @@ describe('dispatcher shopify job routing', () => {
     // a job already refunded and marked FAILED by the API's compensation
     // path, then handed to processJob as if the ambiguous XADD had in fact
     // landed. Must not re-refund, re-process, or crash.
-    const { jobId, userId } = await seedLinkedShopifyJob({ withFunnel: false });
+    const { jobId, storeId } = await seedStoreBilledShopifyJob({ withFunnel: false });
 
     // Mirror what apps/api's refundAndMarkFailed does post-commit: one
     // ledger row, balance restored, job terminally FAILED.
     await env.db.transaction(async (tx) => {
-      await tx.insert(schema.creditLedger).values({
-        userId,
+      await tx.insert(schema.shopifyCreditLedger).values({
+        storeId,
         delta: 5,
         reason: 'REFUND_ENQUEUE_FAIL',
         jobId,
       });
       await tx
-        .update(schema.userCredits)
-        .set({ balance: sql`${schema.userCredits.balance} + 5` })
-        .where(eq(schema.userCredits.userId, userId));
+        .update(schema.shopifyStoreCredits)
+        .set({ balance: sql`${schema.shopifyStoreCredits.balance} + 5` })
+        .where(eq(schema.shopifyStoreCredits.storeId, storeId));
       await tx
         .update(schema.jobs)
         .set({ status: 'FAILED', errorCode: 'ENQUEUE_FAIL' })
@@ -437,7 +418,7 @@ describe('dispatcher shopify job routing', () => {
     // Does not throw — a real dispatcher would otherwise crash processing
     // this stream message.
     await expect(
-      processJob(cfg, jobId, userId, 'jobs:normal', `${Date.now()}-0`),
+      processJob(cfg, jobId, '', 'jobs:normal', `${Date.now()}-0`),
     ).resolves.toBeUndefined();
 
     const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
@@ -446,14 +427,14 @@ describe('dispatcher shopify job routing', () => {
 
     const [credits] = await env.db
       .select()
-      .from(schema.userCredits)
-      .where(eq(schema.userCredits.userId, userId));
+      .from(schema.shopifyStoreCredits)
+      .where(eq(schema.shopifyStoreCredits.storeId, storeId));
     expect(credits?.balance).toBe(STARTING_BALANCE);
 
     const refundRows = await env.db
       .select()
-      .from(schema.creditLedger)
-      .where(eq(schema.creditLedger.jobId, jobId));
+      .from(schema.shopifyCreditLedger)
+      .where(eq(schema.shopifyCreditLedger.jobId, jobId));
     expect(refundRows).toHaveLength(1);
 
     // No processing happened at all — the top-of-processJob status guard

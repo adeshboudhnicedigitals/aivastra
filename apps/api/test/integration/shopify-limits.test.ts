@@ -11,6 +11,7 @@ import { startContainers } from '../helpers/containers.js';
 describe('shopify shopper limits', () => {
   let ctx: Awaited<ReturnType<typeof startContainers>>;
   let app: Awaited<ReturnType<typeof buildTestApp>>;
+  const ownerBalances = new Map<string, number>();
 
   beforeAll(async () => {
     ctx = await startContainers();
@@ -33,7 +34,7 @@ describe('shopify shopper limits', () => {
         tier: 'free',
       })
       .returning();
-    await app.db.insert(schema.userCredits).values({ userId: user.id, balance });
+    ownerBalances.set(user.id, balance);
     return user;
   }
 
@@ -45,9 +46,12 @@ describe('shopify shopper limits', () => {
         shopifyShopId: Date.now(),
         accessToken: 'enc',
         scope: 'read_products',
-        ownerUserId,
       })
       .returning();
+    const balance = ownerUserId ? ownerBalances.get(ownerUserId) : undefined;
+    if (balance !== undefined) {
+      await app.db.insert(schema.shopifyStoreCredits).values({ storeId: store.id, balance });
+    }
     return store;
   }
 
@@ -160,8 +164,8 @@ describe('shopify shopper limits', () => {
 
     const [credits] = await app.db
       .select()
-      .from(schema.userCredits)
-      .where(eq(schema.userCredits.userId, owner.id));
+      .from(schema.shopifyStoreCredits)
+      .where(eq(schema.shopifyStoreCredits.storeId, store.id));
     expect(credits.balance).toBe(100);
     expect(await app.redis.get(counterKey)).toBe('50');
 
@@ -190,8 +194,8 @@ describe('shopify shopper limits', () => {
 
     const [balanceAfterFirst] = await app.db
       .select()
-      .from(schema.userCredits)
-      .where(eq(schema.userCredits.userId, owner.id));
+      .from(schema.shopifyStoreCredits)
+      .where(eq(schema.shopifyStoreCredits.storeId, store.id));
 
     const photo2 = await uploadCustomerPhoto(store.storeKey, Buffer.alloc(1024));
     const second = await createJob(store, {
@@ -205,8 +209,8 @@ describe('shopify shopper limits', () => {
 
     const [balanceAfterRefusal] = await app.db
       .select()
-      .from(schema.userCredits)
-      .where(eq(schema.userCredits.userId, owner.id));
+      .from(schema.shopifyStoreCredits)
+      .where(eq(schema.shopifyStoreCredits.storeId, store.id));
     expect(balanceAfterRefusal.balance).toBe(balanceAfterFirst.balance);
   });
 
@@ -317,8 +321,8 @@ describe('shopify shopper limits', () => {
       expect.soft(await app.redis.get(counterKey)).toBe('0');
       const [credits] = await app.db
         .select()
-        .from(schema.userCredits)
-        .where(eq(schema.userCredits.userId, owner.id));
+        .from(schema.shopifyStoreCredits)
+        .where(eq(schema.shopifyStoreCredits.storeId, store.id));
       expect.soft(credits.balance).toBe(100);
 
       const [job] = await app.db
@@ -329,11 +333,11 @@ describe('shopify shopper limits', () => {
       expect.soft(job.errorCode).toBe('ENQUEUE_FAIL');
       const refundRows = await app.db
         .select()
-        .from(schema.creditLedger)
+        .from(schema.shopifyCreditLedger)
         .where(
           and(
-            eq(schema.creditLedger.jobId, job.id),
-            eq(schema.creditLedger.reason, 'REFUND_ENQUEUE_FAIL'),
+            eq(schema.shopifyCreditLedger.jobId, job.id),
+            eq(schema.shopifyCreditLedger.reason, 'REFUND_ENQUEUE_FAIL'),
           ),
         );
       expect.soft(refundRows).toHaveLength(1);
@@ -398,11 +402,11 @@ describe('shopify shopper limits', () => {
 
     const refundRows = await app.db
       .select()
-      .from(schema.creditLedger)
+      .from(schema.shopifyCreditLedger)
       .where(
         and(
-          eq(schema.creditLedger.jobId, job.id),
-          eq(schema.creditLedger.reason, 'REFUND_ENQUEUE_FAIL'),
+          eq(schema.shopifyCreditLedger.jobId, job.id),
+          eq(schema.shopifyCreditLedger.reason, 'REFUND_ENQUEUE_FAIL'),
         ),
       );
     expect.soft(refundRows).toHaveLength(0);
@@ -410,8 +414,8 @@ describe('shopify shopper limits', () => {
     // Credits stay spent: the job ran, so the charge is legitimate.
     const [credits] = await app.db
       .select()
-      .from(schema.userCredits)
-      .where(eq(schema.userCredits.userId, owner.id));
+      .from(schema.shopifyStoreCredits)
+      .where(eq(schema.shopifyStoreCredits.storeId, store.id));
     expect(credits.balance).toBe(95);
   });
 
@@ -423,7 +427,6 @@ describe('shopify shopper limits', () => {
     const [job] = await app.db
       .insert(schema.jobs)
       .values({
-        userId: owner.id,
         shopifyStoreId: store.id,
         status: 'COMPLETED',
         creditsCharged: 5,
@@ -431,9 +434,18 @@ describe('shopify shopper limits', () => {
       })
       .returning();
 
-    const { refundAndMarkFailed } = await import('../../src/modules/credits/ledger.js');
+    const { refundStoreAndMarkFailed } = await import(
+      '../../src/modules/credits/shopify-ledger.js'
+    );
     expect(
-      await refundAndMarkFailed(app.db, owner.id, 5, job.id, 'REFUND_ENQUEUE_FAIL', 'ENQUEUE_FAIL'),
+      await refundStoreAndMarkFailed(
+        app.db,
+        store.id,
+        5,
+        job.id,
+        'REFUND_ENQUEUE_FAIL',
+        'ENQUEUE_FAIL',
+      ),
     ).toEqual({ compensated: false });
 
     // And a still-QUEUED job is compensated exactly as before, so the guard
@@ -441,7 +453,6 @@ describe('shopify shopper limits', () => {
     const [queued] = await app.db
       .insert(schema.jobs)
       .values({
-        userId: owner.id,
         shopifyStoreId: store.id,
         status: 'QUEUED',
         creditsCharged: 5,
@@ -449,9 +460,9 @@ describe('shopify shopper limits', () => {
       })
       .returning();
     expect(
-      await refundAndMarkFailed(
+      await refundStoreAndMarkFailed(
         app.db,
-        owner.id,
+        store.id,
         5,
         queued.id,
         'REFUND_ENQUEUE_FAIL',
@@ -462,8 +473,8 @@ describe('shopify shopper limits', () => {
     expect(after.status).toBe('FAILED');
     const [credits] = await app.db
       .select()
-      .from(schema.userCredits)
-      .where(eq(schema.userCredits.userId, owner.id));
+      .from(schema.shopifyStoreCredits)
+      .where(eq(schema.shopifyStoreCredits.storeId, store.id));
     expect(credits.balance).toBe(105);
   });
 
@@ -492,8 +503,8 @@ describe('shopify shopper limits', () => {
 
       const [credits] = await app.db
         .select()
-        .from(schema.userCredits)
-        .where(eq(schema.userCredits.userId, owner.id));
+        .from(schema.shopifyStoreCredits)
+        .where(eq(schema.shopifyStoreCredits.storeId, store.id));
       expect.soft(credits.balance).toBe(100);
 
       const [job] = await app.db
@@ -505,11 +516,11 @@ describe('shopify shopper limits', () => {
 
       const refundRows = await app.db
         .select()
-        .from(schema.creditLedger)
+        .from(schema.shopifyCreditLedger)
         .where(
           and(
-            eq(schema.creditLedger.jobId, job.id),
-            eq(schema.creditLedger.reason, 'REFUND_ENQUEUE_FAIL'),
+            eq(schema.shopifyCreditLedger.jobId, job.id),
+            eq(schema.shopifyCreditLedger.reason, 'REFUND_ENQUEUE_FAIL'),
           ),
         );
       expect.soft(refundRows).toHaveLength(1);
@@ -559,8 +570,8 @@ describe('shopify shopper limits', () => {
 
       const [credits] = await app.db
         .select()
-        .from(schema.userCredits)
-        .where(eq(schema.userCredits.userId, owner.id));
+        .from(schema.shopifyStoreCredits)
+        .where(eq(schema.shopifyStoreCredits.storeId, store.id));
       expect.soft(credits.balance).toBe(100);
       const jobs = await app.db
         .select()
@@ -648,8 +659,8 @@ describe('shopify shopper limits', () => {
 
     const [credits] = await app.db
       .select()
-      .from(schema.userCredits)
-      .where(eq(schema.userCredits.userId, owner.id));
+      .from(schema.shopifyStoreCredits)
+      .where(eq(schema.shopifyStoreCredits.storeId, store.id));
     expect(credits.balance).toBe(95);
   });
 
@@ -699,8 +710,8 @@ describe('shopify shopper limits', () => {
 
       const [credits] = await app.db
         .select()
-        .from(schema.userCredits)
-        .where(eq(schema.userCredits.userId, owner.id));
+        .from(schema.shopifyStoreCredits)
+        .where(eq(schema.shopifyStoreCredits.storeId, store.id));
       expect.soft(credits.balance).toBe(100);
     } finally {
       app.redis.xadd = realXadd;

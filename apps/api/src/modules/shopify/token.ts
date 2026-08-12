@@ -228,6 +228,42 @@ export async function exchangeSessionToken(
 }
 
 /**
+ * Decrypt a stored token, converting a key mismatch into the same
+ * reauthorize-required signal a dead refresh token produces.
+ *
+ * A stored token that will not decrypt is practically identical to one Shopify
+ * has revoked: there is no usable credential and only a fresh grant recovers
+ * it. Raw, it is very much not identical — AES-GCM authentication failure
+ * throws a bare `Error: Unsupported state or unable to authenticate data` from
+ * node:crypto, which no caller matches on, so it escapes as an unhandled 500
+ * and the background sync logs an opaque stack hourly forever with no path out.
+ * Mapped to SHOPIFY_REAUTH_REQUIRED it rides the recovery that already exists:
+ * apps/shopify/src/lib/api.ts sends the merchant through one-click reauth,
+ * which re-provisions the store and rewrites the column with a token encrypted
+ * under the current key.
+ *
+ * Reachable whenever ciphertext and key diverge: rotating
+ * SHOPIFY_TOKEN_ENC_KEY (every store at once), or restoring a database dump
+ * into an environment holding a different key — which is precisely how staging
+ * gets production's rows (see scripts/staging/post-restore.sql).
+ */
+function decryptStoredToken(app: FastifyInstance, store: Store, encrypted: string, keyB64: string) {
+  try {
+    return decryptToken(encrypted, keyB64);
+  } catch (err) {
+    app.log.error(
+      { err, storeId: store.id, shopDomain: store.shopDomain },
+      'shopify token failed to decrypt — key mismatch or corrupt ciphertext; reauth required',
+    );
+    throw new AppError(
+      'SHOPIFY_REAUTH_REQUIRED',
+      403,
+      'This store needs to reauthorize AiVastra to grant updated permissions',
+    );
+  }
+}
+
+/**
  * Decrypted access token for `store`, refreshed first if it is at or near
  * expiry.
  *
@@ -246,7 +282,7 @@ export async function getValidAccessToken(app: FastifyInstance, store: Store): P
   const encKey = app.env.SHOPIFY_TOKEN_ENC_KEY;
   if (!encKey) throw new AppError('CONFIG', 500, 'SHOPIFY_TOKEN_ENC_KEY missing');
 
-  if (!needsRefresh(store)) return decryptToken(store.accessToken, encKey);
+  if (!needsRefresh(store)) return decryptStoredToken(app, store, store.accessToken, encKey);
 
   if (store.refreshTokenExpiresAt && store.refreshTokenExpiresAt.getTime() <= Date.now()) {
     // Past 90 days of no use the refresh token dies too, and only the merchant
@@ -271,7 +307,8 @@ export async function getValidAccessToken(app: FastifyInstance, store: Store): P
         .from(schema.shopifyStores)
         .where(eq(schema.shopifyStores.id, store.id))
         .limit(1);
-      if (fresh && !needsRefresh(fresh)) return decryptToken(fresh.accessToken, encKey);
+      if (fresh && !needsRefresh(fresh))
+        return decryptStoredToken(app, fresh, fresh.accessToken, encKey);
     }
     // Holder died before writing; its lock will lapse. Surfacing this beats
     // blocking the caller indefinitely or duplicating the refresh.
@@ -288,13 +325,13 @@ export async function getValidAccessToken(app: FastifyInstance, store: Store): P
       .where(eq(schema.shopifyStores.id, store.id))
       .limit(1);
     const row = current ?? store;
-    if (!needsRefresh(row)) return decryptToken(row.accessToken, encKey);
-    if (!row.refreshToken) return decryptToken(row.accessToken, encKey);
+    if (!needsRefresh(row)) return decryptStoredToken(app, row, row.accessToken, encKey);
+    if (!row.refreshToken) return decryptStoredToken(app, row, row.accessToken, encKey);
 
     const grant = await refreshAccessToken(
       app,
       row.shopDomain,
-      decryptToken(row.refreshToken, encKey),
+      decryptStoredToken(app, row, row.refreshToken, encKey),
     );
     await persistGrant(app, row.id, grant);
     app.log.info({ storeId: row.id, expiresAt: grant.expiresAt }, 'shopify token refreshed');

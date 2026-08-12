@@ -8,6 +8,7 @@ import { startContainers } from '../helpers/containers.js';
 describe('shopify customer routes', () => {
   let ctx: Awaited<ReturnType<typeof startContainers>>;
   let app: Awaited<ReturnType<typeof buildTestApp>>;
+  const ownerBalances = new Map<string, number>();
 
   beforeAll(async () => {
     ctx = await startContainers();
@@ -30,7 +31,7 @@ describe('shopify customer routes', () => {
         tier: 'free',
       })
       .returning();
-    await app.db.insert(schema.userCredits).values({ userId: user.id, balance });
+    ownerBalances.set(user.id, balance);
     return user;
   }
 
@@ -42,9 +43,12 @@ describe('shopify customer routes', () => {
         shopifyShopId: Date.now(),
         accessToken: 'enc',
         scope: 'read_products',
-        ownerUserId,
       })
       .returning();
+    const balance = ownerUserId ? ownerBalances.get(ownerUserId) : undefined;
+    if (balance !== undefined) {
+      await app.db.insert(schema.shopifyStoreCredits).values({ storeId: store.id, balance });
+    }
     return store;
   }
 
@@ -137,7 +141,7 @@ describe('shopify customer routes', () => {
     expect(res.statusCode).toBe(404);
   });
 
-  it('rejects job creation when the store has no linked owner', async () => {
+  it('rejects job creation when the store has no credit balance', async () => {
     const store = await seedStore(null);
     const res = await app.inject({
       method: 'POST',
@@ -148,7 +152,7 @@ describe('shopify customer routes', () => {
     expect(res.statusCode).toBe(402);
   });
 
-  it('rejects job creation when the owner has insufficient credits', async () => {
+  it('rejects job creation when the store has insufficient credits', async () => {
     const owner = await seedOwner(0);
     const store = await seedStore(owner.id);
     const res = await app.inject({
@@ -181,8 +185,8 @@ describe('shopify customer routes', () => {
 
     const [credits] = await app.db
       .select()
-      .from(schema.userCredits)
-      .where(eq(schema.userCredits.userId, owner.id));
+      .from(schema.shopifyStoreCredits)
+      .where(eq(schema.shopifyStoreCredits.storeId, store.id));
     expect(credits.balance).toBe(100);
 
     const jobs = await app.db
@@ -246,7 +250,7 @@ describe('shopify customer routes', () => {
     );
   });
 
-  it('creates a job billed to the store owner and deducts their credits, needing no shopper auth at all', async () => {
+  it('creates a job billed to the store and deducts its credits, needing no shopper auth at all', async () => {
     await seedDefaultFunnelTemplate();
     const owner = await seedOwner(100);
     const store = await seedStore(owner.id);
@@ -263,13 +267,13 @@ describe('shopify customer routes', () => {
     const { jobId } = res.json() as { jobId: string };
 
     const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
-    expect(job.userId).toBe(owner.id);
+    expect(job.userId).toBeNull();
     expect(job.source).toBe('shopify');
 
     const [credits] = await app.db
       .select()
-      .from(schema.userCredits)
-      .where(eq(schema.userCredits.userId, owner.id));
+      .from(schema.shopifyStoreCredits)
+      .where(eq(schema.shopifyStoreCredits.storeId, store.id));
     expect(credits.balance).toBeLessThan(100);
   });
 

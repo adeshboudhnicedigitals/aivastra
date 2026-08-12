@@ -10,6 +10,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { api } from '@/lib/api';
 import { isSupportedImageBytes } from '@/lib/image-validation';
+import { BatchMode } from './batch/batch-mode';
 import { type GenerationJob, GenerationPanel } from './generation-panel';
 import { PreviewPanel } from './preview-panel';
 import { SelectGridModal } from './select-modal';
@@ -38,6 +39,30 @@ interface FaceItem {
   label: string;
   thumbnailUrl: string;
   gender: string;
+  continent?: string | null;
+  tags: string[];
+}
+const CONTINENT_LABELS: Record<string, string> = {
+  asia: 'Asia',
+  africa: 'Africa',
+  europe: 'Europe',
+  north_america: 'North America',
+  south_america: 'South America',
+  oceania: 'Oceania',
+};
+const CONTINENT_ORDER = ['asia', 'africa', 'europe', 'north_america', 'south_america', 'oceania'];
+// Continents are admin-defined slugs (see ContinentSlug in @aivastra/types), not a
+// fixed set -- fall back to a title-cased label for any slug an admin added that
+// isn't in CONTINENT_LABELS above.
+function continentLabel(slug: string): string {
+  return (
+    CONTINENT_LABELS[slug] ??
+    slug
+      .split('_')
+      .filter(Boolean)
+      .map((w) => w.slice(0, 1).toUpperCase() + w.slice(1))
+      .join(' ')
+  );
 }
 interface BackgroundItem {
   id: string;
@@ -191,6 +216,28 @@ function resolutionFromOutputDims(w: number, h: number): 'HD' | '2K' | '4K' {
   if (longer <= 1440) return 'HD';
   if (longer <= 2048) return '2K';
   return '4K';
+}
+
+/**
+ * Tracks .studio-5col-grid's actual column count (see its @media rules below in
+ * this file's <style> block: 5 cols above 768px, 4 at <=768px, 3 at <=480px).
+ * Batch's garment-type grid uses this to cap visible rows to exactly 2 —
+ * unlike single mode's hand-tuned categoryVisibleCount (calibrated for its
+ * narrower, two-column layout), batch is full-width so the true column count
+ * is what determines how many items fit in a row.
+ */
+function useGridColumns(): number {
+  const [columns, setColumns] = useState(5);
+  useEffect(() => {
+    const update = () => {
+      const w = window.innerWidth;
+      setColumns(w <= 480 ? 3 : w <= 768 ? 4 : 5);
+    };
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+  return columns;
 }
 const OUTFIT_IMG: Record<string, string> = {
   kurta: `${BASE}/assets/outfit-kurta.png`,
@@ -381,9 +428,15 @@ function AspectRatioIcon({ ratio, active }: { ratio: string; active?: boolean })
 }
 export default function StudioPage(): React.ReactElement {
   const qc = useQueryClient();
+  const [mode, setMode] = useState<'single' | 'batch'>('single');
+  // Switching the mode ternary unmounts <BatchMode> outright, discarding its
+  // garments/rows with no undo. Tracked here so the toggle can confirm before
+  // leaving Batch while there's unsaved work.
+  const [batchDirty, setBatchDirty] = useState(false);
   const [gender, setGender] = useState('women');
   const [garmentTypeId, setGarmentTypeId] = useState('');
   const [garmentModalOpen, setGarmentModalOpen] = useState(false);
+  const [batchGarmentModalOpen, setBatchGarmentModalOpen] = useState(false);
   const [platform, setPlatform] = useState('Amazon');
   const [aspect, setAspect] = useState(BRAND_CONFIG.Amazon?.default ?? '1:1');
   const [customRatio, setCustomRatio] = useState('');
@@ -564,6 +617,11 @@ export default function StudioPage(): React.ReactElement {
   const categoryVisibleCount = isDesktopView ? 5 : isSmallLaptop ? 10 : isTablet ? 8 : 6;
 
   const garmentVisibleCount = categoryVisibleCount;
+  // Batch is full-width (no two-column split), so unlike single mode's
+  // categoryVisibleCount (1 row at the desktop tier), its garment-type grid
+  // shows exactly 2 rows at every tier — see useGridColumns.
+  const batchGarmentGridColumns = useGridColumns();
+  const batchGarmentVisibleCount = batchGarmentGridColumns * 2;
   const modelVisibleCount = categoryVisibleCount;
   const backgroundVisibleCount = categoryVisibleCount;
   const templateVisibleCount = categoryVisibleCount;
@@ -574,6 +632,8 @@ export default function StudioPage(): React.ReactElement {
   const [backgroundModalOpen, setBackgroundModalOpen] = useState(false);
   const [backgroundItemFilter, setBackgroundItemFilter] = useState<number | ''>('');
   const [backgroundTagFilter, setBackgroundTagFilter] = useState<string>('');
+  const [modelTagFilter, setModelTagFilter] = useState<string>('');
+  const [modelContinentFilter, setModelContinentFilter] = useState<string>('');
   const [catalogueTemplateId, setCatalogueTemplateId] = useState('custom');
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [poseModalOpen, setPoseModalOpen] = useState(false);
@@ -650,6 +710,20 @@ export default function StudioPage(): React.ReactElement {
     refetchOnWindowFocus: true,
   });
   const filteredFaces = useMemo(() => faces?.items ?? [], [faces?.items]);
+  const faceContinents = useMemo(() => {
+    const present = new Set(filteredFaces.map((f) => f.continent || 'global'));
+    const known = CONTINENT_ORDER.filter((c) => present.has(c)).map((c) => ({
+      id: c,
+      label: continentLabel(c),
+    }));
+    const extra = Array.from(present)
+      .filter((c) => c !== 'global' && !CONTINENT_ORDER.includes(c))
+      .map((c) => ({ id: c, label: continentLabel(c) }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    const ordered = [...known, ...extra];
+    if (present.has('global')) ordered.push({ id: 'global', label: 'Global' });
+    return ordered;
+  }, [filteredFaces]);
   useEffect(() => {
     if (!filteredFaces.length) return;
     if (!filteredFaces.some((f) => f.id === faceId)) {
@@ -830,6 +904,11 @@ export default function StudioPage(): React.ReactElement {
     for (const b of backgrounds?.items ?? []) for (const t of b.tags ?? []) set.add(t);
     return Array.from(set).sort();
   }, [backgrounds]);
+  const faceTags = useMemo(() => {
+    const set = new Set<string>();
+    for (const f of faces?.items ?? []) for (const t of f.tags ?? []) set.add(t);
+    return Array.from(set).sort();
+  }, [faces]);
   const {
     data: poses,
     isError: posesError,
@@ -1672,1115 +1751,231 @@ export default function StudioPage(): React.ReactElement {
         title="Studio"
         subtitle="Create premium AI catalogue shoots from flat lay garments in minutes."
       />
-      <div className={`studio-layout-wrapper ${isMobileParam ? 'studio-force-mobile-frame' : ''}`}>
-        <div className="studio-left-column">
-          <div
+      <div style={{ display: 'flex', gap: 8, margin: '0 28px', marginTop: 20 }}>
+        {(['single', 'batch'] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => {
+              if (mode === 'batch' && m !== 'batch' && batchDirty) {
+                const ok = window.confirm(
+                  'Switching modes will discard your batch grid. Continue?',
+                );
+                if (!ok) return;
+              }
+              setMode(m);
+            }}
             style={{
-              flex: 1,
-              minHeight: 0,
-              overflowY: 'auto',
-              paddingRight: 8,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 20,
+              padding: '6px 14px',
+              borderRadius: 999,
+              border: `1px solid ${mode === m ? C.pink : C.border}`,
+              background: mode === m ? C.pink : 'transparent',
+              color: mode === m ? C.white : C.text,
+              cursor: 'pointer',
             }}
           >
-            {/* ── Setup ── */}
-            <section
-              className="studio-section-card studio-audience-section"
-              style={sectionCardStyle}
-            >
-              <SectionHead
-                title="Create Catalogue For"
-                subtitle="Choose your target audience"
-                stepNumber={1}
-              />
-              <div className="gender-card-grid">
-                {GENDERS.map((g) => (
-                  <GenderCard
-                    key={g.value}
-                    img={g.img}
-                    label={g.label}
-                    selected={gender === g.value}
-                    onClick={() => {
-                      setGender(g.value);
-                      setGarmentTypeId('');
-                      setCatalogueTemplateId('custom');
-                      setGarmentModalOpen(false);
-                    }}
-                  />
-                ))}
-              </div>
-            </section>
-
-            <section className="studio-section-card" style={sectionCardStyle}>
-              <SectionHead
-                title="Select Your Garment Type"
-                subtitle="Select the garment category"
-                stepNumber={2}
-                right={
-                  garmentTypes &&
-                  garmentTypes.items.length > garmentVisibleCount && (
-                    <button
-                      type="button"
-                      onClick={() => setGarmentModalOpen(true)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        background: 'none',
-                        border: 'none',
-                        padding: 0,
-                        cursor: 'pointer',
-                        height: 16,
-                      }}
-                    >
-                      <span
-                        style={{
-                          fontFamily: 'var(--font-poppins), Poppins, sans-serif',
-                          fontWeight: 600,
-                          fontSize: 12,
-                          lineHeight: '16px',
-                          color: '#626262',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        View All
-                      </span>
-                    </button>
-                  )
-                }
-              />
-              {!gender ? (
-                <p style={{ fontSize: 13, color: C.mid }}>Select a segment first.</p>
-              ) : !garmentTypes ? (
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    fontSize: 13,
-                    color: C.mid,
+            {m === 'single' ? 'Single' : 'Batch'}
+          </button>
+        ))}
+      </div>
+      {mode === 'batch' ? (
+        <div
+          className="studio-layout-wrapper"
+          style={{ padding: '16px 28px', display: 'flex', flexDirection: 'column', gap: 20 }}
+        >
+          <section className="studio-section-card studio-audience-section" style={sectionCardStyle}>
+            <SectionHead
+              title="Create Catalogue For"
+              subtitle="Choose your target audience"
+              stepNumber={1}
+            />
+            <div className="gender-card-grid">
+              {GENDERS.map((g) => (
+                <GenderCard
+                  key={g.value}
+                  img={g.img}
+                  label={g.label}
+                  selected={gender === g.value}
+                  onClick={() => {
+                    if (g.value === gender) return;
+                    setGender(g.value);
+                    // Forces the auto-select effect below to re-pick the first
+                    // garment type for the new gender, same as switching gender
+                    // in single mode.
+                    setGarmentTypeId('');
                   }}
-                >
-                  <SpinnerIcon size={16} /> Loading…
-                </div>
-              ) : (
-                <div className="studio-5col-grid">
-                  {(() => {
-                    const all = garmentTypes.items;
-                    const inFirstN = all
-                      .slice(0, garmentVisibleCount)
-                      .some((s) => s.id === garmentTypeId);
-                    const visible =
-                      garmentTypeId && !inFirstN
-                        ? [
-                            // biome-ignore lint/style/noNonNullAssertion: inFirstN is false here, so the find returns a value
-                            all.find((s) => s.id === garmentTypeId)!,
-                            ...all
-                              .filter((s) => s.id !== garmentTypeId)
-                              .slice(0, garmentVisibleCount - 1),
-                          ]
-                        : all.slice(0, garmentVisibleCount);
-                    return visible.map((s) => {
-                      const fallbackKey = Object.keys(OUTFIT_IMG).find(
-                        (k) =>
-                          s.slug.toLowerCase().includes(k) || s.label.toLowerCase().includes(k),
-                      );
-                      const img =
-                        s.thumbnailUrl ??
-                        // biome-ignore lint/style/noNonNullAssertion: fallbackKey is derived from a key in OUTFIT_IMG
-                        (fallbackKey ? OUTFIT_IMG[fallbackKey]! : null);
-                      return (
-                        <VisualCard
-                          key={s.id}
-                          img={img}
-                          label={s.label}
-                          width="100%"
-                          selected={garmentTypeId === s.id}
-                          onClick={() => {
-                            if (s.id !== garmentTypeId) {
-                              setGarmentTypeId(s.id);
-                              setFaceId('');
-                              setCatalogueTemplateId('custom');
-                              setBackgroundId('');
-                              setPoseIds([]);
-                              setLowerCatalogId('');
-                              setShoeCatalogId('');
-                              setSareeUploadMode('single');
-                              setPalluGarmentFile(null);
-                              setPalluGarmentKey('');
-                            }
-                          }}
-                        />
-                      );
-                    });
-                  })()}
-                </div>
-              )}
-            </section>
+                />
+              ))}
+            </div>
+          </section>
 
-            <section className="studio-section-card" style={sectionCardStyle}>
-              <SectionHead
-                title={hasMultipleUploadBoxes ? 'Upload Garment Images' : 'Upload Garment Image'}
-                subtitle="Upload a clean flat lay garment image"
-                stepNumber={3}
-              />
-              {sareeTwoInputCapable && (
-                <div style={{ marginBottom: 12 }}>
-                  <label
-                    htmlFor="saree-upload-mode"
+          <section className="studio-section-card" style={sectionCardStyle}>
+            <SectionHead
+              title="Select Your Garment Type"
+              subtitle="Select the garment category"
+              stepNumber={2}
+              right={
+                garmentTypes &&
+                garmentTypes.items.length > batchGarmentVisibleCount && (
+                  <button
+                    type="button"
+                    onClick={() => setBatchGarmentModalOpen(true)}
                     style={{
-                      display: 'block',
-                      fontSize: 12,
-                      fontWeight: 500,
-                      color: C.mid,
-                      marginBottom: 6,
-                    }}
-                  >
-                    Upload type
-                  </label>
-                  <select
-                    id="saree-upload-mode"
-                    value={sareeUploadMode}
-                    onChange={(e) => {
-                      const mode = e.target.value as 'single' | 'two_input';
-                      setSareeUploadMode(mode);
-                      if (mode === 'single') {
-                        setPalluGarmentFile(null);
-                        setPalluGarmentKey('');
-                      }
-                    }}
-                    style={{
-                      background: C.field,
-                      color: C.text,
-                      border: `1px solid ${C.border}`,
-                      borderRadius: 8,
-                      padding: '8px 12px',
-                      fontSize: 13,
-                      minWidth: 220,
-                    }}
-                  >
-                    <option value="single">Full Saree</option>
-                    <option value="two_input">Body & Pallu</option>
-                  </select>
-                </div>
-              )}
-              <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                {/* Dashed upload box — single zone or split into two */}
-                <div
-                  style={{
-                    flex: 1,
-                    minWidth: 260,
-                    height: 238,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 12,
-                    background: C.field,
-                    borderRadius: 12,
-                    border: `1px dashed ${C.border}`,
-                    padding: '0 10px',
-                    boxSizing: 'border-box',
-                  }}
-                >
-                  {/* Upload zone wrapper — stacks vertically when two uploads */}
-                  <div
-                    style={{
-                      flex: 1,
                       display: 'flex',
-                      flexDirection: hasMultipleUploadBoxes ? 'column' : 'row',
-                      gap: hasMultipleUploadBoxes ? 8 : 0,
-                      height: 210,
-                      minWidth: 0,
+                      alignItems: 'center',
+                      gap: 4,
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      cursor: 'pointer',
+                      height: 16,
                     }}
                   >
-                    {/* Upper garment label */}
-                    <label
+                    <span
                       style={{
-                        flex: 1,
-                        minWidth: 0,
-                        height: hasMultipleUploadBoxes ? undefined : 210,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 12,
-                        background: C.card,
-                        border: `1px solid ${C.border}`,
-                        borderRadius: 8,
-                        padding: 12,
-                        cursor: 'pointer',
-                        boxSizing: 'border-box',
-                        overflow: 'hidden',
-                      }}
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        const f = e.dataTransfer.files?.[0];
-                        if (f && ['image/jpeg', 'image/png', 'image/webp'].includes(f.type))
-                          handleGarmentUpload(f);
+                        fontFamily: 'var(--font-poppins), Poppins, sans-serif',
+                        fontWeight: 600,
+                        fontSize: 12,
+                        lineHeight: '16px',
+                        color: '#626262',
+                        whiteSpace: 'nowrap',
                       }}
                     >
-                      {garmentFile ? (
-                        <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
-                          <img
-                            src={garmentPreviewUrl}
-                            alt={garmentFile.name}
-                            style={{
-                              width: '100%',
-                              height: '100%',
-                              objectFit: 'cover',
-                              borderRadius: 6,
-                            }}
-                          />
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              setGarmentFile(null);
-                              setGarmentKey('');
-                            }}
-                            style={{
-                              position: 'absolute',
-                              top: 6,
-                              right: 6,
-                              width: 24,
-                              height: 24,
-                              borderRadius: '50%',
-                              background: 'rgba(0,0,0,0.5)',
-                              border: 'none',
-                              color: 'white',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                            }}
-                          >
-                            <XIcon size={14} />
-                          </button>
-                          {isUploading && (
-                            <div
-                              style={{
-                                position: 'absolute',
-                                bottom: 8,
-                                left: 8,
-                                right: 8,
-                                background: 'rgba(255,255,255,0.95)',
-                                borderRadius: 8,
-                                padding: '6px 10px',
-                              }}
-                            >
-                              <div
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 8,
-                                  fontSize: 12,
-                                  color: C.text,
-                                }}
-                              >
-                                <SpinnerIcon size={14} /> {uploadProgress}%
-                              </div>
-                              <div
-                                style={{
-                                  marginTop: 4,
-                                  height: 4,
-                                  borderRadius: 99,
-                                  background: C.border,
-                                  overflow: 'hidden',
-                                }}
-                              >
-                                <div
-                                  style={{
-                                    height: '100%',
-                                    width: `${uploadProgress}%`,
-                                    background: grad,
-                                    borderRadius: 99,
-                                    transition: 'width .3s',
-                                  }}
-                                />
-                              </div>
-                            </div>
-                          )}
-                          {garmentKey && (
-                            <div
-                              style={{
-                                position: 'absolute',
-                                top: 8,
-                                left: 8,
-                                background: C.mint,
-                                color: 'white',
-                                borderRadius: 6,
-                                padding: '3px 8px',
-                                fontSize: 11,
-                                fontWeight: 600,
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 4,
-                              }}
-                            >
-                              <CheckIcon color="#fff" size={10} /> Uploaded
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <>
-                          <div
-                            style={{
-                              display: 'flex',
-                              flexDirection: 'column',
-                              alignItems: 'center',
-                              gap: 4,
-                            }}
-                          >
-                            <span
-                              style={{
-                                width: '100%',
-                                fontSize: hasMultipleUploadBoxes ? 11 : 12,
-                                fontWeight: 500,
-                                lineHeight: '100%',
-                                color: C.text,
-                                textAlign: 'center',
-                              }}
-                            >
-                              {sareeTwoInputActive
-                                ? 'Body'
-                                : hasMultipleUploadBoxes
-                                  ? selectedGarmentType?.upperUploadLabel ||
-                                    `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`
-                                  : `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`}
-                            </span>
-                            <span
-                              style={{
-                                width: '100%',
-                                fontSize: 10,
-                                fontWeight: 500,
-                                lineHeight: '140%',
-                                color: C.mid,
-                                textAlign: 'center',
-                              }}
-                            >
-                              {hasMultipleUploadBoxes
-                                ? 'JPG, PNG · Max 10MB'
-                                : 'Drag and drop an image here · JPG, PNG · Max 10MB'}
-                            </span>
-                          </div>
-                          <div
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: 6,
-                            }}
-                          >
-                            <ImagePlusIcon size={14} />
-                            <span
-                              style={{
-                                fontSize: 11,
-                                fontWeight: 500,
-                                lineHeight: '18px',
-                                color: C.text,
-                              }}
-                            >
-                              Browse
-                            </span>
-                          </div>
-                        </>
-                      )}
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp"
-                        style={{ display: 'none' }}
-                        onChange={(e) => {
-                          const f = e.target.files?.[0];
-                          if (f) handleGarmentUpload(f);
-                        }}
-                      />
-                    </label>
-
-                    {sareeTwoInputActive && (
-                      <label
-                        style={{
-                          flex: 1,
-                          minWidth: 0,
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 12,
-                          background: C.card,
-                          border: `1px solid ${C.border}`,
-                          borderRadius: 8,
-                          padding: 12,
-                          cursor: 'pointer',
-                          boxSizing: 'border-box',
-                          overflow: 'hidden',
-                        }}
-                        onDragOver={(e) => e.preventDefault()}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          const f = e.dataTransfer.files?.[0];
-                          if (f && ['image/jpeg', 'image/png', 'image/webp'].includes(f.type))
-                            handlePalluGarmentUpload(f);
-                        }}
-                      >
-                        {palluGarmentFile ? (
-                          <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
-                            <img
-                              src={palluGarmentPreviewUrl}
-                              alt={palluGarmentFile.name}
-                              style={{
-                                width: '100%',
-                                height: '100%',
-                                objectFit: 'contain',
-                                borderRadius: 6,
-                              }}
-                            />
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                setPalluGarmentFile(null);
-                                setPalluGarmentKey('');
-                              }}
-                              style={{
-                                position: 'absolute',
-                                top: 6,
-                                right: 6,
-                                width: 24,
-                                height: 24,
-                                borderRadius: '50%',
-                                background: 'rgba(0,0,0,0.5)',
-                                border: 'none',
-                                color: 'white',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                              }}
-                            >
-                              <XIcon size={14} />
-                            </button>
-                            {isUploadingPallu && (
-                              <div
-                                style={{
-                                  position: 'absolute',
-                                  bottom: 8,
-                                  left: 8,
-                                  right: 8,
-                                  background: 'rgba(255,255,255,0.95)',
-                                  borderRadius: 8,
-                                  padding: '6px 10px',
-                                }}
-                              >
-                                <div
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 8,
-                                    fontSize: 12,
-                                    color: C.text,
-                                  }}
-                                >
-                                  <SpinnerIcon size={14} /> Uploading…
-                                </div>
-                              </div>
-                            )}
-                            {palluGarmentKey && (
-                              <div
-                                style={{
-                                  position: 'absolute',
-                                  top: 8,
-                                  left: 8,
-                                  background: C.mint,
-                                  color: 'white',
-                                  borderRadius: 6,
-                                  padding: '3px 8px',
-                                  fontSize: 11,
-                                  fontWeight: 600,
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                }}
-                              >
-                                <CheckIcon color="#fff" size={10} /> Uploaded
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <>
-                            <div
-                              style={{
-                                display: 'flex',
-                                flexDirection: 'column',
-                                alignItems: 'center',
-                                gap: 4,
-                              }}
-                            >
-                              <span
-                                style={{
-                                  width: '100%',
-                                  fontSize: 11,
-                                  fontWeight: 500,
-                                  lineHeight: '100%',
-                                  color: C.text,
-                                  textAlign: 'center',
-                                }}
-                              >
-                                Pallu
-                              </span>
-                              <span
-                                style={{
-                                  width: '100%',
-                                  fontSize: 10,
-                                  fontWeight: 500,
-                                  lineHeight: '140%',
-                                  color: C.mid,
-                                  textAlign: 'center',
-                                }}
-                              >
-                                JPG, PNG · Max 10MB
-                              </span>
-                            </div>
-                            <div
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: 6,
-                              }}
-                            >
-                              <ImagePlusIcon size={14} />
-                              <span
-                                style={{
-                                  fontSize: 11,
-                                  fontWeight: 500,
-                                  lineHeight: '18px',
-                                  color: C.text,
-                                }}
-                              >
-                                Browse
-                              </span>
-                            </div>
-                          </>
-                        )}
-                        <input
-                          ref={palluFileInputRef}
-                          type="file"
-                          accept="image/jpeg,image/png,image/webp"
-                          style={{ display: 'none' }}
-                          onChange={(e) => {
-                            const f = e.target.files?.[0];
-                            if (f) handlePalluGarmentUpload(f);
-                          }}
-                        />
-                      </label>
-                    )}
-
-                    {requiresLowerUpload && (
-                      <label
-                        style={{
-                          flex: 1,
-                          minWidth: 0,
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 12,
-                          background: C.card,
-                          border: `1px solid ${C.border}`,
-                          borderRadius: 8,
-                          padding: 12,
-                          cursor: 'pointer',
-                          boxSizing: 'border-box',
-                          overflow: 'hidden',
-                        }}
-                        onDragOver={(e) => e.preventDefault()}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          const f = e.dataTransfer.files?.[0];
-                          if (f && ['image/jpeg', 'image/png', 'image/webp'].includes(f.type))
-                            handleLowerGarmentUpload(f);
-                        }}
-                      >
-                        {lowerGarmentFile ? (
-                          <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
-                            <img
-                              src={lowerGarmentPreviewUrl}
-                              alt={lowerGarmentFile.name}
-                              style={{
-                                width: '100%',
-                                height: '100%',
-                                objectFit: 'contain',
-                                borderRadius: 6,
-                              }}
-                            />
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                setLowerGarmentFile(null);
-                                setLowerGarmentKey('');
-                              }}
-                              style={{
-                                position: 'absolute',
-                                top: 6,
-                                right: 6,
-                                width: 24,
-                                height: 24,
-                                borderRadius: '50%',
-                                background: 'rgba(0,0,0,0.5)',
-                                border: 'none',
-                                color: 'white',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                              }}
-                            >
-                              <XIcon size={14} />
-                            </button>
-                            {isUploadingLower && (
-                              <div
-                                style={{
-                                  position: 'absolute',
-                                  bottom: 8,
-                                  left: 8,
-                                  right: 8,
-                                  background: 'rgba(255,255,255,0.95)',
-                                  borderRadius: 8,
-                                  padding: '6px 10px',
-                                }}
-                              >
-                                <div
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 8,
-                                    fontSize: 12,
-                                    color: C.text,
-                                  }}
-                                >
-                                  <SpinnerIcon size={14} /> Uploading…
-                                </div>
-                              </div>
-                            )}
-                            {lowerGarmentKey && (
-                              <div
-                                style={{
-                                  position: 'absolute',
-                                  top: 8,
-                                  left: 8,
-                                  background: C.mint,
-                                  color: 'white',
-                                  borderRadius: 6,
-                                  padding: '3px 8px',
-                                  fontSize: 11,
-                                  fontWeight: 600,
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                }}
-                              >
-                                <CheckIcon color="#fff" size={10} /> Uploaded
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <>
-                            <div
-                              style={{
-                                display: 'flex',
-                                flexDirection: 'column',
-                                alignItems: 'center',
-                                gap: 4,
-                              }}
-                            >
-                              <span
-                                style={{
-                                  width: '100%',
-                                  fontSize: 11,
-                                  fontWeight: 500,
-                                  lineHeight: '100%',
-                                  color: C.text,
-                                  textAlign: 'center',
-                                }}
-                              >
-                                {selectedGarmentType?.lowerUploadLabel ?? 'Bottom Wear'}
-                              </span>
-                              <span
-                                style={{
-                                  width: '100%',
-                                  fontSize: 10,
-                                  fontWeight: 500,
-                                  lineHeight: '140%',
-                                  color: C.mid,
-                                  textAlign: 'center',
-                                }}
-                              >
-                                JPG, PNG · Max 10MB
-                              </span>
-                            </div>
-                            <div
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: 6,
-                              }}
-                            >
-                              <ImagePlusIcon size={14} />
-                              <span
-                                style={{
-                                  fontSize: 11,
-                                  fontWeight: 500,
-                                  lineHeight: '18px',
-                                  color: C.text,
-                                }}
-                              >
-                                Browse
-                              </span>
-                            </div>
-                          </>
-                        )}
-                        <input
-                          ref={lowerFileInputRef}
-                          type="file"
-                          accept="image/jpeg,image/png,image/webp"
-                          style={{ display: 'none' }}
-                          onChange={(e) => {
-                            const f = e.target.files?.[0];
-                            if (f) handleLowerGarmentUpload(f);
-                          }}
-                        />
-                      </label>
-                    )}
-
-                    {selectedGarmentType?.requiresThirdUpload && (
-                      <label
-                        style={{
-                          flex: 1,
-                          minWidth: 0,
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 12,
-                          background: C.card,
-                          border: `1px solid ${C.border}`,
-                          borderRadius: 8,
-                          padding: 12,
-                          cursor: 'pointer',
-                          boxSizing: 'border-box',
-                          overflow: 'hidden',
-                        }}
-                        onDragOver={(e) => e.preventDefault()}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          const f = e.dataTransfer.files?.[0];
-                          if (f && ['image/jpeg', 'image/png', 'image/webp'].includes(f.type))
-                            handleThirdGarmentUpload(f);
-                        }}
-                      >
-                        {thirdGarmentFile ? (
-                          <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
-                            <img
-                              src={thirdGarmentPreviewUrl}
-                              alt={thirdGarmentFile.name}
-                              style={{
-                                width: '100%',
-                                height: '100%',
-                                objectFit: 'contain',
-                                borderRadius: 6,
-                              }}
-                            />
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                setThirdGarmentFile(null);
-                                setThirdGarmentKey('');
-                              }}
-                              style={{
-                                position: 'absolute',
-                                top: 6,
-                                right: 6,
-                                width: 24,
-                                height: 24,
-                                borderRadius: '50%',
-                                background: 'rgba(0,0,0,0.5)',
-                                border: 'none',
-                                color: 'white',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                              }}
-                            >
-                              <XIcon size={14} />
-                            </button>
-                            {isUploadingThird && (
-                              <div
-                                style={{
-                                  position: 'absolute',
-                                  bottom: 8,
-                                  left: 8,
-                                  right: 8,
-                                  background: 'rgba(255,255,255,0.95)',
-                                  borderRadius: 8,
-                                  padding: '6px 10px',
-                                }}
-                              >
-                                <div
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 8,
-                                    fontSize: 12,
-                                    color: C.text,
-                                  }}
-                                >
-                                  <SpinnerIcon size={14} /> Uploading…
-                                </div>
-                              </div>
-                            )}
-                            {thirdGarmentKey && (
-                              <div
-                                style={{
-                                  position: 'absolute',
-                                  top: 8,
-                                  left: 8,
-                                  background: C.mint,
-                                  color: 'white',
-                                  borderRadius: 6,
-                                  padding: '3px 8px',
-                                  fontSize: 11,
-                                  fontWeight: 600,
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                }}
-                              >
-                                <CheckIcon color="#fff" size={10} /> Uploaded
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <>
-                            <div
-                              style={{
-                                display: 'flex',
-                                flexDirection: 'column',
-                                alignItems: 'center',
-                                gap: 4,
-                              }}
-                            >
-                              <span
-                                style={{
-                                  width: '100%',
-                                  fontSize: 11,
-                                  fontWeight: 500,
-                                  lineHeight: '100%',
-                                  color: C.text,
-                                  textAlign: 'center',
-                                }}
-                              >
-                                {selectedGarmentType?.thirdUploadLabel ?? 'Upload Third Garment'}
-                              </span>
-                              <span
-                                style={{
-                                  width: '100%',
-                                  fontSize: 10,
-                                  fontWeight: 500,
-                                  lineHeight: '140%',
-                                  color: C.mid,
-                                  textAlign: 'center',
-                                }}
-                              >
-                                JPG, PNG · Max 10MB
-                              </span>
-                            </div>
-                            <div
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: 6,
-                              }}
-                            >
-                              <ImagePlusIcon size={14} />
-                              <span
-                                style={{
-                                  fontSize: 11,
-                                  fontWeight: 500,
-                                  lineHeight: '18px',
-                                  color: C.text,
-                                }}
-                              >
-                                Browse
-                              </span>
-                            </div>
-                          </>
-                        )}
-                        <input
-                          ref={thirdFileInputRef}
-                          type="file"
-                          accept="image/jpeg,image/png,image/webp"
-                          style={{ display: 'none' }}
-                          onChange={(e) => {
-                            const f = e.target.files?.[0];
-                            if (f) handleThirdGarmentUpload(f);
-                          }}
-                        />
-                      </label>
-                    )}
-                  </div>
-
-                  {selectedGarmentType?.instructionImageUrl && (
-                    <div
-                      style={{
-                        flex: 1,
-                        height: 210,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        minWidth: 0,
-                        borderRadius: 8,
-                        overflow: 'hidden',
-                      }}
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      {/* biome-ignore lint/performance/noImgElement: dynamic instruction image */}
-                      <img
-                        src={selectedGarmentType.instructionImageUrl}
-                        alt="Upload instructions"
-                        style={{
-                          width: '100%',
-                          height: '100%',
-                          objectFit: 'contain',
-                        }}
-                      />
-                    </div>
-                  )}
-                </div>
+                      View More
+                    </span>
+                  </button>
+                )
+              }
+            />
+            {!garmentTypes ? (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  fontSize: 13,
+                  color: C.mid,
+                }}
+              >
+                <SpinnerIcon size={16} /> Loading…
               </div>
-            </section>
-
-            {/* ── Model ── */}
-            <section className="studio-section-card" style={sectionCardStyle}>
-              <SectionHead
-                title="Choose AI Model"
-                subtitle="Select the fashion model for your catalogue"
-                stepNumber={4}
-                right={
-                  filteredFaces.length > modelVisibleCount && (
-                    <button
-                      type="button"
-                      onClick={() => setModelModalOpen(true)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        background: 'none',
-                        border: 'none',
-                        padding: 0,
-                        cursor: 'pointer',
-                        height: 16,
-                      }}
-                    >
-                      <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
-                        View All
-                      </span>
-                    </button>
-                  )
-                }
-              />
-              {facesError ? (
-                <ErrorState
-                  compact
-                  title="Couldn't load models"
-                  message="There was a problem fetching models. Please try again."
-                  onRetry={() => refetchFaces()}
-                />
-              ) : !faces ? (
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'center',
-                    padding: '32px 0',
-                    color: C.mid,
-                  }}
-                >
-                  <SpinnerIcon />
-                </div>
-              ) : (
-                <div className="studio-5col-grid">
-                  {(() => {
-                    const inFirstN = filteredFaces
-                      .slice(0, modelVisibleCount)
-                      .some((f) => f.id === faceId);
-                    const selectedFace = faceId
-                      ? filteredFaces.find((f) => f.id === faceId)
-                      : undefined;
-                    const visibleFaces =
-                      selectedFace && !inFirstN
-                        ? [
-                            selectedFace,
-                            ...filteredFaces
-                              .filter((f) => f.id !== faceId)
-                              .slice(0, modelVisibleCount - 1),
-                          ]
-                        : filteredFaces.slice(0, modelVisibleCount);
-                    return visibleFaces.map((f) => (
-                      <SelCard
-                        key={f.id}
-                        selected={faceId === f.id}
-                        onClick={() => handleFaceSelect(f.id)}
-                        imageUrl={f.thumbnailUrl}
-                        label={f.label}
-                        w="100%"
-                        ratio={215.2 / 212.67}
+            ) : (
+              <div className="studio-5col-grid">
+                {(() => {
+                  const all = garmentTypes.items;
+                  const inFirstN = all
+                    .slice(0, batchGarmentVisibleCount)
+                    .some((s) => s.id === garmentTypeId);
+                  const visible =
+                    garmentTypeId && !inFirstN
+                      ? [
+                          // biome-ignore lint/style/noNonNullAssertion: inFirstN is false here, so the find returns a value
+                          all.find((s) => s.id === garmentTypeId)!,
+                          ...all
+                            .filter((s) => s.id !== garmentTypeId)
+                            .slice(0, batchGarmentVisibleCount - 1),
+                        ]
+                      : all.slice(0, batchGarmentVisibleCount);
+                  return visible.map((s) => {
+                    const fallbackKey = Object.keys(OUTFIT_IMG).find(
+                      (k) => s.slug.toLowerCase().includes(k) || s.label.toLowerCase().includes(k),
+                    );
+                    const img = s.thumbnailUrl ?? (fallbackKey ? OUTFIT_IMG[fallbackKey] : null);
+                    return (
+                      <VisualCard
+                        key={s.id}
+                        img={img ?? null}
+                        label={s.label}
+                        width="100%"
+                        selected={garmentTypeId === s.id}
+                        onClick={() => setGarmentTypeId(s.id)}
                       />
-                    ));
-                  })()}
-                </div>
-              )}
-              {modelModalOpen && faces && (
-                <SelectGridModal
-                  title="Choose your model"
-                  items={filteredFaces}
-                  selectedIds={faceId ? [faceId] : []}
-                  aspect={1}
-                  columns={5}
-                  onSelect={(id) => {
-                    handleFaceSelect(id);
-                    setModelModalOpen(false);
-                  }}
-                  onClose={() => setModelModalOpen(false)}
-                />
-              )}
-            </section>
+                    );
+                  });
+                })()}
+              </div>
+            )}
+          </section>
 
-            {/* ── Ready-made catalogue templates ── */}
-            {hasCatalogueTemplates && (
+          {garmentTypeId ? (
+            <BatchMode
+              gender={gender}
+              garmentTypeId={garmentTypeId}
+              aspectRatio={effectiveAspect}
+              resolution={resolution ?? 'HD'}
+              platform={platform}
+              params={
+                aspect === 'custom' && customDimsReady
+                  ? { outputWidth: customWNum, outputHeight: customHNum }
+                  : undefined
+              }
+              creditCostPerImage={
+                resolution ? RESOLUTION_COSTS[resolution] : (resolutionConfig.HD?.creditCost ?? 25)
+              }
+              balance={userCredits}
+              onDirtyChange={setBatchDirty}
+            />
+          ) : (
+            <p style={{ color: C.mid, fontSize: 13 }}>
+              Select a garment type above to start uploading garments.
+            </p>
+          )}
+        </div>
+      ) : (
+        <div
+          className={`studio-layout-wrapper ${isMobileParam ? 'studio-force-mobile-frame' : ''}`}
+        >
+          <div className="studio-left-column">
+            <div
+              style={{
+                flex: 1,
+                minHeight: 0,
+                overflowY: 'auto',
+                paddingRight: 8,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 20,
+              }}
+            >
+              {/* ── Setup ── */}
+              <section
+                className="studio-section-card studio-audience-section"
+                style={sectionCardStyle}
+              >
+                <SectionHead
+                  title="Create Catalogue For"
+                  subtitle="Choose your target audience"
+                  stepNumber={1}
+                />
+                <div className="gender-card-grid">
+                  {GENDERS.map((g) => (
+                    <GenderCard
+                      key={g.value}
+                      img={g.img}
+                      label={g.label}
+                      selected={gender === g.value}
+                      onClick={() => {
+                        setGender(g.value);
+                        setGarmentTypeId('');
+                        setCatalogueTemplateId('custom');
+                        setGarmentModalOpen(false);
+                      }}
+                    />
+                  ))}
+                </div>
+              </section>
+
               <section className="studio-section-card" style={sectionCardStyle}>
                 <SectionHead
-                  title="Create Your Look or Choose From Ready Made Poses"
-                  stepNumber={stepNumberOf('templates')}
+                  title="Select Your Garment Type"
+                  subtitle="Select the garment category"
+                  stepNumber={2}
                   right={
-                    catalogueTemplates.length > templateVisibleCount && (
+                    garmentTypes &&
+                    garmentTypes.items.length > garmentVisibleCount && (
                       <button
                         type="button"
-                        onClick={() => setTemplateModalOpen(true)}
+                        onClick={() => setGarmentModalOpen(true)}
                         style={{
                           display: 'flex',
                           alignItems: 'center',
@@ -2792,155 +1987,959 @@ export default function StudioPage(): React.ReactElement {
                           height: 16,
                         }}
                       >
-                        <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
-                          View more
+                        <span
+                          style={{
+                            fontFamily: 'var(--font-poppins), Poppins, sans-serif',
+                            fontWeight: 600,
+                            fontSize: 12,
+                            lineHeight: '16px',
+                            color: '#626262',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          View All
                         </span>
                       </button>
                     )
                   }
                 />
-                <div className="studio-5col-grid">
-                  {(() => {
-                    // "Create your own look" (catalogueTemplates[0], id 'custom') is always
-                    // pinned first - a selected template that isn't already visible is
-                    // inserted right after it, never displacing it from the front.
-                    const [custom, ...rest] = catalogueTemplates;
-                    const firstNRest = rest.slice(0, templateVisibleCount - 1);
-                    const selected = rest.find((template) => template.id === catalogueTemplateId);
-                    const visibleRest =
-                      selected && !firstNRest.some((template) => template.id === selected.id)
-                        ? [selected, ...firstNRest].slice(0, templateVisibleCount - 1)
-                        : firstNRest;
-                    const visibleTemplates = custom ? [custom, ...visibleRest] : visibleRest;
-                    return visibleTemplates.map((template) => (
-                      <SelCard
-                        key={template.id}
-                        selected={catalogueTemplateId === template.id}
-                        onClick={() => handleCatalogueTemplateSelect(template.id)}
-                        imageUrl={template.thumbnailUrl}
-                        label={template.id === 'custom' ? undefined : template.label}
-                        w="100%"
-                        ratio={215.2 / 212.67}
-                        imageObjectPosition="top center"
-                        fillHeight={template.id === 'custom'}
-                        emptyContent={
-                          template.id === 'custom' ? (
+                {!gender ? (
+                  <p style={{ fontSize: 13, color: C.mid }}>Select a segment first.</p>
+                ) : !garmentTypes ? (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      fontSize: 13,
+                      color: C.mid,
+                    }}
+                  >
+                    <SpinnerIcon size={16} /> Loading…
+                  </div>
+                ) : (
+                  <div className="studio-5col-grid">
+                    {(() => {
+                      const all = garmentTypes.items;
+                      const inFirstN = all
+                        .slice(0, garmentVisibleCount)
+                        .some((s) => s.id === garmentTypeId);
+                      const visible =
+                        garmentTypeId && !inFirstN
+                          ? [
+                              // biome-ignore lint/style/noNonNullAssertion: inFirstN is false here, so the find returns a value
+                              all.find((s) => s.id === garmentTypeId)!,
+                              ...all
+                                .filter((s) => s.id !== garmentTypeId)
+                                .slice(0, garmentVisibleCount - 1),
+                            ]
+                          : all.slice(0, garmentVisibleCount);
+                      return visible.map((s) => {
+                        const fallbackKey = Object.keys(OUTFIT_IMG).find(
+                          (k) =>
+                            s.slug.toLowerCase().includes(k) || s.label.toLowerCase().includes(k),
+                        );
+                        const img =
+                          s.thumbnailUrl ??
+                          // biome-ignore lint/style/noNonNullAssertion: fallbackKey is derived from a key in OUTFIT_IMG
+                          (fallbackKey ? OUTFIT_IMG[fallbackKey]! : null);
+                        return (
+                          <VisualCard
+                            key={s.id}
+                            img={img}
+                            label={s.label}
+                            width="100%"
+                            selected={garmentTypeId === s.id}
+                            onClick={() => {
+                              if (s.id !== garmentTypeId) {
+                                setGarmentTypeId(s.id);
+                                setFaceId('');
+                                setCatalogueTemplateId('custom');
+                                setBackgroundId('');
+                                setPoseIds([]);
+                                setLowerCatalogId('');
+                                setShoeCatalogId('');
+                                setSareeUploadMode('single');
+                                setPalluGarmentFile(null);
+                                setPalluGarmentKey('');
+                              }
+                            }}
+                          />
+                        );
+                      });
+                    })()}
+                  </div>
+                )}
+              </section>
+
+              <section className="studio-section-card" style={sectionCardStyle}>
+                <SectionHead
+                  title={hasMultipleUploadBoxes ? 'Upload Garment Images' : 'Upload Garment Image'}
+                  subtitle="Upload a clean flat lay garment image"
+                  stepNumber={3}
+                />
+                {sareeTwoInputCapable && (
+                  <div style={{ marginBottom: 12 }}>
+                    <label
+                      htmlFor="saree-upload-mode"
+                      style={{
+                        display: 'block',
+                        fontSize: 12,
+                        fontWeight: 500,
+                        color: C.mid,
+                        marginBottom: 6,
+                      }}
+                    >
+                      Upload type
+                    </label>
+                    <select
+                      id="saree-upload-mode"
+                      value={sareeUploadMode}
+                      onChange={(e) => {
+                        const mode = e.target.value as 'single' | 'two_input';
+                        setSareeUploadMode(mode);
+                        if (mode === 'single') {
+                          setPalluGarmentFile(null);
+                          setPalluGarmentKey('');
+                        }
+                      }}
+                      style={{
+                        background: C.field,
+                        color: C.text,
+                        border: `1px solid ${C.border}`,
+                        borderRadius: 8,
+                        padding: '8px 12px',
+                        fontSize: 13,
+                        minWidth: 220,
+                      }}
+                    >
+                      <option value="single">Full Saree</option>
+                      <option value="two_input">Body & Pallu</option>
+                    </select>
+                  </div>
+                )}
+                <div
+                  style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}
+                >
+                  {/* Dashed upload box — single zone or split into two */}
+                  <div
+                    style={{
+                      flex: 1,
+                      minWidth: 260,
+                      height: 238,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      background: C.field,
+                      borderRadius: 12,
+                      border: `1px dashed ${C.border}`,
+                      padding: '0 10px',
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    {/* Upload zone wrapper — stacks vertically when two uploads */}
+                    <div
+                      style={{
+                        flex: 1,
+                        display: 'flex',
+                        flexDirection: hasMultipleUploadBoxes ? 'column' : 'row',
+                        gap: hasMultipleUploadBoxes ? 8 : 0,
+                        height: 210,
+                        minWidth: 0,
+                      }}
+                    >
+                      {/* Upper garment label */}
+                      <label
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          height: hasMultipleUploadBoxes ? undefined : 210,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 12,
+                          background: C.card,
+                          border: `1px solid ${C.border}`,
+                          borderRadius: 8,
+                          padding: 12,
+                          cursor: 'pointer',
+                          boxSizing: 'border-box',
+                          overflow: 'hidden',
+                        }}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const f = e.dataTransfer.files?.[0];
+                          if (f && ['image/jpeg', 'image/png', 'image/webp'].includes(f.type))
+                            handleGarmentUpload(f);
+                        }}
+                      >
+                        {garmentFile ? (
+                          <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
+                            <img
+                              src={garmentPreviewUrl}
+                              alt={garmentFile.name}
+                              style={{
+                                width: '100%',
+                                height: '100%',
+                                objectFit: 'cover',
+                                borderRadius: 6,
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                setGarmentFile(null);
+                                setGarmentKey('');
+                              }}
+                              style={{
+                                position: 'absolute',
+                                top: 6,
+                                right: 6,
+                                width: 24,
+                                height: 24,
+                                borderRadius: '50%',
+                                background: 'rgba(0,0,0,0.5)',
+                                border: 'none',
+                                color: 'white',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                            >
+                              <XIcon size={14} />
+                            </button>
+                            {isUploading && (
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  bottom: 8,
+                                  left: 8,
+                                  right: 8,
+                                  background: 'rgba(255,255,255,0.95)',
+                                  borderRadius: 8,
+                                  padding: '6px 10px',
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 8,
+                                    fontSize: 12,
+                                    color: C.text,
+                                  }}
+                                >
+                                  <SpinnerIcon size={14} /> {uploadProgress}%
+                                </div>
+                                <div
+                                  style={{
+                                    marginTop: 4,
+                                    height: 4,
+                                    borderRadius: 99,
+                                    background: C.border,
+                                    overflow: 'hidden',
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      height: '100%',
+                                      width: `${uploadProgress}%`,
+                                      background: grad,
+                                      borderRadius: 99,
+                                      transition: 'width .3s',
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            )}
+                            {garmentKey && (
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  top: 8,
+                                  left: 8,
+                                  background: C.mint,
+                                  color: 'white',
+                                  borderRadius: 6,
+                                  padding: '3px 8px',
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                }}
+                              >
+                                <CheckIcon color="#fff" size={10} /> Uploaded
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <>
                             <div
                               style={{
                                 display: 'flex',
                                 flexDirection: 'column',
                                 alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: 10,
-                                padding: 16,
-                                color: C.text,
-                                width: '100%',
-                                height: '100%',
-                                boxSizing: 'border-box',
-                                position: 'absolute',
-                                inset: 0,
+                                gap: 4,
                               }}
                             >
                               <span
                                 style={{
-                                  width: 44,
-                                  height: 44,
-                                  borderRadius: 10,
-                                  display: 'grid',
-                                  placeItems: 'center',
-                                  background: C.white,
-                                  border: `1px solid ${C.border}`,
-                                  color: C.pink,
-                                }}
-                              >
-                                <ImagePlusIcon size={22} />
-                              </span>
-                              <span
-                                style={{
-                                  maxWidth: 110,
-                                  fontSize: 12,
-                                  fontWeight: 600,
-                                  lineHeight: 1.35,
+                                  width: '100%',
+                                  fontSize: hasMultipleUploadBoxes ? 11 : 12,
+                                  fontWeight: 500,
+                                  lineHeight: '100%',
+                                  color: C.text,
                                   textAlign: 'center',
                                 }}
                               >
-                                Create your own look
+                                {sareeTwoInputActive
+                                  ? 'Body'
+                                  : hasMultipleUploadBoxes
+                                    ? selectedGarmentType?.upperUploadLabel ||
+                                      `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`
+                                    : `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`}
+                              </span>
+                              <span
+                                style={{
+                                  width: '100%',
+                                  fontSize: 10,
+                                  fontWeight: 500,
+                                  lineHeight: '140%',
+                                  color: C.mid,
+                                  textAlign: 'center',
+                                }}
+                              >
+                                {hasMultipleUploadBoxes
+                                  ? 'JPG, PNG · Max 10MB'
+                                  : 'Drag and drop an image here · JPG, PNG · Max 10MB'}
                               </span>
                             </div>
-                          ) : undefined
-                        }
-                      />
-                    ));
-                  })()}
-                </div>
-                {templateModalOpen && (
-                  <SelectGridModal
-                    title="Select a Ready-Made Catalogue Template"
-                    items={catalogueTemplates.filter((template) => template.id !== 'custom')}
-                    selectedIds={[catalogueTemplateId]}
-                    aspect={215.2 / 282}
-                    columns={5}
-                    onSelect={(id) => {
-                      handleCatalogueTemplateSelect(id);
-                      setTemplateModalOpen(false);
-                    }}
-                    onClose={() => setTemplateModalOpen(false)}
-                  />
-                )}
-                {/* ── Choose Looks (template mode only) ── */}
-                {catalogueTemplateId !== 'custom' && (
-                  <div style={{ marginTop: 16 }}>
-                    <SectionHead
-                      title=""
-                      titleSuffix={
-                        selectedLookIds.length > 0 && (
-                          <span
-                            style={{ fontWeight: 500, fontSize: 12, color: C.mid, marginLeft: 6 }}
-                          >
-                            {selectedLookIds.length} poses selected
-                          </span>
-                        )
-                      }
-                    />
-                    {(activeTemplate?.looks.length ?? 0) === 0 ? (
-                      <p style={{ fontSize: 14, color: C.mid }}>
-                        No looks available for this garment type yet.
-                      </p>
-                    ) : (
-                      <div className="studio-5col-grid">
-                        {(activeTemplate?.looks ?? []).map((look) => (
-                          <SelCard
-                            key={look.id}
-                            selected={selectedLookIds.includes(look.id)}
-                            onClick={() => handleLookToggle(look.id)}
-                            imageUrl={look.poseThumbnailUrl}
-                            w="100%"
-                            ratio={215.2 / 212.67}
-                            imageObjectPosition="top center"
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 6,
+                              }}
+                            >
+                              <ImagePlusIcon size={14} />
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 500,
+                                  lineHeight: '18px',
+                                  color: C.text,
+                                }}
+                              >
+                                Browse
+                              </span>
+                            </div>
+                          </>
+                        )}
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          style={{ display: 'none' }}
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) handleGarmentUpload(f);
+                          }}
+                        />
+                      </label>
+
+                      {sareeTwoInputActive && (
+                        <label
+                          style={{
+                            flex: 1,
+                            minWidth: 0,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 12,
+                            background: C.card,
+                            border: `1px solid ${C.border}`,
+                            borderRadius: 8,
+                            padding: 12,
+                            cursor: 'pointer',
+                            boxSizing: 'border-box',
+                            overflow: 'hidden',
+                          }}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            const f = e.dataTransfer.files?.[0];
+                            if (f && ['image/jpeg', 'image/png', 'image/webp'].includes(f.type))
+                              handlePalluGarmentUpload(f);
+                          }}
+                        >
+                          {palluGarmentFile ? (
+                            <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
+                              <img
+                                src={palluGarmentPreviewUrl}
+                                alt={palluGarmentFile.name}
+                                style={{
+                                  width: '100%',
+                                  height: '100%',
+                                  objectFit: 'contain',
+                                  borderRadius: 6,
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  setPalluGarmentFile(null);
+                                  setPalluGarmentKey('');
+                                }}
+                                style={{
+                                  position: 'absolute',
+                                  top: 6,
+                                  right: 6,
+                                  width: 24,
+                                  height: 24,
+                                  borderRadius: '50%',
+                                  background: 'rgba(0,0,0,0.5)',
+                                  border: 'none',
+                                  color: 'white',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
+                              >
+                                <XIcon size={14} />
+                              </button>
+                              {isUploadingPallu && (
+                                <div
+                                  style={{
+                                    position: 'absolute',
+                                    bottom: 8,
+                                    left: 8,
+                                    right: 8,
+                                    background: 'rgba(255,255,255,0.95)',
+                                    borderRadius: 8,
+                                    padding: '6px 10px',
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: 8,
+                                      fontSize: 12,
+                                      color: C.text,
+                                    }}
+                                  >
+                                    <SpinnerIcon size={14} /> Uploading…
+                                  </div>
+                                </div>
+                              )}
+                              {palluGarmentKey && (
+                                <div
+                                  style={{
+                                    position: 'absolute',
+                                    top: 8,
+                                    left: 8,
+                                    background: C.mint,
+                                    color: 'white',
+                                    borderRadius: 6,
+                                    padding: '3px 8px',
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                  }}
+                                >
+                                  <CheckIcon color="#fff" size={10} /> Uploaded
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <>
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    width: '100%',
+                                    fontSize: 11,
+                                    fontWeight: 500,
+                                    lineHeight: '100%',
+                                    color: C.text,
+                                    textAlign: 'center',
+                                  }}
+                                >
+                                  Pallu
+                                </span>
+                                <span
+                                  style={{
+                                    width: '100%',
+                                    fontSize: 10,
+                                    fontWeight: 500,
+                                    lineHeight: '140%',
+                                    color: C.mid,
+                                    textAlign: 'center',
+                                  }}
+                                >
+                                  JPG, PNG · Max 10MB
+                                </span>
+                              </div>
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: 6,
+                                }}
+                              >
+                                <ImagePlusIcon size={14} />
+                                <span
+                                  style={{
+                                    fontSize: 11,
+                                    fontWeight: 500,
+                                    lineHeight: '18px',
+                                    color: C.text,
+                                  }}
+                                >
+                                  Browse
+                                </span>
+                              </div>
+                            </>
+                          )}
+                          <input
+                            ref={palluFileInputRef}
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            style={{ display: 'none' }}
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              if (f) handlePalluGarmentUpload(f);
+                            }}
                           />
-                        ))}
+                        </label>
+                      )}
+
+                      {requiresLowerUpload && (
+                        <label
+                          style={{
+                            flex: 1,
+                            minWidth: 0,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 12,
+                            background: C.card,
+                            border: `1px solid ${C.border}`,
+                            borderRadius: 8,
+                            padding: 12,
+                            cursor: 'pointer',
+                            boxSizing: 'border-box',
+                            overflow: 'hidden',
+                          }}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            const f = e.dataTransfer.files?.[0];
+                            if (f && ['image/jpeg', 'image/png', 'image/webp'].includes(f.type))
+                              handleLowerGarmentUpload(f);
+                          }}
+                        >
+                          {lowerGarmentFile ? (
+                            <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
+                              <img
+                                src={lowerGarmentPreviewUrl}
+                                alt={lowerGarmentFile.name}
+                                style={{
+                                  width: '100%',
+                                  height: '100%',
+                                  objectFit: 'contain',
+                                  borderRadius: 6,
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  setLowerGarmentFile(null);
+                                  setLowerGarmentKey('');
+                                }}
+                                style={{
+                                  position: 'absolute',
+                                  top: 6,
+                                  right: 6,
+                                  width: 24,
+                                  height: 24,
+                                  borderRadius: '50%',
+                                  background: 'rgba(0,0,0,0.5)',
+                                  border: 'none',
+                                  color: 'white',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
+                              >
+                                <XIcon size={14} />
+                              </button>
+                              {isUploadingLower && (
+                                <div
+                                  style={{
+                                    position: 'absolute',
+                                    bottom: 8,
+                                    left: 8,
+                                    right: 8,
+                                    background: 'rgba(255,255,255,0.95)',
+                                    borderRadius: 8,
+                                    padding: '6px 10px',
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: 8,
+                                      fontSize: 12,
+                                      color: C.text,
+                                    }}
+                                  >
+                                    <SpinnerIcon size={14} /> Uploading…
+                                  </div>
+                                </div>
+                              )}
+                              {lowerGarmentKey && (
+                                <div
+                                  style={{
+                                    position: 'absolute',
+                                    top: 8,
+                                    left: 8,
+                                    background: C.mint,
+                                    color: 'white',
+                                    borderRadius: 6,
+                                    padding: '3px 8px',
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                  }}
+                                >
+                                  <CheckIcon color="#fff" size={10} /> Uploaded
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <>
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    width: '100%',
+                                    fontSize: 11,
+                                    fontWeight: 500,
+                                    lineHeight: '100%',
+                                    color: C.text,
+                                    textAlign: 'center',
+                                  }}
+                                >
+                                  {selectedGarmentType?.lowerUploadLabel ?? 'Bottom Wear'}
+                                </span>
+                                <span
+                                  style={{
+                                    width: '100%',
+                                    fontSize: 10,
+                                    fontWeight: 500,
+                                    lineHeight: '140%',
+                                    color: C.mid,
+                                    textAlign: 'center',
+                                  }}
+                                >
+                                  JPG, PNG · Max 10MB
+                                </span>
+                              </div>
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: 6,
+                                }}
+                              >
+                                <ImagePlusIcon size={14} />
+                                <span
+                                  style={{
+                                    fontSize: 11,
+                                    fontWeight: 500,
+                                    lineHeight: '18px',
+                                    color: C.text,
+                                  }}
+                                >
+                                  Browse
+                                </span>
+                              </div>
+                            </>
+                          )}
+                          <input
+                            ref={lowerFileInputRef}
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            style={{ display: 'none' }}
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              if (f) handleLowerGarmentUpload(f);
+                            }}
+                          />
+                        </label>
+                      )}
+
+                      {selectedGarmentType?.requiresThirdUpload && (
+                        <label
+                          style={{
+                            flex: 1,
+                            minWidth: 0,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 12,
+                            background: C.card,
+                            border: `1px solid ${C.border}`,
+                            borderRadius: 8,
+                            padding: 12,
+                            cursor: 'pointer',
+                            boxSizing: 'border-box',
+                            overflow: 'hidden',
+                          }}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            const f = e.dataTransfer.files?.[0];
+                            if (f && ['image/jpeg', 'image/png', 'image/webp'].includes(f.type))
+                              handleThirdGarmentUpload(f);
+                          }}
+                        >
+                          {thirdGarmentFile ? (
+                            <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
+                              <img
+                                src={thirdGarmentPreviewUrl}
+                                alt={thirdGarmentFile.name}
+                                style={{
+                                  width: '100%',
+                                  height: '100%',
+                                  objectFit: 'contain',
+                                  borderRadius: 6,
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  setThirdGarmentFile(null);
+                                  setThirdGarmentKey('');
+                                }}
+                                style={{
+                                  position: 'absolute',
+                                  top: 6,
+                                  right: 6,
+                                  width: 24,
+                                  height: 24,
+                                  borderRadius: '50%',
+                                  background: 'rgba(0,0,0,0.5)',
+                                  border: 'none',
+                                  color: 'white',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
+                              >
+                                <XIcon size={14} />
+                              </button>
+                              {isUploadingThird && (
+                                <div
+                                  style={{
+                                    position: 'absolute',
+                                    bottom: 8,
+                                    left: 8,
+                                    right: 8,
+                                    background: 'rgba(255,255,255,0.95)',
+                                    borderRadius: 8,
+                                    padding: '6px 10px',
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: 8,
+                                      fontSize: 12,
+                                      color: C.text,
+                                    }}
+                                  >
+                                    <SpinnerIcon size={14} /> Uploading…
+                                  </div>
+                                </div>
+                              )}
+                              {thirdGarmentKey && (
+                                <div
+                                  style={{
+                                    position: 'absolute',
+                                    top: 8,
+                                    left: 8,
+                                    background: C.mint,
+                                    color: 'white',
+                                    borderRadius: 6,
+                                    padding: '3px 8px',
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                  }}
+                                >
+                                  <CheckIcon color="#fff" size={10} /> Uploaded
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <>
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    width: '100%',
+                                    fontSize: 11,
+                                    fontWeight: 500,
+                                    lineHeight: '100%',
+                                    color: C.text,
+                                    textAlign: 'center',
+                                  }}
+                                >
+                                  {selectedGarmentType?.thirdUploadLabel ?? 'Upload Third Garment'}
+                                </span>
+                                <span
+                                  style={{
+                                    width: '100%',
+                                    fontSize: 10,
+                                    fontWeight: 500,
+                                    lineHeight: '140%',
+                                    color: C.mid,
+                                    textAlign: 'center',
+                                  }}
+                                >
+                                  JPG, PNG · Max 10MB
+                                </span>
+                              </div>
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: 6,
+                                }}
+                              >
+                                <ImagePlusIcon size={14} />
+                                <span
+                                  style={{
+                                    fontSize: 11,
+                                    fontWeight: 500,
+                                    lineHeight: '18px',
+                                    color: C.text,
+                                  }}
+                                >
+                                  Browse
+                                </span>
+                              </div>
+                            </>
+                          )}
+                          <input
+                            ref={thirdFileInputRef}
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            style={{ display: 'none' }}
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              if (f) handleThirdGarmentUpload(f);
+                            }}
+                          />
+                        </label>
+                      )}
+                    </div>
+
+                    {selectedGarmentType?.instructionImageUrl && (
+                      <div
+                        style={{
+                          flex: 1,
+                          height: 210,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          minWidth: 0,
+                          borderRadius: 8,
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        {/* biome-ignore lint/performance/noImgElement: dynamic instruction image */}
+                        <img
+                          src={selectedGarmentType.instructionImageUrl}
+                          alt="Upload instructions"
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'contain',
+                          }}
+                        />
                       </div>
                     )}
                   </div>
-                )}
+                </div>
               </section>
-            )}
 
-            {/* ── Background (custom mode only) ── */}
-            {catalogueTemplateId === 'custom' && (
+              {/* ── Model ── */}
               <section className="studio-section-card" style={sectionCardStyle}>
                 <SectionHead
-                  title="Select Background"
-                  stepNumber={stepNumberOf('background')}
+                  title="Choose AI Model"
+                  subtitle="Select the fashion model for your catalogue"
+                  stepNumber={4}
                   right={
-                    (backgrounds?.items.length ?? 0) > backgroundVisibleCount && (
+                    filteredFaces.length > modelVisibleCount && (
                       <button
                         type="button"
-                        onClick={() => {
-                          setBackgroundItemFilter('');
-                          setBackgroundTagFilter('');
-                          setBackgroundModalOpen(true);
-                        }}
+                        onClick={() => setModelModalOpen(true)}
                         style={{
                           display: 'flex',
                           alignItems: 'center',
@@ -2959,259 +2958,14 @@ export default function StudioPage(): React.ReactElement {
                     )
                   }
                 />
-                <div style={{ marginBottom: 20 }}>
-                  <p style={{ fontSize: 12, fontWeight: 600, color: C.mid, marginBottom: 8 }}>
-                    My backgrounds
-                  </p>
-                  <div className="studio-5col-grid">
-                    <button
-                      type="button"
-                      onClick={() => setUploadModalOpen(true)}
-                      style={{
-                        width: '100%',
-                        borderRadius: 12,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        cursor: 'pointer',
-                        color: C.text,
-                        textAlign: 'center',
-                        padding: 0,
-                        background: 'none',
-                        border: 'none',
-                      }}
-                    >
-                      <span
-                        style={{
-                          width: '100%',
-                          aspectRatio: 215.2 / 212.67,
-                          borderRadius: 10,
-                          border: `1.5px dashed ${C.border}`,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          boxSizing: 'border-box',
-                        }}
-                      >
-                        <span
-                          style={{
-                            width: 36,
-                            height: 36,
-                            borderRadius: 10,
-                            display: 'grid',
-                            placeItems: 'center',
-                            background: C.card,
-                            border: `1px solid ${C.border}`,
-                            color: C.pink,
-                          }}
-                        >
-                          <ImagePlusIcon size={18} />
-                        </span>
-                      </span>
-                      <span
-                        style={{
-                          fontSize: 12,
-                          fontWeight: 600,
-                          padding: '8px 4px 6px',
-                          width: '100%',
-                        }}
-                      >
-                        Add background
-                      </span>
-                    </button>
-                    {(myBackgrounds?.items ?? []).map((b) => (
-                      <div key={b.id} style={{ position: 'relative' }}>
-                        <SelCard
-                          selected={backgroundId === b.id}
-                          onClick={() => handleBackgroundSelect(b.id)}
-                          imageUrl={b.thumbnailUrl}
-                          label={b.label}
-                          w="100%"
-                          ratio={215.2 / 212.67}
-                        />
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteMyBackground(b.id);
-                          }}
-                          style={{
-                            position: 'absolute',
-                            top: 4,
-                            right: 4,
-                            width: 22,
-                            height: 22,
-                            borderRadius: '50%',
-                            border: 'none',
-                            background: 'rgba(0,0,0,0.55)',
-                            color: C.white,
-                            cursor: 'pointer',
-                            fontSize: 12,
-                            lineHeight: 1,
-                          }}
-                          aria-label={`Delete ${b.label}`}
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                {uploadModalOpen && (
-                  // biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop; click outside dismisses
-                  <div
-                    role="presentation"
-                    style={{
-                      position: 'fixed',
-                      inset: 0,
-                      background: 'rgba(0,0,0,0.4)',
-                      zIndex: 1000,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                    onClick={() => setUploadModalOpen(false)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Escape') setUploadModalOpen(false);
-                    }}
-                  >
-                    {/* biome-ignore lint/a11y/noStaticElementInteractions: modal panel; click swallowed to prevent backdrop dismiss */}
-                    <div
-                      style={{
-                        background: C.white,
-                        borderRadius: 12,
-                        padding: 24,
-                        width: 420,
-                        maxWidth: '90vw',
-                        boxSizing: 'border-box',
-                        boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                      onKeyDown={() => {}}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          marginBottom: 20,
-                        }}
-                      >
-                        <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>
-                          Add a background
-                        </h2>
-                        <button
-                          type="button"
-                          onClick={() => setUploadModalOpen(false)}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: C.mid,
-                          }}
-                        >
-                          <XIcon size={20} />
-                        </button>
-                      </div>
-                      <label
-                        style={{
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 8,
-                          padding: '32px 16px',
-                          borderRadius: 12,
-                          border: `1.5px dashed ${C.border}`,
-                          cursor: isUploadingBackground ? 'wait' : 'pointer',
-                          fontSize: 13,
-                          fontWeight: 600,
-                          color: C.text,
-                          textAlign: 'center',
-                        }}
-                      >
-                        <ImagePlusIcon size={22} />
-                        {isUploadingBackground ? 'Uploading…' : 'Upload an image'}
-                        <span style={{ fontSize: 11, fontWeight: 400, color: C.mid }}>
-                          JPEG, PNG, or WebP — up to 10 MB
-                        </span>
-                        <input
-                          type="file"
-                          accept="image/jpeg,image/png,image/webp"
-                          style={{ display: 'none' }}
-                          disabled={isUploadingBackground}
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) handleMyBackgroundUpload(file);
-                            e.target.value = '';
-                          }}
-                        />
-                      </label>
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 10,
-                          margin: '20px 0',
-                          color: C.mid,
-                          fontSize: 12,
-                        }}
-                      >
-                        <div style={{ flex: 1, height: 1, background: C.border }} />
-                        or paste an image URL
-                        <div style={{ flex: 1, height: 1, background: C.border }} />
-                      </div>
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <input
-                          type="text"
-                          value={backgroundUrlInput}
-                          onChange={(e) => setBackgroundUrlInput(e.target.value)}
-                          placeholder="https://example.com/image.jpg"
-                          disabled={isFetchingBackgroundUrl}
-                          style={{
-                            flex: 1,
-                            padding: '8px 12px',
-                            borderRadius: 8,
-                            border: `1px solid ${C.border}`,
-                            fontSize: 13,
-                            background: C.card,
-                            color: C.text,
-                          }}
-                        />
-                        <button
-                          type="button"
-                          onClick={handleMyBackgroundFromUrl}
-                          disabled={isFetchingBackgroundUrl || !backgroundUrlInput.trim()}
-                          style={{
-                            padding: '8px 16px',
-                            borderRadius: 8,
-                            border: 'none',
-                            background: grad,
-                            color: C.white,
-                            fontWeight: 600,
-                            fontSize: 13,
-                            cursor: isFetchingBackgroundUrl ? 'wait' : 'pointer',
-                            opacity:
-                              isFetchingBackgroundUrl || !backgroundUrlInput.trim() ? 0.6 : 1,
-                          }}
-                        >
-                          {isFetchingBackgroundUrl ? 'Loading…' : 'Add'}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                {backgroundsError ? (
+                {facesError ? (
                   <ErrorState
                     compact
-                    title="Couldn't load backgrounds"
-                    message="There was a problem fetching backgrounds. Please try again."
-                    onRetry={() => refetchBackgrounds()}
+                    title="Couldn't load models"
+                    message="There was a problem fetching models. Please try again."
+                    onRetry={() => refetchFaces()}
                   />
-                ) : !backgrounds ? (
+                ) : !faces ? (
                   <div
                     style={{
                       display: 'flex',
@@ -3222,146 +2976,635 @@ export default function StudioPage(): React.ReactElement {
                   >
                     <SpinnerIcon />
                   </div>
-                ) : backgrounds.items.length === 0 ? (
-                  <p style={{ fontSize: 14, color: C.mid }}>
-                    No backgrounds available for this model yet. Try a different model.
-                  </p>
                 ) : (
                   <div className="studio-5col-grid">
                     {(() => {
-                      const frontIds = new Set(
-                        backgrounds.items.filter((b) => b.specialTag).map((b) => b.id),
-                      );
-                      const allItems = [...backgrounds.items].sort(
-                        (a, b) => (frontIds.has(a.id) ? 0 : 1) - (frontIds.has(b.id) ? 0 : 1),
-                      );
-                      const firstN = allItems.slice(0, backgroundVisibleCount);
-                      const inFirstN = firstN.some((b) => b.id === backgroundId);
-                      const selected = allItems.find((b) => b.id === backgroundId);
-                      const visibleItems =
-                        selected && !inFirstN
-                          ? [selected, ...firstN].slice(0, backgroundVisibleCount)
-                          : firstN;
-                      return visibleItems.map((b) => (
+                      const inFirstN = filteredFaces
+                        .slice(0, modelVisibleCount)
+                        .some((f) => f.id === faceId);
+                      const selectedFace = faceId
+                        ? filteredFaces.find((f) => f.id === faceId)
+                        : undefined;
+                      const visibleFaces =
+                        selectedFace && !inFirstN
+                          ? [
+                              selectedFace,
+                              ...filteredFaces
+                                .filter((f) => f.id !== faceId)
+                                .slice(0, modelVisibleCount - 1),
+                            ]
+                          : filteredFaces.slice(0, modelVisibleCount);
+                      return visibleFaces.map((f) => (
                         <SelCard
-                          key={b.id}
-                          selected={backgroundId === b.id}
-                          onClick={() => handleBackgroundSelect(b.id)}
-                          imageUrl={b.thumbnailUrl}
-                          label={b.label}
+                          key={f.id}
+                          selected={faceId === f.id}
+                          onClick={() => handleFaceSelect(f.id)}
+                          imageUrl={f.thumbnailUrl}
+                          label={f.label}
                           w="100%"
                           ratio={215.2 / 212.67}
-                          badges={<TagBadge tag={b.specialTag} />}
                         />
                       ));
                     })()}
                   </div>
                 )}
-                {backgroundModalOpen &&
-                  (() => {
-                    const byCategory =
-                      backgroundItemFilter === ''
-                        ? bgNodes.flatMap(flattenNode)
-                        : flattenNode(
-                            bgNodes.find((n) => n.id === backgroundItemFilter) ?? {
-                              id: 0,
-                              slug: '',
-                              label: '',
-                              thumbnailUrl: null,
-                              children: [],
-                              items: [],
-                            },
-                          );
-                    const filteredItems =
-                      backgroundTagFilter === ''
-                        ? byCategory
-                        : byCategory.filter((i) =>
-                            (bgTagsById.get(i.id) ?? []).includes(backgroundTagFilter),
-                          );
-                    return (
-                      // biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop; click outside dismisses
-                      <div
-                        role="presentation"
+                {modelModalOpen && faces && (
+                  <SelectGridModal
+                    title="Choose your model"
+                    items={filteredFaces}
+                    selectedIds={faceId ? [faceId] : []}
+                    aspect={1}
+                    columns={5}
+                    hideLabels
+                    tagOptions={faceTags}
+                    activeTag={modelTagFilter}
+                    onTagChange={setModelTagFilter}
+                    groupOptions={faceContinents.length > 1 ? faceContinents : undefined}
+                    activeGroup={modelContinentFilter}
+                    onGroupChange={setModelContinentFilter}
+                    groupOf={(f) => f.continent || 'global'}
+                    allGroupsLabel="continents"
+                    onSelect={(id) => {
+                      handleFaceSelect(id);
+                      setModelModalOpen(false);
+                    }}
+                    onClose={() => setModelModalOpen(false)}
+                  />
+                )}
+              </section>
+
+              {/* ── Ready-made catalogue templates ── */}
+              {hasCatalogueTemplates && (
+                <section className="studio-section-card" style={sectionCardStyle}>
+                  <SectionHead
+                    title="Create Your Look or Choose From Ready Made Poses"
+                    stepNumber={stepNumberOf('templates')}
+                    right={
+                      catalogueTemplates.length > templateVisibleCount && (
+                        <button
+                          type="button"
+                          onClick={() => setTemplateModalOpen(true)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            cursor: 'pointer',
+                            height: 16,
+                          }}
+                        >
+                          <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
+                            View more
+                          </span>
+                        </button>
+                      )
+                    }
+                  />
+                  <div className="studio-5col-grid">
+                    {(() => {
+                      // "Create your own look" (catalogueTemplates[0], id 'custom') is always
+                      // pinned first - a selected template that isn't already visible is
+                      // inserted right after it, never displacing it from the front.
+                      const [custom, ...rest] = catalogueTemplates;
+                      const firstNRest = rest.slice(0, templateVisibleCount - 1);
+                      const selected = rest.find((template) => template.id === catalogueTemplateId);
+                      const visibleRest =
+                        selected && !firstNRest.some((template) => template.id === selected.id)
+                          ? [selected, ...firstNRest].slice(0, templateVisibleCount - 1)
+                          : firstNRest;
+                      const visibleTemplates = custom ? [custom, ...visibleRest] : visibleRest;
+                      return visibleTemplates.map((template) => (
+                        <SelCard
+                          key={template.id}
+                          selected={catalogueTemplateId === template.id}
+                          onClick={() => handleCatalogueTemplateSelect(template.id)}
+                          imageUrl={template.thumbnailUrl}
+                          label={template.id === 'custom' ? undefined : template.label}
+                          w="100%"
+                          ratio={215.2 / 212.67}
+                          imageObjectPosition="top center"
+                          fillHeight={template.id === 'custom'}
+                          emptyContent={
+                            template.id === 'custom' ? (
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: 10,
+                                  padding: 16,
+                                  color: C.text,
+                                  width: '100%',
+                                  height: '100%',
+                                  boxSizing: 'border-box',
+                                  position: 'absolute',
+                                  inset: 0,
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    width: 44,
+                                    height: 44,
+                                    borderRadius: 10,
+                                    display: 'grid',
+                                    placeItems: 'center',
+                                    background: C.white,
+                                    border: `1px solid ${C.border}`,
+                                    color: C.pink,
+                                  }}
+                                >
+                                  <ImagePlusIcon size={22} />
+                                </span>
+                                <span
+                                  style={{
+                                    maxWidth: 110,
+                                    fontSize: 12,
+                                    fontWeight: 600,
+                                    lineHeight: 1.35,
+                                    textAlign: 'center',
+                                  }}
+                                >
+                                  Create your own look
+                                </span>
+                              </div>
+                            ) : undefined
+                          }
+                        />
+                      ));
+                    })()}
+                  </div>
+                  {templateModalOpen && (
+                    <SelectGridModal
+                      title="Select a Ready-Made Catalogue Template"
+                      items={catalogueTemplates.filter((template) => template.id !== 'custom')}
+                      selectedIds={[catalogueTemplateId]}
+                      aspect={215.2 / 282}
+                      columns={5}
+                      onSelect={(id) => {
+                        handleCatalogueTemplateSelect(id);
+                        setTemplateModalOpen(false);
+                      }}
+                      onClose={() => setTemplateModalOpen(false)}
+                    />
+                  )}
+                  {/* ── Choose Looks (template mode only) ── */}
+                  {catalogueTemplateId !== 'custom' && (
+                    <div style={{ marginTop: 16 }}>
+                      <SectionHead
+                        title=""
+                        titleSuffix={
+                          selectedLookIds.length > 0 && (
+                            <span
+                              style={{ fontWeight: 500, fontSize: 12, color: C.mid, marginLeft: 6 }}
+                            >
+                              {selectedLookIds.length} poses selected
+                            </span>
+                          )
+                        }
+                      />
+                      {(activeTemplate?.looks.length ?? 0) === 0 ? (
+                        <p style={{ fontSize: 14, color: C.mid }}>
+                          No looks available for this garment type yet.
+                        </p>
+                      ) : (
+                        <div className="studio-5col-grid">
+                          {(activeTemplate?.looks ?? []).map((look) => (
+                            <SelCard
+                              key={look.id}
+                              selected={selectedLookIds.includes(look.id)}
+                              onClick={() => handleLookToggle(look.id)}
+                              imageUrl={look.poseThumbnailUrl}
+                              w="100%"
+                              ratio={215.2 / 212.67}
+                              imageObjectPosition="top center"
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {/* ── Background (custom mode only) ── */}
+              {catalogueTemplateId === 'custom' && (
+                <section className="studio-section-card" style={sectionCardStyle}>
+                  <SectionHead
+                    title="Select Background"
+                    stepNumber={stepNumberOf('background')}
+                    right={
+                      (backgrounds?.items.length ?? 0) > backgroundVisibleCount && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBackgroundItemFilter('');
+                            setBackgroundTagFilter('');
+                            setBackgroundModalOpen(true);
+                          }}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            cursor: 'pointer',
+                            height: 16,
+                          }}
+                        >
+                          <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
+                            View All
+                          </span>
+                        </button>
+                      )
+                    }
+                  />
+                  <div style={{ marginBottom: 20 }}>
+                    <p style={{ fontSize: 12, fontWeight: 600, color: C.mid, marginBottom: 8 }}>
+                      My backgrounds
+                    </p>
+                    <div className="studio-5col-grid">
+                      <button
+                        type="button"
+                        onClick={() => setUploadModalOpen(true)}
                         style={{
-                          position: 'fixed',
-                          inset: 0,
-                          background: 'rgba(0,0,0,0.4)',
-                          zIndex: 1000,
+                          width: '100%',
+                          borderRadius: 12,
                           display: 'flex',
+                          flexDirection: 'column',
                           alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                        onClick={() => setBackgroundModalOpen(false)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Escape') setBackgroundModalOpen(false);
+                          cursor: 'pointer',
+                          color: C.text,
+                          textAlign: 'center',
+                          padding: 0,
+                          background: 'none',
+                          border: 'none',
                         }}
                       >
-                        {/* biome-ignore lint/a11y/noStaticElementInteractions: modal panel; click swallowed to prevent backdrop dismiss */}
-                        <div
+                        <span
                           style={{
-                            background: C.white,
-                            borderRadius: 12,
-                            padding: 24,
-                            width: 1180,
-                            height: 857,
-                            maxWidth: '90vw',
-                            maxHeight: '90vh',
-                            overflowY: 'auto',
+                            width: '100%',
+                            aspectRatio: 215.2 / 212.67,
+                            borderRadius: 10,
+                            border: `1.5px dashed ${C.border}`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
                             boxSizing: 'border-box',
-                            boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
                           }}
-                          onClick={(e) => e.stopPropagation()}
-                          onKeyDown={() => {}}
                         >
-                          <div
+                          <span
                             style={{
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                              marginBottom: 16,
+                              width: 36,
+                              height: 36,
+                              borderRadius: 10,
+                              display: 'grid',
+                              placeItems: 'center',
+                              background: C.card,
+                              border: `1px solid ${C.border}`,
+                              color: C.pink,
                             }}
                           >
-                            <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>
-                              Select Background
-                            </h2>
-                            <button
-                              type="button"
-                              onClick={() => setBackgroundModalOpen(false)}
+                            <ImagePlusIcon size={18} />
+                          </span>
+                        </span>
+                        <span
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 600,
+                            padding: '8px 4px 6px',
+                            width: '100%',
+                          }}
+                        >
+                          Add background
+                        </span>
+                      </button>
+                      {(myBackgrounds?.items ?? []).map((b) => (
+                        <div key={b.id} style={{ position: 'relative' }}>
+                          <SelCard
+                            selected={backgroundId === b.id}
+                            onClick={() => handleBackgroundSelect(b.id)}
+                            imageUrl={b.thumbnailUrl}
+                            label={b.label}
+                            w="100%"
+                            ratio={215.2 / 212.67}
+                          />
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteMyBackground(b.id);
+                            }}
+                            style={{
+                              position: 'absolute',
+                              top: 4,
+                              right: 4,
+                              width: 22,
+                              height: 22,
+                              borderRadius: '50%',
+                              border: 'none',
+                              background: 'rgba(0,0,0,0.55)',
+                              color: C.white,
+                              cursor: 'pointer',
+                              fontSize: 12,
+                              lineHeight: 1,
+                            }}
+                            aria-label={`Delete ${b.label}`}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {uploadModalOpen && (
+                    // biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop; click outside dismisses
+                    <div
+                      role="presentation"
+                      style={{
+                        position: 'fixed',
+                        inset: 0,
+                        background: 'rgba(0,0,0,0.4)',
+                        zIndex: 1000,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                      onClick={() => setUploadModalOpen(false)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') setUploadModalOpen(false);
+                      }}
+                    >
+                      {/* biome-ignore lint/a11y/noStaticElementInteractions: modal panel; click swallowed to prevent backdrop dismiss */}
+                      <div
+                        style={{
+                          background: C.white,
+                          borderRadius: 12,
+                          padding: 24,
+                          width: 420,
+                          maxWidth: '90vw',
+                          boxSizing: 'border-box',
+                          boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={() => {}}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            marginBottom: 20,
+                          }}
+                        >
+                          <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>
+                            Add a background
+                          </h2>
+                          <button
+                            type="button"
+                            onClick={() => setUploadModalOpen(false)}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: C.mid,
+                            }}
+                          >
+                            <XIcon size={20} />
+                          </button>
+                        </div>
+                        <label
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 8,
+                            padding: '32px 16px',
+                            borderRadius: 12,
+                            border: `1.5px dashed ${C.border}`,
+                            cursor: isUploadingBackground ? 'wait' : 'pointer',
+                            fontSize: 13,
+                            fontWeight: 600,
+                            color: C.text,
+                            textAlign: 'center',
+                          }}
+                        >
+                          <ImagePlusIcon size={22} />
+                          {isUploadingBackground ? 'Uploading…' : 'Upload an image'}
+                          <span style={{ fontSize: 11, fontWeight: 400, color: C.mid }}>
+                            JPEG, PNG, or WebP — up to 10 MB
+                          </span>
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            style={{ display: 'none' }}
+                            disabled={isUploadingBackground}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleMyBackgroundUpload(file);
+                              e.target.value = '';
+                            }}
+                          />
+                        </label>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 10,
+                            margin: '20px 0',
+                            color: C.mid,
+                            fontSize: 12,
+                          }}
+                        >
+                          <div style={{ flex: 1, height: 1, background: C.border }} />
+                          or paste an image URL
+                          <div style={{ flex: 1, height: 1, background: C.border }} />
+                        </div>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <input
+                            type="text"
+                            value={backgroundUrlInput}
+                            onChange={(e) => setBackgroundUrlInput(e.target.value)}
+                            placeholder="https://example.com/image.jpg"
+                            disabled={isFetchingBackgroundUrl}
+                            style={{
+                              flex: 1,
+                              padding: '8px 12px',
+                              borderRadius: 8,
+                              border: `1px solid ${C.border}`,
+                              fontSize: 13,
+                              background: C.card,
+                              color: C.text,
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={handleMyBackgroundFromUrl}
+                            disabled={isFetchingBackgroundUrl || !backgroundUrlInput.trim()}
+                            style={{
+                              padding: '8px 16px',
+                              borderRadius: 8,
+                              border: 'none',
+                              background: grad,
+                              color: C.white,
+                              fontWeight: 600,
+                              fontSize: 13,
+                              cursor: isFetchingBackgroundUrl ? 'wait' : 'pointer',
+                              opacity:
+                                isFetchingBackgroundUrl || !backgroundUrlInput.trim() ? 0.6 : 1,
+                            }}
+                          >
+                            {isFetchingBackgroundUrl ? 'Loading…' : 'Add'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {backgroundsError ? (
+                    <ErrorState
+                      compact
+                      title="Couldn't load backgrounds"
+                      message="There was a problem fetching backgrounds. Please try again."
+                      onRetry={() => refetchBackgrounds()}
+                    />
+                  ) : !backgrounds ? (
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'center',
+                        padding: '32px 0',
+                        color: C.mid,
+                      }}
+                    >
+                      <SpinnerIcon />
+                    </div>
+                  ) : backgrounds.items.length === 0 ? (
+                    <p style={{ fontSize: 14, color: C.mid }}>
+                      No backgrounds available for this model yet. Try a different model.
+                    </p>
+                  ) : (
+                    <div className="studio-5col-grid">
+                      {(() => {
+                        const frontIds = new Set(
+                          backgrounds.items.filter((b) => b.specialTag).map((b) => b.id),
+                        );
+                        const allItems = [...backgrounds.items].sort(
+                          (a, b) => (frontIds.has(a.id) ? 0 : 1) - (frontIds.has(b.id) ? 0 : 1),
+                        );
+                        const firstN = allItems.slice(0, backgroundVisibleCount);
+                        const inFirstN = firstN.some((b) => b.id === backgroundId);
+                        const selected = allItems.find((b) => b.id === backgroundId);
+                        const visibleItems =
+                          selected && !inFirstN
+                            ? [selected, ...firstN].slice(0, backgroundVisibleCount)
+                            : firstN;
+                        return visibleItems.map((b) => (
+                          <SelCard
+                            key={b.id}
+                            selected={backgroundId === b.id}
+                            onClick={() => handleBackgroundSelect(b.id)}
+                            imageUrl={b.thumbnailUrl}
+                            label={b.label}
+                            w="100%"
+                            ratio={215.2 / 212.67}
+                            badges={<TagBadge tag={b.specialTag} />}
+                          />
+                        ));
+                      })()}
+                    </div>
+                  )}
+                  {backgroundModalOpen &&
+                    (() => {
+                      const byCategory =
+                        backgroundItemFilter === ''
+                          ? bgNodes.flatMap(flattenNode)
+                          : flattenNode(
+                              bgNodes.find((n) => n.id === backgroundItemFilter) ?? {
+                                id: 0,
+                                slug: '',
+                                label: '',
+                                thumbnailUrl: null,
+                                children: [],
+                                items: [],
+                              },
+                            );
+                      const filteredItems =
+                        backgroundTagFilter === ''
+                          ? byCategory
+                          : byCategory.filter((i) =>
+                              (bgTagsById.get(i.id) ?? []).includes(backgroundTagFilter),
+                            );
+                      return (
+                        // biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop; click outside dismisses
+                        <div
+                          role="presentation"
+                          style={{
+                            position: 'fixed',
+                            inset: 0,
+                            background: 'rgba(0,0,0,0.4)',
+                            zIndex: 1000,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                          onClick={() => setBackgroundModalOpen(false)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape') setBackgroundModalOpen(false);
+                          }}
+                        >
+                          {/* biome-ignore lint/a11y/noStaticElementInteractions: modal panel; click swallowed to prevent backdrop dismiss */}
+                          <div
+                            style={{
+                              background: C.white,
+                              borderRadius: 12,
+                              padding: 24,
+                              width: 1180,
+                              height: 857,
+                              maxWidth: '90vw',
+                              maxHeight: '90vh',
+                              overflowY: 'auto',
+                              boxSizing: 'border-box',
+                              boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={() => {}}
+                          >
+                            <div
                               style={{
-                                background: 'none',
-                                border: 'none',
-                                cursor: 'pointer',
                                 display: 'flex',
+                                justifyContent: 'space-between',
                                 alignItems: 'center',
-                                justifyContent: 'center',
-                                color: C.mid,
+                                marginBottom: 16,
                               }}
                             >
-                              <XIcon size={20} />
-                            </button>
-                          </div>
-                          <div
-                            style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => setBackgroundItemFilter('')}
-                              style={pill(backgroundItemFilter === '')}
-                            >
-                              All
-                            </button>
-                            {bgNodes.map((node) => (
+                              <h2
+                                style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}
+                              >
+                                Select Background
+                              </h2>
                               <button
                                 type="button"
-                                key={node.id}
-                                onClick={() => setBackgroundItemFilter(node.id)}
-                                style={pill(backgroundItemFilter === node.id)}
+                                onClick={() => setBackgroundModalOpen(false)}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  color: C.mid,
+                                }}
                               >
-                                {node.label}
+                                <XIcon size={20} />
                               </button>
-                            ))}
-                          </div>
-                          {bgTags.length > 0 && (
+                            </div>
                             <div
                               style={{
                                 display: 'flex',
@@ -3372,736 +3615,775 @@ export default function StudioPage(): React.ReactElement {
                             >
                               <button
                                 type="button"
-                                onClick={() => setBackgroundTagFilter('')}
-                                style={pill(backgroundTagFilter === '')}
+                                onClick={() => setBackgroundItemFilter('')}
+                                style={pill(backgroundItemFilter === '')}
                               >
-                                All tags
+                                All
                               </button>
-                              {bgTags.map((tag) => (
+                              {bgNodes.map((node) => (
                                 <button
                                   type="button"
-                                  key={tag}
-                                  onClick={() => setBackgroundTagFilter(tag)}
-                                  style={pill(backgroundTagFilter === tag)}
+                                  key={node.id}
+                                  onClick={() => setBackgroundItemFilter(node.id)}
+                                  style={pill(backgroundItemFilter === node.id)}
                                 >
-                                  {tag}
+                                  {node.label}
                                 </button>
                               ))}
                             </div>
-                          )}
-                          {filteredItems.length === 0 ? (
-                            <p style={{ fontSize: 14, color: C.mid }}>
-                              No backgrounds in this category yet.
-                            </p>
-                          ) : (
-                            <div className="studio-5col-grid">
-                              {filteredItems.map((i) => (
-                                <SelCard
-                                  key={i.id}
-                                  selected={backgroundId === i.id}
-                                  onClick={() => {
-                                    handleBackgroundSelect(i.id);
-                                    setBackgroundModalOpen(false);
-                                  }}
-                                  imageUrl={i.thumbnailUrl}
-                                  label={i.label}
-                                  w="100%"
-                                  ratio={215.2 / 212.67}
-                                  borderWidth={3}
-                                  badges={<TagBadge tag={bgSpecialTagById.get(i.id)} />}
-                                />
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })()}
-              </section>
-            )}
-
-            {/* ── Poses (custom mode only) ── */}
-            {catalogueTemplateId === 'custom' && (
-              <section className="studio-section-card" style={sectionCardStyle}>
-                <SectionHead
-                  title="Choose Poses"
-                  stepNumber={stepNumberOf('poses')}
-                  titleSuffix={
-                    poseIds.length > 0 && (
-                      <span style={{ fontWeight: 500, fontSize: 12, color: C.mid, marginLeft: 6 }}>
-                        ({poseIds.length} selected)
-                      </span>
-                    )
-                  }
-                  right={
-                    (poses?.items.length ?? 0) > poseVisibleCount && (
-                      <button
-                        type="button"
-                        onClick={() => setPoseModalOpen(true)}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 4,
-                          background: 'none',
-                          border: 'none',
-                          padding: 0,
-                          cursor: 'pointer',
-                          height: 16,
-                        }}
-                      >
-                        <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
-                          View All
-                        </span>
-                      </button>
-                    )
-                  }
-                />
-                {posesError ? (
-                  <ErrorState
-                    compact
-                    title="Couldn't load poses"
-                    message="There was a problem fetching poses. Please try again."
-                    onRetry={() => refetchPoses()}
-                  />
-                ) : !poses ? (
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'center',
-                      padding: '32px 0',
-                      color: C.mid,
-                    }}
-                  >
-                    <SpinnerIcon />
-                  </div>
-                ) : poses.items.length === 0 ? (
-                  <p style={{ fontSize: 14, color: C.mid }}>
-                    No poses for this combination. Go back and try a different background.
-                  </p>
-                ) : (
-                  <div className="studio-5col-grid">
-                    {(() => {
-                      const firstN = poses.items.slice(0, poseVisibleCount);
-                      const offScreenSelected = poseIds
-                        .filter((id) => !firstN.some((p) => p.id === id))
-                        .map((id) => poses.items.find((p) => p.id === id))
-                        .filter((p): p is PoseItem => !!p);
-                      const visiblePoses = [...offScreenSelected, ...firstN].slice(
-                        0,
-                        poseVisibleCount,
-                      );
-                      return visiblePoses.map((p) => (
-                        <SelCard
-                          key={p.id}
-                          selected={poseIds.includes(p.id)}
-                          onClick={() => handlePoseSelect(p.id)}
-                          imageUrl={p.thumbnailUrl}
-                          w="100%"
-                          // No label shown, but the image still fills the same total
-                          // card height other sections get from image + label row
-                          // (~28px) combined - so pose cards stay the same height as
-                          // the rest of the grid without leaving blank space below.
-                          ratio={215.2 / (212.67 + 28)}
-                          // Center-crop was cutting off heads/hair on portrait pose
-                          // shots - anchor the crop to the top instead.
-                          imageObjectPosition="top"
-                        />
-                      ));
-                    })()}
-                  </div>
-                )}
-                {poseModalOpen && poses && (
-                  <SelectGridModal
-                    title="Choose Poses"
-                    items={poses.items}
-                    selectedIds={poseIds}
-                    multiSelect
-                    hideLabels
-                    aspect={3 / 4}
-                    columns={5}
-                    onSelect={(id) => handlePoseSelect(id)}
-                    onClose={() => setPoseModalOpen(false)}
-                    continueLabel="Continue with {count} poses"
-                  />
-                )}
-              </section>
-            )}
-
-            {needsLower &&
-              !requiresLowerUpload &&
-              (() => {
-                const lowerNodes = lowerCatalog?.tree.filter((node) => node.slug !== 'other') ?? [];
-                const totalItems = lowerNodes.reduce((n, node) => n + flattenNode(node).length, 0);
-                return (
-                  <section className="studio-section-card" style={sectionCardStyle}>
-                    <SectionHead
-                      title="Lower Garment"
-                      stepNumber={stepNumberOf('lower')}
-                      right={
-                        totalItems > lowerVisibleCount && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setLowerItemFilter('');
-                              setLowerItemsOpen(true);
-                            }}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 4,
-                              background: 'none',
-                              border: 'none',
-                              padding: 0,
-                              cursor: 'pointer',
-                              height: 16,
-                            }}
-                          >
-                            <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
-                              View more
-                            </span>
-                          </button>
-                        )
-                      }
-                    />
-                    {!lowerCatalog ? (
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'center',
-                          padding: '24px 0',
-                          color: C.mid,
-                        }}
-                      >
-                        <SpinnerIcon />
-                      </div>
-                    ) : totalItems === 0 ? (
-                      <p style={{ fontSize: 14, color: C.mid }}>
-                        No lower garment options available yet.
-                      </p>
-                    ) : (
-                      <div
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: 'repeat(5, 1fr)',
-                          gap: 16,
-                        }}
-                      >
-                        {(() => {
-                          const allItems = lowerNodes.flatMap(flattenNode);
-                          const selectedItem = lowerCatalogId
-                            ? allItems.find((i) => i.id === lowerCatalogId)
-                            : null;
-                          const inFirstN =
-                            !!selectedItem &&
-                            lowerRandomItems.some((i) => i.id === selectedItem.id);
-                          const visibleItems =
-                            selectedItem && !inFirstN
-                              ? [
-                                  selectedItem,
-                                  ...lowerRandomItems.filter((i) => i.id !== selectedItem.id),
-                                ].slice(0, lowerVisibleCount)
-                              : lowerRandomItems;
-                          return visibleItems.map((i) => (
-                            <SelCard
-                              key={i.id}
-                              selected={lowerCatalogId === i.id}
-                              onClick={() => setLowerCatalogId(lowerCatalogId === i.id ? '' : i.id)}
-                              imageUrl={i.thumbnailUrl}
-                              w="100%"
-                              ratio={215.2 / 212.67}
-                            />
-                          ));
-                        })()}
-                      </div>
-                    )}
-                  </section>
-                );
-              })()}
-
-            {needsShoes &&
-              (() => {
-                const shoeNodes = shoesCatalog?.tree.filter((node) => node.slug !== 'other') ?? [];
-                const totalItems = shoeNodes.reduce((n, node) => n + flattenNode(node).length, 0);
-                return (
-                  <section className="studio-section-card" style={sectionCardStyle}>
-                    <SectionHead
-                      title="Footwear"
-                      stepNumber={stepNumberOf('shoes')}
-                      right={
-                        totalItems > shoeVisibleCount && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setShoeItemFilter('');
-                              setShoeItemsOpen(true);
-                            }}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 4,
-                              background: 'none',
-                              border: 'none',
-                              padding: 0,
-                              cursor: 'pointer',
-                              height: 16,
-                            }}
-                          >
-                            <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
-                              View more
-                            </span>
-                          </button>
-                        )
-                      }
-                    />
-                    {!shoesCatalog ? (
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'center',
-                          padding: '24px 0',
-                          color: C.mid,
-                        }}
-                      >
-                        <SpinnerIcon />
-                      </div>
-                    ) : totalItems === 0 ? (
-                      <p style={{ fontSize: 14, color: C.mid }}>No shoe options available yet.</p>
-                    ) : (
-                      <div
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: 'repeat(5, 1fr)',
-                          gap: 16,
-                        }}
-                      >
-                        {(() => {
-                          const allItems = shoeNodes.flatMap(flattenNode);
-                          const selectedItem = shoeCatalogId
-                            ? allItems.find((i) => i.id === shoeCatalogId)
-                            : null;
-                          const inFirstN =
-                            !!selectedItem && shoeRandomItems.some((i) => i.id === selectedItem.id);
-                          const visibleItems =
-                            selectedItem && !inFirstN
-                              ? [
-                                  selectedItem,
-                                  ...shoeRandomItems.filter((i) => i.id !== selectedItem.id),
-                                ].slice(0, shoeVisibleCount)
-                              : shoeRandomItems;
-                          return visibleItems.map((i) => (
-                            <SelCard
-                              key={i.id}
-                              selected={shoeCatalogId === i.id}
-                              onClick={() => setShoeCatalogId(shoeCatalogId === i.id ? '' : i.id)}
-                              imageUrl={i.thumbnailUrl}
-                              w="100%"
-                              ratio={215.2 / 212.67}
-                            />
-                          ));
-                        })()}
-                      </div>
-                    )}
-                  </section>
-                );
-              })()}
-
-            <section className="studio-section-card" style={sectionCardStyle}>
-              <SectionHead title="Publishing Platform" stepNumber={stepNumberOf('platform')} />
-              <div className="studio-platforms-grid">
-                {PLATFORMS.map((p, idx) => (
-                  <button
-                    type="button"
-                    key={p}
-                    onClick={() => handlePlatformChange(p)}
-                    style={{
-                      ...pill(platform === p),
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      width: '100%',
-                      height: 44,
-                      boxSizing: 'border-box',
-                      justifyContent: 'center',
-                      ...(idx === 6 ? { gridColumn: 2 } : {}),
-                    }}
-                  >
-                    {PLATFORM_LOGOS[p] ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        className="dark-logo-bg"
-                        src={PLATFORM_LOGOS[p].src}
-                        alt={p}
-                        style={{
-                          height: PLATFORM_LOGOS[p].h,
-                          width: 'auto',
-                          maxWidth: 80,
-                          objectFit: 'contain',
-                          display: 'block',
-                        }}
-                      />
-                    ) : (
-                      p
-                    )}
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            <section className="studio-section-card" style={sectionCardStyle}>
-              <SectionHead
-                title="Aspect Ratio"
-                subtitle="Match your platform requirements"
-                stepNumber={stepNumberOf('aspect')}
-              />
-
-              {/* ── Pill row: hide presets when custom is active ── */}
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                {aspect !== 'custom' &&
-                  ALL_ASPECTS.map((r) => {
-                    const supported = brandAspects.includes(r);
-                    return (
-                      <button
-                        type="button"
-                        key={r}
-                        onClick={supported ? () => setAspect(r) : undefined}
-                        style={{
-                          ...pill(aspect === r),
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          ...(!supported ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
-                        }}
-                      >
-                        <AspectRatioIcon ratio={r} active={aspect === r} />
-                        {r}
-                      </button>
-                    );
-                  })}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAspect('custom');
-                    setCustomRatio('');
-                    setCustomWStr('');
-                    setCustomHStr('');
-                  }}
-                  style={{
-                    ...pill(aspect === 'custom'),
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}
-                >
-                  <AspectRatioIcon ratio="custom" active={aspect === 'custom'} />
-                  Custom Ratio
-                </button>
-
-                {/* ── Custom inline options ── */}
-                {aspect === 'custom' &&
-                  (() => {
-                    const [rW, rH] = customRatio ? customRatio.split(':').map(Number) : [0, 0];
-                    const wErr = customWErr;
-                    const hErr = customHErr;
-
-                    const handleWChange = (val: string) => {
-                      setCustomWStr(val);
-                      if (rW && rH && val !== '') {
-                        const n = Math.round((Number(val) * rH) / rW);
-                        setCustomHStr(String(n));
-                      }
-                    };
-                    const handleHChange = (val: string) => {
-                      setCustomHStr(val);
-                      if (rW && rH && val !== '') {
-                        const n = Math.round((Number(val) * rW) / rH);
-                        setCustomWStr(String(n));
-                      }
-                    };
-
-                    const inputBase: React.CSSProperties = {
-                      width: 86,
-                      padding: '6px 8px',
-                      borderRadius: 6,
-                      fontSize: 13,
-                      color: C.text,
-                      background: C.bg,
-                      outline: 'none',
-                    };
-
-                    return (
-                      <>
-                        <span style={{ fontSize: 13, color: C.mid, marginLeft: 4, marginRight: 4 }}>
-                          Select aspect ratio
-                        </span>
-                        {ALL_ASPECTS.map((r) => (
-                          <button
-                            type="button"
-                            key={r}
-                            onClick={() => {
-                              setCustomRatio(r);
-                              setCustomWStr('');
-                              setCustomHStr('');
-                            }}
-                            style={{ ...pill(customRatio === r), flexShrink: 0 }}
-                          >
-                            {r}
-                          </button>
-                        ))}
-
-                        {customRatio && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <div
-                              style={{
-                                width: 1,
-                                height: 24,
-                                background: C.border,
-                                flexShrink: 0,
-                                margin: '0 4px',
-                              }}
-                            />
-
-                            <input
-                              type="number"
-                              placeholder="Width"
-                              value={customWStr}
-                              onChange={(e) => handleWChange(e.target.value)}
-                              style={{
-                                ...inputBase,
-                                border: `1px solid ${wErr ? '#F55C7A' : C.border}`,
-                              }}
-                            />
-
-                            <span style={{ fontSize: 13, color: C.light, flexShrink: 0 }}>×</span>
-
-                            <input
-                              type="number"
-                              placeholder="Height"
-                              value={customHStr}
-                              onChange={(e) => handleHChange(e.target.value)}
-                              style={{
-                                ...inputBase,
-                                border: `1px solid ${hErr ? '#F55C7A' : C.border}`,
-                              }}
-                            />
+                            {bgTags.length > 0 && (
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  flexWrap: 'wrap',
+                                  gap: 8,
+                                  marginBottom: 20,
+                                }}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => setBackgroundTagFilter('')}
+                                  style={pill(backgroundTagFilter === '')}
+                                >
+                                  All tags
+                                </button>
+                                {bgTags.map((tag) => (
+                                  <button
+                                    type="button"
+                                    key={tag}
+                                    onClick={() => setBackgroundTagFilter(tag)}
+                                    style={pill(backgroundTagFilter === tag)}
+                                  >
+                                    {tag}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                            {filteredItems.length === 0 ? (
+                              <p style={{ fontSize: 14, color: C.mid }}>
+                                No backgrounds in this category yet.
+                              </p>
+                            ) : (
+                              <div className="studio-5col-grid">
+                                {filteredItems.map((i) => (
+                                  <SelCard
+                                    key={i.id}
+                                    selected={backgroundId === i.id}
+                                    onClick={() => {
+                                      handleBackgroundSelect(i.id);
+                                      setBackgroundModalOpen(false);
+                                    }}
+                                    imageUrl={i.thumbnailUrl}
+                                    w="100%"
+                                    ratio={215.2 / 212.67}
+                                    borderWidth={3}
+                                    badges={<TagBadge tag={bgSpecialTagById.get(i.id)} />}
+                                  />
+                                ))}
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </>
-                    );
-                  })()}
-              </div>
-
-              {aspect === 'custom' && customRatio && (
-                <p
-                  style={{
-                    fontSize: 11,
-                    color: customWErr || customHErr ? '#F55C7A' : C.light,
-                    margin: '8px 0 0',
-                  }}
-                >
-                  {customWErr || customHErr
-                    ? `${(customWErr && customWNum < 768) || (customHErr && customHNum < 768) ? 'Min 768px' : `Max ${maxOutputPx}px`}`
-                    : `Min 768px · Max ${maxOutputPx}px`}
-                </p>
+                        </div>
+                      );
+                    })()}
+                </section>
               )}
 
-              {/* ── Dimension hint ── */}
-              {aspect !== 'custom' && (
-                <div style={{ marginTop: 8, fontSize: 11, color: C.light }}>
-                  {ASPECT_DIMS[aspect]}
-                </div>
-              )}
-            </section>
-
-            {/* ── Resolution (read-only, auto-derived from output dims) ── */}
-            {resolution && (
-              <section className="studio-section-card" style={sectionCardStyle}>
-                <SectionHead
-                  title="Output Resolution"
-                  stepNumber={stepNumberOf('resolution')}
-                  right={
-                    <span style={{ fontSize: 11, color: C.light, fontWeight: 400 }}>Auto</span>
-                  }
-                />
-                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                  {(
-                    [
-                      { key: 'HD' as const, label: 'HD' },
-                      { key: '2K' as const, label: '2K' },
-                      { key: '4K' as const, label: '4K' },
-                    ] as const
-                  )
-                    .filter((r) => resolutionConfig[r.key]?.enabled !== false)
-                    .map((r) => {
-                      const credits =
-                        resolutionConfig[r.key]?.creditCost ?? RESOLUTION_COSTS[r.key];
-                      const active = resolution === r.key;
-                      return (
-                        <div
-                          key={r.key}
+              {/* ── Poses (custom mode only) ── */}
+              {catalogueTemplateId === 'custom' && (
+                <section className="studio-section-card" style={sectionCardStyle}>
+                  <SectionHead
+                    title="Choose Poses"
+                    stepNumber={stepNumberOf('poses')}
+                    titleSuffix={
+                      poseIds.length > 0 && (
+                        <span
+                          style={{ fontWeight: 500, fontSize: 12, color: C.mid, marginLeft: 6 }}
+                        >
+                          ({poseIds.length} selected)
+                        </span>
+                      )
+                    }
+                    right={
+                      (poses?.items.length ?? 0) > poseVisibleCount && (
+                        <button
+                          type="button"
+                          onClick={() => setPoseModalOpen(true)}
                           style={{
                             display: 'flex',
                             alignItems: 'center',
-                            gap: 8,
-                            padding: '8px 16px',
-                            borderRadius: 99,
-                            border: active ? `1.5px solid ${C.pink}` : `1.5px solid ${C.border2}`,
-                            background: active ? 'rgba(245,92,122,0.04)' : C.white,
-                            boxSizing: 'border-box',
-                            userSelect: 'none',
-                            opacity: active ? 1 : 0.45,
+                            gap: 4,
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            cursor: 'pointer',
+                            height: 16,
                           }}
                         >
-                          <div
-                            style={{
-                              width: 16,
-                              height: 16,
-                              borderRadius: '50%',
-                              border: active ? `5px solid ${C.pink}` : `1.5px solid #BDBDBD`,
-                              background: C.white,
-                              flexShrink: 0,
-                              boxSizing: 'border-box',
-                            }}
+                          <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
+                            View All
+                          </span>
+                        </button>
+                      )
+                    }
+                  />
+                  {posesError ? (
+                    <ErrorState
+                      compact
+                      title="Couldn't load poses"
+                      message="There was a problem fetching poses. Please try again."
+                      onRetry={() => refetchPoses()}
+                    />
+                  ) : !poses ? (
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'center',
+                        padding: '32px 0',
+                        color: C.mid,
+                      }}
+                    >
+                      <SpinnerIcon />
+                    </div>
+                  ) : poses.items.length === 0 ? (
+                    <p style={{ fontSize: 14, color: C.mid }}>
+                      No poses for this combination. Go back and try a different background.
+                    </p>
+                  ) : (
+                    <div className="studio-5col-grid">
+                      {(() => {
+                        const firstN = poses.items.slice(0, poseVisibleCount);
+                        const offScreenSelected = poseIds
+                          .filter((id) => !firstN.some((p) => p.id === id))
+                          .map((id) => poses.items.find((p) => p.id === id))
+                          .filter((p): p is PoseItem => !!p);
+                        const visiblePoses = [...offScreenSelected, ...firstN].slice(
+                          0,
+                          poseVisibleCount,
+                        );
+                        return visiblePoses.map((p) => (
+                          <SelCard
+                            key={p.id}
+                            selected={poseIds.includes(p.id)}
+                            onClick={() => handlePoseSelect(p.id)}
+                            imageUrl={p.thumbnailUrl}
+                            w="100%"
+                            // No label shown, but the image still fills the same total
+                            // card height other sections get from image + label row
+                            // (~28px) combined - so pose cards stay the same height as
+                            // the rest of the grid without leaving blank space below.
+                            ratio={215.2 / (212.67 + 28)}
+                            // Center-crop was cutting off heads/hair on portrait pose
+                            // shots - anchor the crop to the top instead.
+                            imageObjectPosition="top"
                           />
-                          <span
-                            style={{
-                              fontSize: 14,
-                              fontWeight: 600,
-                              color: active ? C.pink : C.text,
-                            }}
-                          >
-                            {r.label}
-                          </span>
-                          <span
-                            style={{
-                              fontSize: 13,
-                              color: active ? C.pink : C.mid,
-                              fontWeight: 400,
-                            }}
-                          >
-                            ({credits} credits)
-                          </span>
+                        ));
+                      })()}
+                    </div>
+                  )}
+                  {poseModalOpen && poses && (
+                    <SelectGridModal
+                      title="Choose Poses"
+                      items={poses.items}
+                      selectedIds={poseIds}
+                      multiSelect
+                      hideLabels
+                      aspect={3 / 4}
+                      columns={5}
+                      onSelect={(id) => handlePoseSelect(id)}
+                      onClose={() => setPoseModalOpen(false)}
+                      continueLabel="Continue with {count} poses"
+                    />
+                  )}
+                </section>
+              )}
+
+              {needsLower &&
+                !requiresLowerUpload &&
+                (() => {
+                  const lowerNodes =
+                    lowerCatalog?.tree.filter((node) => node.slug !== 'other') ?? [];
+                  const totalItems = lowerNodes.reduce(
+                    (n, node) => n + flattenNode(node).length,
+                    0,
+                  );
+                  return (
+                    <section className="studio-section-card" style={sectionCardStyle}>
+                      <SectionHead
+                        title="Lower Garment"
+                        stepNumber={stepNumberOf('lower')}
+                        right={
+                          totalItems > lowerVisibleCount && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setLowerItemFilter('');
+                                setLowerItemsOpen(true);
+                              }}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                background: 'none',
+                                border: 'none',
+                                padding: 0,
+                                cursor: 'pointer',
+                                height: 16,
+                              }}
+                            >
+                              <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
+                                View more
+                              </span>
+                            </button>
+                          )
+                        }
+                      />
+                      {!lowerCatalog ? (
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'center',
+                            padding: '24px 0',
+                            color: C.mid,
+                          }}
+                        >
+                          <SpinnerIcon />
                         </div>
-                      );
-                    })}
+                      ) : totalItems === 0 ? (
+                        <p style={{ fontSize: 14, color: C.mid }}>
+                          No lower garment options available yet.
+                        </p>
+                      ) : (
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(5, 1fr)',
+                            gap: 16,
+                          }}
+                        >
+                          {(() => {
+                            const allItems = lowerNodes.flatMap(flattenNode);
+                            const selectedItem = lowerCatalogId
+                              ? allItems.find((i) => i.id === lowerCatalogId)
+                              : null;
+                            const inFirstN =
+                              !!selectedItem &&
+                              lowerRandomItems.some((i) => i.id === selectedItem.id);
+                            const visibleItems =
+                              selectedItem && !inFirstN
+                                ? [
+                                    selectedItem,
+                                    ...lowerRandomItems.filter((i) => i.id !== selectedItem.id),
+                                  ].slice(0, lowerVisibleCount)
+                                : lowerRandomItems;
+                            return visibleItems.map((i) => (
+                              <SelCard
+                                key={i.id}
+                                selected={lowerCatalogId === i.id}
+                                onClick={() =>
+                                  setLowerCatalogId(lowerCatalogId === i.id ? '' : i.id)
+                                }
+                                imageUrl={i.thumbnailUrl}
+                                w="100%"
+                                ratio={215.2 / 212.67}
+                              />
+                            ));
+                          })()}
+                        </div>
+                      )}
+                    </section>
+                  );
+                })()}
+
+              {needsShoes &&
+                (() => {
+                  const shoeNodes =
+                    shoesCatalog?.tree.filter((node) => node.slug !== 'other') ?? [];
+                  const totalItems = shoeNodes.reduce((n, node) => n + flattenNode(node).length, 0);
+                  return (
+                    <section className="studio-section-card" style={sectionCardStyle}>
+                      <SectionHead
+                        title="Footwear"
+                        stepNumber={stepNumberOf('shoes')}
+                        right={
+                          totalItems > shoeVisibleCount && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShoeItemFilter('');
+                                setShoeItemsOpen(true);
+                              }}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                background: 'none',
+                                border: 'none',
+                                padding: 0,
+                                cursor: 'pointer',
+                                height: 16,
+                              }}
+                            >
+                              <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
+                                View more
+                              </span>
+                            </button>
+                          )
+                        }
+                      />
+                      {!shoesCatalog ? (
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'center',
+                            padding: '24px 0',
+                            color: C.mid,
+                          }}
+                        >
+                          <SpinnerIcon />
+                        </div>
+                      ) : totalItems === 0 ? (
+                        <p style={{ fontSize: 14, color: C.mid }}>No shoe options available yet.</p>
+                      ) : (
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(5, 1fr)',
+                            gap: 16,
+                          }}
+                        >
+                          {(() => {
+                            const allItems = shoeNodes.flatMap(flattenNode);
+                            const selectedItem = shoeCatalogId
+                              ? allItems.find((i) => i.id === shoeCatalogId)
+                              : null;
+                            const inFirstN =
+                              !!selectedItem &&
+                              shoeRandomItems.some((i) => i.id === selectedItem.id);
+                            const visibleItems =
+                              selectedItem && !inFirstN
+                                ? [
+                                    selectedItem,
+                                    ...shoeRandomItems.filter((i) => i.id !== selectedItem.id),
+                                  ].slice(0, shoeVisibleCount)
+                                : shoeRandomItems;
+                            return visibleItems.map((i) => (
+                              <SelCard
+                                key={i.id}
+                                selected={shoeCatalogId === i.id}
+                                onClick={() => setShoeCatalogId(shoeCatalogId === i.id ? '' : i.id)}
+                                imageUrl={i.thumbnailUrl}
+                                w="100%"
+                                ratio={215.2 / 212.67}
+                              />
+                            ));
+                          })()}
+                        </div>
+                      )}
+                    </section>
+                  );
+                })()}
+
+              <section className="studio-section-card" style={sectionCardStyle}>
+                <SectionHead title="Publishing Platform" stepNumber={stepNumberOf('platform')} />
+                <div className="studio-platforms-grid">
+                  {PLATFORMS.map((p, idx) => (
+                    <button
+                      type="button"
+                      key={p}
+                      onClick={() => handlePlatformChange(p)}
+                      style={{
+                        ...pill(platform === p),
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        width: '100%',
+                        height: 44,
+                        boxSizing: 'border-box',
+                        justifyContent: 'center',
+                        ...(idx === 6 ? { gridColumn: 2 } : {}),
+                      }}
+                    >
+                      {PLATFORM_LOGOS[p] ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          className="dark-logo-bg"
+                          src={PLATFORM_LOGOS[p].src}
+                          alt={p}
+                          style={{
+                            height: PLATFORM_LOGOS[p].h,
+                            width: 'auto',
+                            maxWidth: 80,
+                            objectFit: 'contain',
+                            display: 'block',
+                          }}
+                        />
+                      ) : (
+                        p
+                      )}
+                    </button>
+                  ))}
                 </div>
               </section>
-            )}
-          </div>
 
-          {/* Footer (pinned, left column only, block effect) */}
-          <div className="studio-generate-card">
-            {submitError && (
-              <div
-                style={{
-                  padding: '8px 14px',
-                  borderRadius: 8,
-                  border: `1px solid ${C.pink}`,
-                  background: 'rgba(245,92,122,0.06)',
-                  fontSize: 13,
-                  color: C.pink,
-                }}
-              >
-                {submitError}
-              </div>
-            )}
-            <div
-              className="studio-generate-card-row"
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                gap: 16,
-              }}
-            >
-              {/* Left side: Credit Info */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                {/* Credit Icon */}
-                <div
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 8,
-                    border: '1.5px solid rgba(189, 37, 135, 0.15)', // light pink border using new theme
-                    background: 'rgba(189, 37, 135, 0.05)', // light pink background
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                  }}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  {/* biome-ignore lint/performance/noImgElement: credit icon */}
-                  <img src={`${BASE}/assets/credit.png`} alt="" width={20} height={20} />
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
-                    {creditCost} credits required
-                  </span>
-                  <span style={{ fontSize: 12, color: C.mid }}>
-                    You have {userCredits} credits (
-                    {creditCost > 0 ? Math.floor(userCredits / creditCost) : 0} generations)
-                  </span>
-                </div>
-              </div>
+              <section className="studio-section-card" style={sectionCardStyle}>
+                <SectionHead
+                  title="Aspect Ratio"
+                  subtitle="Match your platform requirements"
+                  stepNumber={stepNumberOf('aspect')}
+                />
 
-              {/* Right side: Button + ETA */}
-              <div
-                className="studio-generate-btn-wrap"
-                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}
-              >
-                <Tooltip tip={generateBlocker || undefined}>
-                  <GradBtn
-                    onClick={handleSubmit}
-                    disabled={!canGenerate}
+                {/* ── Pill row: hide presets when custom is active ── */}
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {aspect !== 'custom' &&
+                    ALL_ASPECTS.map((r) => {
+                      const supported = brandAspects.includes(r);
+                      return (
+                        <button
+                          type="button"
+                          key={r}
+                          onClick={supported ? () => setAspect(r) : undefined}
+                          style={{
+                            ...pill(aspect === r),
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            ...(!supported ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
+                          }}
+                        >
+                          <AspectRatioIcon ratio={r} active={aspect === r} />
+                          {r}
+                        </button>
+                      );
+                    })}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAspect('custom');
+                      setCustomRatio('');
+                      setCustomWStr('');
+                      setCustomHStr('');
+                    }}
                     style={{
-                      padding: '12px 32px',
-                      gap: 8,
-                      fontSize: 15,
-                      borderRadius: 8,
-                      background: canGenerate
-                        ? 'linear-gradient(135deg, #7c3aed 0%, #BD2587 100%)'
-                        : '#d1d1d6',
-                      boxShadow: canGenerate ? '0 4px 12px rgba(124, 58, 237, 0.2)' : 'none',
+                      ...pill(aspect === 'custom'),
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
                     }}
                   >
-                    {isSubmitting || generationInProgress ? (
-                      <>
-                        <SpinnerIcon size={16} /> Generating…
-                      </>
-                    ) : isUploading ? (
-                      <>
-                        <SpinnerIcon size={16} /> Uploading…
-                      </>
-                    ) : (
-                      <>
-                        <SparkleIcon /> Generate Catalogue
-                      </>
-                    )}
-                  </GradBtn>
-                </Tooltip>
-                <span style={{ fontSize: 11, color: C.light }}>Estimated Time:- 25 seconds</span>
+                    <AspectRatioIcon ratio="custom" active={aspect === 'custom'} />
+                    Custom Ratio
+                  </button>
+
+                  {/* ── Custom inline options ── */}
+                  {aspect === 'custom' &&
+                    (() => {
+                      const [rW, rH] = customRatio ? customRatio.split(':').map(Number) : [0, 0];
+                      const wErr = customWErr;
+                      const hErr = customHErr;
+
+                      const handleWChange = (val: string) => {
+                        setCustomWStr(val);
+                        if (rW && rH && val !== '') {
+                          const n = Math.round((Number(val) * rH) / rW);
+                          setCustomHStr(String(n));
+                        }
+                      };
+                      const handleHChange = (val: string) => {
+                        setCustomHStr(val);
+                        if (rW && rH && val !== '') {
+                          const n = Math.round((Number(val) * rW) / rH);
+                          setCustomWStr(String(n));
+                        }
+                      };
+
+                      const inputBase: React.CSSProperties = {
+                        width: 86,
+                        padding: '6px 8px',
+                        borderRadius: 6,
+                        fontSize: 13,
+                        color: C.text,
+                        background: C.bg,
+                        outline: 'none',
+                      };
+
+                      return (
+                        <>
+                          <span
+                            style={{ fontSize: 13, color: C.mid, marginLeft: 4, marginRight: 4 }}
+                          >
+                            Select aspect ratio
+                          </span>
+                          {ALL_ASPECTS.map((r) => (
+                            <button
+                              type="button"
+                              key={r}
+                              onClick={() => {
+                                setCustomRatio(r);
+                                setCustomWStr('');
+                                setCustomHStr('');
+                              }}
+                              style={{ ...pill(customRatio === r), flexShrink: 0 }}
+                            >
+                              {r}
+                            </button>
+                          ))}
+
+                          {customRatio && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <div
+                                style={{
+                                  width: 1,
+                                  height: 24,
+                                  background: C.border,
+                                  flexShrink: 0,
+                                  margin: '0 4px',
+                                }}
+                              />
+
+                              <input
+                                type="number"
+                                placeholder="Width"
+                                value={customWStr}
+                                onChange={(e) => handleWChange(e.target.value)}
+                                style={{
+                                  ...inputBase,
+                                  border: `1px solid ${wErr ? '#F55C7A' : C.border}`,
+                                }}
+                              />
+
+                              <span style={{ fontSize: 13, color: C.light, flexShrink: 0 }}>×</span>
+
+                              <input
+                                type="number"
+                                placeholder="Height"
+                                value={customHStr}
+                                onChange={(e) => handleHChange(e.target.value)}
+                                style={{
+                                  ...inputBase,
+                                  border: `1px solid ${hErr ? '#F55C7A' : C.border}`,
+                                }}
+                              />
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                </div>
+
+                {aspect === 'custom' && customRatio && (
+                  <p
+                    style={{
+                      fontSize: 11,
+                      color: customWErr || customHErr ? '#F55C7A' : C.light,
+                      margin: '8px 0 0',
+                    }}
+                  >
+                    {customWErr || customHErr
+                      ? `${(customWErr && customWNum < 768) || (customHErr && customHNum < 768) ? 'Min 768px' : `Max ${maxOutputPx}px`}`
+                      : `Min 768px · Max ${maxOutputPx}px`}
+                  </p>
+                )}
+
+                {/* ── Dimension hint ── */}
+                {aspect !== 'custom' && (
+                  <div style={{ marginTop: 8, fontSize: 11, color: C.light }}>
+                    {ASPECT_DIMS[aspect]}
+                  </div>
+                )}
+              </section>
+
+              {/* ── Resolution (read-only, auto-derived from output dims) ── */}
+              {resolution && (
+                <section className="studio-section-card" style={sectionCardStyle}>
+                  <SectionHead
+                    title="Output Resolution"
+                    stepNumber={stepNumberOf('resolution')}
+                    right={
+                      <span style={{ fontSize: 11, color: C.light, fontWeight: 400 }}>Auto</span>
+                    }
+                  />
+                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                    {(
+                      [
+                        { key: 'HD' as const, label: 'HD' },
+                        { key: '2K' as const, label: '2K' },
+                        { key: '4K' as const, label: '4K' },
+                      ] as const
+                    )
+                      .filter((r) => resolutionConfig[r.key]?.enabled !== false)
+                      .map((r) => {
+                        const credits =
+                          resolutionConfig[r.key]?.creditCost ?? RESOLUTION_COSTS[r.key];
+                        const active = resolution === r.key;
+                        return (
+                          <div
+                            key={r.key}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 8,
+                              padding: '8px 16px',
+                              borderRadius: 99,
+                              border: active ? `1.5px solid ${C.pink}` : `1.5px solid ${C.border2}`,
+                              background: active ? 'rgba(245,92,122,0.04)' : C.white,
+                              boxSizing: 'border-box',
+                              userSelect: 'none',
+                              opacity: active ? 1 : 0.45,
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: 16,
+                                height: 16,
+                                borderRadius: '50%',
+                                border: active ? `5px solid ${C.pink}` : `1.5px solid #BDBDBD`,
+                                background: C.white,
+                                flexShrink: 0,
+                                boxSizing: 'border-box',
+                              }}
+                            />
+                            <span
+                              style={{
+                                fontSize: 14,
+                                fontWeight: 600,
+                                color: active ? C.pink : C.text,
+                              }}
+                            >
+                              {r.label}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: 13,
+                                color: active ? C.pink : C.mid,
+                                fontWeight: 400,
+                              }}
+                            >
+                              ({credits} credits)
+                            </span>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </section>
+              )}
+            </div>
+
+            {/* Footer (pinned, left column only, block effect) */}
+            <div className="studio-generate-card">
+              {submitError && (
+                <div
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: 8,
+                    border: `1px solid ${C.pink}`,
+                    background: 'rgba(245,92,122,0.06)',
+                    fontSize: 13,
+                    color: C.pink,
+                  }}
+                >
+                  {submitError}
+                </div>
+              )}
+              <div
+                className="studio-generate-card-row"
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 16,
+                }}
+              >
+                {/* Left side: Credit Info */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  {/* Credit Icon */}
+                  <div
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 8,
+                      border: '1.5px solid rgba(189, 37, 135, 0.15)', // light pink border using new theme
+                      background: 'rgba(189, 37, 135, 0.05)', // light pink background
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    {/* biome-ignore lint/performance/noImgElement: credit icon */}
+                    <img src={`${BASE}/assets/credit.png`} alt="" width={20} height={20} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
+                      {creditCost} credits required
+                    </span>
+                    <span style={{ fontSize: 12, color: C.mid }}>
+                      You have {userCredits} credits (
+                      {creditCost > 0 ? Math.floor(userCredits / creditCost) : 0} generations)
+                    </span>
+                  </div>
+                </div>
+
+                {/* Right side: Button + ETA */}
+                <div
+                  className="studio-generate-btn-wrap"
+                  style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}
+                >
+                  <Tooltip tip={generateBlocker || undefined}>
+                    <GradBtn
+                      onClick={handleSubmit}
+                      disabled={!canGenerate}
+                      style={{
+                        padding: '12px 32px',
+                        gap: 8,
+                        fontSize: 15,
+                        borderRadius: 8,
+                        background: canGenerate
+                          ? 'linear-gradient(135deg, #7c3aed 0%, #BD2587 100%)'
+                          : '#d1d1d6',
+                        boxShadow: canGenerate ? '0 4px 12px rgba(124, 58, 237, 0.2)' : 'none',
+                      }}
+                    >
+                      {isSubmitting || generationInProgress ? (
+                        <>
+                          <SpinnerIcon size={16} /> Generating…
+                        </>
+                      ) : isUploading ? (
+                        <>
+                          <SpinnerIcon size={16} /> Uploading…
+                        </>
+                      ) : (
+                        <>
+                          <SparkleIcon /> Generate Catalogue
+                        </>
+                      )}
+                    </GradBtn>
+                  </Tooltip>
+                  <span style={{ fontSize: 11, color: C.light }}>Estimated Time:- 25 seconds</span>
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        <div className="studio-right-column" id="studio-right-column">
-          {activeGeneration ? (
-            <GenerationPanel
-              catalogueId={activeGeneration.catalogueId}
-              jobs={activeGeneration.jobs}
-              garmentPreviewUrl={garmentPreviewUrl}
-              onAllSettled={() => setGenerationInProgress(false)}
-              onCancel={() => {
-                setActiveGeneration(null);
-                setGenerationInProgress(false);
-              }}
-            />
-          ) : (
-            <PreviewPanel />
-          )}
+          <div className="studio-right-column" id="studio-right-column">
+            {activeGeneration ? (
+              <GenerationPanel
+                catalogueId={activeGeneration.catalogueId}
+                jobs={activeGeneration.jobs}
+                garmentPreviewUrl={garmentPreviewUrl}
+                onAllSettled={() => setGenerationInProgress(false)}
+                onCancel={() => {
+                  setActiveGeneration(null);
+                  setGenerationInProgress(false);
+                }}
+              />
+            ) : (
+              <PreviewPanel />
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Garment Type Modal */}
       {garmentModalOpen && garmentTypes && (
@@ -4136,6 +4418,32 @@ export default function StudioPage(): React.ReactElement {
             }
           }}
           onClose={() => setGarmentModalOpen(false)}
+        />
+      )}
+
+      {batchGarmentModalOpen && garmentTypes && (
+        <SelectGridModal
+          title="Select Your Garment Type"
+          aspect={1}
+          columns={5}
+          items={garmentTypes.items.map((s) => ({
+            id: s.id,
+            label: s.label,
+            thumbnailUrl:
+              s.thumbnailUrl ??
+              (() => {
+                const fallbackKey = Object.keys(OUTFIT_IMG).find(
+                  (k) => s.slug.toLowerCase().includes(k) || s.label.toLowerCase().includes(k),
+                );
+                return fallbackKey ? OUTFIT_IMG[fallbackKey] : null;
+              })(),
+          }))}
+          selectedIds={garmentTypeId ? [garmentTypeId] : []}
+          onSelect={(id) => {
+            setGarmentTypeId(id);
+            setBatchGarmentModalOpen(false);
+          }}
+          onClose={() => setBatchGarmentModalOpen(false)}
         />
       )}
 
@@ -4537,7 +4845,7 @@ export default function StudioPage(): React.ReactElement {
             left: '50%',
             transform: 'translateX(-50%)',
             background: C.dark,
-            color: C.white,
+            color: C.onDark,
             padding: '10px 16px',
             borderRadius: 8,
             fontSize: 13,
