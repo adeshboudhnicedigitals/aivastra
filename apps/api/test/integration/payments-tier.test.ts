@@ -1,7 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { buildTestApp, type TestApp } from '../helpers/api';
 import { type Containers, startContainers } from '../helpers/containers';
 
@@ -14,7 +14,10 @@ describe('payments -> tier promotion', () => {
 
   beforeAll(async () => {
     c = await startContainers();
-    app = await buildTestApp(c, { RAZORPAY_KEY_SECRET });
+    app = await buildTestApp(c, {
+      RAZORPAY_KEY_SECRET,
+      RAZORPAY_KEY_ID: 'test-razorpay-key-id',
+    });
   }, 60000);
 
   afterAll(async () => {
@@ -358,5 +361,94 @@ describe('payments -> tier promotion', () => {
       .from(schema.creditLedger)
       .where(eq(schema.creditLedger.userId, userId));
     expect(ledger.some((l) => l.reason === 'CAMPAIGN_BONUS')).toBe(false);
+  });
+
+  function mockRazorpayOrderCreate() {
+    vi.spyOn(global, 'fetch').mockImplementation(async (url: string | URL | Request) => {
+      const urlStr = typeof url === 'string' ? url : url.toString();
+      if (urlStr === 'https://api.razorpay.com/v1/orders') {
+        return new Response(JSON.stringify({ id: `order_mock_${Date.now()}` }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      throw new Error(`Unexpected fetch to: ${urlStr}`);
+    });
+  }
+
+  it('stores the provided GSTIN on the payments row at order creation', async () => {
+    mockRazorpayOrderCreate();
+    const { token } = await registerUser('order-gstin@x.com');
+    await seedPlan('gstin-plan');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/payments/orders',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { planId: 'gstin-plan', gstin: '27AAPFU0939F1ZV' },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const [payment] = await app.db
+      .select()
+      .from(schema.payments)
+      .where(eq(schema.payments.razorpayOrderId, res.json().orderId));
+    expect(payment?.gstin).toBe('27AAPFU0939F1ZV');
+
+    vi.restoreAllMocks();
+  });
+
+  it('rejects order creation with a malformed GSTIN', async () => {
+    mockRazorpayOrderCreate();
+    const { token } = await registerUser('order-badgstin@x.com');
+    await seedPlan('badgstin-plan');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/payments/orders',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { planId: 'badgstin-plan', gstin: 'not-a-gstin' },
+    });
+    expect(res.statusCode).toBe(400);
+
+    vi.restoreAllMocks();
+  });
+
+  it('issues an invoice as part of a successful /verify call', async () => {
+    const { token, userId } = await registerUser('verify-invoice@x.com');
+    const plan = await seedPlan('verify-invoice-plan');
+    const orderId = 'order_verify_invoice_1';
+    const payment = await seedPendingPayment({
+      userId,
+      planId: plan?.slug,
+      razorpayOrderId: orderId,
+      credits: 1000,
+    });
+
+    const paymentId = 'pay_verify_invoice_1';
+    await app.inject({
+      method: 'POST',
+      url: '/v1/payments/verify',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        razorpayOrderId: orderId,
+        razorpayPaymentId: paymentId,
+        razorpaySignature: signature(orderId, paymentId),
+      },
+    });
+
+    // issueInvoiceIfNeeded is fire-and-forget (non-fatal, not awaited by the
+    // route) — poll briefly for the row to appear instead of asserting
+    // immediately after the response.
+    let invoiceRow: { invoiceNumber: string } | undefined;
+    for (let i = 0; i < 20 && !invoiceRow; i++) {
+      const [row] = await app.db
+        .select()
+        .from(schema.invoices)
+        .where(eq(schema.invoices.paymentId, payment.id));
+      invoiceRow = row;
+      if (!invoiceRow) await new Promise((r) => setTimeout(r, 100));
+    }
+    expect(invoiceRow?.invoiceNumber).toMatch(/^INV-\d{4}-\d{2}-\d{6}$/);
   });
 });

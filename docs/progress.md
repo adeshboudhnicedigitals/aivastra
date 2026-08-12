@@ -1,3 +1,23 @@
+## 2026-08-12 — GST Invoice for Credit Purchases
+
+**Done**
+- Implemented end-to-end GST invoice generation and delivery for individual credit purchases per spec `docs/superpowers/specs/2026-08-12-gst-invoice-for-credit-purchases-design.md`.
+- **Data Model & Migrations:** Added `gstin` (`text`, nullable) column to `users` and `payments` tables; added `invoices` (`paymentId` unique FK, `invoiceNumber` unique, `r2Key`, `issuedAt`) and `invoiceSequences` (`financialYear` PK, `nextNumber`) tables in migration `0152_gst_invoices.sql`, with atomic per-financial-year sequence allocation.
+- **Shared Validation:** Added `GSTIN_REGEX` and `Gstin` Zod validator schema to `@aivastra/types` (`packages/types/src/credits.ts`).
+- **User Profile & Order Creation:** Added GSTIN to `GET /v1/me` and `PATCH /v1/me`; accepted `gstin` in `POST /v1/payments/orders`, storing it on `payments.gstin`.
+- **Admin Seller Config:** Added editable seller details (GSTIN, legal name, address) to the existing Redis-backed `config:system` settings blob (`GET /admin/config` / `PATCH /admin/config`) and an admin settings form in `admin-web`.
+- **Invoice PDF Generation & Storage:** `pdfkit`-based renderer producing a flat 18% GST tax invoice (seller/customer blocks, plan line item, GST line, total) with invoice numbers formatted `INV-{financialYear}-{6-digit sequence}` (e.g. `INV-2026-27-000001`), financial year computed Apr 1–Mar 31; storage key builder `keys.invoice(paymentId)` in `@aivastra/storage`.
+- **Issuance & Delivery:** Non-fatal, idempotent `issueInvoiceIfNeeded` helper wired into the shared `maybeSendReceipt` (covers both `/verify` and the webhook credit-grant paths from one call site); generated PDF attached to the existing payment receipt email via `sendPaymentReceiptEmail`.
+- **History & Downloads:** Extended `GET /v1/payments/history` with `invoiceNumber` and a presigned `invoiceUrl`; added `GET /v1/payments/:id/invoice` (owner-only, 403 otherwise, 302 redirect to the presigned R2 URL).
+- **Web UI:** Added a GSTIN field to user profile settings, a new `<GstinConfirmModal>` pre-checkout confirmation (GSTIN + Subtotal/GST/Total breakdown) shown before every Razorpay checkout across Desktop/Mobile/Tablet pricing layouts, and an Invoice download link on the Settings → Invoices tab.
+- **Verification:** New/modified test files pass — `credits.test.ts` (2), `invoice-pdf.test.ts` (4), `profile-gstin.test.ts` (3), `payments-tier.test.ts`, `issue-invoice.test.ts`, `admin-config.test.ts` (22 combined) — plus the full pre-existing `apps/api` unit suite (69 files / 575 tests) re-run clean with no regressions, and `tsc`/`typecheck` clean across every touched package (`@aivastra/db`, `@aivastra/types`, `@aivastra/storage`, `@aivastra/api`, `@aivastra/web`, `@aivastra/admin`).
+
+**Failed / Not Done**
+- None.
+
+**Open Questions / Decisions**
+- Scope is deliberately limited to the individual credit-purchase flow (`payments` table); the separate merchant plan-billing flow (`merchantPayments`) is out of scope for this change.
+
 ## 2026-08-12 — Enforce branch protection on main and dev, purge the leaked ComfyUI credential from git history
 
 **Done**
