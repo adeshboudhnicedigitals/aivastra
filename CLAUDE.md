@@ -75,6 +75,17 @@ continuing.
 so. Don't claim something works because the code looks right; claim it when you
 ran it. Correct a wrong earlier statement plainly and move on.
 
+**Decisions get a tradeoff, not just an answer.** When a task forks into more
+than one valid approach — not "how do I do X" but "which of several ways should
+we do X" — lay it out like a systems-design review: name each real option, and
+for each one state the cost/benefit **separately for developers** (implementation
+complexity, ops burden, maintenance surface, blast radius if it breaks) **and for
+users** (latency, reliability, UX friction, cost passed through). Keep it
+scannable — a short table or bullet pairs beats an essay — then end with a
+recommendation, not just a list. This applies especially to `docs/audits/open-findings.md`
+items marked as needing a product decision, but to any genuine fork in approach,
+including ones the user didn't flag as a "decision."
+
 ---
 
 ## Current state
