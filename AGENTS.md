@@ -1,113 +1,138 @@
 # AGENTS.md
 
-Compact guidance for OpenCode sessions in this repo.
+Guidance for AI coding agents in this repo. `CLAUDE.md` is the canonical, fuller
+version — read it when you need repo detail (schema map, module tables, per-app
+architecture, key files). This file is the short form for agents that only read
+`AGENTS.md`, and it deliberately restates only slow-changing facts.
+
+Status and progress are **not** tracked here. `docs/progress.md` is the log
+(dated, newest first, Done / Failed-Not-Done / Open Questions); read its top
+entries before starting, and add one after substantive work.
+
+---
+
+## How to behave
+
+**Verify, don't infer.** Read the authoritative source before acting on a claim
+about config, deployed state, or file contents. Deriving a value from an adjacent
+signal — a release name, a branch, the file you happened to open — is how this
+repo's worst time sinks started. If you find yourself reasoning toward a value,
+go read it instead.
+
+**Secrets.** Never print a credential value; report name, set/unset, and length.
+When grepping output that interleaves variables (`docker compose config`, any
+`.env`), match the exact line and never use `-A`/`-B`/`-C` — a context flag once
+leaked a Shopify API secret and forced a rotation.
+
+**Build-time vs runtime config.** `VITE_*` / `NEXT_PUBLIC_*` are baked into
+bundles at build time; changing one needs a rebuild, not a restart, and a cached
+layer can keep the old value — confirm the output asset hash changed. Everything
+else is read at process start.
+
+**Never touch production data or schema.** No `db:generate`, no `drizzle-kit`
+surgery, no ad-hoc `psql`/`tsx` fixes against the prod VPS or `tryon_prod`. Ship
+changes through push → CI/CD → `db:migrate:prod`. Reads are fine. A 2026-07-27
+ad-hoc session wiped ~89 rows of catalog defaults with no audit trail.
+
+**Destructive operations.** Before a `DROP`, `CASCADE`, delete, or overwrite,
+inspect the target and say what will be lost. Prefer the reversible form.
+
+**Commits and pushes.** Don't commit or push unless asked. Commit whole units of
+work only — a working feature, a verified fix, a migration with its API/UI
+changes — never single CSS properties, copy tweaks, or parts of a task still in
+flight. Branch policy: `docs/version-control.md`.
+
+**Style.** Match the surrounding file's comment density, naming, and idiom. This
+codebase documents the *why* behind non-obvious constraints; keep doing that. No
+`console.log` — use the pino child loggers from `@aivastra/logger`.
+
+**Honesty.** Show failing output rather than summarizing it away. Say what you
+skipped. Claim something works when you ran it, not when it looks right.
+
+**Configuration lives outside the repo too.** Shopify Partner Dashboard (app
+handle, plan prices, trial days, redirect URLs, plan descriptions), Cloudflare
+(cache rules), CloudPanel vhosts, and the VPS `.env` files all shape behaviour
+and no deploy touches them. Record discoveries in `docs/progress.md`.
+
+---
 
 ## Stack
 
-- **Monorepo:** pnpm workspaces (`apps/*`, `packages/*`)
-- **Runtime:** Node 20+, TypeScript 5.6, ESM only (`"type": "module`)
-- **API:** Fastify 5 + `fastify-type-provider-zod` + ioredis + Drizzle ORM
-- **DB:** PostgreSQL 16, migrations in `packages/db/src/migrations`
-- **Cache/Queue:** Redis 7 Streams (`jobs:priority`, `jobs:normal`, `jobs:low`, `jobs:video`)
-- **Storage:** S3-compatible (Cloudflare R2), local stub = MinIO
-- **Tests:** Vitest + testcontainers-free harness (see below)
+pnpm workspaces (`apps/*`, `packages/*`), Node ≥20.11, TypeScript 5.6, ESM only.
+Fastify 5 + `fastify-type-provider-zod` for the API; PostgreSQL 16 via Drizzle;
+Redis 7 Streams (`jobs:priority|normal|low|video`, group `dispatcher-cg`);
+S3-compatible storage (R2 in prod, MinIO locally); pino logging; Vitest.
+Exact versions live in `package.json` — don't trust a number copied into docs.
 
-## Setup
+## Layout
 
-```bash
-cp .env.example .env
-pnpm docker:up          # postgres + redis + minio (binds 127.0.0.1)
-pnpm db:generate        # drizzle-kit generate
-pnpm db:migrate         # apply migrations
-pnpm install
+```
+apps/api               Fastify REST API
+apps/dispatcher        Redis Stream consumer — only process talking to GPU workers
+apps/chatbot           support chatbot (LangGraph, pgvector RAG)
+apps/catalogues-web    Next.js user UI          (package @aivastra/web)
+apps/admin-web         Vite/React admin SPA     (package @aivastra/admin)
+apps/shopify           embedded Shopify admin SPA (Polaris)
+apps/shopify-extension Shopify app config + theme app extension
+packages/db types storage logger observability
+infra/ scripts/ docs/
 ```
 
-## Important Commands
+Directory names and package names differ in places — use the package name with
+`--filter`. `apps/admin-mobile` is paused: don't update, test, or parity-check it.
 
-| Command | What |
-|---------|------|
-| `pnpm dev` | parallel dev across all workspace packages |
-| `pnpm --filter @aivastra/api test` | full API integration suite |
-| `pnpm --filter @aivastra/api test -- <pattern>` | single test by name (Vitest `-t`) |
-| `pnpm --filter @aivastra/<pkg> test` | single package tests |
-| `pnpm db:generate` | generate Drizzle migration SQL |
-| `pnpm db:migrate` | run `packages/db/src/migrate.ts` against DATABASE_URL |
-| `pnpm docker:up` / `pnpm docker:down` | compose at `infra/docker-compose.yml` |
-| `pnpm docker:reset` | compose down + volumes |
-| `pnpm build` | typecheck + build all |
+## Commands
 
-## Testing Architecture (Critical)
+```bash
+pnpm docker:up                                   # postgres + redis + minio (127.0.0.1)
+pnpm db:migrate
+pnpm --filter @aivastra/api dev
+pnpm --filter @aivastra/api test                 # UNIT ONLY — excludes test/integration/**
+pnpm --filter @aivastra/api test:integration     # integration suite
+pnpm build | pnpm typecheck | pnpm lint
+```
 
-**No testcontainers.** Integration tests reuse the docker-compose Postgres/Redis/MinIO already running on localhost. Each test file:
+`test` does not run integration tests. "No test files found" for an integration
+pattern means the wrong command, not a missing test.
 
-1. Creates a **fresh Postgres database** via `CREATE DATABASE`
-2. Runs Drizzle migrations once via `migrate(drizzle(client), { migrationsFolder: './node_modules/@aivastra/db/src/migrations' })`
-3. Creates a **fresh MinIO bucket** per test file via `CreateBucketCommand`
-4. Tears down DB + bucket in `afterAll`
+CI never runs `shopify app deploy` — the theme extension and app config reach
+Partner Dashboard only via `make shopify-deploy` / `make shopify-deploy-staging`,
+which publish from your working tree.
 
-This is faster but means:
-- `docker:up` **must** be running before `pnpm test`
-- Tests cannot run in parallel if they share the same MinIO bucket name — use random suffixes
-- The test harness lives in `apps/api/test/helpers/containers.ts`
+## Architecture in one paragraph
 
-**API test harness:** `buildTestApp()` in `apps/api/test/helpers/api.ts` calls `app.listen({ port: 0 })` so `app.server.address()` gives the real ephemeral port. Use raw `node:http` for SSE tests (Fastify `inject()` hangs on streaming responses).
+api validates catalog IDs, deducts credits and inserts the job in one Postgres
+transaction, then `XADD`s to a Redis Stream; it never talks to ComfyUI. dispatcher
+consumes the stream, picks a healthy IDLE worker from the Redis registry, clones
+and patches the versioned workflow template, drives ComfyUI over a Cloudflare
+Tunnel, uploads the result to R2, updates Postgres, publishes SSE, and `XACK`s —
+refunding credits transactionally on terminal failure. Browsers upload directly
+to R2 via presigned URLs and never proxy binaries through the API.
 
-## Monorepo Boundaries
+## Testing
 
-| Package | Role |
-|---------|------|
-| `@aivastra/db` | Drizzle schema + `createDb(url)` factory. Exports `schema` namespace. |
-| `@aivastra/types` | Zod schemas only. No runtime deps except `zod`. |
-| `@aivastra/storage` | `StorageProvider` interface + `createR2Provider()` + key builders. |
-| `@aivastra/logger` | `createLogger(service)` wrapper around pino. |
-| `apps/api` | Fastify service. All routes wired in `src/server.ts`. |
+**No testcontainers** (removed; don't reintroduce). Integration tests reuse the
+docker-compose services on localhost, so `pnpm docker:up` must be running. Each
+file creates a fresh randomly-named Postgres database and MinIO bucket, migrates,
+and drops both in `afterAll` (`apps/api/test/helpers/containers.ts`).
+`buildTestApp()` listens on port 0; use raw `node:http` for SSE tests because
+Fastify `inject()` hangs on streaming responses. Tests build `Env` objects
+directly and cast them, so gates guarding money or access must compare
+`=== true` rather than rely on truthiness.
 
-## Architecture Invariants
+## Invariants
 
-- **api** validates catalog + deducts credits in one Postgres txn, then `XADD` to Redis Stream. Never talks to ComfyUI.
-- **dispatcher** (not yet built) is the only process that talks to GPU workers.
-- Catalog ID → R2 key resolution happens in api before enqueue.
-- All `/admin/*` routes check `admin_users` row after JWT verify.
-- Credit deduct + job insert must stay in one transaction. Refund on failure too.
-- No `console.log` in committed code — use `req.log.child({ jobId, userId })`.
-
-## Environment Notes
-
-- `.env` required. `DATABASE_URL` points to `127.0.0.1:5432`.
-- `R2_*` vars target MinIO in dev (`http://127.0.0.1:9000`).
-- `ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD` seed first admin.
-- Postgres and Redis bind `127.0.0.1` only (never `0.0.0.0`).
-
-## Git Commit & Push Policy
-
-**Only commit and push when a meaningful unit of work is complete.** Do NOT commit after every minor UI tweak, typo fix, or single-line change.
-
-Commit when:
-- A full feature is working end-to-end (new wizard step, new admin page, new API endpoint)
-- A bug is fixed and verified
-- A migration + its corresponding API/UI changes are all done together
-- A refactor spanning multiple files is complete
-
-Do NOT commit for:
-- Single CSS property changes
-- Label/copy tweaks
-- One-liner fixes that are part of a larger in-progress task
-
-Batch related small changes into one commit with the larger task they belong to.
-
-## Progress Tracking
-
-After every plan execution, update `docs/progress.md`:
-- **Done** — completed work
-- **Failed / Not Done** — skipped, blocked, or broken
-- **Open Questions / Decisions** — unresolved choices affecting next steps
-
-Add a new dated entry at the top of the log.
-
-## Gotchas
-
-- `drizzle-kit generate` needs `DATABASE_URL` set (reads `drizzle.config.ts`).
-- `packages/db/src/index.ts` exports `* as schema` — do not duplicate-export `schema`.
-- `@aivastra/db` is imported as `workspace:*` — no relative paths into `packages/`.
-- The `catalog.test.ts` integration test seeds `catalog_types` with `slug: 'models'` — use unique slugs if running multiple tests in same process (parallel collisions).
-- `testcontainers` package is installed but **not used** by the harness; it was abandoned due to MinIO startup issues on Windows. Do not re-introduce it for the API test harness.
+- Credit deduct + job insert in one transaction; refund on terminal failure too.
+- Catalog ID → R2 key resolution happens in api before enqueue; the dispatcher
+  trusts `job_inputs`.
+- Workflow templates: `structuredClone` then patch, never inline-mutate.
+- Postgres and Redis bind `127.0.0.1` only.
+- Every `/admin/*` route checks the JWT claim **and** an `admin_users` row.
+- User hint text is sanitized before reaching a workflow prompt.
+- `packages/db/src/index.ts` exports `* as schema` — no duplicate re-export; import
+  `@aivastra/db` as `workspace:*`, never by relative path.
+- Shopify credit grants are idempotent on `external_ref`, and the cycle marker
+  advances only when a grant was actually possible.
+- `shopify_widget_events` is advisory only — never read it for a credit, limit, or
+  authorization decision.
+- No schema or data changes against production.
