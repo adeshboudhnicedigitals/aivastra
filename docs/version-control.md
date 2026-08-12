@@ -37,6 +37,28 @@ hotfix.
 Verify with `git merge-base --is-ancestor <hotfix-sha> origin/dev` — should
 print nothing and exit 0 once the back-merge is in.
 
+## Secret Scanning (gitleaks)
+
+CI's `gitleaks` job (`.github/workflows/ci.yml`) fails a PR if a new commit
+introduces something that looks like a credential. It runs against `.gitleaks.toml`
+(rule config + allowlist) and `.gitleaks-baseline.json` (every finding that
+existed in history as of the commit the baseline was generated from — this repo's
+680+ pre-existing commits are not re-litigated on every run; only genuinely new
+matches fail the job).
+
+**If gitleaks flags a real false positive going forward** (a new test fixture that
+looks like a secret, a non-secret high-entropy string): add a regex to
+`.gitleaks.toml`'s `[allowlist]` rather than touching the baseline — the baseline
+should only change when history itself changes (a purge, a rewrite), regenerated
+via:
+```bash
+gitleaks detect --config .gitleaks.toml --report-format json --report-path .gitleaks-baseline.json --exit-code 0
+```
+
+**If it flags a real secret:** do not merge. Rotate the credential, then follow
+SEC-C1's remediation pattern in `docs/audits/open-findings.md` (or its history —
+redact, confirm rotation, then `git filter-repo` to purge if the repo is public).
+
 ## Commit & Push Policy
 
 **Only commit and push when a meaningful unit of work is complete.**
