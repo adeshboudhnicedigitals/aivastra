@@ -45,7 +45,7 @@ export function SelectGridModal<T extends SelectableItem>({
   onClose,
   cardHeight = 148,
   aspect,
-  columns = 4,
+  columns = 5,
   continueLabel,
   hideLabels = false,
   tagOptions,
@@ -211,9 +211,10 @@ export function SelectGridModal<T extends SelectableItem>({
             <p style={{ fontSize: 14, color: C.mid }}>Nothing available yet.</p>
           ) : (
             <div
+              className="studio-select-modal-grid"
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+                gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
                 gap: 16,
               }}
             >
@@ -312,7 +313,27 @@ export function SelectGridModal<T extends SelectableItem>({
                       )}
                     </div>
                     {!hideLabels && (
-                      <div style={{ fontSize: 12, fontWeight: 500, color: C.text, marginTop: 8 }}>
+                      <div
+                        title={item.label}
+                        className="sel-card-label-box"
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 500,
+                          lineHeight: 1.25,
+                          color: C.text,
+                          marginTop: 4,
+                          height: 38,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                          width: '100%',
+                          textAlign: 'center',
+                          boxSizing: 'border-box',
+                          wordBreak: 'break-word',
+                          overflowWrap: 'anywhere',
+                        }}
+                      >
                         {item.label}
                       </div>
                     )}

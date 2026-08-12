@@ -276,15 +276,24 @@ export function SelCard({
         </div>
         {label && (
           <div
+            title={label}
+            className="sel-card-label-box"
             style={{
               fontSize: 12,
               fontWeight: 600,
+              lineHeight: 1.25,
               color: C.text,
-              padding: '8px 4px 6px',
+              padding: '4px 6px',
               width: '100%',
               textAlign: 'center',
-              overflowWrap: 'anywhere',
+              height: 38,
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+              boxSizing: 'border-box',
               wordBreak: 'break-word',
+              overflowWrap: 'anywhere',
             }}
           >
             {label}
