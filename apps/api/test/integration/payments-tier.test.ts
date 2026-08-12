@@ -1,7 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { buildTestApp, type TestApp } from '../helpers/api';
 import { type Containers, startContainers } from '../helpers/containers';
 
@@ -14,7 +14,10 @@ describe('payments -> tier promotion', () => {
 
   beforeAll(async () => {
     c = await startContainers();
-    app = await buildTestApp(c, { RAZORPAY_KEY_SECRET });
+    app = await buildTestApp(c, {
+      RAZORPAY_KEY_SECRET,
+      RAZORPAY_KEY_ID: 'test-razorpay-key-id',
+    });
   }, 60000);
 
   afterAll(async () => {
@@ -358,5 +361,56 @@ describe('payments -> tier promotion', () => {
       .from(schema.creditLedger)
       .where(eq(schema.creditLedger.userId, userId));
     expect(ledger.some((l) => l.reason === 'CAMPAIGN_BONUS')).toBe(false);
+  });
+
+  function mockRazorpayOrderCreate() {
+    vi.spyOn(global, 'fetch').mockImplementation(async (url: string | URL | Request) => {
+      const urlStr = typeof url === 'string' ? url : url.toString();
+      if (urlStr === 'https://api.razorpay.com/v1/orders') {
+        return new Response(JSON.stringify({ id: `order_mock_${Date.now()}` }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      throw new Error(`Unexpected fetch to: ${urlStr}`);
+    });
+  }
+
+  it('stores the provided GSTIN on the payments row at order creation', async () => {
+    mockRazorpayOrderCreate();
+    const { token } = await registerUser('order-gstin@x.com');
+    await seedPlan('gstin-plan');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/payments/orders',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { planId: 'gstin-plan', gstin: '27AAPFU0939F1ZV' },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const [payment] = await app.db
+      .select()
+      .from(schema.payments)
+      .where(eq(schema.payments.razorpayOrderId, res.json().orderId));
+    expect(payment?.gstin).toBe('27AAPFU0939F1ZV');
+
+    vi.restoreAllMocks();
+  });
+
+  it('rejects order creation with a malformed GSTIN', async () => {
+    mockRazorpayOrderCreate();
+    const { token } = await registerUser('order-badgstin@x.com');
+    await seedPlan('badgstin-plan');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/payments/orders',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { planId: 'badgstin-plan', gstin: 'not-a-gstin' },
+    });
+    expect(res.statusCode).toBe(400);
+
+    vi.restoreAllMocks();
   });
 });

@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { schema } from '@aivastra/db';
+import { Gstin } from '@aivastra/types';
 import { and, asc, desc, eq, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -186,7 +187,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
     {
       preHandler: app.requireUser,
       schema: {
-        body: z.object({ planId: z.string().min(1) }),
+        body: z.object({ planId: z.string().min(1), gstin: Gstin }),
       },
     },
     async (req) => {
@@ -195,7 +196,8 @@ export async function paymentsRoutes(app: FastifyInstance) {
         throw new AppError('NOT_CONFIGURED', 503, 'payments not configured');
       }
 
-      const { planId } = req.body as { planId: string };
+      const { planId, gstin } = req.body as { planId: string; gstin?: string };
+      const normalizedGstin = gstin?.trim().toUpperCase() || null;
       const [plan] = await app.db
         .select()
         .from(schema.creditPlans)
@@ -220,6 +222,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
         gstPaise,
         totalPaise,
         credits: plan.credits,
+        gstin: normalizedGstin,
         status: 'created',
       });
 
