@@ -7,7 +7,10 @@
   force-push, or delete; the required `ci-gate` check must pass before merge,
   and `ci-gate` itself fails on any PR into `main` whose head isn't `dev` or
   `hotfix/*` (the `branch-source-gate` job in `ci.yml`).
-- `dev` — feature/fix branches must raise a PR **into `dev`**. Direct push to `dev` is not hard-blocked, but strongly discouraged — go through a PR even for small changes. Not GitHub-enforced — convention only.
+- `dev` — feature/fix branches must raise a PR **into `dev`**. **GitHub-enforced:**
+  no direct push, force-push, or delete; the required `ci-gate` check must pass
+  before merge. No restriction on source branch — any `feature/*`/`fix/*`/`chore/*`
+  branch can target it.
 - Feature branches — branch off `dev`, raise PR back into `dev`.
 
 ```
