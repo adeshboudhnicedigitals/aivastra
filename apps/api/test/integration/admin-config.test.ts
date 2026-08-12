@@ -147,4 +147,31 @@ describe('admin config', () => {
       '44444444-4444-4444-4444-444444444444',
     );
   });
+
+  it('GET /admin/config default-fills seller details, and PATCH persists an override', async () => {
+    const getRes = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
+    expect(getRes.statusCode).toBe(200);
+    expect(getRes.json().seller).toEqual({ gstin: '', legalName: '', address: '' });
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: '/admin/config',
+      headers: { ...adminAuth, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        seller: {
+          gstin: '27AAPFU0939F1ZV',
+          legalName: 'Aivastra Technologies Pvt Ltd',
+          address: '123 Example St, Mumbai',
+        },
+      }),
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const getRes2 = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
+    expect(getRes2.json().seller).toEqual({
+      gstin: '27AAPFU0939F1ZV',
+      legalName: 'Aivastra Technologies Pvt Ltd',
+      address: '123 Example St, Mumbai',
+    });
+  });
 });
