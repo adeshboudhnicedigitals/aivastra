@@ -2213,7 +2213,7 @@ git add docs/progress.md
 git commit -m "docs: log GST invoice feature completion"
 ```
 
-- [ ] **Step 5: Push and open the PR into `dev`**
+- [x] **Step 5: Push and open the PR into `dev`**
 
 ```bash
 git push -u origin feat/gst-invoice-credit-purchases
