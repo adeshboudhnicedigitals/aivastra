@@ -250,12 +250,32 @@ jobs:
       - name: Run staging env guardrail tests
         run: bash scripts/staging/check-staging-env.test.sh
 
+  branch-source-gate:
+    name: branch-source-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    # Only meaningful for PRs targeting main; skipped otherwise so ci-gate's
+    # success/skipped check below still passes for dev-bound and non-PR runs.
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    steps:
+      - name: Restrict main to promotions from dev or hotfix/*
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          if [[ "${HEAD_REF}" == "dev" || "${HEAD_REF}" == hotfix/* ]]; then
+            echo "ok: '${HEAD_REF}' is an allowed source branch for main"
+          else
+            echo "::error::main only accepts PRs from 'dev' or a 'hotfix/*' branch (got '${HEAD_REF}')"
+            exit 1
+          fi
+
   ci-gate:
     name: ci-gate
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: always()
-    needs: [detect, lint, typecheck, test, test-integration, ci-scripts]
+    needs: [detect, lint, typecheck, test, test-integration, ci-scripts, branch-source-gate]
 
     steps:
       - name: Fail if any required job failed or was cancelled
