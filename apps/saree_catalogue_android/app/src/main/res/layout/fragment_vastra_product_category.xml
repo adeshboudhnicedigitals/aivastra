@@ -16,9 +16,9 @@
         android:paddingEnd="0dp"
         android:scaleType="fitStart"
         android:id="@+id/title"
-        android:paddingVertical="@dimen/_5sdp"
+        android:paddingVertical="@dimen/_7sdp"
         android:paddingStart="@dimen/_4sdp"
-        android:src="@drawable/logo_horizontal_cropped" />
+        android:src="@drawable/av_new_logo_horizontal" />
 
     <RelativeLayout
         android:layout_width="match_parent"

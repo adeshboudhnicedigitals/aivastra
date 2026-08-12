@@ -42,18 +42,7 @@ class ViewControll {
 
 
         fun checkStoragePermission(activity: Activity): Boolean {
-            return if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) { // Android 9 and below
-                if (ContextCompat.checkSelfPermission(activity, Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                    != PackageManager.PERMISSION_GRANTED
-                ) {
-                    ActivityCompat.requestPermissions(activity, arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), 101)
-                    false
-                } else {
-                    true
-                }
-            } else {
-                true // No permission needed for Android 10+
-            }
+            return true // Storage permission is no longer required
         }
 
         fun hideDialog() {
