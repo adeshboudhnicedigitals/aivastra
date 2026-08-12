@@ -28,6 +28,7 @@ import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import aivastra.nice.interactive.ui.screens.ProfilePage
 import aivastra.nice.interactive.ui.screens.CategorySelectionPage
+import aivastra.nice.interactive.utils.CrashReporter
 import aivastra.nice.interactive.ui.screens.OnboardingPage
 import aivastra.nice.interactive.ui.screens.OutfitSelectionPage
 import aivastra.nice.interactive.ui.screens.PendingActivationPage
@@ -177,7 +178,7 @@ fun AppNavGraph(
                                 }
                             }
                         } catch (e: Exception) {
-                            e.printStackTrace()
+                            CrashReporter.recordException(e, "NavGraph")
                             val fallbackDestination = if (SessionManager.hasValidSession()) {
                                 Screen.CategorySelection.route
                             } else {

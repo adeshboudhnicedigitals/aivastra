@@ -7,6 +7,7 @@ import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import aivastra.nice.interactive.utils.CrashReporter
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -165,7 +166,7 @@ fun PhotoUploadPage(
         try {
             galleryPickerLauncher.launch("image/*")
         } catch (e: Exception) {
-            e.printStackTrace()
+            CrashReporter.recordException(e, "PhotoUploadPage")
         }
     }
 
@@ -691,7 +692,7 @@ private fun QrArtwork(
                 bmp.setPixels(pixels, 0, size, 0, 0, size, size)
                 bmp.asImageBitmap()
             } catch (e: Exception) {
-                e.printStackTrace()
+                CrashReporter.recordException(e, "PhotoUploadPage")
                 null
             }
         }

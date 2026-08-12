@@ -79,13 +79,14 @@ class ProductUploadViewModel : ViewModel() {
         _sessionResult.postValue(null)
         _error.postValue(null)
     }
+    private val _sareeStyles = MutableLiveData<List<MerchantCatalogSareeStyle>>()
+    val sareeStyles: LiveData<List<MerchantCatalogSareeStyle>> get() = _sareeStyles
     private val _subcategories = MutableLiveData<List<MerchantCatalogSubcategory>>()
     val subcategories: LiveData<List<MerchantCatalogSubcategory>> get() = _subcategories
-    private val _sareeStyles = MutableLiveData<List<SareeStyle>>()
-    val sareeStyles: LiveData<List<SareeStyle>> get() = _sareeStyles
-    fun fetchSareeStyles() { viewModelScope.launch { try { _sareeStyles.postValue(MerchantCatalogRepository.fetchSareeStyles()) } catch (e: Exception) { _error.postValue(AuthRepository.errorMessage(e)) } } }
     private val _catalogItems = MutableLiveData<List<MerchantCatalogItem>>()
     val catalogItems: LiveData<List<MerchantCatalogItem>> get() = _catalogItems
+
+    fun fetchSareeStyles() { viewModelScope.launch { try { _sareeStyles.postValue(MerchantCatalogRepository.fetchSareeStyles()) } catch (e: Exception) { _error.postValue(AuthRepository.errorMessage(e)) } } }
     fun fetchSubcategories(category: String = "women") { viewModelScope.launch { try { _subcategories.postValue(MerchantCatalogRepository.fetchSubcategories(category)) } catch (e: Exception) { _error.postValue(AuthRepository.errorMessage(e)) } } }
     fun fetchItems(subcategoryId: String) { viewModelScope.launch { try { _catalogItems.postValue(MerchantCatalogRepository.fetchItems(subcategoryId = subcategoryId)) } catch (e: Exception) { _error.postValue(AuthRepository.errorMessage(e)) } } }
     fun searchItems(query: String) { viewModelScope.launch { try { _catalogItems.postValue(MerchantCatalogRepository.fetchItems(search = query)) } catch (e: Exception) { _error.postValue(AuthRepository.errorMessage(e)) } } }
@@ -98,21 +99,53 @@ class ProductUploadViewModel : ViewModel() {
         data class Failed(val message: String) : GenerateState()
     }
 
-    private val _generateState = MutableLiveData<GenerateState>()
-    val generateState: LiveData<GenerateState> get() = _generateState
+    private val _generateState = MutableLiveData<GenerateState?>()
+    val generateState: LiveData<GenerateState?> get() = _generateState
 
     private var pendingItemId: String? = null
 
-    fun generateProduct(file: java.io.File, subcategoryId: String, sareeStyleId: String?) {
+    fun resetGenerateState() {
+        _generateState.postValue(null)
+    }
+
+    private fun getContentType(file: java.io.File): String {
+        val name = file.name.lowercase()
+        return when {
+            name.endsWith(".png") -> "image/png"
+            name.endsWith(".webp") -> "image/webp"
+            else -> "image/jpeg"
+        }
+    }
+
+    fun generateProduct(
+        file: java.io.File,
+        subcategoryId: String,
+        sareeStyleId: String? = null,
+        secondaryFile: java.io.File? = null
+    ) {
+        _generateState.postValue(null)
         viewModelScope.launch {
             try {
+                val maxSizeBytes = 20 * 1024 * 1024L
+                if (file.length() > maxSizeBytes || (secondaryFile != null && secondaryFile.length() > maxSizeBytes)) {
+                    _generateState.postValue(GenerateState.Failed("Image size exceeds maximum limit of 20MB"))
+                    return@launch
+                }
+
                 _generateState.postValue(GenerateState.Uploading)
-                val contentType = "image/jpeg"
-                val presign = MerchantCatalogRepository.presignFlatImage(contentType, file.length())
-                MerchantCatalogRepository.uploadFlatImage(presign.uploadUrl, file, contentType)
+                val bodyContentType = getContentType(file)
+                val presign = MerchantCatalogRepository.presignFlatImage(bodyContentType, file.length())
+                MerchantCatalogRepository.uploadFlatImage(presign.uploadUrl, file, bodyContentType)
+
+                val presign2 = if (secondaryFile != null) {
+                    val palluContentType = getContentType(secondaryFile)
+                    val presignSec = MerchantCatalogRepository.presignFlatImage(palluContentType, secondaryFile.length())
+                    MerchantCatalogRepository.uploadFlatImage(presignSec.uploadUrl, secondaryFile, palluContentType)
+                    presignSec
+                } else null
 
                 _generateState.postValue(GenerateState.Generating)
-                val jobId = MerchantCatalogRepository.generate(subcategoryId, presign.r2Key, sareeStyleId)
+                val jobId = MerchantCatalogRepository.generate(subcategoryId, presign.r2Key, presign2?.r2Key, sareeStyleId)
 
                 val startedAt = System.currentTimeMillis()
                 var status: MerchantCatalogGenerateStatus

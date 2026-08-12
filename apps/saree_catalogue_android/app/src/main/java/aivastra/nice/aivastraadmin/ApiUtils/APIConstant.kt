@@ -15,11 +15,12 @@ object APIConstant {
         const val DEVICE_REFRESH = "v1/auth/device-refresh"
         const val DEVICE_LOGOUT = "v1/auth/device-logout"
 
-        const val MERCHANT_CATALOG_SAREE_SUBCATEGORIES = "v1/merchant/catalog/saree-subcategories"
         const val MERCHANT_CATALOG_SAREE_STYLES = "v1/merchant/catalog/saree-styles"
+        const val MERCHANT_CATALOG_SAREE_SUBCATEGORIES = "v1/merchant/catalog/saree-subcategories"
         const val MERCHANT_CATALOG_ITEMS = "v1/merchant/catalog"
         const val MERCHANT_CATALOG_PRESIGN = "v1/merchant/catalog/presign"
         const val MERCHANT_CATALOG_GENERATE = "v1/merchant/catalog/generate"
+        const val MERCHANT_CATALOG_GENERATE_2 = "v1/merchant/catalog/generate"
         fun merchantCatalogGenerateStatus(jobId: String) = "v1/merchant/catalog/generate/$jobId"
         const val MERCHANT_CATALOG_IMPORT = "v1/merchant/catalog/import"
         fun merchantCatalogItem(id: String) = "v1/merchant/catalog/$id"
