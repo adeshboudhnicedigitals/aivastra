@@ -3,6 +3,7 @@ package aivastra.nice.interactive.api
 import aivastra.nice.interactive.BuildConfig
 import aivastra.nice.interactive.data.models.RefreshTokenRequest
 import aivastra.nice.interactive.data.session.SessionManager
+import aivastra.nice.interactive.utils.CrashReporter
 import kotlinx.coroutines.runBlocking
 import okhttp3.Authenticator
 import okhttp3.OkHttpClient
@@ -92,7 +93,7 @@ object ApiClient {
                 SessionManager.clear()
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            CrashReporter.recordException(e, "ApiClient")
         }
 
         null

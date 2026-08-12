@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Base64
 import aivastra.nice.interactive.api.ApiClient
 import aivastra.nice.interactive.data.repository.CatalogRepository
+import aivastra.nice.interactive.utils.CrashReporter
 import org.json.JSONObject
 
 /**
@@ -14,6 +15,7 @@ object SessionManager {
     private const val PREFS_NAME = "ai_vastra_session"
     private const val ACCESS_TOKEN = "access_token"
     private const val REFRESH_TOKEN = "refresh_token"
+    private const val USER_ID = "user_id"
     private const val USER_EMAIL = "user_email"
     private const val USER_NAME = "user_name"
     private const val USER_LOGO_URL = "user_logo_url"
@@ -24,6 +26,7 @@ object SessionManager {
     fun initialize(context: Context) {
         appContext = context.applicationContext
         ApiClient.setAccessToken(accessToken)
+        CrashReporter.setUserId(userId)
     }
 
     private val preferences
@@ -34,6 +37,9 @@ object SessionManager {
 
     val refreshToken: String?
         get() = preferences?.getString(REFRESH_TOKEN, null)
+
+    val userId: String?
+        get() = preferences?.getString(USER_ID, null)
 
     val userEmail: String?
         get() = preferences?.getString(USER_EMAIL, null)
@@ -48,6 +54,7 @@ object SessionManager {
     fun save(
         accessToken: String,
         refreshToken: String? = null,
+        userId: String? = null,
         email: String? = null,
         userName: String? = null,
         logoUrl: String? = null
@@ -57,6 +64,9 @@ object SessionManager {
             .putString(ACCESS_TOKEN, accessToken)
         if (!refreshToken.isNullOrEmpty()) {
             editor.putString(REFRESH_TOKEN, refreshToken)
+        }
+        if (!userId.isNullOrEmpty()) {
+            editor.putString(USER_ID, userId)
         }
         if (!email.isNullOrEmpty()) {
             editor.putString(USER_EMAIL, email)
@@ -70,12 +80,16 @@ object SessionManager {
         editor.apply()
         ApiClient.setAccessToken(accessToken)
         CatalogRepository.clearCache()
+        // Non-PII opaque id only — never the email — so crash reports can be
+        // correlated with a user for support triage without logging PII to Crashlytics.
+        CrashReporter.setUserId(userId ?: SessionManager.userId)
     }
 
     fun clear() {
         preferences?.edit()?.clear()?.apply()
         ApiClient.setAccessToken(null)
         CatalogRepository.clearCache()
+        CrashReporter.setUserId(null)
     }
 
     fun hasValidSession(): Boolean {

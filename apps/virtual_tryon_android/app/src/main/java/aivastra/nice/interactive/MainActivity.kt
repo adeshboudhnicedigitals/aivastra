@@ -6,8 +6,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.core.view.WindowCompat
@@ -15,6 +17,7 @@ import androidx.navigation.compose.rememberNavController
 import aivastra.nice.interactive.data.repository.AppVideoRepository
 import aivastra.nice.interactive.data.session.SessionManager
 import aivastra.nice.interactive.navigation.AppNavGraph
+import aivastra.nice.interactive.ui.components.NoInternetBanner
 import aivastra.nice.interactive.ui.theme.AiVastraTheme
 import aivastra.nice.interactive.update.InAppUpdateChecker
 
@@ -38,14 +41,21 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = ComposeColor.Black
                 ) {
-                    val navController = rememberNavController()
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        val navController = rememberNavController()
 
-                    AppNavGraph(
-                        navController = navController,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                        AppNavGraph(
+                            navController = navController,
+                            modifier = Modifier.fillMaxSize()
+                        )
 
-                    InAppUpdateChecker()
+                        InAppUpdateChecker()
+
+                        // Observes NetworkMonitor directly and lives above every screen, so
+                        // connectivity loss/recovery is visible app-wide without each screen
+                        // wiring its own check.
+                        NoInternetBanner(modifier = Modifier.align(Alignment.TopCenter))
+                    }
                 }
             }
         }
