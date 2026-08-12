@@ -92,6 +92,52 @@ export async function verifyGarmentKey(
   await assertOwnsUploadKey(app, userId, key);
 }
 
+export interface QueueRouting {
+  queueStream: string;
+  priority: boolean;
+  watermark: boolean;
+}
+
+/**
+ * PIPE-9: `users.tier` is sticky forever once any priority-queueStream plan is
+ * purchased — plans are one-time credit top-ups, not subscriptions, and nothing
+ * ever resets `tier` back down. That makes the priority cohort only ever grow,
+ * worsening PIPE-8's starvation risk over time. Decided fix: priority routing
+ * requires an actual current balance, not just having bought a priority plan at
+ * some point — so it's computed fresh at every enqueue rather than trusting the
+ * sticky `users.tier` alone. Watermark entitlement is intentionally untouched:
+ * it's a separate, unrelated entitlement that still derives from tier alone.
+ */
+export async function resolveQueueRouting(
+  app: FastifyInstance,
+  userId: string,
+): Promise<QueueRouting> {
+  const [[planRow], [creditsRow]] = await Promise.all([
+    app.db
+      .select({
+        queueStream: schema.creditPlans.queueStream,
+        watermark: schema.creditPlans.watermark,
+      })
+      .from(schema.users)
+      .innerJoin(schema.creditPlans, eq(schema.users.tier, schema.creditPlans.slug))
+      .where(eq(schema.users.id, userId)),
+    app.db
+      .select({ balance: schema.userCredits.balance })
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, userId)),
+  ]);
+
+  const rawQueueStream: string = planRow?.queueStream ?? 'normal';
+  const hasBalance = (creditsRow?.balance ?? 0) > 0;
+  const queueStream = rawQueueStream === 'priority' && !hasBalance ? 'normal' : rawQueueStream;
+
+  return {
+    queueStream,
+    priority: queueStream === 'priority',
+    watermark: planRow?.watermark ?? false,
+  };
+}
+
 export interface TryonPlanLook {
   poseId: string;
   backgroundId: string;
@@ -784,25 +830,15 @@ export async function createJob(
     trustedGarmentKeys: opts?.trustedGarmentKeys,
   });
 
-  const [[user], [planRow]] = await Promise.all([
+  const [[user], routing] = await Promise.all([
     app.db.select().from(schema.users).where(eq(schema.users.id, userId)),
-    app.db
-      .select({
-        queueStream: schema.creditPlans.queueStream,
-        watermark: schema.creditPlans.watermark,
-      })
-      .from(schema.users)
-      .innerJoin(schema.creditPlans, eq(schema.users.tier, schema.creditPlans.slug))
-      .where(eq(schema.users.id, userId)),
+    resolveQueueRouting(app, userId),
   ]);
   if (!user || user.isBanned) throw new AppError('FORBIDDEN', 403, 'banned');
 
-  // Fall back to 'normal' if the user's tier has no matching credit_plans row.
-  const queueStream: string = planRow?.queueStream ?? 'normal';
-  const priority = queueStream === 'priority';
   // Snapshot watermark entitlement from the plan at job creation time.
   // Never re-derived after this point — see spec precedence rule.
-  const watermark: boolean = planRow?.watermark ?? false;
+  const { queueStream, priority, watermark } = routing;
 
   const jobIds = await app.db.transaction(async (tx) => {
     const created: string[] = [];
@@ -966,22 +1002,13 @@ export async function createSimpleTryonJob(
   // job) fall back to the PNG convention — safe because webp is new.
   const garmentKey = source.resultKey ?? keys.output(sourceJobId);
 
-  const [[user], [planRow]] = await Promise.all([
+  const [[user], routing] = await Promise.all([
     app.db.select().from(schema.users).where(eq(schema.users.id, userId)),
-    app.db
-      .select({
-        queueStream: schema.creditPlans.queueStream,
-        watermark: schema.creditPlans.watermark,
-      })
-      .from(schema.users)
-      .innerJoin(schema.creditPlans, eq(schema.users.tier, schema.creditPlans.slug))
-      .where(eq(schema.users.id, userId)),
+    resolveQueueRouting(app, userId),
   ]);
   if (!user || user.isBanned) throw new AppError('FORBIDDEN', 403, 'banned');
 
-  const queueStream: string = planRow?.queueStream ?? 'normal';
-  const priority = queueStream === 'priority';
-  const watermark: boolean = planRow?.watermark ?? false;
+  const { queueStream, priority, watermark } = routing;
 
   const catalogueId = randomUUID();
   const [job] = await app.db.transaction(async (tx) => {
