@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { setAuthCookies } from '@/lib/auth-cookies';
+import { buildCsp } from '@/lib/csp';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || '';
@@ -33,6 +34,24 @@ const GARTEX_REDIRECT_END = new Date('2026-08-09T23:59:59+05:30');
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // Fresh per-request nonce (SEC-H2 CSP). Threaded to the app via an
+  // `x-nonce` request header so the root layout can read it via next/headers
+  // and put it on the theme-flash inline script — Next.js auto-applies the
+  // same nonce to its own inline/streaming scripts once it sees this header.
+  // btoa/crypto are Web APIs (not Buffer) — middleware runs in the Edge runtime.
+  const nonce = btoa(crypto.randomUUID());
+  const csp = buildCsp(nonce);
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set('x-nonce', nonce);
+
+  const withCsp = (response: NextResponse): NextResponse => {
+    response.headers.set('Content-Security-Policy', csp);
+    return response;
+  };
+  const next = (): NextResponse =>
+    withCsp(NextResponse.next({ request: { headers: requestHeaders } }));
+  const redirect = (url: URL): NextResponse => withCsp(NextResponse.redirect(url));
+
   // Next.js strips basePath before middleware receives pathname.
   // Strip manually too in case it doesn't (varies by version/config).
   const path =
@@ -40,27 +59,27 @@ export async function middleware(request: NextRequest) {
       ? pathname.slice(BASE_PATH.length) || '/'
       : pathname;
 
-  if (path.startsWith('/api/auth')) return NextResponse.next();
-  if (path.startsWith('/api/catalog-app')) return NextResponse.next();
+  if (path.startsWith('/api/auth')) return next();
+  if (path.startsWith('/api/catalog-app')) return next();
 
   if (
     process.env.NODE_ENV === 'production' &&
     DEV_ONLY_PATHS.some((p) => path === p || path.startsWith(`${p}/`))
   ) {
-    return NextResponse.redirect(new URL(`${BASE_PATH}/studio`, request.url));
+    return redirect(new URL(`${BASE_PATH}/studio`, request.url));
   }
 
   if (ALWAYS_BLOCKED_PATHS.some((p) => path === p || path.startsWith(`${p}/`))) {
-    return NextResponse.redirect(new URL(`${BASE_PATH}/studio`, request.url));
+    return redirect(new URL(`${BASE_PATH}/studio`, request.url));
   }
 
   const isPublic = PUBLIC_PATHS.some((p) => path === p || path.startsWith(`${p}/`));
-  if (isPublic) return NextResponse.next();
-  if (path === '/') return NextResponse.next();
+  if (isPublic) return next();
+  if (path === '/') return next();
 
   const token = request.cookies.get('access_token')?.value;
 
-  if (token) return NextResponse.next();
+  if (token) return next();
 
   // Access token expired/missing. Before bouncing to login, try a silent
   // refresh using the (httpOnly, 1-hour) refresh cookie. This is what stops the
@@ -85,9 +104,9 @@ export async function middleware(request: NextRequest) {
             ? h.getSetCookie().join(', ') || null
             : res.headers.get('set-cookie');
 
-          const response = NextResponse.next();
+          const response = NextResponse.next({ request: { headers: requestHeaders } });
           setAuthCookies(response, data.accessToken, setCookieStr);
-          return response;
+          return withCsp(response);
         }
       }
     } catch {
@@ -106,13 +125,13 @@ export async function middleware(request: NextRequest) {
   if (path === '/pricing' && now >= GARTEX_REDIRECT_START && now <= GARTEX_REDIRECT_END) {
     const url = new URL(`${BASE_PATH}/register`, request.url);
     url.searchParams.set('src', 'gartex2026delhi');
-    return NextResponse.redirect(url);
+    return redirect(url);
   }
 
   // Use absolute URL to avoid Next.js basePath double-prefix issues
   const loginUrl = new URL(`${BASE_PATH}/login`, request.url);
   loginUrl.searchParams.set('next', path); // path without basePath; router.push handles it
-  return NextResponse.redirect(loginUrl);
+  return redirect(loginUrl);
 }
 
 export const config = {

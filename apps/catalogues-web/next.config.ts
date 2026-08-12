@@ -17,6 +17,8 @@ const nextConfig: NextConfig = {
           { key: 'X-XSS-Protection', value: '0' }, // disabled — rely on CSP when added
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+          // Content-Security-Policy is set per-request in middleware.ts — it
+          // needs a fresh nonce every request, which a static header here can't do.
         ],
       },
     ];
