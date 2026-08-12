@@ -6,6 +6,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { sendPaymentReceiptEmail } from '../../lib/mailer.js';
+import { issueInvoiceIfNeeded } from './issue-invoice.js';
 
 const GST_RATE = 0.18;
 
@@ -36,6 +37,7 @@ async function maybeSendReceipt(
   app: FastifyInstance,
   userId: string,
   payment: {
+    id: string;
     planId: string;
     credits: number;
     basePaise: number;
@@ -47,6 +49,8 @@ async function maybeSendReceipt(
   },
 ): Promise<void> {
   try {
+    const invoice = await issueInvoiceIfNeeded(app, payment.id);
+
     const [user] = await app.db
       .select({ email: schema.users.email })
       .from(schema.users)
@@ -59,16 +63,26 @@ async function maybeSendReceipt(
       .from(schema.creditPlans)
       .where(eq(schema.creditPlans.slug, payment.planId));
 
-    await sendPaymentReceiptEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, user.email, {
-      planName: plan?.name ?? payment.planId,
-      credits: payment.credits,
-      basePaise: payment.basePaise,
-      gstPaise: payment.gstPaise,
-      totalPaise: payment.totalPaise,
-      razorpayOrderId: payment.razorpayOrderId,
-      razorpayPaymentId: payment.razorpayPaymentId ?? '',
-      paidAt: payment.paidAt ?? new Date(),
-    });
+    const attachments = invoice
+      ? [{ filename: `${invoice.invoiceNumber}.pdf`, content: invoice.pdfBuffer }]
+      : undefined;
+
+    await sendPaymentReceiptEmail(
+      app.env.RESEND_API_KEY,
+      app.env.EMAIL_FROM,
+      user.email,
+      {
+        planName: plan?.name ?? payment.planId,
+        credits: payment.credits,
+        basePaise: payment.basePaise,
+        gstPaise: payment.gstPaise,
+        totalPaise: payment.totalPaise,
+        razorpayOrderId: payment.razorpayOrderId,
+        razorpayPaymentId: payment.razorpayPaymentId ?? '',
+        paidAt: payment.paidAt ?? new Date(),
+      },
+      attachments,
+    );
   } catch (err) {
     app.log.warn({ err, userId }, 'receipt email failed — non-fatal');
   }

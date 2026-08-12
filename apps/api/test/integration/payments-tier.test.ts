@@ -413,4 +413,42 @@ describe('payments -> tier promotion', () => {
 
     vi.restoreAllMocks();
   });
+
+  it('issues an invoice as part of a successful /verify call', async () => {
+    const { token, userId } = await registerUser('verify-invoice@x.com');
+    const plan = await seedPlan('verify-invoice-plan');
+    const orderId = 'order_verify_invoice_1';
+    const payment = await seedPendingPayment({
+      userId,
+      planId: plan?.slug,
+      razorpayOrderId: orderId,
+      credits: 1000,
+    });
+
+    const paymentId = 'pay_verify_invoice_1';
+    await app.inject({
+      method: 'POST',
+      url: '/v1/payments/verify',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        razorpayOrderId: orderId,
+        razorpayPaymentId: paymentId,
+        razorpaySignature: signature(orderId, paymentId),
+      },
+    });
+
+    // issueInvoiceIfNeeded is fire-and-forget (non-fatal, not awaited by the
+    // route) — poll briefly for the row to appear instead of asserting
+    // immediately after the response.
+    let invoiceRow: { invoiceNumber: string } | undefined;
+    for (let i = 0; i < 20 && !invoiceRow; i++) {
+      const [row] = await app.db
+        .select()
+        .from(schema.invoices)
+        .where(eq(schema.invoices.paymentId, payment.id));
+      invoiceRow = row;
+      if (!invoiceRow) await new Promise((r) => setTimeout(r, 100));
+    }
+    expect(invoiceRow?.invoiceNumber).toMatch(/^INV-\d{4}-\d{2}-\d{6}$/);
+  });
 });
