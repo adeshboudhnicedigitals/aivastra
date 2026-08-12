@@ -38,6 +38,12 @@ export const DEFAULT_PIXVERSE_CONFIG: { creditCost: number } = { creditCost: PIX
 
 export const DEFAULT_SHOPIFY_TRIAL_CONFIG: { trialCredits: number } = { trialCredits: 25 };
 
+export const DEFAULT_SELLER_CONFIG: { gstin: string; legalName: string; address: string } = {
+  gstin: '',
+  legalName: '',
+  address: '',
+};
+
 /**
  * Reads the admin-configured credit cost for a resolution from the same
  * `config:system` Redis key the admin panel edits (GET/PATCH /admin/config).

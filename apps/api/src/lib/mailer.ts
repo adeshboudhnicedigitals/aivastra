@@ -121,6 +121,7 @@ export async function sendPaymentReceiptEmail(
     razorpayPaymentId: string;
     paidAt: Date;
   },
+  attachments?: Array<{ filename: string; content: Buffer }>,
 ): Promise<void> {
   const totalRupees = (receipt.totalPaise / 100).toLocaleString('en-IN', {
     minimumFractionDigits: 2,
@@ -130,6 +131,7 @@ export async function sendPaymentReceiptEmail(
     to,
     subject: `Payment confirmed — ${receipt.credits.toLocaleString('en-IN')} credits (₹${totalRupees})`,
     html: receiptHtml(receipt),
+    attachments,
   });
 }
 

@@ -23,7 +23,7 @@ pre-push:
       run: pnpm -r --filter "!@aivastra/admin-mobile" run typecheck
 
     - name: test-api
-      run: pnpm --filter @aivastra/api test:unit
+      run: bash scripts/run-tests-if-changed.sh @aivastra/api apps/api/ packages/db/ packages/types/ packages/storage/ packages/logger/ packages/observability/ pnpm-lock.yaml
 
     - name: test-dispatcher
-      run: pnpm --filter @aivastra/dispatcher test:unit
+      run: bash scripts/run-tests-if-changed.sh @aivastra/dispatcher apps/dispatcher/ packages/db/ packages/types/ packages/storage/ packages/logger/ packages/observability/ pnpm-lock.yaml

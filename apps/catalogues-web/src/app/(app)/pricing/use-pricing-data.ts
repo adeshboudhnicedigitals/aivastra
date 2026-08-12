@@ -205,6 +205,8 @@ export function usePricingData() {
   const [couponError, setCouponError] = useState('');
   const [couponApplied, setCouponApplied] = useState(false);
   const [couponBonusPercent, setCouponBonusPercent] = useState<number | null>(null);
+  const [gstinModalPlan, setGstinModalPlan] = useState<CreditPlan | null>(null);
+  const [checkoutGstin, setCheckoutGstin] = useState('');
   const [rates, setRates] = useState<Record<string, number>>(FALLBACK_RATES);
   const [ratesLoading, setRatesLoading] = useState(true);
   const countryRef = useRef<HTMLDivElement>(null);
@@ -220,7 +222,7 @@ export function usePricingData() {
   });
   const firstPurchaseBonusPercent = credits?.firstPurchaseBonusPercent ?? null;
 
-  const { data: me } = useQuery<{ tier: string }>({
+  const { data: me } = useQuery<{ tier: string; gstin: string | null }>({
     queryKey: ['me'],
     queryFn: () => api.get('/v1/me'),
     staleTime: 60_000,
@@ -299,7 +301,7 @@ export function usePricingData() {
     return formatPrice(Math.round(basePaise * GST_RATE), country, rates);
   }
 
-  async function buy(plan: CreditPlan) {
+  async function buy(plan: CreditPlan, gstin?: string) {
     if (buying) return;
     setBuying(plan.slug);
     try {
@@ -308,7 +310,7 @@ export function usePricingData() {
         setPaymentResult({
           kind: 'error',
           message: 'Could not load payment gateway. Please try again.',
-          onRetry: () => void buy(plan),
+          onRetry: () => void buy(plan, gstin),
         });
         return;
       }
@@ -320,7 +322,7 @@ export function usePricingData() {
         keyId: string;
         credits: number;
         label: string;
-      }>('/v1/payments/orders', { planId: plan.slug });
+      }>('/v1/payments/orders', { planId: plan.slug, gstin: gstin || undefined });
 
       let creditsGranted = plan.credits;
       await new Promise<void>((resolve, reject) => {
@@ -378,7 +380,7 @@ export function usePricingData() {
         setPaymentResult({
           kind: 'error',
           message: (err as Error).message ?? 'Payment failed. Please try again.',
-          onRetry: () => void buy(plan),
+          onRetry: () => void buy(plan, gstin),
         });
       }
     } finally {
@@ -400,7 +402,23 @@ export function usePricingData() {
       setCouponModalPlan(plan);
       return;
     }
-    void buy(plan);
+    openGstinModal(plan);
+  }
+
+  function openGstinModal(plan: CreditPlan) {
+    setCheckoutGstin(me?.gstin ?? '');
+    setGstinModalPlan(plan);
+  }
+
+  function closeGstinModal() {
+    if (buying) return;
+    setGstinModalPlan(null);
+  }
+
+  function confirmGstinAndPay() {
+    const plan = gstinModalPlan;
+    setGstinModalPlan(null);
+    if (plan) void buy(plan, checkoutGstin);
   }
 
   function closeCouponModal() {
@@ -430,7 +448,7 @@ export function usePricingData() {
   function continueFromCouponModal() {
     const plan = couponModalPlan;
     setCouponModalPlan(null);
-    if (plan) void buy(plan);
+    if (plan) openGstinModal(plan);
   }
 
   // Current Plan Banner derived values — computed once here instead of
@@ -497,6 +515,11 @@ export function usePricingData() {
     applyCoupon,
     closeCouponModal,
     continueFromCouponModal,
+    gstinModalPlan,
+    checkoutGstin,
+    setCheckoutGstin,
+    closeGstinModal,
+    confirmGstinAndPay,
     banner: { planName, balance, planCredits, pct, activatedDate },
   };
 }

@@ -172,6 +172,16 @@ export const SystemConfigBody = z.object({
       bulkImportMaxBytes: z.number().int().positive().max(3_221_225_472).optional(),
     })
     .optional(),
+  // Seller details printed on every GST invoice (issueInvoiceIfNeeded,
+  // apps/api/src/modules/payments/invoice.ts). All optional — invoices
+  // render with blank fields until an admin fills these in.
+  seller: z
+    .object({
+      gstin: z.string().max(15).optional(),
+      legalName: z.string().max(200).optional(),
+      address: z.string().max(500).optional(),
+    })
+    .optional(),
 });
 
 // ── Model asset upload schemas ────────────────────────────────────────────
