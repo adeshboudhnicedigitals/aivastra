@@ -186,13 +186,43 @@ export async function paymentsRoutes(app: FastifyInstance) {
         status: schema.payments.status,
         createdAt: schema.payments.createdAt,
         paidAt: schema.payments.paidAt,
+        invoiceNumber: schema.invoices.invoiceNumber,
+        invoiceR2Key: schema.invoices.r2Key,
       })
       .from(schema.payments)
       .leftJoin(schema.creditPlans, eq(schema.creditPlans.slug, schema.payments.planId))
+      .leftJoin(schema.invoices, eq(schema.invoices.paymentId, schema.payments.id))
       .where(eq(schema.payments.userId, req.userId))
       .orderBy(desc(schema.payments.createdAt))
       .limit(100);
-    return { payments: rows };
+
+    const payments = await Promise.all(
+      rows.map(async ({ invoiceR2Key, ...row }) => ({
+        ...row,
+        invoiceUrl: invoiceR2Key ? (await app.storage.presignGet(invoiceR2Key, 3600)).url : null,
+      })),
+    );
+    return { payments };
+  });
+
+  // GET /v1/payments/:id/invoice — redirect to presigned R2 GET URL for payment invoice
+  app.get('/v1/payments/:id/invoice', { preHandler: app.requireUser }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const [payment] = await app.db
+      .select({ id: schema.payments.id, userId: schema.payments.userId })
+      .from(schema.payments)
+      .where(eq(schema.payments.id, id));
+    if (!payment) throw new AppError('NOT_FOUND', 404, 'payment not found');
+    if (payment.userId !== req.userId) throw new AppError('FORBIDDEN', 403, 'forbidden');
+
+    const [invoice] = await app.db
+      .select({ r2Key: schema.invoices.r2Key })
+      .from(schema.invoices)
+      .where(eq(schema.invoices.paymentId, id));
+    if (!invoice) throw new AppError('NOT_FOUND', 404, 'invoice not yet issued');
+
+    const { url } = await app.storage.presignGet(invoice.r2Key, 3600);
+    reply.redirect(url);
   });
 
   // POST /v1/payments/orders — create a Razorpay order server-side

@@ -1,6 +1,7 @@
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { hashPassword } from '../../src/modules/auth/service.js';
 import { issueInvoiceIfNeeded } from '../../src/modules/payments/issue-invoice.js';
 import { buildTestApp, type TestApp } from '../helpers/api';
 import { type Containers, startContainers } from '../helpers/containers';
@@ -41,6 +42,39 @@ describe('issueInvoiceIfNeeded', () => {
       })
       .returning();
     return payment;
+  }
+
+  async function seedLoginableUserWithPaidPayment(email: string) {
+    const passwordHash = await hashPassword('password123');
+    const [user] = await app.db
+      .insert(schema.users)
+      .values({ email, passwordHash, tier: 'free', emailVerified: true })
+      .returning();
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      remoteAddress: '127.0.0.30',
+      payload: { email, password: 'password123' },
+    });
+    const token = loginRes.json().accessToken as string;
+
+    const [payment] = await app.db
+      .insert(schema.payments)
+      .values({
+        userId: user.id,
+        planId: 'growth',
+        razorpayOrderId: `order_${email}`,
+        razorpayPaymentId: `pay_${email}`,
+        basePaise: 100000,
+        gstPaise: 18000,
+        totalPaise: 118000,
+        credits: 5000,
+        gstin: '27AAPFU0939F1ZV',
+        status: 'paid',
+        paidAt: new Date(),
+      })
+      .returning();
+    return { token, userId: user.id, payment };
   }
 
   it('issues a sequential invoice number and uploads a PDF to R2', async () => {
@@ -110,5 +144,42 @@ describe('issueInvoiceIfNeeded', () => {
 
     const result = await issueInvoiceIfNeeded(app, payment.id);
     expect(result).toBeNull();
+  });
+
+  it('GET /v1/payments/history includes invoiceNumber/invoiceUrl once issued', async () => {
+    const { token, payment } = await seedLoginableUserWithPaidPayment('history-invoice@x.com');
+    const issued = await issueInvoiceIfNeeded(app, payment.id);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/payments/history',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    const row = res.json().payments.find((p: { id: string }) => p.id === payment.id);
+    expect(row.invoiceNumber).toBe(issued?.invoiceNumber);
+    expect(typeof row.invoiceUrl).toBe('string');
+  });
+
+  it('GET /v1/payments/:id/invoice redirects to the invoice for its owner, 403s for others', async () => {
+    const { token: ownerToken, payment } =
+      await seedLoginableUserWithPaidPayment('invoice-owner@x.com');
+    await issueInvoiceIfNeeded(app, payment.id);
+
+    const { token: otherToken } = await seedLoginableUserWithPaidPayment('invoice-other@x.com');
+
+    const ownerRes = await app.inject({
+      method: 'GET',
+      url: `/v1/payments/${payment.id}/invoice`,
+      headers: { authorization: `Bearer ${ownerToken}` },
+    });
+    expect(ownerRes.statusCode).toBe(302);
+
+    const otherRes = await app.inject({
+      method: 'GET',
+      url: `/v1/payments/${payment.id}/invoice`,
+      headers: { authorization: `Bearer ${otherToken}` },
+    });
+    expect(otherRes.statusCode).toBe(403);
   });
 });
