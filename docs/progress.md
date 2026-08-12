@@ -1,3 +1,94 @@
+## 2026-08-12 — Back-merge main into dev, recover the clobbered progress log
+
+**Done**
+- Back-merged the four commits that only ever existed on `main` into `dev`: android Firebase Crashlytics + connectivity monitor (#133), saree styles / body+pallu uploads / photo cropping (#134), the merge-broken android build fix (`f2435190`), and the flat-saree prompt-override hotfix (#144). `dev` had been blind to all four, so any further android work would have re-conflicted.
+- Recovered `docs/progress.md`. Commit `5cb39f57` (shipped in #134) replaced this monorepo log with the saree-catalogue-android app's own log, cutting the file from 6092 lines to 41 — every entry before 2026-07-29 was gone on `main`. The back-merge conflict was resolved in `dev`'s favour and `main`'s three android entries spliced into the July region, renamed to this log's heading style and tagged `(saree-catalogue-android)` so they are distinguishable from the pre-existing Virtual Try-On Android entries.
+- Confirmed the duplicated flat-saree fix is safe: it landed twice (#143 on `dev`, #144 on `main`) with a byte-identical patch, so `apps/dispatcher/src/job/processor.ts` auto-merged with no duplicated logic. `docs/progress.md` was the only conflict in the whole merge.
+- Verified no migration collision before merging: `main` tops out at journal idx 144, `dev` at 151, and `main` has no migration file `dev` lacks — `dev` is strictly ahead, so no renumbering was needed.
+
+**Failed / Not Done**
+- The `dev` log's own ordering is not strictly chronological (2026-07-31 entries appear both above and below 2026-08-04 ones) and one heading around line ~1470 carries mojibake from an earlier encoding accident. Both pre-date this session and were left alone rather than mass-rewritten.
+
+**Open Questions / Decisions**
+- `5cb39f57` also committed ~6.5 MB of raster assets into `apps/saree_catalogue_android/app/src/main/res/drawable/`: `image_style_1.png` (3.0 MB), `image_style_2.png` (3.3 MB), plus `img_style_1.jpg` / `img_style_2.jpg` that appear to be the same two images downscaled. Now permanent in history. Whether both sets are actually referenced is a question for the android author.
+- Branch protection means the promotion still has to go `dev` → PR → `main`; `main` accepts PRs from `dev` only.
+
+## 2026-08-11 — Apply pose_garment_configs prompt overrides to flat-saree jobs (dispatcher)
+
+**Done**
+- (Authored by another contributor; logged here because it shipped unlogged.) The `requiresMannequinStep` branch in `apps/dispatcher/src/job/processor.ts` set `effectiveWorkflowTemplateId` from `garment_subcategories.saree_step2_workflow_template_id` but never consulted `pose_garment_configs`, so admin edits to a pose's `promptGarmentPhase` / `promptFacePhase` override for a flat-saree garment type were silent no-ops — jobs fell back to the pose's shared `model_pose_assets.prompt_garment_phase` and sent generic multi-garment wording instead of saree-specific phrasing.
+- Hoisted the `pose_garment_configs` lookup so prompt overrides apply to both branches. The `workflowTemplateId` override stays gated to the non-mannequin branch, preserving the existing one-workflow-per-garment-type behaviour for flat-saree step 2.
+- Covered by `saree-step2-workflow-override.test.ts` (114 new lines).
+- Shipped twice: #143 into `dev`, then #144 straight into `main` as a hotfix. Same patch both times.
+
+**Failed / Not Done**
+- None.
+
+**Open Questions / Decisions**
+- None.
+
+## 2026-08-11 — Stop granting credits for Shopify test subscriptions
+
+**Done**
+- Closed a free-credit hole in `syncStoreSubscription` (`apps/api/src/modules/shopify/billing.ts`). Shopify marks a charge `test` when it will never bill, which is always the case on a development store — and any Shopify Partner can create those for free, without limit. The field was queried and typed but never read, so grants were gated on `status` alone: a dev store picking the top plan was handed 22,000 credits indistinguishable from a paid grant. Once the app is publicly installable that is a standing offer — install, take the credits, repeat with a fresh store — and credits are GPU spend, so it converts directly into cost.
+- Gated behind `SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS` rather than refused outright, because a dev store is also the only way to exercise the paid path end to end. Staging and local set the flag; production does not, and the default is off.
+- The flag deliberately avoids `z.coerce.boolean()` (which `R2_FORCE_PATH_STYLE` uses): coercion follows JS truthiness, so `'false'` — the obvious way to write "off" in a `.env` — would come back `true` and silently enable free credits in production. It accepts only the literal `'true'`, and the gate compares `=== true` so a caller constructing an `Env` object directly (the test harness casts one) reads as denied rather than undefined.
+- Test-funded grants that do go through are recorded as `SHOPIFY_SUBSCRIPTION_TEST` instead of `SHOPIFY_SUBSCRIPTION`. `reason` is free text and only ever written, so this needed no migration and breaks no reader; without it a test grant is indistinguishable from revenue afterwards and reconciling the ledger against Shopify payouts becomes guesswork.
+- A blocked test charge leaves the cycle marker untouched, matching the FROZEN and unmapped-plan paths — if that subscription later stops being a test charge, the cycle still pays out.
+- Verified: 3 new cases in `apps/api/test/integration/shopify-billing-sync.test.ts` (the block — no ledger row, no balance, marker untouched, plan state still recorded; the flag-on grant tagged as test; a real charge keeping the original reason) → 17/17 pass. New `apps/api/src/env.test.ts` pins the parsing → 13/13 pass.
+- Set `SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS=true` in `.env.staging` on the VPS and recreated `api`; confirmed the process reads it. Without it staging cannot exercise the paid flow at all.
+
+**Failed / Not Done**
+- Existing `SHOPIFY_SUBSCRIPTION` rows predate the tag and cannot be reclassified retroactively — the ledger is immutable by design.
+
+**Open Questions / Decisions**
+- Production should be audited for `SHOPIFY_SUBSCRIPTION` grants with no matching Shopify payout. The gate is new; anything granted before it was ungated.
+- Leave `SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS` **unset** on production. Default false is the correct production posture — do not copy staging's value across.
+
+## 2026-08-11 — Tell merchants when Shopify plan confirmation fails to grant credits
+
+**Done**
+- Fixed a path where a merchant who approved a plan could be charged and see nothing: no credits, no error, no reason to suspect a problem. Three causes, one symptom.
+- `apps/shopify/src/pages/BillingCallbackPage.tsx` swallowed the confirm failure outright and navigated to the dashboard, reasoning that `billing-scheduler.ts` would reconcile later. That tick is hourly, so a merchant standing there having just paid was told nothing for up to an hour. The scheduler is the right safety net for renewals and cancellations nobody is present for; it is not a substitute for reporting a purchase that did not land. It now retries twice for a transient blip, then shows the failure with a Retry action. Retrying is safe — `grantStore` is idempotent on `external_ref`, so credits land at most once per billing period.
+- The underlying failure was a token that would not decrypt. `getValidAccessToken` let `node:crypto`'s AES-GCM authentication error escape raw — a bare `Unsupported state or unable to authenticate data` that no caller matches on — so it surfaced as an unhandled 500 while the hourly sync logged an opaque stack for the same store forever, with no route to recovery. All five decrypt sites in `apps/api/src/modules/shopify/token.ts` now go through `decryptStoredToken`, which maps it to `SHOPIFY_REAUTH_REQUIRED`. That code already drives one-click reauth in `apps/shopify/src/lib/api.ts`, which re-provisions the store and rewrites the column under the live key, so the state repairs itself. Not staging-only: rotating `SHOPIFY_TOKEN_ENC_KEY` puts every store in this state.
+- Ciphertext and key diverge every time a production dump is restored into staging, which is how staging gets its data. `scripts/staging/post-restore.sql` now marks synced stores uninstalled so `shopify-auth.ts` re-provisions each one under staging's key on first open. Deliberately an `UPDATE`, not a `DELETE`: dropping `shopify_stores` cascades to store credits, the credit ledger, shoppers, widget events, collections and product garments — exactly the history staging exists to test against.
+- Established why reinstalling from the Shopify admin does not substitute: uninstall notifies whichever environment registered the webhook (production), leaving staging's `uninstalled_at` NULL, so `apps/api/src/plugins/shopify-auth.ts:60` skips re-provisioning and the reinstall silently reuses the undecryptable token.
+- Verified: two new cases in `apps/api/test/shopify-token-refresh.test.ts` cover a wrong-key access token and a wrong-key refresh half → 8/8 pass. The `post-restore.sql` statements were run against Postgres, confirming `workers` is emptied, all store rows survive, and a pre-existing `uninstalled_at` is not overwritten with `now()`.
+
+**Failed / Not Done**
+- None.
+
+**Open Questions / Decisions**
+- The hourly scheduler interval was left as-is. It is the right cadence for unattended renewals; the fix was to stop treating it as the merchant-facing path.
+
+## 2026-08-11 — Stop caching asset errors, strip the staging proxy prefix
+
+**Done**
+- Root-caused the blank Shopify embedded admin on staging. The vhost proxied `location /shopify-admin` to port 3103 with no trailing slash on either side, so nginx forwarded the unstripped path. The container serves its build at root and documents (`apps/shopify/nginx.conf:1-6`) that it expects the prefix already stripped, so every `/shopify-admin/assets/*` request 404'd. HTML routes still returned 200 because the SPA `try_files $uri /index.html` fallback swallows any unmatched path — the app loaded, then rendered nothing, because its JS and CSS were both missing. Fixed `docs/staging-runbook.md:147` to use the same trailing-slash strip that section already prescribes for `/chatbot/`.
+- Fixed that 404 outliving its own fix. `expires` and a bare `add_header` skip non-2xx/3xx, so error responses left the asset block carrying no `Cache-Control` at all — and no directive is an invitation rather than a prohibition. Cloudflare negative-cached the bare 404 on its own zone defaults (Browser Cache TTL, 3 days) and the browser then held that from-edge 404 in disk cache, serving it with no request at all. Confirmed from the response `date` headers predating the deploy. On a content-addressed path a 404 only ever means a broken deploy or a bad proxy prefix, so caching one is never right.
+- Both SPA configs (`apps/shopify/nginx.conf`, `apps/admin-web/nginx.conf`) now key `Cache-Control` off `$status` via an http-level `map`: `immutable` long-cache on 200, `no-store` on everything else. Defence in depth — the edge still decides its own negative caching.
+- Found and fixed a latent production bug in passing: `apps/admin-web` never received `5157d0b0`'s `index.html` `no-cache`, leaving the stale-index.html bug that commit describes live there. Production admins could be pinned to a stale SPA. Added, so both SPAs now match.
+- Verified with `nginx -t` plus a real request against each config: a 200 asset returns `immutable`, a missing asset returns `no-store`, `index.html` returns `no-cache`.
+
+**Failed / Not Done**
+- The live VPS vhost was edited by hand to add the trailing slash. Whether that survives a CloudPanel vhost regeneration is unconfirmed — the runbook is now correct, but the running config is not generated from it.
+
+**Open Questions / Decisions**
+- Still needs doing in the Cloudflare dashboard: set Caching → Configuration → Browser Cache TTL to **Respect Existing Headers**, so the edge stops inventing TTLs for header-less responses, and add a bypass-cache rule on the staging hostname. The nginx change covers the asset paths; the zone setting covers everything else.
+
+## 2026-08-11 — Point the staging Shopify app config at the staging-admin domain
+
+**Done**
+- `apps/shopify-extension/shopify.app.staging.toml` had `application_url`, `redirect_urls` and the webhook URLs pointing at `staging-app.aivastra.com`, which has no `/shopify-admin` route — requests fell through to catalogues-web's own login redirect. Per the vhost split in `docs/staging-runbook.md`, `/shopify-admin`, `/admin/` and `/v1/` live on `staging-admin.aivastra.com`.
+- Verified by curl: `staging-app/shopify-admin/embedded` 307s to catalogues-web's `/login`; `staging-admin/shopify-admin/embedded` returns 200.
+
+**Failed / Not Done**
+- None.
+
+**Open Questions / Decisions**
+- This file reaches Partner Dashboard only via `make shopify-deploy-staging`. CI never runs `shopify app deploy`, so merging the change does not publish it — established while debugging why a merged PR appeared to have no effect.
+- The three plan redirect URLs in Partner Dashboard still have to be updated by hand in the dashboard itself.
+
 ## 2026-08-11 - Add 10MB file size validation on Try-On page (catalogues-web)
 
 **Done**
