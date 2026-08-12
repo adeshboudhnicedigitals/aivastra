@@ -55,4 +55,5 @@ export const keys = {
   appVideo: () => `config/app-video.mp4`,
   videoOutput: (jobId: string) => `outputs/${jobId}/result.mp4`,
   supportAttachment: (id: string, ext: string) => `support/${id}.${ext}`,
+  invoice: (paymentId: string) => `invoices/${paymentId}.pdf`,
 };
