@@ -46,7 +46,6 @@ export function buildCsp(nonce: string): string {
       'blob:',
       'http://127.0.0.1:*', // local MinIO in dev — loopback-only, harmless outside a dev machine
       'https://*.r2.cloudflarestorage.com',
-      'https://rankplex.cloud',
       'https://app.aivastra.com',
       'https://*.razorpay.com',
       ...(apiOrigin ? [apiOrigin] : []),
