@@ -1,5 +1,6 @@
 import { AppError } from './errors.js';
-import { assertPublicHttpUrl } from './ssrf-guard.js';
+import { pinnedFetch } from './pinned-fetch.js';
+import { assertPublicHttpUrl, type PublicHttpTarget } from './ssrf-guard.js';
 
 const MAX_REDIRECT_HOPS = 5;
 const MAX_HTML_BYTES = 5 * 1024 * 1024;
@@ -22,11 +23,11 @@ interface Hop {
   html: string | undefined;
 }
 
-async function fetchHop(url: URL): Promise<Hop> {
+async function fetchHop(target: PublicHttpTarget): Promise<Hop> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(url, { signal: controller.signal, redirect: 'manual' });
+    const res = await pinnedFetch(target.url, target.address, controller.signal);
     if (res.status >= 300 && res.status < 400) {
       return { location: res.headers.get('location'), html: undefined };
     }
@@ -70,8 +71,10 @@ async function fetchHop(url: URL): Promise<Hop> {
  * URL are re-validated via assertPublicHttpUrl -- the initial pin.it/pinterest.com
  * host being trusted does not extend trust to wherever its redirect chain leads.
  */
-export async function resolvePinterestImageUrl(url: URL): Promise<URL> {
-  let current = url;
+export async function resolvePinterestImageUrl(
+  target: PublicHttpTarget,
+): Promise<PublicHttpTarget> {
+  let current = target;
   let html: string | undefined;
   for (let hop = 0; hop < MAX_REDIRECT_HOPS; hop++) {
     const result = await fetchHop(current);
@@ -82,7 +85,7 @@ export async function resolvePinterestImageUrl(url: URL): Promise<URL> {
     if (!result.location) {
       throw new AppError('VALIDATION', 400, 'could not resolve pinterest url');
     }
-    const next = new URL(result.location, current);
+    const next = new URL(result.location, current.url);
     current = await assertPublicHttpUrl(next.toString());
   }
   if (html === undefined) {

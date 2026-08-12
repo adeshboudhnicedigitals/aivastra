@@ -1,9 +1,22 @@
 import { faker } from '@faker-js/faker';
+import { Algorithm, hash } from '@node-rs/argon2';
 import { createDb } from './index.js';
 import * as schema from './schema/index.js';
 
 // Deterministic seed for reproducible data
 faker.seed(12345);
+
+// Matches apps/api/src/modules/auth/service.ts's ARGON so the seeded admin
+// can actually log in through the normal auth flow.
+const ARGON: Parameters<typeof hash>[1] = {
+  algorithm: Algorithm.Argon2id,
+  memoryCost: 19_456,
+  timeCost: 2,
+  parallelism: 1,
+};
+
+const DEV_ADMIN_EMAIL = 'admin@aivastra.dev';
+const DEV_ADMIN_PASSWORD = 'dev-admin-password';
 
 async function main() {
   const url = process.env.DATABASE_URL;
@@ -67,6 +80,49 @@ async function main() {
         }
       }
     }
+
+    // 4. Dev admin user
+    console.log('Seeding dev admin user...');
+    const passwordHash = await hash(DEV_ADMIN_PASSWORD, ARGON);
+    const [adminUser] = await db
+      .insert(schema.users)
+      .values({
+        email: DEV_ADMIN_EMAIL,
+        displayName: 'Dev Admin',
+        tier: 'business',
+        emailVerified: true,
+        passwordHash,
+      })
+      .onConflictDoUpdate({
+        target: schema.users.email,
+        set: { passwordHash },
+      })
+      .returning({ id: schema.users.id });
+    await db
+      .insert(schema.adminUsers)
+      .values({ userId: adminUser.id, role: 'SUPER_ADMIN', status: 'active', passwordHash })
+      .onConflictDoUpdate({
+        target: schema.adminUsers.userId,
+        set: { status: 'active', passwordHash },
+      });
+    console.log(`   → login with ${DEV_ADMIN_EMAIL} / ${DEV_ADMIN_PASSWORD}`);
+
+    // 5. Minimal workflow template (no real ComfyUI jsonContent is available in-repo —
+    // this only unblocks pose/model FK requirements for local dev, not real job dispatch)
+    console.log('Seeding minimal workflow template...');
+    await db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: 'dev-seed-template',
+        label: 'Dev Seed Template',
+        jsonContent: {},
+        poseNodeId: 'pose',
+        upperNodeIds: [],
+        garmentPhasePromptNode: 'garment',
+        workflowType: 'tryon',
+        isActive: true,
+      })
+      .onConflictDoNothing({ target: schema.workflowTemplates.slug });
 
     console.log('✅ Seeding complete!');
   } catch (error) {

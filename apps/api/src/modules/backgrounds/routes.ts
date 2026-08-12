@@ -150,11 +150,11 @@ export async function backgroundsRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { url, label } = req.body as z.infer<typeof CreateMyBackgroundFromUrlBody>;
-      let parsedUrl = await assertPublicHttpUrl(url);
-      if (isPinterestUrl(parsedUrl)) {
-        parsedUrl = await resolvePinterestImageUrl(parsedUrl);
+      let target = await assertPublicHttpUrl(url);
+      if (isPinterestUrl(target.url)) {
+        target = await resolvePinterestImageUrl(target);
       }
-      const buf = await fetchImageWithCap(parsedUrl, MAX_URL_IMAGE_BYTES, 10_000);
+      const buf = await fetchImageWithCap(target.url, target.address, MAX_URL_IMAGE_BYTES, 10_000);
       const id = randomUUID();
       const r2Key = keys.userBackground(req.userId, id);
       const thumbnailKey = keys.userBackgroundThumb(req.userId, id);

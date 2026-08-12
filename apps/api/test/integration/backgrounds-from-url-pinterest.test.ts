@@ -3,9 +3,12 @@ import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import sharp from 'sharp';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { pinnedFetch } from '../../src/lib/pinned-fetch.js';
 import { signAccess } from '../../src/modules/auth/service.js';
 import { buildTestApp, type TestApp } from '../helpers/api';
 import { type Containers, startContainers } from '../helpers/containers';
+
+vi.mock('../../src/lib/pinned-fetch.js', () => ({ pinnedFetch: vi.fn() }));
 
 // DNS lookups are stubbed so tests don't depend on real network/DNS resolution --
 // only the real Pinterest response *shapes* observed via live curl during development
@@ -55,28 +58,25 @@ describe('POST /v1/backgrounds/mine/from-url (Pinterest links)', () => {
   it('scrapes og:image from a direct pinterest.com pin page URL', async () => {
     const token = await getToken('bgpin1@x.com');
     stubDns();
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockImplementation(async (input: string | URL) => {
-        const href = input.toString();
-        if (href.startsWith('https://in.pinterest.com/pin/998814023593088411/')) {
-          return new Response(OG_IMAGE_HTML, {
-            status: 200,
-            headers: { 'content-type': 'text/html; charset=utf-8' },
-          });
-        }
-        if (href === 'https://i.pinimg.com/736x/fake.jpg') {
-          return new Response(fixtureJpeg, {
-            status: 200,
-            headers: {
-              'content-type': 'image/jpeg',
-              'content-length': String(fixtureJpeg.length),
-            },
-          });
-        }
-        throw new Error(`unexpected fetch: ${href}`);
-      }),
-    );
+    vi.mocked(pinnedFetch).mockImplementation(async (url: URL) => {
+      const href = url.toString();
+      if (href.startsWith('https://in.pinterest.com/pin/998814023593088411/')) {
+        return new Response(OG_IMAGE_HTML, {
+          status: 200,
+          headers: { 'content-type': 'text/html; charset=utf-8' },
+        });
+      }
+      if (href === 'https://i.pinimg.com/736x/fake.jpg') {
+        return new Response(fixtureJpeg, {
+          status: 200,
+          headers: {
+            'content-type': 'image/jpeg',
+            'content-length': String(fixtureJpeg.length),
+          },
+        });
+      }
+      throw new Error(`unexpected fetch: ${href}`);
+    });
 
     const res = await app.inject({
       method: 'POST',
@@ -96,46 +96,43 @@ describe('POST /v1/backgrounds/mine/from-url (Pinterest links)', () => {
   it('follows a pin.it short link through multiple redirect hops before scraping og:image', async () => {
     const token = await getToken('bgpin2@x.com');
     stubDns();
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockImplementation(async (input: string | URL) => {
-        const href = input.toString();
-        if (href === 'https://pin.it/j99OcC4Y4') {
-          return new Response(null, {
-            status: 308,
-            headers: { location: 'https://api.pinterest.com/url_shortener/j99OcC4Y4/redirect/' },
-          });
-        }
-        if (href === 'https://api.pinterest.com/url_shortener/j99OcC4Y4/redirect/') {
-          return new Response(null, {
-            status: 302,
-            headers: {
-              location:
-                'https://www.pinterest.com/pin/998814023593088411/sent/?invite_code=abc&sender=1&sfo=1',
-            },
-          });
-        }
-        if (
-          href ===
-          'https://www.pinterest.com/pin/998814023593088411/sent/?invite_code=abc&sender=1&sfo=1'
-        ) {
-          return new Response(OG_IMAGE_HTML, {
-            status: 200,
-            headers: { 'content-type': 'text/html; charset=utf-8' },
-          });
-        }
-        if (href === 'https://i.pinimg.com/736x/fake.jpg') {
-          return new Response(fixtureJpeg, {
-            status: 200,
-            headers: {
-              'content-type': 'image/jpeg',
-              'content-length': String(fixtureJpeg.length),
-            },
-          });
-        }
-        throw new Error(`unexpected fetch: ${href}`);
-      }),
-    );
+    vi.mocked(pinnedFetch).mockImplementation(async (url: URL) => {
+      const href = url.toString();
+      if (href === 'https://pin.it/j99OcC4Y4') {
+        return new Response(null, {
+          status: 308,
+          headers: { location: 'https://api.pinterest.com/url_shortener/j99OcC4Y4/redirect/' },
+        });
+      }
+      if (href === 'https://api.pinterest.com/url_shortener/j99OcC4Y4/redirect/') {
+        return new Response(null, {
+          status: 302,
+          headers: {
+            location:
+              'https://www.pinterest.com/pin/998814023593088411/sent/?invite_code=abc&sender=1&sfo=1',
+          },
+        });
+      }
+      if (
+        href ===
+        'https://www.pinterest.com/pin/998814023593088411/sent/?invite_code=abc&sender=1&sfo=1'
+      ) {
+        return new Response(OG_IMAGE_HTML, {
+          status: 200,
+          headers: { 'content-type': 'text/html; charset=utf-8' },
+        });
+      }
+      if (href === 'https://i.pinimg.com/736x/fake.jpg') {
+        return new Response(fixtureJpeg, {
+          status: 200,
+          headers: {
+            'content-type': 'image/jpeg',
+            'content-length': String(fixtureJpeg.length),
+          },
+        });
+      }
+      throw new Error(`unexpected fetch: ${href}`);
+    });
 
     const res = await app.inject({
       method: 'POST',
@@ -149,14 +146,11 @@ describe('POST /v1/backgrounds/mine/from-url (Pinterest links)', () => {
   it('rejects a pinterest page with no og:image meta tag', async () => {
     const token = await getToken('bgpin3@x.com');
     stubDns();
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(
-        new Response('<html><head></head></html>', {
-          status: 200,
-          headers: { 'content-type': 'text/html; charset=utf-8' },
-        }),
-      ),
+    vi.mocked(pinnedFetch).mockResolvedValue(
+      new Response('<html><head></head></html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      }),
     );
 
     const res = await app.inject({
@@ -171,15 +165,12 @@ describe('POST /v1/backgrounds/mine/from-url (Pinterest links)', () => {
   it('rejects a redirect chain exceeding the hop cap', async () => {
     const token = await getToken('bgpin4@x.com');
     stubDns();
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockImplementation(async () => {
-        return new Response(null, {
-          status: 302,
-          headers: { location: 'https://pin.it/loop' },
-        });
-      }),
-    );
+    vi.mocked(pinnedFetch).mockImplementation(async () => {
+      return new Response(null, {
+        status: 302,
+        headers: { location: 'https://pin.it/loop' },
+      });
+    });
 
     const res = await app.inject({
       method: 'POST',

@@ -250,6 +250,9 @@ jobs:
       - name: Run staging env guardrail tests
         run: bash scripts/staging/check-staging-env.test.sh
 
+      - name: Check migration index collisions against dev
+        run: pnpm ci:check-migration-index
+
   branch-source-gate:
     name: branch-source-gate
     runs-on: ubuntu-latest

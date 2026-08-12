@@ -15,6 +15,7 @@ import { z } from 'zod';
 import { getMaxBatchJobs } from '../../lib/batch-config.js';
 import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
+import { withIdempotency } from '../../lib/idempotency.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { getSareeSettings } from '../saree/settings.js';
 import { createCatalogVideoJob, createJob, createSimpleTryonJob } from './create.js';
@@ -23,24 +24,6 @@ import { createSareeJob } from './createSaree.js';
 import { createSareeMannequinJob } from './createSareeMannequin.js';
 import { regenerateJob } from './regenerate.js';
 import { sseHandler, userStreamHandler } from './sse.js';
-
-// Caches 201 responses for 24h keyed on (userId, Idempotency-Key header).
-// No-op when header is absent — backward compatible.
-async function withIdempotency<T>(
-  app: FastifyInstance,
-  userId: string,
-  idemKey: string | undefined,
-  fn: () => Promise<T>,
-): Promise<T> {
-  const redisKey = idemKey ? `idem:jobs:${userId}:${idemKey}` : null;
-  if (redisKey) {
-    const hit = await app.redis.get(redisKey);
-    if (hit) return JSON.parse(hit) as T;
-  }
-  const result = await fn();
-  if (redisKey) await app.redis.setex(redisKey, 86400, JSON.stringify(result));
-  return result;
-}
 
 export async function jobsRoutes(app: FastifyInstance) {
   app.get('/v1/catalog-videos', { preHandler: app.requireUser }, async (req) => {
@@ -108,6 +91,7 @@ export async function jobsRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const result = await withIdempotency(
         app,
+        'jobs',
         req.userId,
         req.headers['idempotency-key'] as string | undefined,
         () => createJob(app, req.userId, req.body as z.infer<typeof CreateTryOnJobRequest>),
@@ -123,6 +107,7 @@ export async function jobsRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const result = await withIdempotency(
         app,
+        'jobs',
         req.userId,
         req.headers['idempotency-key'] as string | undefined,
         () => createBatchJobs(app, req.userId, req.body as z.infer<typeof CreateBatchJobRequest>),
@@ -138,6 +123,7 @@ export async function jobsRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const result = await withIdempotency(
         app,
+        'jobs',
         req.userId,
         req.headers['idempotency-key'] as string | undefined,
         () =>
@@ -172,6 +158,7 @@ export async function jobsRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const result = await withIdempotency(
         app,
+        'jobs',
         req.userId,
         req.headers['idempotency-key'] as string | undefined,
         () =>
@@ -192,6 +179,7 @@ export async function jobsRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const result = await withIdempotency(
         app,
+        'jobs',
         req.userId,
         req.headers['idempotency-key'] as string | undefined,
         () =>
@@ -245,6 +233,7 @@ export async function jobsRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const result = await withIdempotency(
         app,
+        'jobs',
         req.userId,
         req.headers['idempotency-key'] as string | undefined,
         () => createSareeJob(app, req.userId, req.body as z.infer<typeof CreateSareeJobRequest>),
