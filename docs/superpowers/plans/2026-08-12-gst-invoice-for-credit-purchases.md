@@ -32,7 +32,7 @@
 **Interfaces:**
 - Produces: `schema.users.gstin` (nullable text), `schema.payments.gstin` (nullable text), `schema.invoices` table (`id`, `paymentId` unique FK → `payments.id`, `invoiceNumber` unique text, `r2Key` text, `issuedAt` timestamptz), `schema.invoiceSequences` table (`financialYear` text PK, `nextNumber` integer).
 
-- [ ] **Step 1: Create the feature branch off `dev`**
+- [x] **Step 1: Create the feature branch off `dev`**
 
 ```bash
 git checkout dev
@@ -40,7 +40,7 @@ git pull --ff-only origin dev
 git checkout -b feat/gst-invoice-credit-purchases
 ```
 
-- [ ] **Step 2: Add `gstin` to `users`**
+- [x] **Step 2: Add `gstin` to `users`**
 
 In `packages/db/src/schema/users.ts`, add one field to the `users` table definition (after `companyName`):
 
@@ -52,7 +52,7 @@ In `packages/db/src/schema/users.ts`, add one field to the `users` table definit
     gstin: text('gstin'),
 ```
 
-- [ ] **Step 3: Add `gstin` to `payments`, and the two new tables in `credits.ts`**
+- [x] **Step 3: Add `gstin` to `payments`, and the two new tables in `credits.ts`**
 
 In `packages/db/src/schema/credits.ts`, add `gstin` to the `payments` table (after `credits`, before `status`):
 
@@ -91,7 +91,7 @@ export const invoiceSequences = pgTable('invoice_sequences', {
 });
 ```
 
-- [ ] **Step 4: Generate and apply the migration**
+- [x] **Step 4: Generate and apply the migration**
 
 Ensure infra is up first (`pnpm docker:up` if not already running), then:
 
@@ -107,7 +107,7 @@ pnpm db:migrate
 
 Expected: migration applies cleanly, no errors.
 
-- [ ] **Step 5: Rebuild the db package and commit**
+- [x] **Step 5: Rebuild the db package and commit**
 
 ```bash
 pnpm --filter @aivastra/db build
@@ -127,7 +127,7 @@ git commit -m "feat(db): add gstin columns and invoices/invoice_sequences tables
 - Consumes: nothing new.
 - Produces: `GSTIN_REGEX` (RegExp, exported), `Gstin` (Zod schema: optional string matching `GSTIN_REGEX` or empty).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `packages/types/src/credits.test.ts`:
 
@@ -148,12 +148,12 @@ describe('GSTIN_REGEX', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @aivastra/types test -- credits.test.ts`
 Expected: FAIL — `GSTIN_REGEX` is not exported.
 
-- [ ] **Step 3: Add `GSTIN_REGEX` to `packages/types/src/credits.ts`**
+- [x] **Step 3: Add `GSTIN_REGEX` to `packages/types/src/credits.ts`**
 
 ```ts
 import { z } from 'zod';
@@ -183,12 +183,12 @@ export const CreditsResponse = z.object({
 });
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @aivastra/types test -- credits.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/types/src/credits.ts packages/types/src/credits.test.ts
@@ -207,7 +207,7 @@ git commit -m "feat(types): add shared GSTIN format validator"
 - Consumes: `Gstin` from `@aivastra/types` (Task 2).
 - Produces: `GET /v1/me` response includes `gstin: string | null`; `PATCH /v1/me` accepts optional `gstin` in body.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `apps/api/test/profile-gstin.test.ts`:
 
@@ -308,12 +308,12 @@ describe('profile GSTIN', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @aivastra/api test -- profile-gstin.test.ts`
 Expected: FAIL — `gstin` is `undefined` in the `/v1/me` response (PATCH silently ignores the unknown body field today since Zod strips it, so the save is a no-op).
 
-- [ ] **Step 3: Wire `gstin` into `GET /v1/me`**
+- [x] **Step 3: Wire `gstin` into `GET /v1/me`**
 
 In `apps/api/src/modules/auth/routes.ts`, add `gstin: schema.users.gstin` to the `select` at line ~532-544 (the `GET /v1/me` handler):
 
@@ -334,7 +334,7 @@ In `apps/api/src/modules/auth/routes.ts`, add `gstin: schema.users.gstin` to the
       })
 ```
 
-- [ ] **Step 4: Wire `gstin` into `PATCH /v1/me`**
+- [x] **Step 4: Wire `gstin` into `PATCH /v1/me`**
 
 At the top of `apps/api/src/modules/auth/routes.ts`, add the import:
 
@@ -404,12 +404,12 @@ In the `tx.update(schema.users).set({...})` call (~line 654-664), add (following
 
 And add `gstin: schema.users.gstin` to that same query's `.returning({...})` block (~line 666-677).
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `pnpm --filter @aivastra/api test -- profile-gstin.test.ts`
 Expected: PASS (all 3 cases)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/api/src/modules/auth/routes.ts apps/api/test/profile-gstin.test.ts
@@ -428,7 +428,7 @@ git commit -m "feat(api): let users set/edit their GSTIN on GET/PATCH /v1/me"
 - Consumes: `Gstin` from `@aivastra/types` (Task 2), `schema.payments.gstin` (Task 1).
 - Produces: `POST /v1/payments/orders` accepts optional `gstin` in body, stores it on the created `payments` row.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 No existing test in this repo calls `POST /v1/payments/orders` (confirmed — `apps/api/test` has zero matches for `payments/orders`; every existing payments test seeds a `payments` row directly via DB insert and only exercises `/verify`). This route calls the real Razorpay API (`createRazorpayOrder` in `apps/api/src/modules/payments/routes.ts` does a plain `fetch('https://api.razorpay.com/v1/orders', ...)`), so it must be mocked — follow the exact `vi.spyOn(global, 'fetch')` pattern already used in `apps/api/test/integration/google-oauth.test.ts` (lines ~180-202) for other external APIs.
 
@@ -495,12 +495,12 @@ Add to the same file (new `it` blocks, after the existing tests, before the clos
 
 This test file's `beforeAll` calls `buildTestApp(c, { RAZORPAY_KEY_SECRET })` without `RAZORPAY_KEY_ID` — check that call and add `RAZORPAY_KEY_ID: 'test-razorpay-key-id'` alongside it, otherwise `POST /v1/payments/orders` 503s with `NOT_CONFIGURED` before ever reaching the (now-mocked) Razorpay call.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @aivastra/api test -- payments-tier.test.ts`
 Expected: FAIL — `payment.gstin` is `undefined` (the route doesn't read/store `gstin` yet), and the malformed-GSTIN case gets 200 instead of 400 (unknown field currently silently stripped by Zod).
 
-- [ ] **Step 3: Wire `gstin` into `POST /v1/payments/orders`**
+- [x] **Step 3: Wire `gstin` into `POST /v1/payments/orders`**
 
 In `apps/api/src/modules/payments/routes.ts`, add the import at the top:
 
@@ -539,12 +539,12 @@ In the `app.db.insert(schema.payments).values({...})` call (~line 215-224), add 
       });
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @aivastra/api test -- payments-tier.test.ts`
 Expected: PASS (all cases, including the two new ones)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/modules/payments/routes.ts apps/api/test/integration/payments-tier.test.ts
@@ -564,7 +564,7 @@ git commit -m "feat(api): capture and validate GSTIN at order creation"
 **Interfaces:**
 - Produces: `SystemConfigBody.seller` (Zod, optional `{ gstin?, legalName?, address? }`), `DEFAULT_SELLER_CONFIG` constant, `GET /admin/config` response includes `seller` (defaulted), `PATCH /admin/config` accepts `seller`.
 
-- [ ] **Step 1: Add `seller` to `SystemConfigBody`**
+- [x] **Step 1: Add `seller` to `SystemConfigBody`**
 
 In `packages/types/src/admin.ts`, add to the `SystemConfigBody` object (after `uploadLimits`, before the closing `});` at line ~174):
 
@@ -581,7 +581,7 @@ In `packages/types/src/admin.ts`, add to the `SystemConfigBody` object (after `u
     .optional(),
 ```
 
-- [ ] **Step 2: Add `DEFAULT_SELLER_CONFIG`**
+- [x] **Step 2: Add `DEFAULT_SELLER_CONFIG`**
 
 In `apps/api/src/lib/resolution-config.ts`, add (near the other `DEFAULT_*` constants, e.g. after `DEFAULT_SHOPIFY_TRIAL_CONFIG`):
 
@@ -593,7 +593,7 @@ export const DEFAULT_SELLER_CONFIG: { gstin: string; legalName: string; address:
 };
 ```
 
-- [ ] **Step 3: Wire defaults into `GET /admin/config` and pass-through in `PATCH`**
+- [x] **Step 3: Wire defaults into `GET /admin/config` and pass-through in `PATCH`**
 
 In `apps/api/src/modules/admin/config.routes.ts`, add the import:
 
@@ -619,7 +619,7 @@ In the `GET /admin/config` handler (~line 42-61), add:
 
 `PATCH /admin/config` (~line 63-75) already merges the whole body shallowly (`{ ...cur, ...req.body }`), so passing `{ seller: {...} }` in a `PATCH` already works correctly as long as the caller always sends the full `seller` object (not a partial merge) — no route code change needed there, but note this for the frontend task (Task 12): always send all three seller fields together, not one at a time.
 
-- [ ] **Step 4: Manually verify**
+- [x] **Step 4: Manually verify**
 
 With the API running against `pnpm docker:up` infra:
 
@@ -632,7 +632,7 @@ curl http://localhost:4000/admin/config -H "Authorization: Bearer <token>"
 
 Expected: the second call's response includes `"seller":{"gstin":"27AAPFU0939F1ZV",...}`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/types/src/admin.ts apps/api/src/lib/resolution-config.ts apps/api/src/modules/admin/config.routes.ts
@@ -651,14 +651,14 @@ git commit -m "feat(api): add admin-configurable seller GST details"
 **Interfaces:**
 - Produces: `renderInvoicePdf(data: InvoiceData): Promise<Buffer>`, `financialYearFor(date: Date): string` (exported for reuse by Task 8's numbering logic), `InvoiceData` type.
 
-- [ ] **Step 1: Add the `pdfkit` dependency**
+- [x] **Step 1: Add the `pdfkit` dependency**
 
 ```bash
 pnpm --filter @aivastra/api add pdfkit
 pnpm --filter @aivastra/api add -D @types/pdfkit
 ```
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `apps/api/src/modules/payments/invoice-pdf.test.ts`:
 
@@ -712,12 +712,12 @@ describe('renderInvoicePdf', () => {
 });
 ```
 
-- [ ] **Step 2b: Run test to verify it fails**
+- [x] **Step 2b: Run test to verify it fails**
 
 Run: `pnpm --filter @aivastra/api test -- invoice-pdf.test.ts`
 Expected: FAIL — `./invoice-pdf.js` does not exist.
 
-- [ ] **Step 3: Implement `invoice-pdf.ts`**
+- [x] **Step 3: Implement `invoice-pdf.ts`**
 
 Create `apps/api/src/modules/payments/invoice-pdf.ts`:
 
@@ -800,12 +800,12 @@ export function renderInvoicePdf(data: InvoiceData): Promise<Buffer> {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @aivastra/api test -- invoice-pdf.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/package.json pnpm-lock.yaml apps/api/src/modules/payments/invoice-pdf.ts apps/api/src/modules/payments/invoice-pdf.test.ts
@@ -822,7 +822,7 @@ git commit -m "feat(api): add pdfkit-based GST invoice PDF renderer"
 **Interfaces:**
 - Produces: `keys.invoice(paymentId: string): string`
 
-- [ ] **Step 1: Add the key builder**
+- [x] **Step 1: Add the key builder**
 
 In `packages/storage/src/keys.ts`, add (near `supportAttachment`, at the end of the object):
 
@@ -832,7 +832,7 @@ In `packages/storage/src/keys.ts`, add (near `supportAttachment`, at the end of 
 };
 ```
 
-- [ ] **Step 2: Rebuild the storage package**
+- [x] **Step 2: Rebuild the storage package**
 
 ```bash
 pnpm --filter @aivastra/storage build
@@ -840,7 +840,7 @@ pnpm --filter @aivastra/storage build
 
 Expected: builds without error.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/storage/src/keys.ts
@@ -859,7 +859,7 @@ git commit -m "feat(storage): add invoice PDF key builder"
 - Consumes: `renderInvoicePdf`, `financialYearFor` (Task 6), `keys.invoice` (Task 7), `schema.invoices`, `schema.invoiceSequences`, `schema.payments` (Task 1), `DEFAULT_SELLER_CONFIG` (Task 5).
 - Produces: `issueInvoiceIfNeeded(app: FastifyInstance, paymentId: string): Promise<{ invoiceNumber: string; pdfBuffer: Buffer } | null>` — returns `null` on any failure (never throws), returns the number + buffer on success (including when it's a no-op because an invoice already exists — re-renders and re-fetches nothing extra, just re-reads the existing row and re-downloads the stored PDF from R2 so the caller can still email it).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `apps/api/test/integration/issue-invoice.test.ts`:
 
@@ -980,12 +980,12 @@ describe('issueInvoiceIfNeeded', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @aivastra/api test -- issue-invoice.test.ts`
 Expected: FAIL — `../../src/modules/payments/issue-invoice.js` does not exist.
 
-- [ ] **Step 3: Implement `issue-invoice.ts`**
+- [x] **Step 3: Implement `issue-invoice.ts`**
 
 Create `apps/api/src/modules/payments/issue-invoice.ts`:
 
@@ -1099,12 +1099,12 @@ export async function issueInvoiceIfNeeded(
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @aivastra/api test -- issue-invoice.test.ts`
 Expected: PASS (all 4 cases)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/modules/payments/issue-invoice.ts apps/api/test/integration/issue-invoice.test.ts
@@ -1124,7 +1124,7 @@ git commit -m "feat(api): add non-fatal, idempotent GST invoice issuance"
 - Consumes: `issueInvoiceIfNeeded` (Task 8).
 - Produces: `sendPaymentReceiptEmail` gains an optional 5th param `invoice?: { invoiceNumber: string; pdfBuffer: Buffer }`, attached to the email when present.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `apps/api/test/integration/payments-tier.test.ts`:
 
@@ -1168,12 +1168,12 @@ Add to `apps/api/test/integration/payments-tier.test.ts`:
   });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @aivastra/api test -- payments-tier.test.ts`
 Expected: FAIL (times out / no invoice row ever appears) — `/verify` doesn't call `issueInvoiceIfNeeded` yet.
 
-- [ ] **Step 3: Extend `sendPaymentReceiptEmail` to accept an optional attachment**
+- [x] **Step 3: Extend `sendPaymentReceiptEmail` to accept an optional attachment**
 
 In `apps/api/src/lib/mailer.ts`, modify `sendPaymentReceiptEmail`'s signature and body:
 
@@ -1216,7 +1216,7 @@ export async function sendPaymentReceiptEmail(
 }
 ```
 
-- [ ] **Step 4: Wire `issueInvoiceIfNeeded` into `/verify` and the webhook**
+- [x] **Step 4: Wire `issueInvoiceIfNeeded` into `/verify` and the webhook**
 
 In `apps/api/src/modules/payments/routes.ts`, add the import:
 
@@ -1303,17 +1303,17 @@ Replace it with:
 
 Find the webhook's `payment.captured` branch (search for `maybeSendReceipt` — there should be a second call site inside the webhook handler around line 440-460) and apply the same replacement pattern, substituting whatever the local variable names are there (check the existing call's arguments to match exactly — the webhook handler builds its own `payment`-shaped object from its own query, not the same `payment` variable name as `/verify`).
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `pnpm --filter @aivastra/api test -- payments-tier.test.ts`
 Expected: PASS
 
-- [ ] **Step 6: Run the full payments + issue-invoice suites together to check for regressions**
+- [x] **Step 6: Run the full payments + issue-invoice suites together to check for regressions**
 
 Run: `pnpm --filter @aivastra/api test -- payments`
 Expected: all payment-related test files pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/api/src/modules/payments/routes.ts apps/api/src/lib/mailer.ts apps/api/test/integration/payments-tier.test.ts
@@ -1331,7 +1331,7 @@ git commit -m "feat(api): issue and email GST invoices on successful payment"
 **Interfaces:**
 - Produces: `GET /v1/payments/history` rows gain `invoiceNumber: string | null` and `invoiceUrl: string | null`; new `GET /v1/payments/:id/invoice` (auth-gated, redirects to a presigned R2 GET URL).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `seedPaidPayment` (Task 8) inserts a user with `passwordHash: 'x'`, which isn't a real argon2 hash and can't log in — fine for Task 8's tests (they call `issueInvoiceIfNeeded` directly, no HTTP auth needed) but not for these, which need a real bearer token. Add a login-capable variant using the same `hashPassword` helper `apps/api/src/modules/auth/service.ts` already exports, avoiding the slower register+verify-email+login round trip.
 
@@ -1415,12 +1415,12 @@ import { hashPassword } from '../../src/modules/auth/service.js';
   });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @aivastra/api test -- issue-invoice.test.ts`
 Expected: FAIL — `invoiceNumber`/`invoiceUrl` are absent from `/v1/payments/history`, and `GET /v1/payments/:id/invoice` doesn't exist (404).
 
-- [ ] **Step 3: Extend `GET /v1/payments/history`**
+- [x] **Step 3: Extend `GET /v1/payments/history`**
 
 In `apps/api/src/modules/payments/routes.ts`, modify the `GET /v1/payments/history` handler (~line 159-181):
 
@@ -1460,7 +1460,7 @@ In `apps/api/src/modules/payments/routes.ts`, modify the `GET /v1/payments/histo
   });
 ```
 
-- [ ] **Step 4: Add `GET /v1/payments/:id/invoice`**
+- [x] **Step 4: Add `GET /v1/payments/:id/invoice`**
 
 Add a new route in the same file, after `GET /v1/payments/history`:
 
@@ -1489,12 +1489,12 @@ Add a new route in the same file, after `GET /v1/payments/history`:
   );
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `pnpm --filter @aivastra/api test -- issue-invoice.test.ts`
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/api/src/modules/payments/routes.ts apps/api/test/integration/issue-invoice.test.ts
@@ -1511,7 +1511,7 @@ git commit -m "feat(api): expose invoice download via payment history and a dedi
 **Interfaces:**
 - Consumes: `GET /admin/config` (now returns `seller`), `PATCH /admin/config` (now accepts `seller`) — from Task 5.
 
-- [ ] **Step 1: Add state**
+- [x] **Step 1: Add state**
 
 In `apps/admin-web/src/pages/SettingsPage.tsx`, add new state near `maxOutputPx`/`maxBatchJobs` (~line 246-247):
 
@@ -1523,7 +1523,7 @@ In `apps/admin-web/src/pages/SettingsPage.tsx`, add new state near `maxOutputPx`
   const [sellerAddress, setSellerAddress] = useState('');
 ```
 
-- [ ] **Step 2: Load into state**
+- [x] **Step 2: Load into state**
 
 In the `useEffect` that fetches `/admin/config` (~line 292-350), extend the response type and the load logic:
 
@@ -1551,7 +1551,7 @@ In the `useEffect` that fetches `/admin/config` (~line 292-350), extend the resp
 
 (Keep the rest of that block — `merchantCatalogDefaults`, `uploadLimits`, etc. — unchanged.)
 
-- [ ] **Step 3: Include in save**
+- [x] **Step 3: Include in save**
 
 In `saveSysConfig` (~line 398-430), add `seller` to the `PATCH` body:
 
@@ -1572,7 +1572,7 @@ In `saveSysConfig` (~line 398-430), add `seller` to the `PATCH` body:
             // ... unchanged, existing fields ...
 ```
 
-- [ ] **Step 4: Add the UI block**
+- [x] **Step 4: Add the UI block**
 
 In the JSX, after the "Max Batch Size" block (find its closing `</div>` — it ends right before the next `<div style={{ marginTop: 24, ...}}>` block, around line 850-860 based on the pattern seen at line 820-849), insert a new section following the exact same layout pattern as "Max Output Resolution":
 
@@ -1612,11 +1612,11 @@ In the JSX, after the "Max Batch Size" block (find its closing `</div>` — it e
                 </div>
 ```
 
-- [ ] **Step 5: Manually verify**
+- [x] **Step 5: Manually verify**
 
 Run `pnpm --filter @aivastra/admin dev`, open Settings, fill in the three fields, click Save, reload the page, confirm the values persist.
 
-- [ ] **Step 6: Typecheck and commit**
+- [x] **Step 6: Typecheck and commit**
 
 ```bash
 pnpm --filter @aivastra/admin-web typecheck
@@ -1635,7 +1635,7 @@ git commit -m "feat(admin-web): add seller GST details to Settings"
 - Consumes: `GET /v1/me` (now returns `gstin`), `PATCH /v1/me` (now accepts `gstin`) — from Task 3.
 - Consumes: `GSTIN_REGEX` from `@aivastra/types` (Task 2).
 
-- [ ] **Step 1: Extend `MeResponse` and add state**
+- [x] **Step 1: Extend `MeResponse` and add state**
 
 In `apps/catalogues-web/src/app/(app)/settings/page.tsx`, add `gstin` to the `MeResponse` interface (~line 15-27):
 
@@ -1671,7 +1671,7 @@ Add the derived "value" pattern matching `companyNameVal` (~line 307):
   const gstinVal = gstin ?? me?.gstin ?? '';
 ```
 
-- [ ] **Step 2: Validate and include in save**
+- [x] **Step 2: Validate and include in save**
 
 Find the save handler that currently sends `companyName: companyNameVal.trim() || null` (~line 326) and add GSTIN validation immediately before that call, plus include `gstin` in the PATCH body:
 
@@ -1691,7 +1691,7 @@ Add the import at the top of the file:
 import { GSTIN_REGEX } from '@aivastra/types';
 ```
 
-- [ ] **Step 3: Add the input field**
+- [x] **Step 3: Add the input field**
 
 Find the `companyName` input (~line 557, in the same form section as other profile fields) and add a GSTIN input immediately after it, following the same styling pattern (read the surrounding JSX for the exact input wrapper markup and replicate it — label, input, and any error-text slot the form already uses for other fields):
 
@@ -1710,11 +1710,11 @@ Find the `companyName` input (~line 557, in the same form section as other profi
                 </div>
 ```
 
-- [ ] **Step 4: Manually verify**
+- [x] **Step 4: Manually verify**
 
 Run `pnpm --filter @aivastra/web dev`, open Settings → Profile Details, enter a GSTIN, save, reload, confirm it persists; try an invalid one and confirm the inline error shows and the save is blocked.
 
-- [ ] **Step 5: Typecheck and commit**
+- [x] **Step 5: Typecheck and commit**
 
 ```bash
 pnpm --filter @aivastra/catalogues-web typecheck
@@ -1733,7 +1733,7 @@ git commit -m "feat(catalogues-web): let users set/edit their GSTIN in Settings"
 - Consumes: `CreditPlan` type from `./use-pricing-data` (existing), `GSTIN_REGEX` from `@aivastra/types`, `C`/`grad` tokens.
 - Produces: `<GstinConfirmModal>` component, props: `plan: CreditPlan`, `gstin: string`, `setGstin: (v: string) => void`, `displayBase/displayTax/displayTotal: (basePaise: number) => string`, `onClose: () => void`, `onPay: () => void`.
 
-- [ ] **Step 1: Implement the component**
+- [x] **Step 1: Implement the component**
 
 Create `apps/catalogues-web/src/app/(app)/pricing/GstinConfirmModal.tsx`, modeled directly on the existing `CouponModal.tsx` (same backdrop/focus-trap/keyboard pattern — copy that file's `useEffect` focus-trap block verbatim) but with GSTIN input + price breakdown instead of a coupon code field:
 
@@ -1929,7 +1929,7 @@ export function GstinConfirmModal({
 }
 ```
 
-- [ ] **Step 2: Typecheck**
+- [x] **Step 2: Typecheck**
 
 ```bash
 pnpm --filter @aivastra/catalogues-web typecheck
@@ -1937,7 +1937,7 @@ pnpm --filter @aivastra/catalogues-web typecheck
 
 Expected: no new errors (the component isn't imported/used anywhere yet, so this just checks the file compiles standalone).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add "apps/catalogues-web/src/app/(app)/pricing/GstinConfirmModal.tsx"
@@ -1958,7 +1958,7 @@ git commit -m "feat(catalogues-web): add GSTIN + price breakdown checkout confir
 - Consumes: `GstinConfirmModal` (Task 13).
 - Produces: hook gains `gstinModalPlan: CreditPlan | null`, `checkoutGstin: string`, `setCheckoutGstin`, `closeGstinModal`, `confirmGstinAndPay`; `buy` gains an optional second `gstin` param; every purchase now routes through the new modal before Razorpay opens.
 
-- [ ] **Step 1: Extend the `me` query type to include `gstin`**
+- [x] **Step 1: Extend the `me` query type to include `gstin`**
 
 In `use-pricing-data.ts` (~line 223-227), widen the type:
 
@@ -1968,7 +1968,7 @@ In `use-pricing-data.ts` (~line 223-227), widen the type:
     queryFn: () => api.get('/v1/me'),
 ```
 
-- [ ] **Step 2: Add GSTIN modal state**
+- [x] **Step 2: Add GSTIN modal state**
 
 Near the existing coupon-modal state declarations, add:
 
@@ -1977,7 +1977,7 @@ Near the existing coupon-modal state declarations, add:
   const [checkoutGstin, setCheckoutGstin] = useState('');
 ```
 
-- [ ] **Step 3: Modify `buy` to accept and pass through `gstin`**
+- [x] **Step 3: Modify `buy` to accept and pass through `gstin`**
 
 Change the signature:
 
@@ -1998,7 +1998,7 @@ Inside `buy`, find the `api.post<{...}>('/v1/payments/orders', { planId: plan.sl
       }>('/v1/payments/orders', { planId: plan.slug, gstin: gstin || undefined });
 ```
 
-- [ ] **Step 4: Route `startBuy` and the coupon-modal continuation through the new modal instead of calling `buy` directly**
+- [x] **Step 4: Route `startBuy` and the coupon-modal continuation through the new modal instead of calling `buy` directly**
 
 Replace the `startBuy` function:
 
@@ -2043,7 +2043,7 @@ Replace `continueFromCouponModal`:
   }
 ```
 
-- [ ] **Step 5: Return the new state/functions from the hook**
+- [x] **Step 5: Return the new state/functions from the hook**
 
 In the `return {...}` block at the end of the file, add:
 
@@ -2055,7 +2055,7 @@ In the `return {...}` block at the end of the file, add:
     confirmGstinAndPay,
 ```
 
-- [ ] **Step 6: Render the modal in all three layouts**
+- [x] **Step 6: Render the modal in all three layouts**
 
 In `Desktop.tsx`, `Mobile.tsx`, and `Tablet.tsx`: add the import
 
@@ -2082,14 +2082,14 @@ Render it next to the existing `{couponModalPlan && <CouponModal ... />}` block:
       )}
 ```
 
-- [ ] **Step 7: Manually verify end-to-end**
+- [x] **Step 7: Manually verify end-to-end**
 
 Run `pnpm --filter @aivastra/web dev` (with `pnpm docker:up` running and Razorpay test keys configured in `.env`), go to `/pricing`, click "Buy" on a plan:
 - As a first-time non-attributed buyer: confirm the coupon modal appears first, then closing/continuing it shows the new GSTIN modal, then "Pay" opens the Razorpay widget.
 - As a repeat buyer: confirm the GSTIN modal appears immediately on "Buy" click, pre-filled with any profile GSTIN, and "Pay" opens Razorpay.
 - Enter a malformed GSTIN and confirm the inline error blocks proceeding.
 
-- [ ] **Step 8: Typecheck and commit**
+- [x] **Step 8: Typecheck and commit**
 
 ```bash
 pnpm --filter @aivastra/catalogues-web typecheck
@@ -2110,7 +2110,7 @@ git commit -m "feat(catalogues-web): show GSTIN/breakdown confirmation before ev
 **Interfaces:**
 - Consumes: `GET /v1/payments/history` (now returns `invoiceNumber`/`invoiceUrl` per row) — Task 10.
 
-- [ ] **Step 1: Extend `PaymentRow` and the grid layout**
+- [x] **Step 1: Extend `PaymentRow` and the grid layout**
 
 In `apps/catalogues-web/src/app/(app)/settings/page.tsx`, extend the `PaymentRow` interface (~line 32-44):
 
@@ -2145,7 +2145,7 @@ Add `'Invoice'` to the header labels array (~line 994):
                   {['Date', 'Plan', 'Credits', 'Amount (incl. GST)', 'Payment ID', 'Status', 'Invoice'].map(
 ```
 
-- [ ] **Step 2: Add the download link in each row**
+- [x] **Step 2: Add the download link in each row**
 
 After the closing `</span>` of the status badge block (~line 1087, right before the row's closing `</div>` at line 1088), add:
 
@@ -2166,11 +2166,11 @@ After the closing `</span>` of the status badge block (~line 1087, right before 
                       </span>
 ```
 
-- [ ] **Step 3: Manually verify**
+- [x] **Step 3: Manually verify**
 
 Run `pnpm --filter @aivastra/web dev`, make a test purchase end-to-end, go to Settings → Invoices, confirm a "Download" link appears (may take a moment since issuance is fire-and-forget — refresh if it shows "—" immediately after purchase) and that clicking it downloads a valid PDF.
 
-- [ ] **Step 4: Typecheck and commit**
+- [x] **Step 4: Typecheck and commit**
 
 ```bash
 pnpm --filter @aivastra/catalogues-web typecheck
@@ -2185,7 +2185,7 @@ git commit -m "feat(catalogues-web): add invoice download link to payment histor
 **Files:**
 - Modify: `docs/progress.md`
 
-- [ ] **Step 1: Run the full API + dispatcher + types test suites**
+- [x] **Step 1: Run the full API + dispatcher + types test suites**
 
 ```bash
 pnpm --filter @aivastra/types test
@@ -2194,7 +2194,7 @@ pnpm --filter @aivastra/api test
 
 Expected: all pass. If any pre-existing unrelated failures surface (check against a clean `dev` checkout first, same verification approach used for the flat-saree fix), note them but don't let them block this feature's own tests passing.
 
-- [ ] **Step 2: Full typecheck**
+- [x] **Step 2: Full typecheck**
 
 ```bash
 pnpm typecheck
@@ -2202,11 +2202,11 @@ pnpm typecheck
 
 Expected: no errors in any touched package (`@aivastra/db`, `@aivastra/types`, `@aivastra/storage`, `@aivastra/api`, `@aivastra/catalogues-web`, `@aivastra/admin-web`).
 
-- [ ] **Step 3: Update `docs/progress.md`**
+- [x] **Step 3: Update `docs/progress.md`**
 
 Add a new dated entry at the top of the log (follow the existing entries' format exactly) summarizing: GSTIN capture (profile + per-purchase), sequential GST invoice generation (PDF via `pdfkit`, stored in R2), invoice delivery (download in payment history + email attachment), admin-configurable seller details. Note the spec at `docs/superpowers/specs/2026-08-12-gst-invoice-for-credit-purchases-design.md`.
 
-- [ ] **Step 4: Commit docs**
+- [x] **Step 4: Commit docs**
 
 ```bash
 git add docs/progress.md

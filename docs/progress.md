@@ -1,3 +1,45 @@
+## 2026-08-12 — GST Invoice for Credit Purchases
+
+**Done**
+- Implemented end-to-end GST invoice generation and delivery for credit purchases per spec `docs/superpowers/specs/2026-08-12-gst-invoice-for-credit-purchases-design.md`.
+- **Data Model & Migrations:** Added `gstin` column to `users` and `payments` tables; added `invoices` and `invoiceSequences` tables with atomic sequence allocator in migration `0152_gst_invoices.sql`.
+- **Shared Validation:** Added `GSTIN_REGEX` and `Gstin` Zod validator schema to `@aivastra/types`.
+- **User Profile & Order Creation:** Added GSTIN to `GET /v1/me` and `PATCH /v1/me`; accepted `gstin` in `POST /v1/payments/orders` storing it on `payments.gstin`.
+- **Admin Seller Config:** Added editable seller details (GSTIN, legal name, address) in `admin_config` (`GET /admin/config` and `PATCH /admin/config`) and added admin settings form UI in `admin-web`.
+- **Invoice PDF Generation & Storage:** Created PDF renderer using `pdfkit` formatting B2B/B2C GST tax invoices (`AIV-YY-YY-NNNNNN`), with gap-free financial year sequencing (`April 1 - March 31`), and storage key builder `keys.invoice(paymentId)` in `@aivastra/storage`.
+- **Issuance & Delivery:** Wired `issueInvoiceIfNeeded` helper into payment verification and webhook processing; attached generated PDF invoice to payment receipt emails via `sendPaymentReceiptEmail`.
+- **History & Downloads:** Extended `GET /v1/payments/history` with `invoiceNumber` and signed `invoiceUrl`; added authenticated 302 redirect route `GET /v1/payments/:id/invoice`.
+- **Web UI:** Added GSTIN field to user profile settings, created `<GstinConfirmModal>` pre-checkout modal with GST tax breakdown, wired confirmation before Razorpay checkout across Desktop/Mobile/Tablet layouts, and added Invoice download links to the Settings Invoices tab.
+- **Verification:** Unit tests and integration tests passing (`issue-invoice.test.ts`, `payments-tier.test.ts`, `invoice-pdf.test.ts`, `admin-config.test.ts`, `profile-gstin.test.ts`), and full monorepo typecheck passed.
+
+**Failed / Not Done**
+- None.
+
+**Open Questions / Decisions**
+- None.
+
+
+## 2026-08-12 — GST Invoice for Credit Purchases
+
+**Done**
+- Implemented end-to-end GST invoice generation and delivery for credit purchases per spec [`docs/superpowers/specs/2026-08-12-gst-invoice-for-credit-purchases-design.md`](file:///C:/AIVASTRA/docs/superpowers/specs/2026-08-12-gst-invoice-for-credit-purchases-design.md).
+- **Data Model & Migrations:** Added `gstin` column to `users` and `payments` tables; added `invoices` and `invoiceSequences` tables with atomic sequence allocator in migration `0152_gst_invoices.sql`.
+- **Shared Validation:** Added `GSTIN_REGEX` and `Gstin` Zod validator schema to `@aivastra/types`.
+- **User Profile & Order Creation:** Added GSTIN to `GET /v1/me` and `PATCH /v1/me`; accepted `gstin` in `POST /v1/payments/orders` storing it on `payments.gstin`.
+- **Admin Seller Config:** Added editable seller details (GSTIN, legal name, address) in `admin_config` (`GET /admin/config` and `PATCH /admin/config`) and added admin settings form UI in `admin-web`.
+- **Invoice PDF Generation & Storage:** Created PDF renderer using `pdfkit` formatting B2B/B2C GST tax invoices (`AIV-YY-YY-NNNNNN`), with gap-free financial year sequencing (`April 1 - March 31`), and storage key builder `keys.invoice(paymentId)` in `@aivastra/storage`.
+- **Issuance & Delivery:** Wired `issueInvoiceIfNeeded` helper into payment verification and webhook processing; attached generated PDF invoice to payment receipt emails via `sendPaymentReceiptEmail`.
+- **History & Downloads:** Extended `GET /v1/payments/history` with `invoiceNumber` and signed `invoiceUrl`; added authenticated 302 redirect route `GET /v1/payments/:id/invoice`.
+- **Web UI:** Added GSTIN field to user profile settings, created `<GstinConfirmModal>` pre-checkout modal with GST tax breakdown, wired confirmation before Razorpay checkout across Desktop/Mobile/Tablet layouts, and added Invoice download links to the Settings Invoices tab.
+- **Verification:** Unit tests and integration tests passing (`issue-invoice.test.ts`, `payments-tier.test.ts`, `invoice-pdf.test.ts`, `admin-config.test.ts`, `profile-gstin.test.ts`), and full monorepo typecheck passed.
+
+**Failed / Not Done**
+- None.
+
+**Open Questions / Decisions**
+- None.
+
+
 ## 2026-08-11 - Add 10MB file size validation on Try-On page (catalogues-web)
 
 **Done**
