@@ -44,6 +44,8 @@ interface PaymentRow {
   status: string;
   createdAt: string;
   paidAt: string | null;
+  invoiceNumber: string | null;
+  invoiceUrl: string | null;
 }
 interface PaymentHistoryResponse {
   payments: PaymentRow[];
@@ -1009,19 +1011,25 @@ export default function SettingsPage(): React.ReactElement {
                 <div
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '1.4fr 1.2fr 0.8fr 1fr 1fr 0.7fr',
+                    gridTemplateColumns: '1.4fr 1.2fr 0.8fr 1fr 1fr 0.7fr 0.9fr',
                     background: C.field,
                     borderBottom: `1px solid ${C.border}`,
                     padding: '12px 20px',
                   }}
                 >
-                  {['Date', 'Plan', 'Credits', 'Amount (incl. GST)', 'Payment ID', 'Status'].map(
-                    (h) => (
-                      <span key={h} style={{ fontSize: 12, fontWeight: 600, color: C.mid }}>
-                        {h}
-                      </span>
-                    ),
-                  )}
+                  {[
+                    'Date',
+                    'Plan',
+                    'Credits',
+                    'Amount (incl. GST)',
+                    'Payment ID',
+                    'Status',
+                    'Invoice',
+                  ].map((h) => (
+                    <span key={h} style={{ fontSize: 12, fontWeight: 600, color: C.mid }}>
+                      {h}
+                    </span>
+                  ))}
                 </div>
                 {rows.length === 0 ? (
                   <div
@@ -1046,7 +1054,7 @@ export default function SettingsPage(): React.ReactElement {
                       key={p.id}
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: '1.4fr 1.2fr 0.8fr 1fr 1fr 0.7fr',
+                        gridTemplateColumns: '1.4fr 1.2fr 0.8fr 1fr 1fr 0.7fr 0.9fr',
                         padding: '14px 20px',
                         borderBottom: i < rows.length - 1 ? `1px solid ${C.border}` : 'none',
                         alignItems: 'center',
@@ -1108,6 +1116,25 @@ export default function SettingsPage(): React.ReactElement {
                               ? 'Failed'
                               : 'Pending'}
                         </span>
+                      </span>
+                      <span>
+                        {p.invoiceUrl ? (
+                          <a
+                            href={p.invoiceUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 600,
+                              color: C.pink,
+                              textDecoration: 'none',
+                            }}
+                          >
+                            Download
+                          </a>
+                        ) : (
+                          <span style={{ fontSize: 12, color: C.light }}>—</span>
+                        )}
                       </span>
                     </div>
                   ))
