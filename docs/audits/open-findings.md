@@ -1,183 +1,35 @@
 # Open Findings — Consolidated Backlog
 
-**Last updated:** 2026-06-30  
-**Status:** All P0 blockers and P1 high-risk issues resolved. This document is the single consolidated backlog — it now includes all remaining open items from `docs/security-production-audit.md` (SEC-*) and `docs/production-backlog-hardening.md` (PIPE-*) in addition to the original mobile and platform findings.
+**Last updated:** 2026-08-12  
+**Status:** This document tracks only findings that are still open — a fully resolved finding is removed from here, not kept as a ✅ entry. Check `git log -p -- docs/audits/open-findings.md` for the history of anything removed. It consolidates open items from `docs/security-production-audit.md` (SEC-*) and `docs/production-backlog-hardening.md` (PIPE-*) in addition to the original mobile and platform findings.
+
+**2026-08-12 sweep:** every remaining item as of the prior version was re-checked against current code. 22 were already fixed (18 mobile, 4 platform) and removed here — see git history for what they were. Two mobile items and one platform item survived the sweep as genuinely still open or partial; everything in Part 3 was already known-current from today's session.
 
 ---
 
 ## Part 1 — Admin Mobile (apps/admin-mobile)
 
-> All 6 P0 blockers and all 10 P1 high-risk findings have been resolved. Remaining items are P2 quality and P3 polish.
+> All P0/P1 findings and 18 of 20 P2/P3 findings have been resolved. Two remain open.
 
 ### 🟡 P2 — Medium / Quality
-
-#### P2-1 · `KeyboardAvoidingView behavior="padding"` breaks login form on Android
-**File:** `src/app/(auth)/login.tsx` (line 41)
-
-`behavior="padding"` only works reliably on iOS. On Android the keyboard pushes the view up or overlaps the form depending on `windowSoftInputMode`.
-
-**Fix:** `Platform.OS === 'ios' ? 'padding' : 'height'`
-
----
-
-#### P2-2 · EAS `production` profile builds an APK, not an AAB — Play Store incompatible
-**File:** `apps/admin-mobile/eas.json` (lines 21–24)
-
-Google Play requires Android App Bundles (AAB). The current `buildType: "apk"` can only be sideloaded.
-
-**Fix:**
-```json
-"production": {
-  "android": {
-    "buildType": "app-bundle",
-    "gradleCommand": ":app:bundleRelease"
-  }
-}
-```
-
----
-
-#### P2-3 · `workers.tsx` "Active jobs" metric hardcoded to `'1'` or `'0'`
-**File:** `src/app/(tabs)/more/workers.tsx` (line 140)
-
-```tsx
-<Metric label="Active jobs" value={worker.status === 'BUSY' ? '1' : '0'} />
-```
-
-Assumes a busy worker always has exactly 1 job. Either get real data from the API or rename to "Status".
-
----
-
-#### P2-4 · `settings.tsx` — `useEffect` with empty deps calls `localSettings.load()` with stale closure
-**File:** `src/app/(tabs)/more/settings.tsx` (lines 44–46)
-
-`localSettings` missing from deps array. Breaks exhaustive-deps rule. Benign in practice (Zustand actions are stable) but inconsistent with the rest of the codebase.
-
----
-
-#### P2-5 · `home.tsx` magic number `paddingBottom: bottom + 100` for floating tab bar
-**File:** `src/app/(tabs)/home.tsx` (line 97)
-
-Hardcoded `100` assumes a fixed tab bar height. Will break on foldables, tablets, or if tab bar dimensions change. Export the tab bar height as a constant.
-
----
-
-#### P2-6 · `WorkerDetailCard` in `home.tsx` duplicates the `WorkerCard` component
-**File:** `src/app/(tabs)/home.tsx` (lines 351–378)
-
-An inline `WorkerDetailCard` renders essentially the same layout as `src/components/WorkerCard.tsx`. Two divergent implementations to maintain. Unify into `WorkerCard`.
-
----
-
-#### P2-7 · `statusColor` / `statusLabel` in `home.tsx` re-implement `StatusBadge` logic
-**File:** `src/app/(tabs)/home.tsx` (lines 20–50)
-
-Worker status color/label mapping is re-implemented inline rather than using the shared `StatusBadge.tsx` utility.
-
----
-
-#### P2-8 · No accessibility roles on interactive elements across all asset screens
-**Files:** `assets/backgrounds/index.tsx`, `assets/faces/index.tsx`, `assets/garment-types/index.tsx`, `assets/poses/index.tsx`, `assets/pose-assets/index.tsx`
-
-Asset cards, category cards, and bulk-action bars have no `accessibilityRole`, `accessibilityLabel`, or `accessibilityHint` on `TouchableOpacity` elements. Affects Play Store accessibility policy compliance.
-
----
 
 #### P2-9 · `uploadTwoImage` orphans main image when thumbnail upload fails
 **File:** `src/lib/upload.ts` (lines 39–60)
 
-If the main image uploads to R2 successfully but thumbnail generation or upload fails, the function throws without calling `confirmEndpoint`. The main image is permanently orphaned in R2.
+If the main image uploads to R2 successfully but thumbnail generation or upload fails, the function throws without calling `confirmEndpoint`. The main image is permanently orphaned in R2. Confirmed still open 2026-08-12 — every caller (`assets/backgrounds`, `assets/catalog`, `assets/faces`, `more/saree.tsx`, `more/tryon.tsx`) wraps the call in a generic `catch` with no cleanup call.
 
 **Fix:** Catch thumbnail failure and call a delete endpoint, or rely on a 24-hour R2 lifecycle rule for unconfirmed uploads.
 
 ---
 
-#### P2-10 · `jobs/index.tsx` `loadInitial` stops spinner on stale request completion
-**File:** `src/app/(tabs)/jobs/index.tsx` (lines 76–85)
-
-If `fetchPage(1)` resolves after a `requestId` mismatch, `loadInitial`'s `finally` block still calls `setLoading(false)`, hiding the spinner while the actual active request is still pending.
-
-**Fix:** Check `requestId` inside `loadInitial` before setting loading state, or rely entirely on `refreshing`/`paginating` states managed inside `fetchPage`.
-
----
-
-#### P2-11 · `jobs/index.tsx` SSE stream doesn't surface newly created jobs
-**File:** `src/app/(tabs)/jobs/index.tsx` (lines 94–117)
-
-The SSE handler calls `current.map(job => ...)`. If a brand-new job arrives via SSE, it's not in `current` — the `map` ignores it. The user sees new jobs only after a manual pull-to-refresh.
-
-**Fix:** If `update.jobId` is not found in the array (and matches current filters), fetch the job details or prepend a placeholder to the top of the list.
-
----
-
 ### 🔵 P3 — Low / Polish
-
-#### P3-1 · UUID regex in `home.tsx` SmartSearch accepts malformed IDs
-**File:** `src/app/(tabs)/home.tsx` (line 82)
-
-```ts
-const id = query.match(/[0-9a-f]{8}-[0-9a-f-]{27,}/i)?.[0];
-```
-
-The character class `[0-9a-f-]` includes a literal `-`, matching non-UUID strings. Use a proper UUIDv4 pattern.
-
----
 
 #### P3-2 · No automated version/build number bump in CI
 **File:** `apps/admin-mobile/app.config.js` (line 9)
 
-Manual version bumping in a fast-moving repo is error-prone. Play Store and TestFlight reject duplicate build numbers.
+Manual version bumping in a fast-moving repo is error-prone. Play Store and TestFlight reject duplicate build numbers. Confirmed still open 2026-08-12 — `app.config.js` still hardcodes `version: '1.0.1'`.
 
 **Fix:** Use `appVersionSource: "remote"` (EAS) or a pre-build hook reading from `git describe`.
-
----
-
-#### P3-3 · `widget-clients/[id].tsx` skeleton loader doesn't fill screen height
-**File:** `src/app/(tabs)/more/widget-clients/[id].tsx` (lines 140–145)
-
-Loading wrapper `View` lacks `flex: 1`. Skeletons render in a compact block at the top rather than filling the screen. Inconsistent with all other detail screens.
-
----
-
-#### P3-4 · Home screen 30s poll activates pull-to-refresh spinner visually
-**File:** `src/app/(tabs)/home.tsx` (lines 72–76)
-
-`refreshControl` with `refreshing={loading}` activates every 30 seconds during background polls. On a mounted monitor the spinner pulses constantly. Use the existing "Last refreshed: HH:MM:SS" badge for background polls; reserve the spinner for user-triggered refreshes.
-
----
-
-#### P3-5 · `users/index.tsx` debounce timer may fire after unmount
-**File:** `src/app/(tabs)/more/users/index.tsx` (lines 30–33)
-
-`clearTimeout` in cleanup correctly handles the common case, but if the component unmounts after the timer fires but before `apiFetch` resolves, `setDebouncedSearch` still runs on an unmounted component. Low risk; consider a mounted-ref guard.
-
----
-
-#### P3-6 · App version `1.0.1` with no changelog in the repo
-**File:** `app.config.js`
-
-No `CHANGELOG.md` exists for the mobile app. Internal EAS testers have no reference for what changed between builds.
-
----
-
-#### P3-7 · Unmounted state update in `more/users/[id].tsx` on user delete
-**File:** `src/app/(tabs)/more/users/[id].tsx` (lines 129–144)
-
-`router.back()` is called synchronously after delete success. The `finally` block then calls `setActioning(false)` on the now-unmounted component, triggering a React memory leak warning.
-
----
-
-#### P3-8 · Unmounted state update in `login.tsx` on successful login
-**File:** `src/app/(auth)/login.tsx` (lines 24–39)
-
-After `await login(...)` succeeds, `AuthGate` redirects the user and `LoginScreen` unmounts. The `finally` block still calls `setLoading(false)` on the unmounted component.
-
----
-
-#### P3-9 · `useAdminJobStream` recreates `options` object on every render
-**File:** `src/hooks/useAdminJobStream.ts` (lines 9–13)
-
-Default parameter `options = {}` creates a new object on every render when the caller omits `options`. While `useSSE` handles this safely via refs, it's an anti-pattern that could trigger unnecessary effect re-runs if `useSSE`'s dependency tracking changes.
 
 ---
 
@@ -205,7 +57,7 @@ The dispatcher forwards job inputs to ComfyUI without enforcing a strict input s
 **Severity:** High  
 **File:** `apps/api/src/modules/widget/widget.routes.ts`
 
-Public widget API keys are static strings. Outside a browser, `Origin` headers are trivially spoofed via `curl`. A merchant's public key can be used to drain their credits from any script.
+Public widget API keys are static strings. Outside a browser, `Origin` headers are trivially spoofed via `curl`. A merchant's public key can be used to drain their credits from any script. Confirmed still open 2026-08-12 — no Turnstile/reCAPTCHA or signed-session-token code found anywhere in the widget module or web app.
 
 **Options (requires product decision):**
 1. **reCAPTCHA v3 / Cloudflare Turnstile** — browser-only challenge; add token verification before credit deduction
@@ -215,23 +67,13 @@ Both options require coordinated changes to the widget embed, the merchant's int
 
 ---
 
-#### 11.1 · Primitive Div-Based Charts in Admin Dashboard
-**Severity:** High  
-**File:** `apps/admin-web/src/pages/DashboardPage.tsx`
-
-All charts (job volume, revenue, success rate) are hand-drawn with `div` elements and inline `width` percentages. No axis labels, no tooltips, no responsive sizing, no accessibility. The `recharts` package is already installed (`package.json`).
-
-**Fix:** Replace div bars with `<BarChart>` / `<LineChart>` from `recharts`. The data shape is already correct — this is a pure UI swap.
-
----
-
 ### 🟠 Medium
 
 #### 2.3 · Merchant Analytics Dashboard
 **Severity:** Medium  
 **Complexity:** High
 
-No per-merchant analytics surface exists. Merchants can't see their job volume, success rate, credit burn rate, or output gallery without contacting support. Requires a new API aggregate endpoint and a web UI page. Defer to a dedicated sprint.
+No per-merchant analytics surface exists. Merchants can't see their job volume, success rate, credit burn rate, or output gallery without contacting support. Requires a new API aggregate endpoint and a web UI page. Defer to a dedicated sprint. Confirmed still open 2026-08-12 — no merchant-scoped analytics route in `apps/api/src/modules/merchant/`. (The Shopify `/v1/shopify/analytics` route is a different, store-scoped surface and doesn't cover this.)
 
 ---
 
@@ -240,7 +82,9 @@ No per-merchant analytics surface exists. Merchants can't see their job volume, 
 **Complexity:** Medium  
 **File:** `apps/api/src/modules/widget/widget.routes.ts`
 
-No idempotency protection on job creation. A double-submit (network retry, accidental re-click) creates two jobs and deducts credits twice. Fix: accept an optional `Idempotency-Key` header; cache the response keyed on `(clientId, idempotency-key)` in Redis for 24h; return the cached response on duplicate.
+No idempotency protection on job creation. A double-submit (network retry, accidental re-click) creates two jobs and deducts credits twice. Confirmed still open 2026-08-12 — no `Idempotency-Key` handling in the route.
+
+**Fix:** Accept an optional `Idempotency-Key` header; cache the response keyed on `(clientId, idempotency-key)` in Redis for 24h; return the cached response on duplicate.
 
 ---
 
@@ -249,7 +93,7 @@ No idempotency protection on job creation. A double-submit (network retry, accid
 **Complexity:** High  
 **Files:** `apps/catalogues-web/src/app/globals.css`, multiple component files
 
-Responsive layout breakpoints are scattered as magic pixel values (`768px`, `1024px`, `1280px`) across CSS media queries and inline style conditionals. No shared breakpoint tokens. Changing the layout grid requires hunting every file.
+Responsive layout breakpoints are scattered as magic pixel values (`768px`, `1024px`, `1280px`) across CSS media queries and inline style conditionals. No shared breakpoint tokens. Changing the layout grid requires hunting every file. Confirmed still open 2026-08-12 — no `--bp-*` tokens or `breakpoints.ts` file exist.
 
 **Fix:** Define `--bp-sm`, `--bp-md`, `--bp-lg` CSS custom properties in `:root` and reference them via `@media (min-width: var(--bp-md))` or a shared `breakpoints.ts` constant file.
 
@@ -260,20 +104,20 @@ Responsive layout breakpoints are scattered as magic pixel values (`768px`, `102
 **Complexity:** High  
 **Files:** `packages/db/src/migrations/`
 
-When two branches independently add migrations, they collide on the same `NNNN_` index. The resolution process (rename, re-journal, manual apply-one) is manual and error-prone. Documented in `CLAUDE.md` but not automated.
+When two branches independently add migrations, they collide on the same `NNNN_` index. The resolution process (rename, re-journal, manual apply-one) is manual and error-prone, and remains documented in `CLAUDE.md`/`docs/version-control.md` but not automated. Confirmed still open 2026-08-12 — no such check in `.github/workflows/ci.yml` or `scripts/ci/`.
 
-**Fix:** A pre-push CI check that verifies the highest local migration index is greater than the highest index on `origin/master`. Fail fast with a rename instruction rather than discovering the collision post-merge.
+**Fix:** A pre-push CI check that verifies the highest local migration index is greater than the highest index on `origin/dev`. Fail fast with a rename instruction rather than discovering the collision post-merge.
 
 ---
 
 #### 9.4 · DB Seeding Standardization
 **Severity:** Medium  
 **Complexity:** Medium  
-**File:** `packages/db/src/seed.ts` (exists), `scripts/seed-catalog.ts`
+**File:** `packages/db/src/seed.ts`
 
-`seed.ts` was added but is incomplete. `seed-catalog.ts` is a standalone script outside the package. There is no unified `pnpm seed` command that handles dev environment setup end-to-end (admin user, catalog types, sample workflow templates). New developers must manually piece together the seed sequence.
+**Status:** 🟡 Partial — re-checked 2026-08-12. `pnpm db:seed` now exists and runs `packages/db/src/seed.ts` (the standalone `scripts/seed-catalog.ts` this finding originally cited no longer exists), but the script only seeds catalog types/categories/2000 faker catalog items. It doesn't touch an admin user or sample workflow templates, so a genuinely fresh dev environment still needs manual setup beyond `pnpm db:seed` for those two things.
 
-**Fix:** Consolidate seed logic into `packages/db/src/seed.ts`; expose as `pnpm db:seed` via the root `package.json`; document the full dev-setup sequence in `CLAUDE.md`.
+**Fix:** Extend `seed.ts` to also seed a default admin user and a minimal workflow template, or document the remaining manual steps in `CLAUDE.md`.
 
 ---
 
@@ -282,44 +126,18 @@ When two branches independently add migrations, they collide on the same `NNNN_`
 **Complexity:** High  
 **Files:** `apps/catalogues-web/src/app/api/`
 
-Some non-auth API calls route through the Next.js BFF (adding an extra network hop) when they could call the Fastify API directly. Architectural — requires auditing each BFF route to categorise: auth-only (keep BFF), data fetch (call API directly from client), sensitive (keep BFF). Defer to a dedicated refactor sprint.
+Some non-auth API calls route through the Next.js BFF (adding an extra network hop) when they could call the Fastify API directly. Architectural — requires auditing each BFF route to categorise: auth-only (keep BFF), data fetch (call API directly from client), sensitive (keep BFF). Defer to a dedicated refactor sprint. Not independently re-verified 2026-08-12 (architectural, unlikely to have changed incidentally) — treat as still open.
 
 ---
 
 ### 🟢 Low
-
-#### 8.3 · Hardcoded Port Conflicts in Dev
-**Severity:** Low  
-**Complexity:** Low  
-**Files:** `apps/api/src/server.ts`, `apps/dispatcher/src/index.ts`
-
-Default ports (4000, 4001) are hardcoded in source. If another service uses those ports, startup silently fails or the developer gets a cryptic EADDRINUSE. Read from `PORT` env var with the hardcoded value as fallback.
-
----
-
-#### 8.4 · Missing Shared Config Management
-**Severity:** Low  
-**Complexity:** Medium
-
-Each app reads `process.env.*` directly with no central validation. A missing required env var only surfaces at the point of first use (often deep in a request handler) rather than at startup. Add a startup validation step (e.g., Zod parse of `process.env`) in each app's entry point.
-
----
 
 #### 11.3 · Fragmented Admin Styling
 **Severity:** Medium  
 **Complexity:** High  
 **File:** `apps/admin-web/src/`
 
-The admin SPA has no shared component library — buttons, cards, badges, and modals are re-styled inline across pages. Design drift is visible (inconsistent padding, border-radius, font sizes between pages). Requires an incremental extraction of shared components — no big-bang rewrite, but each new page/feature should pull from a growing `components/` library.
-
----
-
-#### 11.5 · Brittle Theme State Sync
-**Severity:** Low  
-**Complexity:** Low  
-**File:** `apps/admin-web/src/`
-
-Theme preference (dark/light) is stored in a local React state that resets on page reload or when navigating between admin pages. Should persist to `localStorage` and read on mount.
+The admin SPA has no shared component library for the general case — buttons, cards, and most modals are re-styled inline across pages, though `StatusBadge.tsx` and `JobTypeBadge.tsx` now exist as a start. Design drift is visible (inconsistent padding, border-radius, font sizes between pages). Requires an incremental extraction of shared components — no big-bang rewrite, but each new page/feature should pull from a growing `components/` library.
 
 ---
 
@@ -335,37 +153,15 @@ Theme preference (dark/light) is stored in a local React state that resets on pa
 ### 🔴 Critical / High — Security
 
 #### SEC-C1 · Leaked VPS credential still in git history
-**Severity:** Critical (ops action)
-**Status:** 🟡 Partial — placeholder committed to `.env.production.example`, history not yet purged
+**Severity:** High (ops action) — rotation confirmed 2026-08-12; downgraded from Critical now that the live credential is dead, but the repo is public so the historical value is still exposed
+**Status:** 🟡 Partial — **rotated on the VPS 2026-08-12**, confirmed by the user; git history still not purged
 **File:** `.env.production.example` (commit `619622e`)
 
-The real ComfyUI Basic-Auth password (`WIDGET_COMFYUI_BASIC_AUTH=REDACTED_ROTATED_2026-08-12`) for VPS `38.247.186.118:8339` was committed and remains in git history even after the file was updated with a placeholder.
+The real ComfyUI Basic-Auth password for the widget VPS (`WIDGET_COMFYUI_URL=http://38.247.186.118:8339`) was committed and remains in git history even after the file was updated with a placeholder. **Confirmed rotated 2026-08-12** — the leaked value no longer authenticates against that VPS. The repo went public the same day for GitHub branch-protection reasons (see `docs/progress.md`), so the dead credential is still readable by anyone via `git show 619622e:.env.production.example`, and the history should still be cleaned up.
 
-**Required ops actions (in order):**
-1. Rotate the ComfyUI Basic-Auth password on the VPS **now** (assume credential is burned).
-2. Purge from history: `git filter-repo --replace-text <(echo 'Niceinteractive@2026==>CHANGE_ME') --force` then force-push all remotes.
-3. Add a pre-commit secret scanner (gitleaks / trufflehog) to CI so this class of leak is caught automatically.
-
----
-
-#### SEC-C2 · SSRF via `garmentImageUrl` in widget job creation
-**Severity:** Critical
-**Status:** ✅ Fixed (2026-06-30)
-**File:** `apps/api/src/modules/widget/routes.ts:141`
-
-`assertSafeExternalUrl()` added before any fetch: enforces `https`-only scheme, resolves the hostname via `dns.lookup`, and blocks RFC1918, loopback (`127.x`, `::1`), and link-local (`169.254.x`) ranges. Throws `BAD_REQUEST` before any credit check or network I/O if the URL is internal.
-
----
-
-#### SEC-H1 · Open, unthrottled merchant signup — active-by-default
-**Severity:** High
-**Status:** ✅ Fixed (2026-06-30)
-**File:** `apps/api/src/modules/merchant/routes.ts:16`, `packages/db/src/schema/widget.ts:29`
-
-Three changes applied together:
-1. `widget_clients.is_active` schema default changed to `false` (migration `0076_widget_clients_inactive_default.sql`). New accounts cannot use the API until an admin activates them.
-2. Signup route rate-limited to 5 requests / 1 hour.
-3. `widgetKey` withheld from the signup response — response now returns only `id`, `email`, `companyName`, and a "pending approval" message.
+**Remaining ops actions (in order):**
+1. Purge from history with `git filter-repo` (replace the leaked value with a placeholder across all commits), then force-push all remotes. Coordinate with anyone else who has a local clone — history rewrite invalidates their branches.
+2. Add a pre-commit secret scanner (gitleaks / trufflehog) to CI so this class of leak is caught automatically before it's committed.
 
 ---
 
@@ -512,42 +308,18 @@ Free-trial credits are granted at account creation. Spending requires a verified
 
 | ID | Area | Severity | Complexity |
 |----|------|----------|------------|
-| P2-1 | Mobile: Android keyboard form | Medium | Low |
-| P2-2 | Mobile: EAS production APK→AAB | Medium | Low |
-| P2-3 | Mobile: Workers hardcoded metric | Medium | Low |
-| P2-4 | Mobile: settings.tsx stale closure | Low | Low |
-| P2-5 | Mobile: tab bar magic number | Low | Low |
-| P2-6 | Mobile: WorkerDetailCard duplicate | Low | Low |
-| P2-7 | Mobile: statusColor re-implemented | Low | Low |
-| P2-8 | Mobile: accessibility roles missing | Medium | Medium |
 | P2-9 | Mobile: orphaned R2 upload | Medium | Medium |
-| P2-10 | Mobile: stale spinner on loadInitial | Low | Low |
-| P2-11 | Mobile: SSE misses new jobs | Medium | Medium |
-| P3-1 | Mobile: UUID regex loose | Low | Low |
 | P3-2 | Mobile: no CI version bump | Low | Low |
-| P3-3 | Mobile: skeleton height | Low | Low |
-| P3-4 | Mobile: poll spinner distraction | Low | Low |
-| P3-5 | Mobile: debounce post-unmount | Low | Low |
-| P3-6 | Mobile: no changelog | Low | Low |
-| P3-7 | Mobile: unmounted state (delete) | Low | Low |
-| P3-8 | Mobile: unmounted state (login) | Low | Low |
-| P3-9 | Mobile: options object recreated | Low | Low |
 | 7.5/9.1 | Dispatcher/ComfyUI sandboxing | Critical | High |
 | 7.1 | Widget origin / API key abuse | High | High |
-| 11.1 | Admin div-based charts → recharts | High | Medium |
 | 2.3 | Merchant analytics | Medium | High |
 | 2.4 | Idempotency key on job create | Medium | Medium |
 | 4.3 | Hardcoded responsive breakpoints | Medium | High |
 | 8.2 | Migration index conflict CI check | Medium | High |
-| 9.4 | DB seeding standardization | Medium | Medium |
+| 9.4 | DB seeding standardization — partial, catalog only | Medium | Medium |
 | 1.4 | BFF non-auth proxying overhead | Medium | High |
-| 8.3 | Hardcoded port fallbacks | Low | Low |
-| 8.4 | Env var startup validation | Low | Medium |
 | 11.3 | Admin fragmented styling | Medium | High |
-| 11.5 | Admin theme not persisted | Low | Low |
-| SEC-C1 | Security: leaked VPS credential in git history | Critical | Ops |
-| SEC-C2 | ~~Security: SSRF via garmentImageUrl~~ ✅ Fixed | Critical | — |
-| SEC-H1 | ~~Security: open merchant signup~~ ✅ Fixed | High | — |
+| SEC-C1 | Security: leaked VPS credential — rotated 2026-08-12, history purge still open | High | Ops |
 | SEC-H2 | Security: access_token in memory ✅; CSP still open 🔴 | High | Medium |
 | SEC-H3 | Security: world-readable storage bucket — prod's live bucket still is, grandfathered | High | Migrate remaining `publicUrl()` call sites or scope bucket policy to specific prefixes |
 | SEC-H4 | Security: presigned PUT unbounded size | High | Medium |
