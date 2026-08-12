@@ -52,4 +52,11 @@
         <item name="cornerFamilyBottomRight">cut</item>
     </style>
 
+    <style name="FullScreenDialog" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@drawable/screen_bg</item>
+    </style>
+
 </resources>

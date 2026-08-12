@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.widget.Toast
+import aivastra.nice.interactive.utils.CrashReporter
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -313,7 +314,7 @@ private fun downloadResultImage(context: Context, imageUrl: String) {
             }
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
-            e.printStackTrace()
+            CrashReporter.recordException(e, "TryOnResultPage")
             withContext(Dispatchers.Main) {
                 Toast.makeText(appContext, "Download notice: ${e.message}", Toast.LENGTH_SHORT).show()
             }
@@ -338,7 +339,7 @@ private fun saveBitmapToGallery(context: Context, bitmap: Bitmap) {
             }
         }
     } catch (e: Exception) {
-        e.printStackTrace()
+        CrashReporter.recordException(e, "TryOnResultPage")
     }
 }
 
