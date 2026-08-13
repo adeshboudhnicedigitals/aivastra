@@ -37,6 +37,7 @@
     "fastify-type-provider-zod": "^4.0.2",
     "ioredis": "^5.4.1",
     "jose": "^5.9.6",
+    "pdfkit": "^0.19.1",
     "resend": "^6.12.4",
     "zod": "^3.23.8"
   },
@@ -45,6 +46,7 @@
     "@types/adm-zip": "^0.5.8",
     "@types/ioredis-mock": "^8.2.7",
     "@types/node": "^22.7.5",
+    "@types/pdfkit": "^0.17.6",
     "dotenv": "^17.4.2",
     "ioredis-mock": "^8.13.1",
     "postgres": "^3.4.4",

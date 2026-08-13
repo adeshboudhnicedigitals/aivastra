@@ -83,7 +83,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: [detect]
-    if: needs.detect.outputs.docs_only != 'true'
+    # Skip on push: branch protection on main/dev blocks direct pushes and
+    # requires ci-gate to pass before a PR can merge, so every push event is
+    # definitionally a merge of a tree this job already validated at PR time
+    # (actions/checkout's default pull_request ref is the PR-vs-base test
+    # merge commit, so it's not just the PR head either). Re-running here
+    # bought no additional coverage, only ~7 redundant CI minutes on every
+    # single merge — this is what deploy actually needs to not wait on.
+    if: needs.detect.outputs.docs_only != 'true' && github.event_name != 'push'
 
     steps:
       - uses: actions/checkout@v4
@@ -108,7 +115,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [detect]
-    if: needs.detect.outputs.has_packages == 'true'
+    # See lint's comment — skip on push, already validated at PR time.
+    if: needs.detect.outputs.has_packages == 'true' && github.event_name != 'push'
 
     steps:
       - uses: actions/checkout@v4
@@ -144,7 +152,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [detect]
-    if: needs.detect.outputs.has_tests == 'true'
+    # See lint's comment — skip on push, already validated at PR time.
+    if: needs.detect.outputs.has_tests == 'true' && github.event_name != 'push'
     strategy:
       fail-fast: false
       matrix:
@@ -189,7 +198,8 @@ jobs:
     # Only apps/api has a test:integration script — skip when it isn't among the
     # affected packages (test_targets is the JSON array string emitted by
     # ci:detect, e.g. ["@aivastra/api"]; force_all/schedule runs always include it).
-    if: contains(needs.detect.outputs.test_targets, '@aivastra/api')
+    # Also skip on push — see lint's comment.
+    if: contains(needs.detect.outputs.test_targets, '@aivastra/api') && github.event_name != 'push'
 
     steps:
       - uses: actions/checkout@v4
@@ -226,6 +236,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: [detect]
+    # See lint's comment — skip on push, already validated at PR time.
+    if: github.event_name != 'push'
 
     steps:
       - uses: actions/checkout@v4

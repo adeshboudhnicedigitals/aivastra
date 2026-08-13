@@ -245,6 +245,9 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
 
   const [maxOutputPx, setMaxOutputPx] = useState(2048);
   const [maxBatchJobs, setMaxBatchJobs] = useState(200);
+  const [sellerGstin, setSellerGstin] = useState('');
+  const [sellerLegalName, setSellerLegalName] = useState('');
+  const [sellerAddress, setSellerAddress] = useState('');
   const [merchantCatalogDefaults, setMerchantCatalogDefaults] = useState<
     Record<
       string,
@@ -293,6 +296,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
     apiFetch<{
       maxOutputPx?: number;
       maxBatchJobs?: number;
+      seller?: { gstin?: string; legalName?: string; address?: string };
       merchantCatalogDefaults?: Record<
         string,
         { faceId: string; backgroundId: string; lowerCatalogId?: string; shoeCatalogId?: string }
@@ -303,6 +307,11 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
       .then((cfg) => {
         if (cfg.maxOutputPx) setMaxOutputPx(cfg.maxOutputPx);
         if (cfg.maxBatchJobs) setMaxBatchJobs(cfg.maxBatchJobs);
+        if (cfg.seller) {
+          setSellerGstin(cfg.seller.gstin ?? '');
+          setSellerLegalName(cfg.seller.legalName ?? '');
+          setSellerAddress(cfg.seller.address ?? '');
+        }
         if (cfg.merchantCatalogDefaults) setMerchantCatalogDefaults(cfg.merchantCatalogDefaults);
         if (cfg.merchantCatalogAspectRatio)
           setMerchantCatalogAspectRatio(cfg.merchantCatalogAspectRatio);
@@ -416,6 +425,11 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
         body: JSON.stringify({
           maxOutputPx,
           maxBatchJobs,
+          seller: {
+            gstin: sellerGstin.trim(),
+            legalName: sellerLegalName.trim(),
+            address: sellerAddress.trim(),
+          },
           merchantCatalogDefaults: sanitizedMerchantCatalogDefaults,
           merchantCatalogAspectRatio,
           uploadLimits: {
@@ -848,6 +862,40 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                       onChange={(e) => setMaxBatchJobs(Number(e.target.value))}
                     />
                     <span style={{ fontSize: 13, color: 'var(--muted)' }}>jobs per batch</span>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 24, marginBottom: 8 }}>
+                  <div className="setting-lbl" style={{ marginBottom: 4 }}>
+                    GST Invoice — Seller Details
+                  </div>
+                  <div className="setting-desc" style={{ marginBottom: 12 }}>
+                    Printed as the seller block on every customer GST invoice. Leave blank fields
+                    empty on the invoice until filled in.
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 420 }}>
+                    <input
+                      className="input"
+                      placeholder="Seller GSTIN"
+                      value={sellerGstin}
+                      disabled={sysSaving}
+                      onChange={(e) => setSellerGstin(e.target.value)}
+                    />
+                    <input
+                      className="input"
+                      placeholder="Legal business name"
+                      value={sellerLegalName}
+                      disabled={sysSaving}
+                      onChange={(e) => setSellerLegalName(e.target.value)}
+                    />
+                    <textarea
+                      className="input"
+                      placeholder="Registered address"
+                      value={sellerAddress}
+                      disabled={sysSaving}
+                      rows={3}
+                      onChange={(e) => setSellerAddress(e.target.value)}
+                    />
                   </div>
                 </div>
 

@@ -133,6 +133,13 @@ export function GenerationPanel({
       );
       return hasActive ? 5_000 : false;
     },
+    // The two options below override providers.tsx's global refetchOnWindowFocus:
+    // false / refetchIntervalInBackground default (also false) for this query
+    // only. Without them, this poll — the fallback for exactly the case where
+    // SSE dropped an event while the tab was backgrounded — silently pauses in
+    // that same backgrounded state, so it can't do the one thing it exists for.
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
   });
 
   useEffect(() => {

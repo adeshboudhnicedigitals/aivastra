@@ -1,4 +1,5 @@
 'use client';
+import { GSTIN_REGEX } from '@aivastra/types';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -19,6 +20,7 @@ interface MeResponse {
   displayName: string | null;
   phone: string | null;
   companyName: string | null;
+  gstin: string | null;
   tier: string;
   hasPassword: boolean;
   defaultResolution: string;
@@ -42,6 +44,8 @@ interface PaymentRow {
   status: string;
   createdAt: string;
   paidAt: string | null;
+  invoiceNumber: string | null;
+  invoiceUrl: string | null;
 }
 interface PaymentHistoryResponse {
   payments: PaymentRow[];
@@ -268,6 +272,8 @@ export default function SettingsPage(): React.ReactElement {
   const [phone, setPhone] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
   const [companyName, setCompanyName] = useState<string | null>(null);
+  const [gstin, setGstin] = useState<string | null>(null);
+  const [gstinError, setGstinError] = useState('');
   const [defaultResolution, setDefaultResolution] = useState<string | null>(null);
   const [defaultAspectRatio, setDefaultAspectRatio] = useState<string | null>(null);
   const [defaultPlatform, setDefaultPlatform] = useState<string | null>(null);
@@ -305,6 +311,7 @@ export default function SettingsPage(): React.ReactElement {
   const nameVal = name ?? me?.displayName ?? '';
   const phoneVal = sanitizePhone(phone ?? me?.phone ?? '');
   const companyNameVal = companyName ?? me?.companyName ?? '';
+  const gstinVal = gstin ?? me?.gstin ?? '';
   const defaultResolutionVal = defaultResolution ?? me?.defaultResolution ?? 'HD';
   const defaultAspectRatioVal = defaultAspectRatio ?? me?.defaultAspectRatio ?? '1:1';
   const defaultPlatformVal = defaultPlatform ?? me?.defaultPlatform ?? 'Amazon';
@@ -317,6 +324,12 @@ export default function SettingsPage(): React.ReactElement {
   const remaining = credits?.balance ?? 0;
 
   async function saveProfile() {
+    if (gstinVal.trim() && !GSTIN_REGEX.test(gstinVal.trim().toUpperCase())) {
+      setGstinError('Invalid GSTIN format');
+      return;
+    }
+    setGstinError('');
+
     setSaving(true);
     try {
       await api.patch('/v1/me', {
@@ -324,6 +337,7 @@ export default function SettingsPage(): React.ReactElement {
         email: canEditEmail && emailVal.trim() ? emailVal.trim() : undefined,
         phone: phoneVal || null,
         companyName: companyNameVal.trim() || null,
+        gstin: gstinVal.trim() || null,
         defaultResolution: defaultResolutionVal,
         defaultAspectRatio: defaultAspectRatioVal,
         defaultPlatform: defaultPlatformVal,
@@ -559,7 +573,17 @@ export default function SettingsPage(): React.ReactElement {
                   disabled={!editingProfile}
                   onChange={setCompanyName}
                 />
-                <div style={{ flex: 1, minWidth: 280 }} />
+                <Field
+                  label="GSTIN (Optional)"
+                  value={gstinVal}
+                  placeholder="e.g. 27AAPFU0939F1ZV"
+                  disabled={!editingProfile}
+                  onChange={(v) => {
+                    setGstin(v.toUpperCase());
+                    if (gstinError) setGstinError('');
+                  }}
+                  error={gstinError || undefined}
+                />
                 <div style={{ flex: 1, minWidth: 280 }} />
               </Row>
               {!profileComplete && (
@@ -609,6 +633,8 @@ export default function SettingsPage(): React.ReactElement {
                     setEmail(null);
                     setPhone(null);
                     setCompanyName(null);
+                    setGstin(null);
+                    setGstinError('');
                     setDefaultResolution(null);
                     setDefaultAspectRatio(null);
                     setDefaultPlatform(null);
@@ -985,19 +1011,25 @@ export default function SettingsPage(): React.ReactElement {
                 <div
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '1.4fr 1.2fr 0.8fr 1fr 1fr 0.7fr',
+                    gridTemplateColumns: '1.4fr 1.2fr 0.8fr 1fr 1fr 0.7fr 0.9fr',
                     background: C.field,
                     borderBottom: `1px solid ${C.border}`,
                     padding: '12px 20px',
                   }}
                 >
-                  {['Date', 'Plan', 'Credits', 'Amount (incl. GST)', 'Payment ID', 'Status'].map(
-                    (h) => (
-                      <span key={h} style={{ fontSize: 12, fontWeight: 600, color: C.mid }}>
-                        {h}
-                      </span>
-                    ),
-                  )}
+                  {[
+                    'Date',
+                    'Plan',
+                    'Credits',
+                    'Amount (incl. GST)',
+                    'Payment ID',
+                    'Status',
+                    'Invoice',
+                  ].map((h) => (
+                    <span key={h} style={{ fontSize: 12, fontWeight: 600, color: C.mid }}>
+                      {h}
+                    </span>
+                  ))}
                 </div>
                 {rows.length === 0 ? (
                   <div
@@ -1022,7 +1054,7 @@ export default function SettingsPage(): React.ReactElement {
                       key={p.id}
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: '1.4fr 1.2fr 0.8fr 1fr 1fr 0.7fr',
+                        gridTemplateColumns: '1.4fr 1.2fr 0.8fr 1fr 1fr 0.7fr 0.9fr',
                         padding: '14px 20px',
                         borderBottom: i < rows.length - 1 ? `1px solid ${C.border}` : 'none',
                         alignItems: 'center',
@@ -1084,6 +1116,25 @@ export default function SettingsPage(): React.ReactElement {
                               ? 'Failed'
                               : 'Pending'}
                         </span>
+                      </span>
+                      <span>
+                        {p.invoiceUrl ? (
+                          <a
+                            href={p.invoiceUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 600,
+                              color: C.pink,
+                              textDecoration: 'none',
+                            }}
+                          >
+                            Download
+                          </a>
+                        ) : (
+                          <span style={{ fontSize: 12, color: C.light }}>—</span>
+                        )}
                       </span>
                     </div>
                   ))

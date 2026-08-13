@@ -1,10 +1,12 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { schema } from '@aivastra/db';
+import { Gstin } from '@aivastra/types';
 import { and, asc, desc, eq, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { sendPaymentReceiptEmail } from '../../lib/mailer.js';
+import { issueInvoiceIfNeeded } from './issue-invoice.js';
 
 const GST_RATE = 0.18;
 
@@ -35,6 +37,7 @@ async function maybeSendReceipt(
   app: FastifyInstance,
   userId: string,
   payment: {
+    id: string;
     planId: string;
     credits: number;
     basePaise: number;
@@ -46,6 +49,8 @@ async function maybeSendReceipt(
   },
 ): Promise<void> {
   try {
+    const invoice = await issueInvoiceIfNeeded(app, payment.id);
+
     const [user] = await app.db
       .select({ email: schema.users.email })
       .from(schema.users)
@@ -58,16 +63,26 @@ async function maybeSendReceipt(
       .from(schema.creditPlans)
       .where(eq(schema.creditPlans.slug, payment.planId));
 
-    await sendPaymentReceiptEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, user.email, {
-      planName: plan?.name ?? payment.planId,
-      credits: payment.credits,
-      basePaise: payment.basePaise,
-      gstPaise: payment.gstPaise,
-      totalPaise: payment.totalPaise,
-      razorpayOrderId: payment.razorpayOrderId,
-      razorpayPaymentId: payment.razorpayPaymentId ?? '',
-      paidAt: payment.paidAt ?? new Date(),
-    });
+    const attachments = invoice
+      ? [{ filename: `${invoice.invoiceNumber}.pdf`, content: invoice.pdfBuffer }]
+      : undefined;
+
+    await sendPaymentReceiptEmail(
+      app.env.RESEND_API_KEY,
+      app.env.EMAIL_FROM,
+      user.email,
+      {
+        planName: plan?.name ?? payment.planId,
+        credits: payment.credits,
+        basePaise: payment.basePaise,
+        gstPaise: payment.gstPaise,
+        totalPaise: payment.totalPaise,
+        razorpayOrderId: payment.razorpayOrderId,
+        razorpayPaymentId: payment.razorpayPaymentId ?? '',
+        paidAt: payment.paidAt ?? new Date(),
+      },
+      attachments,
+    );
   } catch (err) {
     app.log.warn({ err, userId }, 'receipt email failed — non-fatal');
   }
@@ -171,13 +186,43 @@ export async function paymentsRoutes(app: FastifyInstance) {
         status: schema.payments.status,
         createdAt: schema.payments.createdAt,
         paidAt: schema.payments.paidAt,
+        invoiceNumber: schema.invoices.invoiceNumber,
+        invoiceR2Key: schema.invoices.r2Key,
       })
       .from(schema.payments)
       .leftJoin(schema.creditPlans, eq(schema.creditPlans.slug, schema.payments.planId))
+      .leftJoin(schema.invoices, eq(schema.invoices.paymentId, schema.payments.id))
       .where(eq(schema.payments.userId, req.userId))
       .orderBy(desc(schema.payments.createdAt))
       .limit(100);
-    return { payments: rows };
+
+    const payments = await Promise.all(
+      rows.map(async ({ invoiceR2Key, ...row }) => ({
+        ...row,
+        invoiceUrl: invoiceR2Key ? (await app.storage.presignGet(invoiceR2Key, 3600)).url : null,
+      })),
+    );
+    return { payments };
+  });
+
+  // GET /v1/payments/:id/invoice — redirect to presigned R2 GET URL for payment invoice
+  app.get('/v1/payments/:id/invoice', { preHandler: app.requireUser }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const [payment] = await app.db
+      .select({ id: schema.payments.id, userId: schema.payments.userId })
+      .from(schema.payments)
+      .where(eq(schema.payments.id, id));
+    if (!payment) throw new AppError('NOT_FOUND', 404, 'payment not found');
+    if (payment.userId !== req.userId) throw new AppError('FORBIDDEN', 403, 'forbidden');
+
+    const [invoice] = await app.db
+      .select({ r2Key: schema.invoices.r2Key })
+      .from(schema.invoices)
+      .where(eq(schema.invoices.paymentId, id));
+    if (!invoice) throw new AppError('NOT_FOUND', 404, 'invoice not yet issued');
+
+    const { url } = await app.storage.presignGet(invoice.r2Key, 3600);
+    reply.redirect(url);
   });
 
   // POST /v1/payments/orders — create a Razorpay order server-side
@@ -186,7 +231,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
     {
       preHandler: app.requireUser,
       schema: {
-        body: z.object({ planId: z.string().min(1) }),
+        body: z.object({ planId: z.string().min(1), gstin: Gstin }),
       },
     },
     async (req) => {
@@ -195,7 +240,8 @@ export async function paymentsRoutes(app: FastifyInstance) {
         throw new AppError('NOT_CONFIGURED', 503, 'payments not configured');
       }
 
-      const { planId } = req.body as { planId: string };
+      const { planId, gstin } = req.body as { planId: string; gstin?: string };
+      const normalizedGstin = gstin?.trim().toUpperCase() || null;
       const [plan] = await app.db
         .select()
         .from(schema.creditPlans)
@@ -220,6 +266,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
         gstPaise,
         totalPaise,
         credits: plan.credits,
+        gstin: normalizedGstin,
         status: 'created',
       });
 

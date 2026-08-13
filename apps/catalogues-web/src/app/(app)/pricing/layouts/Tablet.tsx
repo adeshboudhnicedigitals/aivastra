@@ -4,6 +4,7 @@ import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { Tooltip } from '@/components/ui/tooltip';
 import { CouponModal } from '../CouponModal';
+import { GstinConfirmModal } from '../GstinConfirmModal';
 import { PaymentResultModal } from '../PaymentResultModal';
 import { COUNTRIES, FLAGS, PLAN_FEATURES, PLAN_META } from '../use-pricing-data';
 import type { PricingLayoutProps } from './types';
@@ -40,6 +41,11 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
     applyCoupon,
     closeCouponModal,
     continueFromCouponModal,
+    gstinModalPlan,
+    checkoutGstin,
+    setCheckoutGstin,
+    closeGstinModal,
+    confirmGstinAndPay,
     banner,
   } = props;
 
@@ -820,6 +826,19 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
           onApply={() => void applyCoupon()}
           onClose={closeCouponModal}
           onContinue={continueFromCouponModal}
+        />
+      )}
+
+      {gstinModalPlan && (
+        <GstinConfirmModal
+          plan={gstinModalPlan}
+          gstin={checkoutGstin}
+          setGstin={setCheckoutGstin}
+          displayBase={displayBase}
+          displayTax={displayTax}
+          displayTotal={displayTotal}
+          onClose={closeGstinModal}
+          onPay={confirmGstinAndPay}
         />
       )}
     </div>

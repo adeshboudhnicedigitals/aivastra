@@ -8,6 +8,7 @@ import {
   DEFAULT_PIXVERSE_CONFIG,
   DEFAULT_RESOLUTION_CONFIG,
   DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG,
+  DEFAULT_SELLER_CONFIG,
   DEFAULT_SHOPIFY_TRIAL_CONFIG,
   DEFAULT_TRYON_CONFIG,
 } from '../../lib/resolution-config.js';
@@ -56,6 +57,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
         planCredits: { ...DEFAULT_CREDITS_BY_PLAN_HANDLE, ...cfg.shopify?.planCredits },
       };
       cfg.uploadLimits = { ...DEFAULT_UPLOAD_LIMITS, ...cfg.uploadLimits };
+      cfg.seller = { ...DEFAULT_SELLER_CONFIG, ...cfg.seller };
       return cfg;
     },
   );
