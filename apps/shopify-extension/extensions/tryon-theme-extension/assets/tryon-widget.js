@@ -266,15 +266,19 @@
       }
     }
 
-    // Fires each time a job completes — resultUrl is a stable public R2 URL
-    // (not presigned), so it's safe to keep around indefinitely in
-    // localStorage. History is per-browser and spans every product tried on
+    // Fires each time a job completes. resultUrl is a presigned R2 URL (1h
+    // TTL) — it WILL go stale while an entry sits in localStorage across
+    // browser sessions, so every render re-signs from jobId via
+    // resolveHistoryEntry() rather than trusting the cached string. jobId is
+    // what makes that possible; it's stored alongside the URL for exactly
+    // that purpose. History is per-browser and spans every product tried on
     // this store, same pattern as the "reuse last photo" feature: no
     // server-side concept of a widget shopper's identity exists to key a
     // real history endpoint off of.
-    function addToHistory(resultUrl) {
+    function addToHistory(resultUrl, jobId) {
       const entry = {
         resultUrl,
+        jobId,
         createdAt: Date.now(),
         productTitle,
         productUrl,
@@ -378,6 +382,45 @@
       }
     }
 
+    // Identity for a history entry: jobId when present (every entry written
+    // after this fix has one), falling back to the resultUrl string for
+    // entries persisted before jobId existed — those can never be re-signed
+    // and age out via the onerror handler below instead.
+    function removeHistoryEntry(entry) {
+      const remaining = getHistory().filter((h) =>
+        entry.jobId ? h.jobId !== entry.jobId : h.resultUrl !== entry.resultUrl,
+      );
+      try {
+        localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(remaining));
+      } catch (_err) {
+        // Storage blocked — the entry reappears next load; harmless.
+      }
+    }
+
+    // resultUrl is a 1h-presigned link, so a cached entry's URL is almost
+    // always stale by the time history is re-opened. Re-fetch a fresh one
+    // from the job's current state before rendering; a null resultUrl back
+    // from the API means retention actually deleted the object, so the entry
+    // is dropped for real rather than left to fail on load. Legacy entries
+    // with no jobId (persisted before this fix shipped) can't be re-signed —
+    // rendered as-is and left to the <img> onerror fallback.
+    async function resolveHistoryEntry(entry) {
+      if (!entry.jobId) return entry;
+      try {
+        const status = await fetchJobStatus(entry.jobId);
+        if (!status.resultUrl) {
+          removeHistoryEntry(entry);
+          return null;
+        }
+        return { ...entry, resultUrl: status.resultUrl };
+      } catch (_err) {
+        // Transient network failure — keep the cached entry rather than
+        // dropping real history over it; a genuine 404 still surfaces via
+        // the <img> onerror fallback below.
+        return entry;
+      }
+    }
+
     // One full-size card per stored result — the just-generated one lands on
     // top because addToHistory() unshifts it. Every card is a fresh clone of
     // the Liquid <template>, so each has its own Add to Cart / Share state;
@@ -388,16 +431,11 @@
 
       const img = card.querySelector('.aivastra-tryon__result-image');
       img.src = entry.resultUrl;
-      // Retention may have deleted this result since it was cached locally. A
-      // broken image is worse than a missing card, so drop the entry and
-      // rewrite the stored history.
+      // Belt-and-braces: resolveHistoryEntry() already re-signs before this
+      // card is built, so this only fires on a genuinely dead object (or a
+      // legacy entry with no jobId to re-sign from).
       img.addEventListener('error', () => {
-        const remaining = getHistory().filter((h) => h.resultUrl !== entry.resultUrl);
-        try {
-          localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(remaining));
-        } catch (_err) {
-          // Storage blocked — the entry reappears next load; harmless.
-        }
+        removeHistoryEntry(entry);
         renderResultList();
       });
 
@@ -419,14 +457,15 @@
       return card;
     }
 
-    function renderResultList() {
+    async function renderResultList() {
       const history = getHistory();
       syncHeaderButton();
       if (!resultList) return;
       resultList.innerHTML = '';
-      if (resultEmpty) resultEmpty.hidden = history.length > 0;
-      for (let i = 0; i < history.length; i++) {
-        resultList.appendChild(buildResultCard(history[i]));
+      const resolved = (await Promise.all(history.map(resolveHistoryEntry))).filter(Boolean);
+      if (resultEmpty) resultEmpty.hidden = resolved.length > 0;
+      for (let i = 0; i < resolved.length; i++) {
+        resultList.appendChild(buildResultCard(resolved[i]));
       }
     }
 
@@ -635,8 +674,8 @@
           return;
         }
         const resultUrl = await waitForResult(jobResult.jobId);
-        addToHistory(resultUrl);
-        renderResultList();
+        addToHistory(resultUrl, jobResult.jobId);
+        await renderResultList();
         showStep('result');
         trackEvent('result_view');
       } catch (err) {
@@ -678,8 +717,8 @@
     if (ctaBtn) ctaBtn.addEventListener('click', confirmReady);
     if (changePhotoBtn) changePhotoBtn.addEventListener('click', () => fileInput.click());
     if (historyBtn) {
-      historyBtn.addEventListener('click', () => {
-        renderResultList();
+      historyBtn.addEventListener('click', async () => {
+        await renderResultList();
         showStep('result');
       });
     }
