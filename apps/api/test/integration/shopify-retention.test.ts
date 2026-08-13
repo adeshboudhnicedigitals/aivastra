@@ -20,12 +20,18 @@ describe('shopify retention sweeper', () => {
 
   const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000);
 
+  // A monotonic counter, not Math.random(), guarantees uniqueness even when
+  // two seeds land in the same millisecond — which happens often enough in
+  // this suite to intermittently collide on the shopifyShopId unique index.
+  let shopIdCounter = 0;
+
   async function seedStoreWithRetention(retention: Record<string, unknown>) {
+    const uniqueSuffix = `${Date.now()}-${shopIdCounter++}`;
     const [store] = await app.db
       .insert(schema.shopifyStores)
       .values({
-        shopDomain: `ret-${Date.now()}-${Math.random()}.myshopify.com`,
-        shopifyShopId: Date.now() + Math.floor(Math.random() * 1000),
+        shopDomain: `ret-${uniqueSuffix}.myshopify.com`,
+        shopifyShopId: Date.now() * 1000 + shopIdCounter,
         accessToken: 'enc',
         scope: 'read_products',
         settings: { retention },
