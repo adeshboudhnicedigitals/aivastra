@@ -31,8 +31,15 @@ async function makeThumb(buf: Buffer): Promise<Buffer> {
     .toBuffer();
 }
 
-function toItem(app: FastifyInstance, row: { id: string; label: string; thumbnailKey: string }) {
-  return { id: row.id, label: row.label, thumbnailUrl: app.storage.publicUrl(row.thumbnailKey) };
+async function toItem(
+  app: FastifyInstance,
+  row: { id: string; label: string; thumbnailKey: string },
+) {
+  return {
+    id: row.id,
+    label: row.label,
+    thumbnailUrl: (await app.storage.presignGet(row.thumbnailKey, 3600)).url,
+  };
 }
 
 /**
@@ -74,7 +81,7 @@ async function normalizeAndStoreBackground(
       userId,
     })
     .returning();
-  return toItem(app, row);
+  return await toItem(app, row);
 }
 
 const BACKGROUND_ROW_COLUMNS = {
@@ -96,7 +103,7 @@ export async function backgroundsRoutes(app: FastifyInstance) {
         ),
       )
       .orderBy(desc(schema.modelBackgrounds.createdAt));
-    return { items: rows.map((r) => toItem(app, r)) };
+    return { items: await Promise.all(rows.map((r) => toItem(app, r))) };
   });
 
   app.post(

@@ -556,7 +556,9 @@ export async function jobsRoutes(app: FastifyInstance) {
           .select({ thumbnailKey: schema.catalogItems.thumbnailKey })
           .from(schema.catalogItems)
           .where(eq(schema.catalogItems.id, anyInput.lowerCatalogId));
-        if (catalogItem?.thumbnailKey) garmentUrl = app.storage.publicUrl(catalogItem.thumbnailKey);
+        if (catalogItem?.thumbnailKey) {
+          garmentUrl = (await app.storage.presignGet(catalogItem.thumbnailKey, 3600)).url;
+        }
       }
 
       // Current plan's watermark entitlement — NOT the per-job snapshot. The UI

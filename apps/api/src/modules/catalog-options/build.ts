@@ -91,12 +91,14 @@ async function fetchCatalogItems(
     .from(schema.catalogItems)
     .where(and(...conditions));
 
-  return items.map((i) => ({
-    id: i.id,
-    slug: i.publicApiSlug,
-    label: i.label,
-    thumbnailUrl: app.storage.publicUrl(i.thumbnailKey),
-  }));
+  return Promise.all(
+    items.map(async (i) => ({
+      id: i.id,
+      slug: i.publicApiSlug,
+      label: i.label,
+      thumbnailUrl: (await app.storage.presignGet(i.thumbnailKey, 3600)).url,
+    })),
+  );
 }
 
 export async function buildCatalogOptions(
@@ -138,12 +140,14 @@ export async function buildCatalogOptions(
     })
     .from(schema.modelFaces)
     .where(and(...faceConditions));
-  const faces = faceRows.map((f) => ({
-    id: f.id,
-    slug: f.slug,
-    label: f.label,
-    thumbnailUrl: app.storage.publicUrl(f.thumbnailKey),
-  }));
+  const faces = await Promise.all(
+    faceRows.map(async (f) => ({
+      id: f.id,
+      slug: f.slug,
+      label: f.label,
+      thumbnailUrl: (await app.storage.presignGet(f.thumbnailKey, 3600)).url,
+    })),
+  );
 
   const backgroundConditions = [
     eq(schema.modelBackgrounds.isActive, true),
@@ -162,12 +166,14 @@ export async function buildCatalogOptions(
     })
     .from(schema.modelBackgrounds)
     .where(and(...backgroundConditions));
-  const backgrounds = backgroundRows.map((b) => ({
-    id: b.id,
-    slug: b.slug,
-    label: b.label,
-    thumbnailUrl: app.storage.publicUrl(b.thumbnailKey),
-  }));
+  const backgrounds = await Promise.all(
+    backgroundRows.map(async (b) => ({
+      id: b.id,
+      slug: b.slug,
+      label: b.label,
+      thumbnailUrl: (await app.storage.presignGet(b.thumbnailKey, 3600)).url,
+    })),
+  );
 
   const poseConditions = [
     eq(schema.modelPoseAssets.genderSlug, gender),
@@ -236,21 +242,23 @@ export async function buildCatalogOptions(
     );
   }
 
-  const poses = poseRows
-    .filter((p) => !inactiveForType.has(p.id))
-    .map((p) => {
-      const cfg = configMap.get(p.id);
-      const lowerNodeId = cfg !== undefined ? cfg.lowerNodeId : p.lowerNodeId;
-      const shoeNodeId = cfg !== undefined ? cfg.shoeNodeId : p.shoeNodeId;
-      return {
-        id: p.id,
-        slug: p.slug,
-        label: p.label ?? p.fallbackLabel,
-        thumbnailUrl: app.storage.publicUrl(p.thumbnailKey),
-        hasLower: lowerNodeId != null,
-        hasShoes: shoeNodeId != null,
-      };
-    });
+  const poses = await Promise.all(
+    poseRows
+      .filter((p) => !inactiveForType.has(p.id))
+      .map(async (p) => {
+        const cfg = configMap.get(p.id);
+        const lowerNodeId = cfg !== undefined ? cfg.lowerNodeId : p.lowerNodeId;
+        const shoeNodeId = cfg !== undefined ? cfg.shoeNodeId : p.shoeNodeId;
+        return {
+          id: p.id,
+          slug: p.slug,
+          label: p.label ?? p.fallbackLabel,
+          thumbnailUrl: (await app.storage.presignGet(p.thumbnailKey, 3600)).url,
+          hasLower: lowerNodeId != null,
+          hasShoes: shoeNodeId != null,
+        };
+      }),
+  );
 
   const [lowerItems, shoeItems] = await Promise.all([
     fetchCatalogItems(app, 'lower', gender, garmentTypeId, publicOnly),

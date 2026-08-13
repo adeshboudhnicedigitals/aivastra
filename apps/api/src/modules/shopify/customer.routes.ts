@@ -562,7 +562,7 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
         id: job.id,
         status: job.status,
         errorCode: job.errorCode,
-        resultUrl: job.resultKey ? app.storage.publicUrl(job.resultKey) : null,
+        resultUrl: job.resultKey ? (await app.storage.presignGet(job.resultKey, 3600)).url : null,
       };
     },
   );

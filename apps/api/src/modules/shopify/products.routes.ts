@@ -107,14 +107,16 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
         .limit(pageSize)
         .offset((page - 1) * pageSize);
 
-      const items = rows.map((r) => ({
-        shopifyProductId: r.shopifyProductId,
-        title: r.title,
-        thumbnailUrl: app.storage.publicUrl(r.r2Key),
-        status: r.status,
-        enabled: r.enabled,
-        excluded: r.excluded,
-      }));
+      const items = await Promise.all(
+        rows.map(async (r) => ({
+          shopifyProductId: r.shopifyProductId,
+          title: r.title,
+          thumbnailUrl: (await app.storage.presignGet(r.r2Key, 3600)).url,
+          status: r.status,
+          enabled: r.enabled,
+          excluded: r.excluded,
+        })),
+      );
 
       return { page, pageSize, total, items };
     },
@@ -217,7 +219,7 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
       return {
         shopifyProductId: updated.shopifyProductId,
         title: updated.title,
-        thumbnailUrl: app.storage.publicUrl(updated.r2Key),
+        thumbnailUrl: (await app.storage.presignGet(updated.r2Key, 3600)).url,
         status: updated.status,
         enabled: updated.enabled,
         excluded: updated.excluded,
