@@ -358,7 +358,9 @@ html.dark .dark-logo-bg {
   }
 }
 
-/* Responsive button text helpers for TopBar and mobile/tablet headers */
+/* Responsive button text helpers for TopBar and mobile/tablet headers.
+   1024px mirrors src/lib/breakpoints.ts's BREAKPOINTS.lg — this is a plain
+   CSS file (no build-time access to that constant), keep them in sync. */
 @media (max-width: 1023px) {
   .hide-mobile-tablet {
     display: none !important;

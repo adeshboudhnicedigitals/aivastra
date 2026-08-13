@@ -8,6 +8,7 @@ import {
   useSidebarContext,
 } from '@/components/sidebar-context';
 import { useMediaQuery } from '@/hooks/use-media-query';
+import { BREAKPOINTS } from '@/lib/breakpoints';
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
@@ -53,7 +54,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const path = BASE && pathname?.startsWith(BASE) ? pathname.slice(BASE.length) : pathname;
   const isSellio = path === '/sellio' || path?.startsWith('/sellio/');
-  const isMobileLayout = useMediaQuery('(max-width: 1023px)');
+  const isMobileLayout = useMediaQuery(`(max-width: ${BREAKPOINTS.lg - 1}px)`);
   const isDrawerMode = isSellio || !!isMobileLayout;
 
   return (

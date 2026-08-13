@@ -8,6 +8,20 @@ const config: Config = {
     './src/app/**/*.{js,ts,jsx,tsx,mdx}',
   ],
   theme: {
+    // Explicit, even though these currently match Tailwind's own defaults —
+    // this is the actual shared breakpoint scale for the app (mirrored in
+    // src/lib/breakpoints.ts for code that can't consume Tailwind's config
+    // directly: styled-jsx/dangerouslySetInnerHTML <style> blocks and JS
+    // useMediaQuery() calls). `xs` is this app's own addition, not a
+    // Tailwind default. Keep both files in sync if either changes.
+    screens: {
+      xs: '480px',
+      sm: '640px',
+      md: '768px',
+      lg: '1024px',
+      xl: '1280px',
+      '2xl': '1536px',
+    },
     extend: {
       fontFamily: {
         hand: ['var(--font-hand)', 'Caveat', 'cursive'],

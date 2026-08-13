@@ -9,6 +9,7 @@ import { GradBtn } from '@/components/ui/grad-btn';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { api } from '@/lib/api';
+import { BREAKPOINTS } from '@/lib/breakpoints';
 import { isSupportedImageBytes } from '@/lib/image-validation';
 import { BatchMode } from './batch/batch-mode';
 import { type GenerationJob, GenerationPanel } from './generation-panel';
@@ -1675,7 +1676,7 @@ export default function StudioPage(): React.ReactElement {
             font-weight: 600 !important;
           }
         }
-        @media (max-width: 768px) {
+        @media (max-width: ${BREAKPOINTS.md}px) {
           .studio-layout-wrapper {
             padding: 12px;
             gap: 16px;
@@ -1704,7 +1705,7 @@ export default function StudioPage(): React.ReactElement {
             gap: 10px !important;
           }
         }
-        @media (max-width: 480px) {
+        @media (max-width: ${BREAKPOINTS.xs}px) {
           .studio-layout-wrapper {
             padding: 10px;
             gap: 12px;

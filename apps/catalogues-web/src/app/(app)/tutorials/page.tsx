@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
+import { BREAKPOINTS } from '@/lib/breakpoints';
 
 // Accepts a full YouTube URL (youtu.be/<id>, youtube.com/watch?v=<id>,
 // youtube.com/embed/<id>, with or without extra query params) or a bare
@@ -243,7 +244,7 @@ export default function TutorialsPage() {
         }
 
         /* Tablet Breakpoint */
-        @media (max-width: 1024px) {
+        @media (max-width: ${BREAKPOINTS.lg}px) {
           .tutorials-page-wrapper {
             padding: 20px;
           }
@@ -270,7 +271,7 @@ export default function TutorialsPage() {
         }
 
         /* Mobile Breakpoint */
-        @media (max-width: 640px) {
+        @media (max-width: ${BREAKPOINTS.sm}px) {
           .tutorials-page-wrapper {
             padding: 16px;
           }

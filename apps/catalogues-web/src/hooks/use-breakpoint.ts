@@ -1,13 +1,14 @@
+import { BREAKPOINTS } from '@/lib/breakpoints';
 import { useMediaQuery } from './use-media-query';
 
 export type Tier = 'mobile' | 'tablet' | 'small-laptop' | 'laptop' | 'desktop';
 
 const QUERIES: Record<Tier, string> = {
-  mobile: '(max-width: 639px)',
-  tablet: '(min-width: 640px) and (max-width: 1023px)',
-  'small-laptop': '(min-width: 1024px) and (max-width: 1279px)',
-  laptop: '(min-width: 1280px) and (max-width: 1535px)',
-  desktop: '(min-width: 1536px)',
+  mobile: `(max-width: ${BREAKPOINTS.sm - 1}px)`,
+  tablet: `(min-width: ${BREAKPOINTS.sm}px) and (max-width: ${BREAKPOINTS.lg - 1}px)`,
+  'small-laptop': `(min-width: ${BREAKPOINTS.lg}px) and (max-width: ${BREAKPOINTS.xl - 1}px)`,
+  laptop: `(min-width: ${BREAKPOINTS.xl}px) and (max-width: ${BREAKPOINTS['2xl'] - 1}px)`,
+  desktop: `(min-width: ${BREAKPOINTS['2xl']}px)`,
 };
 
 /**
