@@ -2,6 +2,7 @@
 import type { ChatMessageT, WsServerFrameT } from '@aivastra/types';
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { getToken } from '../lib/api';
+import { BREAKPOINTS } from '../lib/breakpoints';
 
 const CHATBOT_URL = process.env.NEXT_PUBLIC_CHATBOT_URL || 'http://localhost:4200';
 
@@ -180,7 +181,7 @@ export function ChatWidget() {
               font-family: system-ui, -apple-system, sans-serif;
               box-sizing: border-box;
             }
-            @media (max-width: 640px) {
+            @media (max-width: ${BREAKPOINTS.sm}px) {
               .chat-widget-trigger {
                 bottom: 16px !important;
                 right: 16px !important;

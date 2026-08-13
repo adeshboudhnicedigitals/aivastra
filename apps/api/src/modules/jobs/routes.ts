@@ -7,6 +7,7 @@ import {
   CreateSareeMannequinJobRequest,
   CreateSimpleTryonRequest,
   CreateTryOnJobRequest,
+  JOB_SOURCE,
   SareeConfigResponse,
 } from '@aivastra/types';
 import { and, asc, desc, eq, isNotNull, sql } from 'drizzle-orm';
@@ -15,6 +16,7 @@ import { z } from 'zod';
 import { getMaxBatchJobs } from '../../lib/batch-config.js';
 import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
+import { withIdempotency } from '../../lib/idempotency.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { getSareeSettings } from '../saree/settings.js';
 import { createCatalogVideoJob, createJob, createSimpleTryonJob } from './create.js';
@@ -23,24 +25,6 @@ import { createSareeJob } from './createSaree.js';
 import { createSareeMannequinJob } from './createSareeMannequin.js';
 import { regenerateJob } from './regenerate.js';
 import { sseHandler, userStreamHandler } from './sse.js';
-
-// Caches 201 responses for 24h keyed on (userId, Idempotency-Key header).
-// No-op when header is absent — backward compatible.
-async function withIdempotency<T>(
-  app: FastifyInstance,
-  userId: string,
-  idemKey: string | undefined,
-  fn: () => Promise<T>,
-): Promise<T> {
-  const redisKey = idemKey ? `idem:jobs:${userId}:${idemKey}` : null;
-  if (redisKey) {
-    const hit = await app.redis.get(redisKey);
-    if (hit) return JSON.parse(hit) as T;
-  }
-  const result = await fn();
-  if (redisKey) await app.redis.setex(redisKey, 86400, JSON.stringify(result));
-  return result;
-}
 
 export async function jobsRoutes(app: FastifyInstance) {
   app.get('/v1/catalog-videos', { preHandler: app.requireUser }, async (req) => {
@@ -108,6 +92,7 @@ export async function jobsRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const result = await withIdempotency(
         app,
+        'jobs',
         req.userId,
         req.headers['idempotency-key'] as string | undefined,
         () => createJob(app, req.userId, req.body as z.infer<typeof CreateTryOnJobRequest>),
@@ -123,6 +108,7 @@ export async function jobsRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const result = await withIdempotency(
         app,
+        'jobs',
         req.userId,
         req.headers['idempotency-key'] as string | undefined,
         () => createBatchJobs(app, req.userId, req.body as z.infer<typeof CreateBatchJobRequest>),
@@ -138,6 +124,7 @@ export async function jobsRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const result = await withIdempotency(
         app,
+        'jobs',
         req.userId,
         req.headers['idempotency-key'] as string | undefined,
         () =>
@@ -172,6 +159,7 @@ export async function jobsRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const result = await withIdempotency(
         app,
+        'jobs',
         req.userId,
         req.headers['idempotency-key'] as string | undefined,
         () =>
@@ -192,6 +180,7 @@ export async function jobsRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const result = await withIdempotency(
         app,
+        'jobs',
         req.userId,
         req.headers['idempotency-key'] as string | undefined,
         () =>
@@ -245,6 +234,7 @@ export async function jobsRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const result = await withIdempotency(
         app,
+        'jobs',
         req.userId,
         req.headers['idempotency-key'] as string | undefined,
         () => createSareeJob(app, req.userId, req.body as z.infer<typeof CreateSareeJobRequest>),
@@ -567,7 +557,9 @@ export async function jobsRoutes(app: FastifyInstance) {
           .select({ thumbnailKey: schema.catalogItems.thumbnailKey })
           .from(schema.catalogItems)
           .where(eq(schema.catalogItems.id, anyInput.lowerCatalogId));
-        if (catalogItem?.thumbnailKey) garmentUrl = app.storage.publicUrl(catalogItem.thumbnailKey);
+        if (catalogItem?.thumbnailKey) {
+          garmentUrl = (await app.storage.presignGet(catalogItem.thumbnailKey, 3600)).url;
+        }
       }
 
       // Current plan's watermark entitlement — NOT the per-job snapshot. The UI
@@ -832,6 +824,11 @@ export async function jobsRoutes(app: FastifyInstance) {
       const { id } = req.params as { id: string };
 
       let creditsCharged = 0;
+      // 'cancelled' — job was QUEUED, transitioned + refunded synchronously below.
+      // 'pending' — job was in-flight on the standard tryon pipeline; a Redis flag
+      // was set for the dispatcher to pick up on its next GENERATING poll tick, but
+      // nothing in Postgres has changed yet, so the SSE/200 path below must be skipped.
+      let outcome: 'cancelled' | 'pending' | undefined;
       await app.db.transaction(async (tx) => {
         // Conditional UPDATE — only succeeds if the job is still QUEUED.
         // If the dispatcher has already moved it to PREPROCESSING this returns 0 rows → 409.
@@ -852,13 +849,34 @@ export async function jobsRoutes(app: FastifyInstance) {
         if (!cancelled.length) {
           // Job not found, not owned by this user, or no longer QUEUED
           const [job] = await tx
-            .select({ status: schema.jobs.status })
+            .select({ status: schema.jobs.status, source: schema.jobs.source })
             .from(schema.jobs)
             .where(and(eq(schema.jobs.id, id), eq(schema.jobs.userId, req.userId)));
           if (!job) throw new AppError('NOT_FOUND', 404, 'job not found');
+
+          // In-flight cancellation: only wired up for the standard studio pipeline
+          // (apps/dispatcher/src/job/processor.ts's processJob main body — the only
+          // processor that checks this flag, in its GENERATING poll loop). That
+          // body is reached when jobInputs has faceId+backgroundId+poseId all set,
+          // which is what JOB_SOURCE.CATALOG jobs (the /v1/jobs/tryon route, batch,
+          // and saree-mannequin step-2) have — NOT JOB_SOURCE.TRYON, which is the
+          // "regenerate this look" /v1/jobs/simple-tryon endpoint and is routed to
+          // processTryonDirectJob instead, which never wires this flag at all.
+          // Saree-mannequin/widget/shopify/merchant/kiosk jobs fall through to the
+          // 409 below unchanged; see docs/audits/open-findings.md 7.5/9.1 for why
+          // that scope was chosen.
+          if (
+            (job.status === 'PREPROCESSING' || job.status === 'GENERATING') &&
+            job.source === JOB_SOURCE.CATALOG
+          ) {
+            outcome = 'pending';
+            return;
+          }
+
           throw new AppError('CONFLICT', 409, 'only queued jobs can be cancelled');
         }
 
+        outcome = 'cancelled';
         creditsCharged = cancelled[0]?.creditsCharged;
 
         await tx.insert(schema.jobEvents).values({
@@ -887,6 +905,16 @@ export async function jobsRoutes(app: FastifyInstance) {
           }
         }
       });
+
+      if (outcome === 'pending') {
+        // TTL bounds how long a stale flag can linger if the job finishes (or
+        // crashes) before the dispatcher's next poll tick ever reads it. Set
+        // outside the transaction — Redis isn't transactional with Postgres here,
+        // and nothing above depends on this having landed.
+        await app.redis.set(`job:cancel:${id}`, '1', 'EX', 600);
+        reply.code(202).send({ ok: true, pending: true });
+        return;
+      }
 
       // Publish SSE so open tabs update immediately
       const ssePayload = JSON.stringify({

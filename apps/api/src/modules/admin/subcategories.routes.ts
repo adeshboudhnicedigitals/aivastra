@@ -25,12 +25,14 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
       .from(schema.garmentSubcategories)
       .orderBy(asc(schema.garmentSubcategories.sortOrder), asc(schema.garmentSubcategories.label));
     return {
-      items: rows.map((r) => ({
-        ...r,
-        instructionImageUrl: r.instructionImageKey
-          ? app.storage.publicUrl(r.instructionImageKey)
-          : null,
-      })),
+      items: await Promise.all(
+        rows.map(async (r) => ({
+          ...r,
+          instructionImageUrl: r.instructionImageKey
+            ? (await app.storage.presignGet(r.instructionImageKey, 3600)).url
+            : null,
+        })),
+      ),
     };
   });
 
@@ -300,25 +302,27 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
       const configMap = new Map(configs.map((c) => [c.poseAssetId, c]));
 
       return {
-        items: poses.map((p) => {
-          const cfg = configMap.get(p.id) ?? null;
-          // Effective active state for this garment type: the per-type override
-          // wins when set, otherwise fall back to the pose asset's global flag.
-          const isActive = cfg?.isActive ?? p.globalIsActive;
-          return {
-            ...p,
-            isActive,
-            thumbnailUrl: app.storage.publicUrl(p.thumbnailKey),
-            config: cfg
-              ? {
-                  workflowTemplateId: cfg.workflowTemplateId,
-                  promptGarmentPhase: cfg.promptGarmentPhase,
-                  promptFacePhase: cfg.promptFacePhase,
-                  isActive: cfg.isActive,
-                }
-              : null,
-          };
-        }),
+        items: await Promise.all(
+          poses.map(async (p) => {
+            const cfg = configMap.get(p.id) ?? null;
+            // Effective active state for this garment type: the per-type override
+            // wins when set, otherwise fall back to the pose asset's global flag.
+            const isActive = cfg?.isActive ?? p.globalIsActive;
+            return {
+              ...p,
+              isActive,
+              thumbnailUrl: (await app.storage.presignGet(p.thumbnailKey, 3600)).url,
+              config: cfg
+                ? {
+                    workflowTemplateId: cfg.workflowTemplateId,
+                    promptGarmentPhase: cfg.promptGarmentPhase,
+                    promptFacePhase: cfg.promptFacePhase,
+                    isActive: cfg.isActive,
+                  }
+                : null,
+            };
+          }),
+        ),
       };
     },
   );
@@ -449,14 +453,18 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
       }
 
       return {
-        items: templates.map((t) => ({
-          id: t.id,
-          label: t.label,
-          thumbnailUrl: t.thumbnailKey ? app.storage.publicUrl(t.thumbnailKey) : null,
-          mapped: mappingIdByTemplate.has(t.id),
-          mappingId: mappingIdByTemplate.get(t.id) ?? null,
-          poseAssetIds: [...(poseIdsByTemplate.get(t.id) ?? [])],
-        })),
+        items: await Promise.all(
+          templates.map(async (t) => ({
+            id: t.id,
+            label: t.label,
+            thumbnailUrl: t.thumbnailKey
+              ? (await app.storage.presignGet(t.thumbnailKey, 3600)).url
+              : null,
+            mapped: mappingIdByTemplate.has(t.id),
+            mappingId: mappingIdByTemplate.get(t.id) ?? null,
+            poseAssetIds: [...(poseIdsByTemplate.get(t.id) ?? [])],
+          })),
+        ),
       };
     },
   );
@@ -562,14 +570,16 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
         .orderBy(asc(schema.catalogueTemplateLooks.sortOrder));
 
       return {
-        items: looks.map((look) => ({
-          id: look.id,
-          poseAssetId: look.poseAssetId,
-          poseLabel: look.poseDisplayName ?? look.poseLabel,
-          poseThumbnailUrl: app.storage.publicUrl(look.poseThumbnailKey),
-          backgroundLabel: look.backgroundLabel,
-          isEnabled: look.excludedId == null,
-        })),
+        items: await Promise.all(
+          looks.map(async (look) => ({
+            id: look.id,
+            poseAssetId: look.poseAssetId,
+            poseLabel: look.poseDisplayName ?? look.poseLabel,
+            poseThumbnailUrl: (await app.storage.presignGet(look.poseThumbnailKey, 3600)).url,
+            backgroundLabel: look.backgroundLabel,
+            isEnabled: look.excludedId == null,
+          })),
+        ),
       };
     },
   );
@@ -669,15 +679,17 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
         .orderBy(asc(schema.modelPoseAssets.sortOrder), asc(schema.modelPoseAssets.label));
 
       return {
-        items: poses.map((pose) => ({
-          id: pose.id,
-          label: pose.label,
-          displayName: pose.displayName,
-          workflowTemplateId: pose.workflowTemplateId,
-          promptGarmentPhase: pose.promptGarmentPhase,
-          source: pose.source,
-          thumbnailUrl: app.storage.publicUrl(pose.thumbnailKey),
-        })),
+        items: await Promise.all(
+          poses.map(async (pose) => ({
+            id: pose.id,
+            label: pose.label,
+            displayName: pose.displayName,
+            workflowTemplateId: pose.workflowTemplateId,
+            promptGarmentPhase: pose.promptGarmentPhase,
+            source: pose.source,
+            thumbnailUrl: (await app.storage.presignGet(pose.thumbnailKey, 3600)).url,
+          })),
+        ),
       };
     },
   );

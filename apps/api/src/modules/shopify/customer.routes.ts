@@ -7,7 +7,14 @@ import {
   ShopifyCustomerPresignRequest,
 } from '@aivastra/types';
 import { and, eq } from 'drizzle-orm';
-import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from 'fastify';
+import type {
+  FastifyBaseLogger,
+  FastifyInstance,
+  FastifyReply,
+  FastifyRequest,
+  RouteHandlerMethod,
+  RouteShorthandOptions,
+} from 'fastify';
 import type { Redis } from 'ioredis';
 import { AppError } from '../../lib/errors.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
@@ -195,18 +202,45 @@ async function isCustomerPhotoOwnedByStore(
   return owner === storeId;
 }
 
+const DIRECT_PREFIX = '/v1/shopify/customer';
+// SEC-7.1: routes also registered here (see registerProxied below) are reachable
+// through Shopify's App Proxy, which HMAC-signs every forwarded request itself —
+// no client-supplied secret to steal, unlike the legacy X-Widget-Key path.
+// shopify.app.toml's [app_proxy] maps a storefront-relative path to this prefix.
+// Not applied to the SSE events route: App Proxy's behavior for a long-lived
+// streaming response isn't documented and hasn't been verified against a live
+// Shopify store — that route stays on the legacy path only.
+const PROXY_PREFIX = '/v1/shopify/proxy/customer';
+
+/** Registers `handler` at both its direct path and the App Proxy-forwarded
+ *  path — same preHandler either way, since requireShopifyStoreKey accepts
+ *  both the App Proxy signature and the legacy X-Widget-Key. */
+function registerProxied(
+  app: FastifyInstance,
+  method: 'get' | 'post',
+  suffix: string,
+  opts: RouteShorthandOptions,
+  handler: RouteHandlerMethod,
+) {
+  app[method](`${DIRECT_PREFIX}${suffix}`, opts, handler);
+  app[method](`${PROXY_PREFIX}${suffix}`, opts, handler);
+}
+
 export async function shopifyCustomerRoutes(app: FastifyInstance) {
   app.post('/v1/shopify/customer/account/link', { preHandler: app.requireUser }, async (req) => {
     const code = await mintAccountLinkCode(app.redis, req.userId);
     return { code };
   });
 
-  app.post(
-    '/v1/shopify/customer/presign',
+  registerProxied(
+    app,
+    'post',
+    '/presign',
     {
       preHandler: [
         app.requireShopifyStoreKey,
-        async (req, reply) => checkRateLimit(app.redis, req.shopifyStoreId as string, reply),
+        async (req: FastifyRequest, reply: FastifyReply) =>
+          checkRateLimit(app.redis, req.shopifyStoreId as string, reply),
       ],
       schema: { body: ShopifyCustomerPresignRequest },
     },
@@ -227,12 +261,15 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
     },
   );
 
-  app.post(
-    '/v1/shopify/customer/photo/preview',
+  registerProxied(
+    app,
+    'post',
+    '/photo/preview',
     {
       preHandler: [
         app.requireShopifyStoreKey,
-        async (req, reply) => checkRateLimit(app.redis, req.shopifyStoreId as string, reply),
+        async (req: FastifyRequest, reply: FastifyReply) =>
+          checkRateLimit(app.redis, req.shopifyStoreId as string, reply),
       ],
       schema: { body: ShopifyCustomerPhotoPreviewRequest },
     },
@@ -249,12 +286,15 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
     },
   );
 
-  app.post(
-    '/v1/shopify/customer/jobs',
+  registerProxied(
+    app,
+    'post',
+    '/jobs',
     {
       preHandler: [
         app.requireShopifyStoreKey,
-        async (req, reply) => checkRateLimit(app.redis, req.shopifyStoreId as string, reply),
+        async (req: FastifyRequest, reply: FastifyReply) =>
+          checkRateLimit(app.redis, req.shopifyStoreId as string, reply),
       ],
       schema: { body: ShopifyCustomerJobRequest },
     },
@@ -493,8 +533,10 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
     },
   );
 
-  app.get(
-    '/v1/shopify/customer/jobs/:id',
+  registerProxied(
+    app,
+    'get',
+    '/jobs/:id',
     { preHandler: app.requireShopifyStoreKey },
     async (req) => {
       const storeId = req.shopifyStoreId as string;
@@ -520,7 +562,7 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
         id: job.id,
         status: job.status,
         errorCode: job.errorCode,
-        resultUrl: job.resultKey ? app.storage.publicUrl(job.resultKey) : null,
+        resultUrl: job.resultKey ? (await app.storage.presignGet(job.resultKey, 3600)).url : null,
       };
     },
   );

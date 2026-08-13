@@ -49,6 +49,12 @@ codebase documents the *why* behind non-obvious constraints; keep doing that. No
 **Honesty.** Show failing output rather than summarizing it away. Say what you
 skipped. Claim something works when you ran it, not when it looks right.
 
+**Decisions get a tradeoff.** When a task forks into more than one valid
+approach, lay it out like a systems-design review: name each option, and state
+the cost/benefit separately for developers (complexity, ops burden, blast
+radius) and for users (latency, reliability, UX, cost). Short table or bullets,
+not an essay — then recommend one. See `CLAUDE.md` for the fuller version.
+
 **Configuration lives outside the repo too.** Shopify Partner Dashboard (app
 handle, plan prices, trial days, redirect URLs, plan descriptions), Cloudflare
 (cache rules), CloudPanel vhosts, and the VPS `.env` files all shape behaviour

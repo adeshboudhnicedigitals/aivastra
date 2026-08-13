@@ -9,6 +9,7 @@ import { AppError, withRowIndex } from '../../lib/errors.js';
 import { atomicDeduct, refundAndMarkFailed } from '../credits/ledger.js';
 import {
   createTryonPlanCache,
+  resolveQueueRouting,
   resolveTryonPlan,
   type TryonPlan,
   verifyGarmentKey,
@@ -39,16 +40,9 @@ export async function createBatchJobs(
 ): Promise<BatchCreateResult> {
   const { rows } = body;
 
-  const [[user], [planRow], [garmentType]] = await Promise.all([
+  const [[user], routing, [garmentType]] = await Promise.all([
     app.db.select().from(schema.users).where(eq(schema.users.id, userId)),
-    app.db
-      .select({
-        queueStream: schema.creditPlans.queueStream,
-        watermark: schema.creditPlans.watermark,
-      })
-      .from(schema.users)
-      .innerJoin(schema.creditPlans, eq(schema.users.tier, schema.creditPlans.slug))
-      .where(eq(schema.users.id, userId)),
+    resolveQueueRouting(app, userId),
     app.db
       .select({ requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep })
       .from(schema.garmentSubcategories)
@@ -86,9 +80,7 @@ export async function createBatchJobs(
     );
   }
 
-  const queueStream: string = planRow?.queueStream ?? 'normal';
-  const priority = queueStream === 'priority';
-  const watermark: boolean = planRow?.watermark ?? false;
+  const { queueStream, priority, watermark } = routing;
 
   // H2 ownership: each DISTINCT key is verified once, not once per row — a
   // garment reused across five rows is one Redis lookup. The map remembers the

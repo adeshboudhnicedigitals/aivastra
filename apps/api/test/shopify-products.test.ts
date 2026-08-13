@@ -76,9 +76,8 @@ describe('GET /v1/shopify/products', () => {
     expect(red.title).toBe('Red Shirt');
     expect(red.status).toBe('active');
     expect(red.enabled).toBe(true);
-    expect(red.thumbnailUrl).toBe(
-      app.storage.publicUrl(`shopify-garments/${storeId}/1/garment.jpg`),
-    );
+    expect(red.thumbnailUrl).toContain(`shopify-garments/${storeId}/1/garment.jpg`);
+    expect(red.thumbnailUrl).toContain('X-Amz-Signature');
     const blue = body.items.find((p: { shopifyProductId: number }) => p.shopifyProductId === 2);
     expect(blue.enabled).toBe(false);
   });

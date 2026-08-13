@@ -84,12 +84,22 @@ function isBlockedIp(ip: string): boolean {
   return true; // not a recognizable IP — treat as blocked
 }
 
+export interface PublicHttpTarget {
+  url: URL;
+  /** The specific address validated by this call, to be pinned on the actual
+   *  connection later — resolving the hostname again at fetch time would let a
+   *  DNS-rebinding attacker swap in a private address between check and use. */
+  address: string;
+}
+
 /**
  * Validates a user-supplied URL is safe for the server to fetch: http(s) only,
  * and every DNS-resolved address for its hostname is a public address. Returns
- * the parsed URL for the caller to actually fetch.
+ * the parsed URL plus the one address the caller must connect to — re-resolving
+ * the hostname at fetch time reopens the DNS-rebinding TOCTOU this guard exists
+ * to close.
  */
-export async function assertPublicHttpUrl(input: string): Promise<URL> {
+export async function assertPublicHttpUrl(input: string): Promise<PublicHttpTarget> {
   let parsed: URL;
   try {
     parsed = new URL(input);
@@ -111,5 +121,5 @@ export async function assertPublicHttpUrl(input: string): Promise<URL> {
   if (addresses.some((ip) => isBlockedIp(ip))) {
     throw new AppError('VALIDATION', 400, 'this URL host is not allowed');
   }
-  return parsed;
+  return { url: parsed, address: addresses[0] };
 }

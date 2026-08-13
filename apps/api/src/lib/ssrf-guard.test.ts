@@ -3,8 +3,9 @@ import { assertPublicHttpUrl } from './ssrf-guard.js';
 
 describe('assertPublicHttpUrl', () => {
   it('accepts a public IP literal', async () => {
-    const url = await assertPublicHttpUrl('http://1.1.1.1/image.jpg');
-    expect(url.hostname).toBe('1.1.1.1');
+    const target = await assertPublicHttpUrl('http://1.1.1.1/image.jpg');
+    expect(target.url.hostname).toBe('1.1.1.1');
+    expect(target.address).toBe('1.1.1.1');
   });
 
   it('rejects loopback', async () => {
@@ -59,7 +60,7 @@ describe('assertPublicHttpUrl', () => {
     // WHATWG URL normalizes bracketed IPv4-mapped IPv6 literals to hex-group
     // form (e.g. "::ffff:1.1.1.1" -> "::ffff:101:101") before we ever see
     // `parsed.hostname`, so assert against the normalized form.
-    const url = await assertPublicHttpUrl('http://[::ffff:1.1.1.1]/x.jpg');
-    expect(url.hostname).toBe('[::ffff:101:101]');
+    const target = await assertPublicHttpUrl('http://[::ffff:1.1.1.1]/x.jpg');
+    expect(target.url.hostname).toBe('[::ffff:101:101]');
   });
 });

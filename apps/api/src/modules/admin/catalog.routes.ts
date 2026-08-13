@@ -91,10 +91,14 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
       .from(schema.catalogCategories)
       .innerJoin(schema.catalogTypes, eq(schema.catalogCategories.typeId, schema.catalogTypes.id))
       .orderBy(schema.catalogCategories.sortOrder);
-    return rows.map((r) => ({
-      ...r,
-      thumbnailUrl: r.thumbnailKey ? app.storage.publicUrl(r.thumbnailKey) : null,
-    }));
+    return Promise.all(
+      rows.map(async (r) => ({
+        ...r,
+        thumbnailUrl: r.thumbnailKey
+          ? (await app.storage.presignGet(r.thumbnailKey, 3600)).url
+          : null,
+      })),
+    );
   });
 
   app.post(
@@ -269,7 +273,9 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
       return {
         ...row,
         typeSlug: typeRow?.slug ?? '',
-        thumbnailUrl: row.thumbnailKey ? app.storage.publicUrl(row.thumbnailKey) : null,
+        thumbnailUrl: row.thumbnailKey
+          ? (await app.storage.presignGet(row.thumbnailKey, 3600)).url
+          : null,
       };
     },
   );

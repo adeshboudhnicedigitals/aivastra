@@ -46,13 +46,17 @@ export async function modelsRoutes(app: FastifyInstance) {
           asc(schema.garmentSubcategories.label),
         );
       return {
-        items: items.map((i) => ({
-          ...i,
-          thumbnailUrl: i.thumbnailKey ? app.storage.publicUrl(i.thumbnailKey) : null,
-          instructionImageUrl: i.instructionImageKey
-            ? app.storage.publicUrl(i.instructionImageKey)
-            : null,
-        })),
+        items: await Promise.all(
+          items.map(async (i) => ({
+            ...i,
+            thumbnailUrl: i.thumbnailKey
+              ? (await app.storage.presignGet(i.thumbnailKey, 3600)).url
+              : null,
+            instructionImageUrl: i.instructionImageKey
+              ? (await app.storage.presignGet(i.instructionImageKey, 3600)).url
+              : null,
+          })),
+        ),
       };
     },
   );
@@ -129,7 +133,12 @@ export async function modelsRoutes(app: FastifyInstance) {
         .orderBy(asc(schema.modelFaces.sortOrder), asc(schema.modelFaces.label));
 
       return {
-        items: items.map((i) => ({ ...i, thumbnailUrl: app.storage.publicUrl(i.thumbnailUrl) })),
+        items: await Promise.all(
+          items.map(async (i) => ({
+            ...i,
+            thumbnailUrl: (await app.storage.presignGet(i.thumbnailUrl, 3600)).url,
+          })),
+        ),
       };
     },
   );
@@ -175,16 +184,21 @@ export async function modelsRoutes(app: FastifyInstance) {
         );
 
       return {
-        items: rows.map((b) => ({
-          id: b.id,
-          label: b.label,
-          thumbnailUrl: app.storage.publicUrl(b.thumbnailKey),
-          previewUrl: app.storage.publicUrl(b.thumbnailKey),
-          isWhiteBg: b.isWhiteBg,
-          categoryId: b.categoryId,
-          tags: b.tags,
-          specialTag: b.specialTag,
-        })),
+        items: await Promise.all(
+          rows.map(async (b) => {
+            const thumbnailUrl = (await app.storage.presignGet(b.thumbnailKey, 3600)).url;
+            return {
+              id: b.id,
+              label: b.label,
+              thumbnailUrl,
+              previewUrl: thumbnailUrl,
+              isWhiteBg: b.isWhiteBg,
+              categoryId: b.categoryId,
+              tags: b.tags,
+              specialTag: b.specialTag,
+            };
+          }),
+        ),
       };
     },
   );
@@ -228,12 +242,16 @@ export async function modelsRoutes(app: FastifyInstance) {
         .orderBy(schema.catalogCategories.sortOrder);
 
       return {
-        items: rows.map((c) => ({
-          id: c.id,
-          slug: c.slug,
-          label: c.label,
-          thumbnailUrl: c.thumbnailKey ? app.storage.publicUrl(c.thumbnailKey) : null,
-        })),
+        items: await Promise.all(
+          rows.map(async (c) => ({
+            id: c.id,
+            slug: c.slug,
+            label: c.label,
+            thumbnailUrl: c.thumbnailKey
+              ? (await app.storage.presignGet(c.thumbnailKey, 3600)).url
+              : null,
+          })),
+        ),
       };
     },
   );
@@ -333,22 +351,24 @@ export async function modelsRoutes(app: FastifyInstance) {
       }
 
       return {
-        items: items
-          .filter((i) => !inactiveForType.has(i.id))
-          .map((i) => {
-            const cfg = configMap.get(i.id);
-            const lowerNodeId = cfg !== undefined ? cfg.lowerNodeId : i.lowerNodeId;
-            const shoeNodeId = cfg !== undefined ? cfg.shoeNodeId : i.shoeNodeId;
-            const sizeNodeIds = cfg !== undefined ? cfg.sizeNodeIds : i.sizeNodeIds;
-            return {
-              id: i.id,
-              label: i.displayName ?? i.label,
-              thumbnailUrl: app.storage.publicUrl(i.thumbnailUrl),
-              hasLower: lowerNodeId != null,
-              hasShoes: shoeNodeId != null,
-              hasAspectRatio: (sizeNodeIds?.length ?? 0) > 0,
-            };
-          }),
+        items: await Promise.all(
+          items
+            .filter((i) => !inactiveForType.has(i.id))
+            .map(async (i) => {
+              const cfg = configMap.get(i.id);
+              const lowerNodeId = cfg !== undefined ? cfg.lowerNodeId : i.lowerNodeId;
+              const shoeNodeId = cfg !== undefined ? cfg.shoeNodeId : i.shoeNodeId;
+              const sizeNodeIds = cfg !== undefined ? cfg.sizeNodeIds : i.sizeNodeIds;
+              return {
+                id: i.id,
+                label: i.displayName ?? i.label,
+                thumbnailUrl: (await app.storage.presignGet(i.thumbnailUrl, 3600)).url,
+                hasLower: lowerNodeId != null,
+                hasShoes: shoeNodeId != null,
+                hasAspectRatio: (sizeNodeIds?.length ?? 0) > 0,
+              };
+            }),
+        ),
       };
     },
   );
@@ -487,33 +507,37 @@ export async function modelsRoutes(app: FastifyInstance) {
         looksByTemplate.get(row.templateId)?.push(row);
       }
 
-      const items = templates
-        .map((t) => {
-          const rows = looksByTemplate.get(t.id) ?? [];
-          const looks = rows.map((r) => {
+      const items = (
+        await Promise.all(
+          templates.map(async (t) => {
+            const rows = looksByTemplate.get(t.id) ?? [];
+            const looks = await Promise.all(
+              rows.map(async (r) => ({
+                id: r.lookId,
+                poseId: r.poseId,
+                poseLabel: r.poseDisplayName ?? r.poseLabel,
+                poseThumbnailUrl: (await app.storage.presignGet(r.poseThumbnailKey, 3600)).url,
+                backgroundId: r.backgroundId,
+                backgroundLabel: r.backgroundLabel,
+                backgroundThumbnailUrl: (
+                  await app.storage.presignGet(r.backgroundThumbnailKey, 3600)
+                ).url,
+                hasLower: r.lowerNodeId != null,
+                hasShoes: r.shoeNodeId != null,
+              })),
+            );
             return {
-              id: r.lookId,
-              poseId: r.poseId,
-              poseLabel: r.poseDisplayName ?? r.poseLabel,
-              poseThumbnailUrl: app.storage.publicUrl(r.poseThumbnailKey),
-              backgroundId: r.backgroundId,
-              backgroundLabel: r.backgroundLabel,
-              backgroundThumbnailUrl: app.storage.publicUrl(r.backgroundThumbnailKey),
-              hasLower: r.lowerNodeId != null,
-              hasShoes: r.shoeNodeId != null,
+              id: t.id,
+              mappingId: t.mappingId,
+              label: t.label,
+              thumbnailUrl: t.thumbnailKey
+                ? (await app.storage.presignGet(t.thumbnailKey, 3600)).url
+                : (looks[0]?.poseThumbnailUrl ?? null),
+              looks,
             };
-          });
-          return {
-            id: t.id,
-            mappingId: t.mappingId,
-            label: t.label,
-            thumbnailUrl: t.thumbnailKey
-              ? app.storage.publicUrl(t.thumbnailKey)
-              : (looks[0]?.poseThumbnailUrl ?? null),
-            looks,
-          };
-        })
-        .filter((t) => t.looks.length > 0);
+          }),
+        )
+      ).filter((t) => t.looks.length > 0);
 
       return { items };
     },

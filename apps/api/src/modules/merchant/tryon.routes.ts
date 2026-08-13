@@ -5,6 +5,7 @@ import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { withIdempotency } from '../../lib/idempotency.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 import { createMerchantTryonJob } from './create-tryon-job.js';
 import { merchantRefund } from './ledger.js';
@@ -126,49 +127,63 @@ export async function merchantTryonRoutes(app: FastifyInstance) {
         typeof MerchantTryonJobCreateBody
       >;
 
-      const garment = await resolveTryonGarment(app, merchantId, merchantCatalogItemId);
-
-      if (!customerPhotoKey.startsWith(`merchant-inputs/${merchantId}/`)) {
-        throw new AppError('FORBIDDEN', 403, 'customer photo key does not belong to this merchant');
-      }
-
-      const uploadOwner = await app.redis.get(`upload:owner:${customerPhotoKey}`);
-      if (uploadOwner !== merchantId) {
-        throw new AppError('FORBIDDEN', 403, 'upload session expired or not owned');
-      }
-
-      let photoHead: { contentLength: number };
-      try {
-        photoHead = await app.storage.headObject(customerPhotoKey);
-      } catch {
-        throw new AppError('BAD_UPLOAD', 400, 'uploaded photo not found');
-      }
-      const maxTryonBytes = await getUploadLimitBytes(app, 'merchantTryonMaxBytes');
-      if (photoHead.contentLength > maxTryonBytes) {
-        throw new AppError(
-          'BAD_UPLOAD',
-          413,
-          `uploaded photo exceeds ${maxTryonBytes / (1024 * 1024)}MB limit`,
-        );
-      }
-
-      const [merchant] = await app.db
-        .select({ userId: schema.merchants.userId })
-        .from(schema.merchants)
-        .where(eq(schema.merchants.id, merchantId))
-        .limit(1);
-      if (!merchant) throw new AppError('NOT_FOUND', 404, 'merchant not found');
-
-      const jobId = await createMerchantTryonJob(app, {
+      const result = await withIdempotency(
+        app,
+        'merchant-tryon-jobs',
         merchantId,
-        merchantUserId: merchant.userId,
-        upperGarmentKey: garment.r2Key,
-        customerPhotoKey,
-        workflowTemplateId: garment.workflowTemplateId,
-      });
+        req.headers['idempotency-key'] as string | undefined,
+        async () => {
+          const garment = await resolveTryonGarment(app, merchantId, merchantCatalogItemId);
+
+          if (!customerPhotoKey.startsWith(`merchant-inputs/${merchantId}/`)) {
+            throw new AppError(
+              'FORBIDDEN',
+              403,
+              'customer photo key does not belong to this merchant',
+            );
+          }
+
+          const uploadOwner = await app.redis.get(`upload:owner:${customerPhotoKey}`);
+          if (uploadOwner !== merchantId) {
+            throw new AppError('FORBIDDEN', 403, 'upload session expired or not owned');
+          }
+
+          let photoHead: { contentLength: number };
+          try {
+            photoHead = await app.storage.headObject(customerPhotoKey);
+          } catch {
+            throw new AppError('BAD_UPLOAD', 400, 'uploaded photo not found');
+          }
+          const maxTryonBytes = await getUploadLimitBytes(app, 'merchantTryonMaxBytes');
+          if (photoHead.contentLength > maxTryonBytes) {
+            throw new AppError(
+              'BAD_UPLOAD',
+              413,
+              `uploaded photo exceeds ${maxTryonBytes / (1024 * 1024)}MB limit`,
+            );
+          }
+
+          const [merchant] = await app.db
+            .select({ userId: schema.merchants.userId })
+            .from(schema.merchants)
+            .where(eq(schema.merchants.id, merchantId))
+            .limit(1);
+          if (!merchant) throw new AppError('NOT_FOUND', 404, 'merchant not found');
+
+          const jobId = await createMerchantTryonJob(app, {
+            merchantId,
+            merchantUserId: merchant.userId,
+            upperGarmentKey: garment.r2Key,
+            customerPhotoKey,
+            workflowTemplateId: garment.workflowTemplateId,
+          });
+
+          return { jobId };
+        },
+      );
 
       reply.code(201);
-      return { jobId };
+      return result;
     },
   );
   app.get(

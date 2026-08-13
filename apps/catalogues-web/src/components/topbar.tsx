@@ -2,6 +2,7 @@
 
 import { Menu, PhoneCall } from 'lucide-react';
 import { useEffect, useRef } from 'react';
+import { BREAKPOINTS } from '../lib/breakpoints';
 import { SupportButton } from './SupportModal';
 import { SIDEBAR_DRAWER_ID, useSidebarContext } from './sidebar-context';
 import { C } from './tokens';
@@ -38,7 +39,7 @@ export function TopBar({
       <style
         dangerouslySetInnerHTML={{
           __html: `
-            @media (max-width: 640px) {
+            @media (max-width: ${BREAKPOINTS.sm}px) {
               .user-menu-credits-word {
                 display: none !important;
               }

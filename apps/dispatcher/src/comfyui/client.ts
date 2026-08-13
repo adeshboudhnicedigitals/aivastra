@@ -40,6 +40,28 @@ export async function submitPrompt(
   return { promptId: json.prompt_id };
 }
 
+// ComfyUI's /interrupt stops whatever prompt is currently executing on that worker —
+// it takes no prompt_id, so this must only be called while this job's prompt is the
+// one actually running there (i.e. from inside the GENERATING poll loop, never after).
+export async function interruptPrompt(
+  workerUrl: string,
+  apiKey: string,
+  log?: { info: (obj: unknown, msg: string) => void; error: (obj: unknown, msg: string) => void },
+): Promise<void> {
+  const url = `${workerUrl.replace(/\/$/, '')}/interrupt`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: apiHeaders(apiKey),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    log?.error({ url, status: res.status, body: text }, 'ComfyUI /interrupt failed');
+    throw new Error(`ComfyUI /interrupt failed: ${res.status} ${text}`);
+  }
+  log?.info({ url }, 'ComfyUI /interrupt ok');
+}
+
 export async function fetchHistory(
   workerUrl: string,
   apiKey: string,

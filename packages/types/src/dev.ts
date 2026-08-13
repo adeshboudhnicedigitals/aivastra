@@ -189,6 +189,22 @@ export const ApiUsageResponse = z.object({
 export type ApiUsageResponse = z.infer<typeof ApiUsageResponse>;
 export type ApiUsageRow = ApiUsageResponse['usage'][number];
 
+export const MerchantAnalyticsResponse = z.object({
+  totalJobs: z.number().int(),
+  completedJobs: z.number().int(),
+  failedJobs: z.number().int(),
+  successRate: z.number().min(0).max(1).nullable(),
+  totalCreditsCharged: z.number().int(),
+  recentOutputs: z.array(
+    z.object({
+      jobId: z.string().uuid(),
+      thumbnailUrl: z.string(),
+      createdAt: z.string(),
+    }),
+  ),
+});
+export type MerchantAnalyticsResponse = z.infer<typeof MerchantAnalyticsResponse>;
+
 // ---- Admin management of the developer-API catalog (see /admin/dev-api/*) ----
 
 const slugRule = z

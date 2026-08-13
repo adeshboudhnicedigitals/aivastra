@@ -1,6 +1,6 @@
 'use client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, MonitorPlay, Package, Phone, Store } from 'lucide-react';
+import { BarChart3, KeyRound, MonitorPlay, Package, Phone, Store } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -63,6 +63,13 @@ const NAV: {
     href: '/developers',
     label: 'Developers',
     icon: 'key',
+    merchantOnly: true,
+  },
+  {
+    id: 'analytics',
+    href: '/analytics',
+    label: 'Analytics',
+    icon: 'bar-chart',
     merchantOnly: true,
   },
   // Sellio preview — not ready for real users. Not removed (page still fully
@@ -176,7 +183,7 @@ export function Sidebar({
     },
     {
       title: 'BUSINESS',
-      items: visibleNav.filter((item) => ['pricing', 'developers'].includes(item.id)),
+      items: visibleNav.filter((item) => ['analytics', 'pricing', 'developers'].includes(item.id)),
     },
     {
       title: 'HELP',
@@ -310,6 +317,11 @@ export function Sidebar({
                           <KeyRound size={16} style={{ color: isActive ? '#FFFFFF' : '#BABABB' }} />
                         ) : item.icon === 'store' ? (
                           <Store size={16} style={{ color: isActive ? '#FFFFFF' : '#BABABB' }} />
+                        ) : item.icon === 'bar-chart' ? (
+                          <BarChart3
+                            size={16}
+                            style={{ color: isActive ? '#FFFFFF' : '#BABABB' }}
+                          />
                         ) : (
                           // eslint-disable-next-line @next/next/no-img-element
                           // biome-ignore lint/performance/noImgElement: user upload icon
