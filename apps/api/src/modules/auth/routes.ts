@@ -214,7 +214,9 @@ async function resolveMerchantLogoUrl(
     .where(eq(schema.merchants.userId, userId));
   // Cache-bust: logoKey is a fixed path that never changes across re-uploads (see the
   // matching comment in admin/users.routes.ts), so append updatedAt to force a fresh fetch.
-  return row?.logoKey ? `${app.storage.publicUrl(row.logoKey)}?v=${row.updatedAt.getTime()}` : null;
+  return row?.logoKey
+    ? `${(await app.storage.presignGet(row.logoKey, 3600)).url}?v=${row.updatedAt.getTime()}`
+    : null;
 }
 
 async function issueDeviceSession(

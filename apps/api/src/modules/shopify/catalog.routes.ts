@@ -218,16 +218,18 @@ export async function shopifyCatalogRoutes(app: FastifyInstance) {
         .orderBy(desc(schema.shopifyCatalogJobs.createdAt));
 
       return {
-        items: rows.map((r) => ({
-          jobId: r.jobId,
-          catalogueId: r.catalogueId,
-          status: r.status,
-          errorCode: r.errorCode,
-          resultUrl: r.resultKey ? app.storage.publicUrl(r.resultKey) : null,
-          published: r.shopifyMediaId != null,
-          sourceImageUrl: r.sourceImageUrl,
-          createdAt: r.createdAt,
-        })),
+        items: await Promise.all(
+          rows.map(async (r) => ({
+            jobId: r.jobId,
+            catalogueId: r.catalogueId,
+            status: r.status,
+            errorCode: r.errorCode,
+            resultUrl: r.resultKey ? (await app.storage.presignGet(r.resultKey, 3600)).url : null,
+            published: r.shopifyMediaId != null,
+            sourceImageUrl: r.sourceImageUrl,
+            createdAt: r.createdAt,
+          })),
+        ),
       };
     },
   );

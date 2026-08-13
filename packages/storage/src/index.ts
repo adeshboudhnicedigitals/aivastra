@@ -15,6 +15,8 @@ export interface StorageProvider {
   getObject(key: string): Promise<Buffer>;
   /** Object metadata without downloading the body. Throws if the object is absent. */
   headObject(key: string): Promise<{ contentLength: number; contentType: string | null }>;
+  /** Lists every object under `prefix`, paginating internally. */
+  listObjects(prefix: string): Promise<{ key: string; lastModified: Date | undefined }[]>;
   publicUrl(key: string): string;
 }
 export { keys } from './keys.js';

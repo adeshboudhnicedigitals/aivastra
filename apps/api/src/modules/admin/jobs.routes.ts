@@ -104,15 +104,19 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       page,
       pageSize,
       total,
-      items: rows.map((r) => ({
-        ...r,
-        outputUrl: r.outputKey ? app.storage.publicUrl(r.outputKey) : undefined,
-        faceThumbnailUrl: r.faceThumbnailKey
-          ? app.storage.publicUrl(r.faceThumbnailKey)
-          : undefined,
-        outputKey: undefined,
-        faceThumbnailKey: undefined,
-      })),
+      items: await Promise.all(
+        rows.map(async (r) => ({
+          ...r,
+          outputUrl: r.outputKey
+            ? (await app.storage.presignGet(r.outputKey, 3600)).url
+            : undefined,
+          faceThumbnailUrl: r.faceThumbnailKey
+            ? (await app.storage.presignGet(r.faceThumbnailKey, 3600)).url
+            : undefined,
+          outputKey: undefined,
+          faceThumbnailKey: undefined,
+        })),
+      ),
     };
   });
 
@@ -203,7 +207,8 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         .orderBy(desc(schema.jobEvents.createdAt))
         .limit(50);
 
-      const pu = (key: string | null | undefined) => (key ? app.storage.publicUrl(key) : undefined);
+      const pu = async (key: string | null | undefined) =>
+        key ? (await app.storage.presignGet(key, 3600)).url : undefined;
 
       // Mirrors dispatcher resolution: lowerGarmentKey (user-upload) takes priority over catalog
       const lowerKey = row.lowerGarmentKey ?? row.lowerCatalogKey;
@@ -235,7 +240,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
 
       return {
         ...row,
-        outputUrl: pu(row.outputKey),
+        outputUrl: await pu(row.outputKey),
         outputKey: undefined,
         faceSideKey: undefined,
         faceDisplayKey: undefined,
@@ -252,13 +257,13 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         defaultWorkflowLabel: undefined,
         overrideWorkflowLabel: undefined,
         inputImages: {
-          person: pu(personKey),
-          face: pu(row.faceSideKey ?? row.faceDisplayKey),
-          background: pu(bgKey),
-          pose: pu(row.poseKey),
-          upper: pu(row.upperGarmentKey),
-          lower: pu(lowerKey),
-          shoe: pu(shoeKey),
+          person: await pu(personKey),
+          face: await pu(row.faceSideKey ?? row.faceDisplayKey),
+          background: await pu(bgKey),
+          pose: await pu(row.poseKey),
+          upper: await pu(row.upperGarmentKey),
+          lower: await pu(lowerKey),
+          shoe: await pu(shoeKey),
         },
         events,
       };

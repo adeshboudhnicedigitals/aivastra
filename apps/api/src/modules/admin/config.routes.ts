@@ -101,7 +101,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
       const updatedAt = new Date().toISOString();
       cur.appVideo = { key, updatedAt };
       await app.redis.set(KEY, JSON.stringify(cur));
-      return { videoUrl: appVideoUrl(app, key, updatedAt), updatedAt };
+      return { videoUrl: await appVideoUrl(app, key, updatedAt), updatedAt };
     },
   );
 
@@ -111,14 +111,14 @@ export async function adminConfigRoutes(app: FastifyInstance) {
     async () => {
       const cfg = await readAppVideoConfig(app, KEY);
       if (!cfg) return { videoUrl: null, updatedAt: null };
-      return { videoUrl: appVideoUrl(app, cfg.key, cfg.updatedAt), updatedAt: cfg.updatedAt };
+      return { videoUrl: await appVideoUrl(app, cfg.key, cfg.updatedAt), updatedAt: cfg.updatedAt };
     },
   );
 
   // Public — used by the Android app to fetch the current intro/promo video (no auth)
   app.get('/v1/config/app-video', async () => {
     const cfg = await readAppVideoConfig(app, KEY);
-    return { videoUrl: cfg ? appVideoUrl(app, cfg.key, cfg.updatedAt) : null };
+    return { videoUrl: cfg ? await appVideoUrl(app, cfg.key, cfg.updatedAt) : null };
   });
 
   app.get(
@@ -330,8 +330,9 @@ async function readAppVideoConfig(
 
 // Cache-busting query param — the object key is fixed (re-uploads overwrite it in
 // place), so without this a CDN/client cache would keep serving the old clip.
-function appVideoUrl(app: FastifyInstance, key: string, updatedAt: string): string {
-  return `${app.storage.publicUrl(key)}?v=${new Date(updatedAt).getTime()}`;
+async function appVideoUrl(app: FastifyInstance, key: string, updatedAt: string): Promise<string> {
+  const { url } = await app.storage.presignGet(key, 3600);
+  return `${url}?v=${new Date(updatedAt).getTime()}`;
 }
 
 function formatAge(d: Date | null): string {

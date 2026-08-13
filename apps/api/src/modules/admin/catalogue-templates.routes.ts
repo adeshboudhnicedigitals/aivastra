@@ -31,11 +31,15 @@ export async function adminCatalogueTemplatesRoutes(app: FastifyInstance) {
       lookCountByTemplate.set(l.templateId, (lookCountByTemplate.get(l.templateId) ?? 0) + 1);
     }
     return {
-      items: templates.map((t) => ({
-        ...t,
-        thumbnailUrl: t.thumbnailKey ? app.storage.publicUrl(t.thumbnailKey) : null,
-        lookCount: lookCountByTemplate.get(t.id) ?? 0,
-      })),
+      items: await Promise.all(
+        templates.map(async (t) => ({
+          ...t,
+          thumbnailUrl: t.thumbnailKey
+            ? (await app.storage.presignGet(t.thumbnailKey, 3600)).url
+            : null,
+          lookCount: lookCountByTemplate.get(t.id) ?? 0,
+        })),
+      ),
     };
   });
 

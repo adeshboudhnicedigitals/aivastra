@@ -6,7 +6,7 @@ import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { atomicDeduct } from '../credits/ledger.js';
-import { assertOwnsUploadKey, resolveTryonPlan } from './create.js';
+import { assertOwnsUploadKey, resolveQueueRouting, resolveTryonPlan } from './create.js';
 import { promptGuard } from './sanitize.js';
 
 export async function createSareeMannequinJob(
@@ -56,22 +56,13 @@ export async function createSareeMannequinJob(
   // is deferred; it still validates that the (fixed, saree) workflow requires one.
   const plan = await resolveTryonPlan(app, userId, step2, { resolvedUpperGarmentKey: null });
 
-  const [[user], [planRow]] = await Promise.all([
+  const [[user], routing] = await Promise.all([
     app.db.select().from(schema.users).where(eq(schema.users.id, userId)),
-    app.db
-      .select({
-        queueStream: schema.creditPlans.queueStream,
-        watermark: schema.creditPlans.watermark,
-      })
-      .from(schema.users)
-      .innerJoin(schema.creditPlans, eq(schema.users.tier, schema.creditPlans.slug))
-      .where(eq(schema.users.id, userId)),
+    resolveQueueRouting(app, userId),
   ]);
   if (!user || user.isBanned) throw new AppError('FORBIDDEN', 403, 'banned');
 
-  const queueStream: string = planRow?.queueStream ?? 'normal';
-  const priority = queueStream === 'priority';
-  const watermark: boolean = planRow?.watermark ?? false;
+  const { queueStream, priority, watermark } = routing;
 
   const { mannequinJobId, jobIds } = await app.db.transaction(async (tx) => {
     const [mannequinJob] = await tx

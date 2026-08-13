@@ -5,6 +5,21 @@ import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { buildTree } from './tree.js';
 
+async function resolveCategoryThumbUrls(
+  app: FastifyInstance,
+  cats: { thumbnailKey: string | null }[],
+): Promise<Map<string, string>> {
+  const entries = await Promise.all(
+    cats
+      .filter((c): c is { thumbnailKey: string } => c.thumbnailKey != null)
+      .map(
+        async (c) =>
+          [c.thumbnailKey, (await app.storage.presignGet(c.thumbnailKey, 3600)).url] as const,
+      ),
+  );
+  return new Map(entries);
+}
+
 export async function catalogRoutes(app: FastifyInstance) {
   app.get(
     '/v1/catalog/:type',
@@ -145,10 +160,12 @@ export async function catalogRoutes(app: FastifyInstance) {
           .from(schema.catalogItems)
           .where(and(...conditions));
 
-        const enriched = items.map((i) => ({
-          ...i,
-          thumbnailUrl: app.storage.publicUrl(i.thumbnailKey),
-        }));
+        const enriched = await Promise.all(
+          items.map(async (i) => ({
+            ...i,
+            thumbnailUrl: (await app.storage.presignGet(i.thumbnailKey, 3600)).url,
+          })),
+        );
 
         const catIds = [
           ...new Set(items.map((i) => i.categoryId).filter((id): id is number => id != null)),
@@ -174,7 +191,8 @@ export async function catalogRoutes(app: FastifyInstance) {
           (i) => i.categoryId == null || !catIdSet.has(i.categoryId),
         );
 
-        const tree = buildTree(cats, categorized, (key) => app.storage.publicUrl(key));
+        const catThumbUrls = await resolveCategoryThumbUrls(app, cats);
+        const tree = buildTree(cats, categorized, (key) => catThumbUrls.get(key) ?? '');
         if (uncategorized.length > 0) {
           (tree as unknown[]).push({
             id: 0,
@@ -219,16 +237,21 @@ export async function catalogRoutes(app: FastifyInstance) {
       );
       const uncategorized = genderFiltered.filter((i) => i.categoryId == null);
 
-      const enrichedCat = categorized.map((i) => ({
-        ...i,
-        thumbnailUrl: app.storage.publicUrl(i.thumbnailKey),
-      }));
-      const enrichedUncat = uncategorized.map((i) => ({
-        ...i,
-        thumbnailUrl: app.storage.publicUrl(i.thumbnailKey),
-      }));
+      const enrichedCat = await Promise.all(
+        categorized.map(async (i) => ({
+          ...i,
+          thumbnailUrl: (await app.storage.presignGet(i.thumbnailKey, 3600)).url,
+        })),
+      );
+      const enrichedUncat = await Promise.all(
+        uncategorized.map(async (i) => ({
+          ...i,
+          thumbnailUrl: (await app.storage.presignGet(i.thumbnailKey, 3600)).url,
+        })),
+      );
 
-      const tree = buildTree(cats, enrichedCat, (key) => app.storage.publicUrl(key));
+      const catThumbUrls = await resolveCategoryThumbUrls(app, cats);
+      const tree = buildTree(cats, enrichedCat, (key) => catThumbUrls.get(key) ?? '');
       if (enrichedUncat.length > 0) {
         (tree as unknown[]).push({
           id: 0,

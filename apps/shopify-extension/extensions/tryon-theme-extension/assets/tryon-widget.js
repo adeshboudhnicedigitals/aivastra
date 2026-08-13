@@ -13,6 +13,13 @@
     const productUrl = root.dataset.productUrl || '';
     const productImage = root.dataset.productImage || '';
     const apiBase = root.dataset.apiBase.replace(/\/$/, '');
+    // SEC-7.1: same-origin path Shopify's App Proxy forwards to the API,
+    // HMAC-signed by Shopify itself — no widgetKey header needed on these
+    // calls. Fixed by shopify.app.toml's [app_proxy] (prefix "apps", subpath
+    // "widget"), not configurable per-store. The SSE events stream stays on
+    // apiBase directly (below) — App Proxy's behavior for a long-lived
+    // streaming response isn't verified.
+    const PROXY_BASE = '/apps/widget';
 
     const button = root.querySelector('.aivastra-tryon__button');
     const modal = root.querySelector('.aivastra-tryon__modal');
@@ -88,9 +95,9 @@
     // the very event that measures conversion.
     function trackEvent(type) {
       try {
-        fetch(`${apiBase}/v1/shopify/customer/event`, {
+        fetch(`${PROXY_BASE}/customer/event`, {
           method: 'POST',
-          headers: { 'x-widget-key': widgetKey, 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             type,
             clientId: clientId || undefined,
@@ -205,9 +212,9 @@
         return;
       }
       try {
-        const res = await fetch(`${apiBase}/v1/shopify/customer/photo/preview`, {
+        const res = await fetch(`${PROXY_BASE}/customer/photo/preview`, {
           method: 'POST',
-          headers: { 'x-widget-key': widgetKey, 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ r2Key: remembered.r2Key }),
         });
         if (!res.ok) {
@@ -469,9 +476,9 @@
     }
 
     async function uploadPhoto(file) {
-      const presignRes = await fetch(`${apiBase}/v1/shopify/customer/presign`, {
+      const presignRes = await fetch(`${PROXY_BASE}/customer/presign`, {
         method: 'POST',
-        headers: { 'x-widget-key': widgetKey, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contentType: file.type, contentLength: file.size, clientId }),
       });
       if (!presignRes.ok) throw new Error('presign failed');
@@ -489,10 +496,9 @@
     }
 
     async function createJob(customerPhotoKey) {
-      const res = await fetch(`${apiBase}/v1/shopify/customer/jobs`, {
+      const res = await fetch(`${PROXY_BASE}/customer/jobs`, {
         method: 'POST',
         headers: {
-          'x-widget-key': widgetKey,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -533,9 +539,7 @@
     }
 
     async function fetchJobStatus(jobId) {
-      const res = await fetch(`${apiBase}/v1/shopify/customer/jobs/${jobId}`, {
-        headers: { 'x-widget-key': widgetKey },
-      });
+      const res = await fetch(`${PROXY_BASE}/customer/jobs/${jobId}`);
       if (!res.ok) throw new Error(`job fetch failed: ${res.status}`);
       return res.json();
     }

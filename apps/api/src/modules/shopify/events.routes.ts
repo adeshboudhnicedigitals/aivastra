@@ -1,6 +1,6 @@
 import { schema } from '@aivastra/db';
 import { ShopifyWidgetEventRequest } from '@aivastra/types';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Redis } from 'ioredis';
 
 // Far higher than the 60/min per store that customer.routes.ts applies to job
@@ -19,36 +19,40 @@ async function withinEventBudget(redis: Redis, storeId: string): Promise<boolean
   return used <= EVENTS_PER_MINUTE;
 }
 
+// SEC-7.1: also registered at the App Proxy-forwarded path — see
+// customer.routes.ts's registerProxied for why.
+const PROXY_PATH = '/v1/shopify/proxy/customer/event';
+
 export async function shopifyEventsRoutes(app: FastifyInstance) {
-  app.post(
-    '/v1/shopify/customer/event',
-    {
-      preValidation: app.requireShopifyStoreKey,
-      schema: { body: ShopifyWidgetEventRequest },
-    },
-    async (req, reply) => {
-      const storeId = req.shopifyStoreId as string;
-      const body = req.body as ShopifyWidgetEventRequest;
+  const opts = {
+    preValidation: app.requireShopifyStoreKey,
+    schema: { body: ShopifyWidgetEventRequest },
+  };
+  const handler = async (req: FastifyRequest, reply: FastifyReply) => {
+    const storeId = req.shopifyStoreId as string;
+    const body = req.body as ShopifyWidgetEventRequest;
 
-      // Everything below is best-effort. This endpoint sits in the widget's hot
-      // path, and a shopper must never see a failure caused by our bookkeeping
-      // — so an over-budget event and a broken database look identical from the
-      // storefront: 204, nothing stored.
-      try {
-        if (await withinEventBudget(app.redis, storeId)) {
-          await app.db.insert(schema.shopifyWidgetEvents).values({
-            storeId,
-            clientId: body.clientId ?? null,
-            shopifyProductId: body.shopifyProductId ?? null,
-            type: body.type,
-            device: body.device ?? null,
-          });
-        }
-      } catch (err) {
-        req.log.warn({ err, storeId }, 'shopify widget event dropped');
+    // Everything below is best-effort. This endpoint sits in the widget's hot
+    // path, and a shopper must never see a failure caused by our bookkeeping
+    // — so an over-budget event and a broken database look identical from the
+    // storefront: 204, nothing stored.
+    try {
+      if (await withinEventBudget(app.redis, storeId)) {
+        await app.db.insert(schema.shopifyWidgetEvents).values({
+          storeId,
+          clientId: body.clientId ?? null,
+          shopifyProductId: body.shopifyProductId ?? null,
+          type: body.type,
+          device: body.device ?? null,
+        });
       }
+    } catch (err) {
+      req.log.warn({ err, storeId }, 'shopify widget event dropped');
+    }
 
-      return reply.code(204).send();
-    },
-  );
+    return reply.code(204).send();
+  };
+
+  app.post('/v1/shopify/customer/event', opts, handler);
+  app.post(PROXY_PATH, opts, handler);
 }

@@ -46,7 +46,7 @@ export const creditsRefundedTotal = new Counter({
 export const jobsProcessedTotal = new Counter({
   name: 'jobs_processed_total',
   help: 'Jobs processed by the dispatcher, by terminal outcome',
-  labelNames: ['outcome'] as const, // success | failed | retried
+  labelNames: ['outcome'] as const, // success | failed | retried | cancelled
   registers: [register],
 });
 

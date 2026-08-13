@@ -10,7 +10,7 @@ import { AppError } from '../../lib/errors.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { atomicDeduct, refundAndMarkFailed } from '../credits/ledger.js';
 import { getSareeSettings } from '../saree/settings.js';
-import { assertOwnsUploadKey } from './create.js';
+import { assertOwnsUploadKey, resolveQueueRouting } from './create.js';
 
 export async function createSareeJob(
   app: FastifyInstance,
@@ -45,22 +45,13 @@ export async function createSareeJob(
   }
 
   // 4. User must exist and not be banned.
-  const [[user], [planRow]] = await Promise.all([
+  const [[user], routing] = await Promise.all([
     app.db.select().from(schema.users).where(eq(schema.users.id, userId)),
-    app.db
-      .select({
-        queueStream: schema.creditPlans.queueStream,
-        watermark: schema.creditPlans.watermark,
-      })
-      .from(schema.users)
-      .innerJoin(schema.creditPlans, eq(schema.users.tier, schema.creditPlans.slug))
-      .where(eq(schema.users.id, userId)),
+    resolveQueueRouting(app, userId),
   ]);
   if (!user || user.isBanned) throw new AppError('FORBIDDEN', 403, 'banned');
 
-  const queueStream: string = planRow?.queueStream ?? 'normal';
-  const priority = queueStream === 'priority';
-  const watermark: boolean = planRow?.watermark ?? false;
+  const { queueStream, priority, watermark } = routing;
 
   // 5. Deduct + insert in a single txn (mirrors createSimpleTryonJob).
   const catalogueId = randomUUID();

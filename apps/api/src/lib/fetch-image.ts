@@ -1,4 +1,5 @@
 import { AppError } from './errors.js';
+import { pinnedFetch } from './pinned-fetch.js';
 
 const ALLOWED_CONTENT_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
@@ -6,18 +7,20 @@ const ALLOWED_CONTENT_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
  * Fetches a URL with a hard byte cap enforced during the stream read (not just
  * from a possibly-absent/lying Content-Length header) and a request timeout.
  * Redirects are refused outright rather than followed, to avoid re-validating
- * a second host — from-url callers should pass the guard-checked URL from
- * assertPublicHttpUrl.
+ * a second host — from-url callers must pass the URL and address returned
+ * together by assertPublicHttpUrl, so the connection goes to the exact IP that
+ * was validated rather than whatever the hostname resolves to right now.
  */
 export async function fetchImageWithCap(
   url: URL,
+  address: string,
   maxBytes: number,
   timeoutMs: number,
 ): Promise<Buffer> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { signal: controller.signal, redirect: 'manual' });
+    const res = await pinnedFetch(url, address, controller.signal);
     if (res.status >= 300 && res.status < 400) {
       throw new AppError('VALIDATION', 400, 'redirects are not supported for background URLs');
     }
