@@ -51,18 +51,30 @@ describe('GET /v1/merchant/analytics', () => {
 
   async function seedJob(
     merchantId: string,
+    userId: string,
     status: string,
-    opts?: { creditsCharged?: number; withOutput?: boolean },
+    opts?: { creditsCharged?: number; withOutput?: boolean; refunded?: boolean },
   ) {
+    const creditsCharged = opts?.creditsCharged ?? 1;
     const [job] = await app.db
       .insert(schema.jobs)
       .values({
         merchantId,
         status,
-        creditsCharged: opts?.creditsCharged ?? 1,
+        creditsCharged,
         source: 'merchant_tryon',
       } as typeof schema.jobs.$inferInsert)
       .returning();
+    // Mirrors what atomicDeduct()/refund() actually write, so the analytics
+    // route's net-of-refunds credit_ledger aggregation has real rows to sum.
+    await app.db
+      .insert(schema.creditLedger)
+      .values({ userId, delta: -creditsCharged, reason: 'JOB_DISPATCH', jobId: job.id });
+    if (opts?.refunded) {
+      await app.db
+        .insert(schema.creditLedger)
+        .values({ userId, delta: creditsCharged, reason: 'REFUND', jobId: job.id });
+    }
     if (opts?.withOutput) {
       const resultKey = `outputs/${job.id}/result.webp`;
       await app.storage.putObject(resultKey, Buffer.from('stub'), 'image/webp');
@@ -102,12 +114,20 @@ describe('GET /v1/merchant/analytics', () => {
     });
   });
 
-  it('aggregates totals, success rate, and credit spend across all job sources for the merchant', async () => {
+  it('aggregates totals, success rate, and net (refund-adjusted) credit spend across all job sources for the merchant', async () => {
     const { merchant, merchantUser } = await createMerchant('active-merchant@x.com');
-    await seedJob(merchant.id, 'COMPLETED', { creditsCharged: 2, withOutput: true });
-    await seedJob(merchant.id, 'COMPLETED', { creditsCharged: 3, withOutput: true });
-    await seedJob(merchant.id, 'FAILED', { creditsCharged: 1 });
-    await seedJob(merchant.id, 'QUEUED', { creditsCharged: 1 });
+    await seedJob(merchant.id, merchantUser.id, 'COMPLETED', {
+      creditsCharged: 2,
+      withOutput: true,
+    });
+    await seedJob(merchant.id, merchantUser.id, 'COMPLETED', {
+      creditsCharged: 3,
+      withOutput: true,
+    });
+    await seedJob(merchant.id, merchantUser.id, 'FAILED', { creditsCharged: 1 });
+    await seedJob(merchant.id, merchantUser.id, 'QUEUED', { creditsCharged: 1 });
+    // Cancelled mid-generation and refunded — must NOT count toward spend.
+    await seedJob(merchant.id, merchantUser.id, 'CANCELLED', { creditsCharged: 5, refunded: true });
 
     const res = await app.inject({
       method: 'GET',
@@ -116,11 +136,12 @@ describe('GET /v1/merchant/analytics', () => {
     });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.totalJobs).toBe(4);
+    expect(body.totalJobs).toBe(5);
     expect(body.completedJobs).toBe(2);
     expect(body.failedJobs).toBe(1);
     expect(body.successRate).toBeCloseTo(2 / 3); // 2 completed / 3 terminal (queued excluded)
-    expect(body.totalCreditsCharged).toBe(7); // 2+3+1+1 across every status, not just terminal
+    // 2+3+1+1 charged, minus the 5 refunded on the cancelled job — not 12.
+    expect(body.totalCreditsCharged).toBe(7);
     expect(body.recentOutputs).toHaveLength(2);
     for (const o of body.recentOutputs) {
       expect(o.thumbnailUrl).toContain('X-Amz-Signature');
@@ -129,10 +150,10 @@ describe('GET /v1/merchant/analytics', () => {
 
   it("never returns another merchant's jobs or outputs", async () => {
     const { merchant: merchantA, merchantUser: userA } = await createMerchant('merchant-a@x.com');
-    const { merchant: merchantB } = await createMerchant('merchant-b@x.com');
-    await seedJob(merchantA.id, 'COMPLETED', { withOutput: true });
-    await seedJob(merchantB.id, 'COMPLETED', { withOutput: true });
-    await seedJob(merchantB.id, 'COMPLETED', { withOutput: true });
+    const { merchant: merchantB, merchantUser: userB } = await createMerchant('merchant-b@x.com');
+    await seedJob(merchantA.id, userA.id, 'COMPLETED', { withOutput: true });
+    await seedJob(merchantB.id, userB.id, 'COMPLETED', { withOutput: true });
+    await seedJob(merchantB.id, userB.id, 'COMPLETED', { withOutput: true });
 
     const res = await app.inject({
       method: 'GET',
@@ -147,7 +168,7 @@ describe('GET /v1/merchant/analytics', () => {
 
   it('a job with no completed output is excluded from recentOutputs even if COMPLETED', async () => {
     const { merchant, merchantUser } = await createMerchant('no-output-merchant@x.com');
-    await seedJob(merchant.id, 'COMPLETED'); // no job_outputs row at all
+    await seedJob(merchant.id, merchantUser.id, 'COMPLETED'); // no job_outputs row at all
     const res = await app.inject({
       method: 'GET',
       url: '/v1/merchant/analytics',

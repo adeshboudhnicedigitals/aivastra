@@ -21,13 +21,23 @@ export async function merchantAnalyticsRoutes(app: FastifyInstance) {
         totalJobs: int(sql`count(*)`),
         completedJobs: int(sql`count(*) filter (where ${schema.jobs.status} = 'COMPLETED')`),
         failedJobs: int(sql`count(*) filter (where ${schema.jobs.status} = 'FAILED')`),
-        totalCreditsCharged: int(sql`coalesce(sum(${schema.jobs.creditsCharged}), 0)`),
       })
       .from(schema.jobs)
       .where(eq(schema.jobs.merchantId, merchantId));
 
     const terminalJobs = (totals?.completedJobs ?? 0) + (totals?.failedJobs ?? 0);
     const successRate = terminalJobs > 0 ? (totals?.completedJobs ?? 0) / terminalJobs : null;
+
+    // Net of refunds: summing jobs.creditsCharged alone overstates spend for any
+    // job that was later refunded (cancelled mid-generation, or failed). The
+    // ledger's delta is signed (negative on deduct, positive on refund) and
+    // keyed by jobId, so -sum(delta) across every ledger row tied to this
+    // merchant's jobs gives the true net spend.
+    const [creditsRow] = await app.db
+      .select({ netCredits: int(sql`coalesce(-sum(${schema.creditLedger.delta}), 0)`) })
+      .from(schema.creditLedger)
+      .innerJoin(schema.jobs, eq(schema.jobs.id, schema.creditLedger.jobId))
+      .where(eq(schema.jobs.merchantId, merchantId));
 
     const outputRows = await app.db
       .select({
@@ -64,7 +74,7 @@ export async function merchantAnalyticsRoutes(app: FastifyInstance) {
       completedJobs: totals?.completedJobs ?? 0,
       failedJobs: totals?.failedJobs ?? 0,
       successRate,
-      totalCreditsCharged: totals?.totalCreditsCharged ?? 0,
+      totalCreditsCharged: creditsRow?.netCredits ?? 0,
       recentOutputs,
     };
   });
