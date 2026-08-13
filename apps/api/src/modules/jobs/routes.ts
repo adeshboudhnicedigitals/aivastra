@@ -854,14 +854,20 @@ export async function jobsRoutes(app: FastifyInstance) {
             .where(and(eq(schema.jobs.id, id), eq(schema.jobs.userId, req.userId)));
           if (!job) throw new AppError('NOT_FOUND', 404, 'job not found');
 
-          // In-flight cancellation: only wired up for the standard studio 'tryon'
-          // pipeline (apps/dispatcher/src/job/processor.ts's processJob — the only
-          // processor that checks this flag, in its GENERATING poll loop). Saree/
-          // widget/shopify/merchant jobs fall through to the 409 below unchanged;
-          // see docs/audits/open-findings.md 7.5/9.1 for why that scope was chosen.
+          // In-flight cancellation: only wired up for the standard studio pipeline
+          // (apps/dispatcher/src/job/processor.ts's processJob main body — the only
+          // processor that checks this flag, in its GENERATING poll loop). That
+          // body is reached when jobInputs has faceId+backgroundId+poseId all set,
+          // which is what JOB_SOURCE.CATALOG jobs (the /v1/jobs/tryon route, batch,
+          // and saree-mannequin step-2) have — NOT JOB_SOURCE.TRYON, which is the
+          // "regenerate this look" /v1/jobs/simple-tryon endpoint and is routed to
+          // processTryonDirectJob instead, which never wires this flag at all.
+          // Saree-mannequin/widget/shopify/merchant/kiosk jobs fall through to the
+          // 409 below unchanged; see docs/audits/open-findings.md 7.5/9.1 for why
+          // that scope was chosen.
           if (
             (job.status === 'PREPROCESSING' || job.status === 'GENERATING') &&
-            job.source === JOB_SOURCE.TRYON
+            job.source === JOB_SOURCE.CATALOG
           ) {
             outcome = 'pending';
             return;
