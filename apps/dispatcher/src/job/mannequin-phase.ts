@@ -122,7 +122,11 @@ export async function runMannequinPhase(
       promptId,
       300_000,
       (update) => jobLog.debug(update, 'comfyui progress'),
-      { info: jobLog.info.bind(jobLog), debug: jobLog.debug.bind(jobLog) },
+      {
+        info: jobLog.info.bind(jobLog),
+        debug: jobLog.debug.bind(jobLog),
+        error: jobLog.error.bind(jobLog),
+      },
     );
     comfyRequestDuration.observe((Date.now() - comfyStartedAt) / 1000);
     const [firstImage] = await fetchHistory(w.url, w.apiKey, promptId, jobLog, outputNodeId);

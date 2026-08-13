@@ -7,6 +7,7 @@ import {
   CreateSareeMannequinJobRequest,
   CreateSimpleTryonRequest,
   CreateTryOnJobRequest,
+  JOB_SOURCE,
   SareeConfigResponse,
 } from '@aivastra/types';
 import { and, asc, desc, eq, isNotNull, sql } from 'drizzle-orm';
@@ -823,6 +824,11 @@ export async function jobsRoutes(app: FastifyInstance) {
       const { id } = req.params as { id: string };
 
       let creditsCharged = 0;
+      // 'cancelled' — job was QUEUED, transitioned + refunded synchronously below.
+      // 'pending' — job was in-flight on the standard tryon pipeline; a Redis flag
+      // was set for the dispatcher to pick up on its next GENERATING poll tick, but
+      // nothing in Postgres has changed yet, so the SSE/200 path below must be skipped.
+      let outcome: 'cancelled' | 'pending' | undefined;
       await app.db.transaction(async (tx) => {
         // Conditional UPDATE — only succeeds if the job is still QUEUED.
         // If the dispatcher has already moved it to PREPROCESSING this returns 0 rows → 409.
@@ -843,13 +849,28 @@ export async function jobsRoutes(app: FastifyInstance) {
         if (!cancelled.length) {
           // Job not found, not owned by this user, or no longer QUEUED
           const [job] = await tx
-            .select({ status: schema.jobs.status })
+            .select({ status: schema.jobs.status, source: schema.jobs.source })
             .from(schema.jobs)
             .where(and(eq(schema.jobs.id, id), eq(schema.jobs.userId, req.userId)));
           if (!job) throw new AppError('NOT_FOUND', 404, 'job not found');
+
+          // In-flight cancellation: only wired up for the standard studio 'tryon'
+          // pipeline (apps/dispatcher/src/job/processor.ts's processJob — the only
+          // processor that checks this flag, in its GENERATING poll loop). Saree/
+          // widget/shopify/merchant jobs fall through to the 409 below unchanged;
+          // see docs/audits/open-findings.md 7.5/9.1 for why that scope was chosen.
+          if (
+            (job.status === 'PREPROCESSING' || job.status === 'GENERATING') &&
+            job.source === JOB_SOURCE.TRYON
+          ) {
+            outcome = 'pending';
+            return;
+          }
+
           throw new AppError('CONFLICT', 409, 'only queued jobs can be cancelled');
         }
 
+        outcome = 'cancelled';
         creditsCharged = cancelled[0]?.creditsCharged;
 
         await tx.insert(schema.jobEvents).values({
@@ -878,6 +899,16 @@ export async function jobsRoutes(app: FastifyInstance) {
           }
         }
       });
+
+      if (outcome === 'pending') {
+        // TTL bounds how long a stale flag can linger if the job finishes (or
+        // crashes) before the dispatcher's next poll tick ever reads it. Set
+        // outside the transaction — Redis isn't transactional with Postgres here,
+        // and nothing above depends on this having landed.
+        await app.redis.set(`job:cancel:${id}`, '1', 'EX', 600);
+        reply.code(202).send({ ok: true, pending: true });
+        return;
+      }
 
       // Publish SSE so open tabs update immediately
       const ssePayload = JSON.stringify({

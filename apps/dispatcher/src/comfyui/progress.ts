@@ -1,3 +1,5 @@
+import { interruptPrompt } from './client.js';
+
 export interface ProgressUpdate {
   node: string | null;
   value: number;
@@ -5,6 +7,16 @@ export interface ProgressUpdate {
 }
 
 export type ProgressCallback = (update: ProgressUpdate) => void;
+
+/** Thrown when `isCancelled` reports true — distinguishes a user-requested
+ *  cancellation from a genuine ComfyUI/network failure so the caller can
+ *  refund and mark CANCELLED instead of retrying like a normal failure. */
+export class JobCancelledError extends Error {
+  constructor(promptId: string) {
+    super(`job cancelled by user while ComfyUI prompt ${promptId} was running`);
+    this.name = 'JobCancelledError';
+  }
+}
 
 /**
  * Polls /history/{promptId} every 3s until outputs appear or timeout.
@@ -17,7 +29,12 @@ export async function waitForCompletion(
   promptId: string,
   timeoutMs: number = 300_000,
   _onProgress?: ProgressCallback,
-  log?: { info: (obj: unknown, msg: string) => void; debug: (obj: unknown, msg: string) => void },
+  log?: {
+    info: (obj: unknown, msg: string) => void;
+    debug: (obj: unknown, msg: string) => void;
+    error: (obj: unknown, msg: string) => void;
+  },
+  isCancelled?: () => Promise<boolean>,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   const url = `${workerUrl.replace(/\/$/, '')}/history/${promptId}`;
@@ -25,6 +42,12 @@ export async function waitForCompletion(
 
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 3_000));
+
+    if (isCancelled && (await isCancelled())) {
+      log?.info({ promptId }, 'cancellation requested — interrupting ComfyUI');
+      await interruptPrompt(workerUrl, apiKey, log);
+      throw new JobCancelledError(promptId);
+    }
 
     const res = await fetch(url, {
       headers: { 'X-Api-Key': apiKey },

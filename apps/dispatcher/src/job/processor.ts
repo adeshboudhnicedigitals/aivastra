@@ -21,7 +21,7 @@ import {
   submitPrompt,
   uploadImageToComfy,
 } from '../comfyui/client.js';
-import { waitForCompletion } from '../comfyui/progress.js';
+import { JobCancelledError, waitForCompletion } from '../comfyui/progress.js';
 import { loadEnv } from '../env.js';
 import { createVideoTask, pollVideoTask } from '../pixverse/client.js';
 import { setWorkerStatus } from '../worker/registry.js';
@@ -44,7 +44,7 @@ const PROMOTE_TO_PRIORITY_AFTER_RETRIES = 18;
 const PRIORITY_STREAM = 'jobs:priority';
 const REQUEUE_BACKOFF_MS = 10_000;
 
-type JobOutcome = 'success' | 'failed' | 'retried';
+type JobOutcome = 'success' | 'failed' | 'retried' | 'cancelled';
 
 /** Record the terminal (or retry) outcome of a processing attempt with its duration. */
 function recordJobOutcome(outcome: JobOutcome, startedAt: number): void {
@@ -667,6 +667,9 @@ export async function processJob(
     });
 
     // 7. Wait for completion via WebSocket (5 min max)
+    // Checked each 3s poll tick — see JOB_CANCEL_KEY_PREFIX comment on the
+    // /v1/jobs/:id/cancel route (apps/api) for why only 'tryon'-source jobs
+    // can set this flag.
     await waitForCompletion(
       w.url,
       w.apiKey,
@@ -674,7 +677,12 @@ export async function processJob(
       promptId,
       300_000,
       (update) => jobLog.debug(update, 'comfyui progress'),
-      { info: jobLog.info.bind(jobLog), debug: jobLog.debug.bind(jobLog) },
+      {
+        info: jobLog.info.bind(jobLog),
+        debug: jobLog.debug.bind(jobLog),
+        error: jobLog.error.bind(jobLog),
+      },
+      async () => (await redis.exists(`job:cancel:${jobId}`)) === 1,
     );
     comfyRequestDuration.observe((Date.now() - comfyStartedAt) / 1000);
 
@@ -714,6 +722,24 @@ export async function processJob(
     recordJobOutcome('success', startedAt);
     jobLog.info('job completed successfully');
   } catch (err) {
+    if (err instanceof JobCancelledError) {
+      jobLog.info({ err: err.message }, 'job cancelled by user during generation');
+      await redis.del(`job:cancel:${jobId}`);
+      await setWorkerStatus(redis, w.id, 'IDLE');
+      await terminateJob(
+        cfg,
+        jobId,
+        userId,
+        stream,
+        messageId,
+        '',
+        job.creditsCharged,
+        jobLog,
+        startedAt,
+        'CANCELLED',
+      );
+      return;
+    }
     if (
       err instanceof Error &&
       /no .* image was provided|no .* garment image was provided/.test(err.message)
@@ -1007,7 +1033,11 @@ async function processTryonDirectJob(
       promptId,
       300_000,
       (update) => jobLog.debug(update, 'comfyui progress'),
-      { info: jobLog.info.bind(jobLog), debug: jobLog.debug.bind(jobLog) },
+      {
+        info: jobLog.info.bind(jobLog),
+        debug: jobLog.debug.bind(jobLog),
+        error: jobLog.error.bind(jobLog),
+      },
     );
     comfyRequestDuration.observe((Date.now() - comfyStartedAt) / 1000);
 
@@ -1351,7 +1381,11 @@ async function processSareeMannequinJob(
       promptId,
       300_000,
       (update) => jobLog.debug(update, 'comfyui progress'),
-      { info: jobLog.info.bind(jobLog), debug: jobLog.debug.bind(jobLog) },
+      {
+        info: jobLog.info.bind(jobLog),
+        debug: jobLog.debug.bind(jobLog),
+        error: jobLog.error.bind(jobLog),
+      },
     );
     comfyRequestDuration.observe((Date.now() - comfyStartedAt) / 1000);
 
@@ -1578,7 +1612,11 @@ async function processSareeJob(
       promptId,
       300_000,
       (update) => jobLog.debug(update, 'comfyui progress'),
-      { info: jobLog.info.bind(jobLog), debug: jobLog.debug.bind(jobLog) },
+      {
+        info: jobLog.info.bind(jobLog),
+        debug: jobLog.debug.bind(jobLog),
+        error: jobLog.error.bind(jobLog),
+      },
     );
     comfyRequestDuration.observe((Date.now() - comfyStartedAt) / 1000);
 
@@ -1879,7 +1917,11 @@ async function processWidgetJob(
       promptId,
       300_000,
       (update) => jobLog.debug(update, 'comfyui progress'),
-      { info: jobLog.info.bind(jobLog), debug: jobLog.debug.bind(jobLog) },
+      {
+        info: jobLog.info.bind(jobLog),
+        debug: jobLog.debug.bind(jobLog),
+        error: jobLog.error.bind(jobLog),
+      },
     );
     comfyRequestDuration.observe((Date.now() - comfyStartedAt) / 1000);
 
@@ -2160,7 +2202,11 @@ async function processShopifyJob(
       promptId,
       300_000,
       (update) => jobLog.debug(update, 'comfyui progress'),
-      { info: jobLog.info.bind(jobLog), debug: jobLog.debug.bind(jobLog) },
+      {
+        info: jobLog.info.bind(jobLog),
+        debug: jobLog.debug.bind(jobLog),
+        error: jobLog.error.bind(jobLog),
+      },
     );
     comfyRequestDuration.observe((Date.now() - comfyStartedAt) / 1000);
 
@@ -2344,9 +2390,11 @@ async function terminateJob(
   creditsCharged: number,
   _log: Logger,
   startedAt: number,
+  status: 'FAILED' | 'CANCELLED' = 'FAILED',
 ): Promise<void> {
   const { db, redis, pub } = cfg;
   const now = new Date();
+  const refundReason = status === 'CANCELLED' ? 'JOB_CANCEL_REFUND' : 'JOB_FAIL_REFUND';
 
   await db.transaction(async (tx) => {
     // Insert ledger row first — unique index on (job_id, reason) prevents double-refund.
@@ -2356,7 +2404,7 @@ async function terminateJob(
     if (creditsCharged > 0) {
       const inserted = await tx
         .insert(schema.creditLedger)
-        .values({ userId, delta: creditsCharged, reason: 'JOB_FAIL_REFUND', jobId })
+        .values({ userId, delta: creditsCharged, reason: refundReason, jobId })
         .onConflictDoNothing()
         .returning({ id: schema.creditLedger.id });
       if (inserted.length) {
@@ -2370,26 +2418,32 @@ async function terminateJob(
     // Status transition — inlined so it's atomic with the refund above
     await tx
       .update(schema.jobs)
-      .set({ status: 'FAILED', errorCode, completedAt: now } as Parameters<
-        ReturnType<typeof tx.update>['set']
-      >[0])
+      .set({
+        status,
+        errorCode: status === 'CANCELLED' ? null : errorCode,
+        completedAt: now,
+      } as Parameters<ReturnType<typeof tx.update>['set']>[0])
       .where(eq(schema.jobs.id, jobId));
     await tx.insert(schema.jobEvents).values({
       jobId,
-      eventType: 'FAILED',
-      payload: { errorCode } as Record<string, unknown>,
+      eventType: status,
+      payload: (status === 'CANCELLED' ? {} : { errorCode }) as Record<string, unknown>,
     });
   });
 
   // SSE publish after commit — not critical, clients reconnect on miss
-  const ssePayload = JSON.stringify({ jobId, userId, type: 'STATUS', status: 'FAILED', errorCode });
+  const ssePayload = JSON.stringify(
+    status === 'CANCELLED'
+      ? { jobId, userId, type: 'STATUS', status: 'CANCELLED' }
+      : { jobId, userId, type: 'STATUS', status: 'FAILED', errorCode },
+  );
   await Promise.all([
     pub.publish(`sse:events:${userId}`, ssePayload),
     pub.publish('sse:events:admin', ssePayload),
   ]);
 
   await redis.xack(stream, 'dispatcher-cg', messageId);
-  recordJobOutcome('failed', startedAt);
+  recordJobOutcome(status === 'CANCELLED' ? 'cancelled' : 'failed', startedAt);
 }
 
 async function handleFailure(

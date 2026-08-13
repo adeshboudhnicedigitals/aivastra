@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { downloadOutputImage } from './client.js';
+import { downloadOutputImage, interruptPrompt } from './client.js';
 
 describe('downloadOutputImage', () => {
   afterEach(() => {
@@ -34,5 +34,39 @@ describe('downloadOutputImage', () => {
 
     const requestedUrl = fetchMock.mock.calls[0]?.[0] as string;
     expect(requestedUrl).toContain('subfolder=');
+  });
+});
+
+describe('interruptPrompt', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('POSTs to /interrupt with the api key header', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await interruptPrompt('https://worker.example', 'my-key');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://worker.example/interrupt',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ 'X-Api-Key': 'my-key' }),
+      }),
+    );
+  });
+
+  it('throws when ComfyUI rejects the interrupt request', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      text: async () => 'worker unavailable',
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(interruptPrompt('https://worker.example', 'my-key')).rejects.toThrow(
+      'ComfyUI /interrupt failed: 500 worker unavailable',
+    );
   });
 });
