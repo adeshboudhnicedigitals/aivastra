@@ -2,9 +2,12 @@ import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import sharp from 'sharp';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { pinnedFetch } from '../../src/lib/pinned-fetch.js';
 import { signAccess } from '../../src/modules/auth/service.js';
 import { buildTestApp, type TestApp } from '../helpers/api';
 import { type Containers, startContainers } from '../helpers/containers';
+
+vi.mock('../../src/lib/pinned-fetch.js', () => ({ pinnedFetch: vi.fn() }));
 
 describe('POST /v1/backgrounds/mine/from-url', () => {
   let c: Containers;
@@ -18,7 +21,7 @@ describe('POST /v1/backgrounds/mine/from-url', () => {
     await c?.stop();
   });
   afterEach(() => {
-    vi.unstubAllGlobals();
+    vi.mocked(pinnedFetch).mockReset();
   });
 
   async function getToken(email: string) {
@@ -37,14 +40,11 @@ describe('POST /v1/backgrounds/mine/from-url', () => {
     })
       .jpeg()
       .toBuffer();
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(
-        new Response(fixture, {
-          status: 200,
-          headers: { 'content-type': 'image/jpeg', 'content-length': String(fixture.length) },
-        }),
-      ),
+    vi.mocked(pinnedFetch).mockResolvedValue(
+      new Response(fixture, {
+        status: 200,
+        headers: { 'content-type': 'image/jpeg', 'content-length': String(fixture.length) },
+      }),
     );
 
     const res = await app.inject({
@@ -67,8 +67,6 @@ describe('POST /v1/backgrounds/mine/from-url', () => {
 
   it('rejects a URL resolving to a private/loopback address without calling fetch', async () => {
     const token = await getToken('bgfromurl2@x.com');
-    const fetchSpy = vi.fn();
-    vi.stubGlobal('fetch', fetchSpy);
 
     const res = await app.inject({
       method: 'POST',
@@ -77,18 +75,13 @@ describe('POST /v1/backgrounds/mine/from-url', () => {
       payload: { url: 'http://127.0.0.1/x.jpg' },
     });
     expect(res.statusCode).toBe(400);
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(pinnedFetch).not.toHaveBeenCalled();
   });
 
   it('rejects a non-image content-type', async () => {
     const token = await getToken('bgfromurl3@x.com');
-    vi.stubGlobal(
-      'fetch',
-      vi
-        .fn()
-        .mockResolvedValue(
-          new Response('not an image', { status: 200, headers: { 'content-type': 'text/plain' } }),
-        ),
+    vi.mocked(pinnedFetch).mockResolvedValue(
+      new Response('not an image', { status: 200, headers: { 'content-type': 'text/plain' } }),
     );
 
     const res = await app.inject({
@@ -102,17 +95,14 @@ describe('POST /v1/backgrounds/mine/from-url', () => {
 
   it('rejects an oversized image via content-length', async () => {
     const token = await getToken('bgfromurl4@x.com');
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(
-        new Response(new Uint8Array(10), {
-          status: 200,
-          headers: {
-            'content-type': 'image/jpeg',
-            'content-length': String(20 * 1024 * 1024),
-          },
-        }),
-      ),
+    vi.mocked(pinnedFetch).mockResolvedValue(
+      new Response(new Uint8Array(10), {
+        status: 200,
+        headers: {
+          'content-type': 'image/jpeg',
+          'content-length': String(20 * 1024 * 1024),
+        },
+      }),
     );
 
     const res = await app.inject({
