@@ -40,7 +40,10 @@ interface PickedFile {
   id: string;
   file: File;
   label: string;
+  slug: string;
 }
+
+const SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 function labelFromFilename(name: string): string {
   return name
@@ -120,6 +123,23 @@ function MultiPhotoDropzone({
                 )
               }
             />
+            <input
+              className="input"
+              style={{
+                fontSize: 11.5,
+                padding: '4px 6px',
+                borderColor:
+                  pf.slug && !SLUG_PATTERN.test(pf.slug) ? 'var(--danger, #d33)' : undefined,
+              }}
+              value={pf.slug}
+              disabled={disabled}
+              placeholder="Public API slug (optional)"
+              onChange={(e) =>
+                onFilesChange(
+                  files.map((f) => (f.id === pf.id ? { ...f, slug: e.target.value } : f)),
+                )
+              }
+            />
           </div>
         ))}
         <button
@@ -158,6 +178,7 @@ function MultiPhotoDropzone({
             id: crypto.randomUUID(),
             file,
             label: labelFromFilename(file.name),
+            slug: '',
           }));
           if (picked.length) onFilesChange([...files, ...picked]);
           e.target.value = '';
@@ -181,6 +202,7 @@ export function AddFaceModal({ knownContinents, onDone, onClose, toast }: Props)
   const busy = status !== 'idle';
   const multi = files.length > 1;
   const allLabeled = files.every((f) => f.label.trim());
+  const allSlugsValid = files.every((f) => !f.slug || SLUG_PATTERN.test(f.slug));
 
   const handleSubmit = async () => {
     if (files.length === 0) {
@@ -189,6 +211,10 @@ export function AddFaceModal({ knownContinents, onDone, onClose, toast }: Props)
     }
     if (!allLabeled) {
       setError('Every image needs a label');
+      return;
+    }
+    if (!allSlugsValid) {
+      setError('Slugs must be lowercase alphanumeric words separated by hyphens');
       return;
     }
     if (addingContinent && !newContinentLabel.trim()) {
@@ -205,7 +231,7 @@ export function AddFaceModal({ knownContinents, onDone, onClose, toast }: Props)
     const created: ModelFace[] = [];
     try {
       for (let i = 0; i < files.length; i++) {
-        const { file, label } = files[i];
+        const { file, label, slug } = files[i];
         const presign = await apiFetch<{
           uploadUrl: string;
           r2Key: string;
@@ -233,6 +259,7 @@ export function AddFaceModal({ knownContinents, onDone, onClose, toast }: Props)
             sortOrder: sortOrder + i,
             r2Key: presign.r2Key,
             thumbnailKey: presign.thumbnailKey,
+            publicApiSlug: slug.trim() || null,
           }),
         });
         created.push(row);
@@ -262,7 +289,7 @@ export function AddFaceModal({ knownContinents, onDone, onClose, toast }: Props)
       saving={busy}
       onSave={() => void handleSubmit()}
       saveLabel={busy ? 'Uploading…' : `Add face${multi ? `s (${files.length})` : ''}`}
-      saveDisabled={files.length === 0 || !allLabeled}
+      saveDisabled={files.length === 0 || !allLabeled || !allSlugsValid}
     >
       {error && (
         <div

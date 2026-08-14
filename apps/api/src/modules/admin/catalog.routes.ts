@@ -9,7 +9,7 @@ import {
   PresignCatalogItemBody,
   PublicApiSlugField,
 } from '@aivastra/types';
-import { and, count, eq, inArray, isNull } from 'drizzle-orm';
+import { and, count, eq, ilike, inArray, isNull, ne } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -142,6 +142,21 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
         subcategoryIds,
         categoryId,
       } = req.body as z.infer<typeof ConfirmCatalogItemBody>;
+      const [existingLabel] = await app.db
+        .select({ id: schema.catalogItems.id })
+        .from(schema.catalogItems)
+        .where(
+          and(
+            ilike(schema.catalogItems.label, label),
+            eq(schema.catalogItems.type, typeSlug),
+            genderSlug
+              ? eq(schema.catalogItems.genderSlug, genderSlug)
+              : isNull(schema.catalogItems.genderSlug),
+          ),
+        );
+      if (existingLabel) {
+        throw new AppError('CONFLICT', 409, `label "${label}" already exists`);
+      }
       const row = await app.db.transaction(async (tx) => {
         const [inserted] = await tx
           .insert(schema.catalogItems)
@@ -201,6 +216,31 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
         thumbnailKey?: string;
         publicApiSlug?: string | null;
       };
+      if (itemFields.label) {
+        const [existing] = await app.db
+          .select({ type: schema.catalogItems.type, genderSlug: schema.catalogItems.genderSlug })
+          .from(schema.catalogItems)
+          .where(eq(schema.catalogItems.id, id));
+        const type = existing?.type;
+        const genderSlug =
+          itemFields.genderSlug !== undefined ? itemFields.genderSlug : existing?.genderSlug;
+        const [existingLabel] = await app.db
+          .select({ id: schema.catalogItems.id })
+          .from(schema.catalogItems)
+          .where(
+            and(
+              ilike(schema.catalogItems.label, itemFields.label),
+              ne(schema.catalogItems.id, id),
+              type ? eq(schema.catalogItems.type, type) : undefined,
+              genderSlug
+                ? eq(schema.catalogItems.genderSlug, genderSlug)
+                : isNull(schema.catalogItems.genderSlug),
+            ),
+          );
+        if (existingLabel) {
+          throw new AppError('CONFLICT', 409, `label "${itemFields.label}" already exists`);
+        }
+      }
       await app.db.transaction(async (tx) => {
         if (Object.keys(itemFields).length > 0) {
           await tx
@@ -260,10 +300,23 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
     '/admin/catalog/categories',
     { preHandler: RW, schema: { body: CreateCategoryBody } },
     async (req) => {
-      const [row] = await app.db
-        .insert(schema.catalogCategories)
-        .values(req.body as z.infer<typeof CreateCategoryBody>)
-        .returning();
+      const body = req.body as z.infer<typeof CreateCategoryBody>;
+      const [existingLabel] = await app.db
+        .select({ id: schema.catalogCategories.id })
+        .from(schema.catalogCategories)
+        .where(
+          and(
+            ilike(schema.catalogCategories.label, body.label),
+            eq(schema.catalogCategories.typeId, body.typeId),
+            body.genderSlug
+              ? eq(schema.catalogCategories.genderSlug, body.genderSlug)
+              : isNull(schema.catalogCategories.genderSlug),
+          ),
+        );
+      if (existingLabel) {
+        throw new AppError('CONFLICT', 409, `label "${body.label}" already exists`);
+      }
+      const [row] = await app.db.insert(schema.catalogCategories).values(body).returning();
       if (!row) throw new AppError('INTERNAL', 500, 'category insert returned no row');
       const typeRow = await app.db
         .select({ slug: schema.catalogTypes.slug })
@@ -326,9 +379,36 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { id } = req.params as { id: number };
+      const body = req.body as z.infer<typeof PatchCategoryBody>;
+      if (body.label) {
+        const [current] = await app.db
+          .select({
+            typeId: schema.catalogCategories.typeId,
+            genderSlug: schema.catalogCategories.genderSlug,
+          })
+          .from(schema.catalogCategories)
+          .where(eq(schema.catalogCategories.id, id));
+        const genderSlug = body.genderSlug !== undefined ? body.genderSlug : current?.genderSlug;
+        const [existingLabel] = await app.db
+          .select({ id: schema.catalogCategories.id })
+          .from(schema.catalogCategories)
+          .where(
+            and(
+              ilike(schema.catalogCategories.label, body.label),
+              ne(schema.catalogCategories.id, id),
+              current ? eq(schema.catalogCategories.typeId, current.typeId) : undefined,
+              genderSlug
+                ? eq(schema.catalogCategories.genderSlug, genderSlug)
+                : isNull(schema.catalogCategories.genderSlug),
+            ),
+          );
+        if (existingLabel) {
+          throw new AppError('CONFLICT', 409, `label "${body.label}" already exists`);
+        }
+      }
       await app.db
         .update(schema.catalogCategories)
-        .set(req.body as z.infer<typeof PatchCategoryBody>)
+        .set(body)
         .where(eq(schema.catalogCategories.id, id));
       return { ok: true };
     },

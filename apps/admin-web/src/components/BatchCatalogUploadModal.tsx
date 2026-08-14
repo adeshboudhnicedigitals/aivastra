@@ -105,7 +105,7 @@ export function BatchCatalogUploadModal({
           method: 'POST',
           body: JSON.stringify({
             typeSlug,
-            label: entry.label.trim() || entry.file.name,
+            label: entry.label.trim(),
             contentType: entry.file.type,
           }),
         });
@@ -115,7 +115,7 @@ export function BatchCatalogUploadModal({
           method: 'POST',
           body: JSON.stringify({
             typeSlug,
-            label: entry.label.trim() || entry.file.name,
+            label: entry.label.trim(),
             r2Key: presign.r2Key,
             thumbnailKey: presign.thumbnailKey,
             sortOrder: sortStart + i,
@@ -143,6 +143,7 @@ export function BatchCatalogUploadModal({
 
   const allDone = entries.length > 0 && entries.every((e) => e.status === 'done');
   const hasErrors = entries.some((e) => e.status === 'error');
+  const allLabeled = entries.every((e) => e.label.trim());
   const pendingCount = entries.filter((e) => e.status !== 'done').length;
 
   const typeLabel = typeSlug === 'lower' ? 'lower garment' : 'shoe';
@@ -155,7 +156,7 @@ export function BatchCatalogUploadModal({
       saving={running}
       onSave={() => void handleUpload()}
       saveLabel={`Upload ${pendingCount || entries.length || ''} item${pendingCount !== 1 ? 's' : ''}`}
-      saveDisabled={entries.length === 0 || allDone}
+      saveDisabled={entries.length === 0 || allDone || !allLabeled}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {/* Shared settings */}
