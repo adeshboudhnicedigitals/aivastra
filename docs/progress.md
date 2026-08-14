@@ -1,3 +1,43 @@
+## 2026-08-14 — SEC-H3 bucket flip complete; CLAUDE.md storage backend correction
+
+**Done**
+- **Closed SEC-H3** (world-readable prod object-storage bucket). Full chain:
+  server-side `.publicUrl()` → `presignGet()` migration (PR #159, live since
+  2026-08-13) → client-side gap found in `apps/admin-web` (it independently
+  reconstructed raw bucket URLs from `storagePublicUrl` on `GET /admin/me`,
+  which no server-side grep could catch) → fixed in PR #168
+  (`fix/admin-web-presigned-thumbnails`, `873c4bbf`), merged to `dev`
+  2026-08-14T09:17:00Z → staging-verified clean same day (deploy commit
+  confirmed by content, all 7 admin asset endpoints presigned, full browser
+  click-through across all 8 admin tabs, live replace-image round-trip) →
+  promoted `dev`→`main` via PR #169, merged 2026-08-14T11:48:35Z
+  (`69646e6b`) → prod deploy confirmed two independent ways (GitHub Actions
+  deploy job log + a separate VPS-access session's own `git rev-parse
+  HEAD`/`docker inspect`) → full pre-flight re-run against live prod, 5/5
+  clean → **flip executed:** `mc anonymous set none local/virtual-tryon-prod`.
+  Verified holding: raw unauthenticated fetch of a real result key → `403`;
+  the same object via its presigned URL → `200`; policy re-checked as still
+  `private` afterward. Rollback prepared, not needed — nothing broke. 5
+  minutes of prod api/dispatcher/web logs around the flip showed zero
+  storage/403/permission errors.
+- **Fixed a stale claim in `CLAUDE.md`.** The Stack section said "Cloudflare
+  R2 in prod, MinIO locally" — prod actually runs **self-hosted MinIO**
+  (container `aivastra-prod-minio`, `minio:9000` internal, proxied via
+  `app.aivastra.com/minio/`), not Cloudflare R2. The `R2_*` env var names are
+  reused for both backends, which is what made the original doc wrong.
+  Corrected in the Stack bullet and the env-var section's MinIO note.
+
+**Failed / Not Done**
+- No full interactive browser click-through of prod web/admin *after* the
+  flip specifically (the VPS-access session doing the flip had no login
+  session available). Confidence is high from the 403/200 spot-check, source
+  confirmation, and clean logs, but this is the one unverified surface —
+  worth a manual pass next time someone's in the admin panel or web app.
+
+**Open Questions / Decisions**
+- None — SEC-H3 is closed. SEC-H4 (Nginx cap) remains separately open, no
+  dependency on this work.
+
 ## 2026-08-12 — GST Invoice for Credit Purchases
 
 **Done**
