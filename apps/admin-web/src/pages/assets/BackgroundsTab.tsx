@@ -37,7 +37,6 @@ export function BackgroundsTab() {
     setAllBackgrounds,
     loading,
     setLoading,
-    storagePublicUrl,
     setPreviewUrl,
     toast,
   } = useAssetsContext();
@@ -58,8 +57,8 @@ export function BackgroundsTab() {
     }, 250);
   }
 
-  function handleImageDoubleClick(r2Key: string) {
-    setPreviewUrl(`${storagePublicUrl}/${r2Key}`);
+  function handleImageDoubleClick(r2Url: string | null) {
+    if (r2Url) setPreviewUrl(r2Url);
   }
 
   const [bgView, setBgView] = useState<BgView>({ kind: 'list' });
@@ -641,16 +640,15 @@ export function BackgroundsTab() {
                     cursor: 'pointer',
                   }}
                   onClick={() => handleImageClick(bg.id)}
-                  onDoubleClick={() => handleImageDoubleClick(bg.r2Key)}
+                  onDoubleClick={() => handleImageDoubleClick(bg.r2Url)}
                 >
                   <div style={{ position: 'relative' }}>
                     <AssetThumb
-                      thumbnailKey={bg.thumbnailKey}
-                      r2Key={bg.r2Key}
+                      thumbnailUrl={bg.thumbnailUrl}
+                      fullUrl={bg.r2Url}
                       label={bg.label}
                       w={130}
                       h={130}
-                      storageBase={storagePublicUrl}
                       onPreview={setPreviewUrl}
                     />
                     <input
@@ -1024,7 +1022,6 @@ export function BackgroundsTab() {
         <EditBackgroundModal
           background={editingBackground}
           categories={categories}
-          storagePublicUrl={storagePublicUrl}
           onSaved={(updated) => {
             setBackgrounds((prev) =>
               prev

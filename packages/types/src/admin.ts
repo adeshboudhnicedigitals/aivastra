@@ -206,16 +206,6 @@ export const ContinentSlug = z
 export const PresignModelFaceBody = z.object({
   contentType: AssetContentType,
 });
-export const ConfirmModelFaceBody = z.object({
-  label: z.string().min(1).max(120),
-  gender: GenderEnum,
-  continent: ContinentSlug.nullable().optional(),
-  r2Key: z.string().min(1),
-  thumbnailKey: z.string().min(1),
-  faceSideR2Key: z.string().min(1).optional(),
-  sortOrder: z.number().int().default(0),
-  tags: z.array(z.string().min(1).max(40)).max(20).optional(),
-});
 /**
  * Opts an asset into the public developer API and names it there.
  *
@@ -241,6 +231,18 @@ export const PublicApiSlugField = z
   .nullable()
   .optional()
   .transform((v) => (v === '' ? null : v));
+
+export const ConfirmModelFaceBody = z.object({
+  label: z.string().min(1).max(120),
+  gender: GenderEnum,
+  continent: ContinentSlug.nullable().optional(),
+  r2Key: z.string().min(1),
+  thumbnailKey: z.string().min(1),
+  faceSideR2Key: z.string().min(1).optional(),
+  sortOrder: z.number().int().default(0),
+  tags: z.array(z.string().min(1).max(40)).max(20).optional(),
+  publicApiSlug: PublicApiSlugField,
+});
 
 export const PatchModelFaceBody = z.object({
   label: z.string().min(1).max(120).optional(),

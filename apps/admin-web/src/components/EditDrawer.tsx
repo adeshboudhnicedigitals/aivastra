@@ -18,7 +18,7 @@ export interface EditDrawerProps {
   title: string;
   subtitle?: string;
   tags?: EditDrawerTag[];
-  thumbnail?: { thumbnailKey?: string; r2Key?: string; storagePublicUrl: string | null };
+  thumbnail?: { thumbnailUrl?: string | null; fullUrl?: string | null };
   width?: string;
   sections?: EditDrawerSection[];
   children?: ReactNode;
@@ -52,12 +52,11 @@ export function EditDrawer({
         <div className="drawer-head">
           {thumbnail && (
             <AssetThumb
-              thumbnailKey={thumbnail.thumbnailKey}
-              r2Key={thumbnail.r2Key}
+              thumbnailUrl={thumbnail.thumbnailUrl}
+              fullUrl={thumbnail.fullUrl}
               label={title}
               w={40}
               h={40}
-              storageBase={thumbnail.storagePublicUrl}
             />
           )}
           <div style={{ minWidth: 0 }}>

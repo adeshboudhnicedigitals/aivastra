@@ -1,5 +1,4 @@
 import { useRef, useState } from 'react';
-import { useAuth } from '../context/AuthContext';
 import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
 import type { GenderSlug, ModelPoseAsset, WorkflowOption } from '../types';
@@ -168,7 +167,6 @@ interface Props {
 }
 
 export function EditPoseAssetModal({ asset, workflows, onSaved, onClose, toast }: Props) {
-  const { storagePublicUrl } = useAuth();
   const [label] = useState(asset.label);
   const [displayName, setDisplayName] = useState(asset.displayName ?? '');
   const [genderSlug, setGenderSlug] = useState<GenderSlug>(
@@ -239,7 +237,7 @@ export function EditPoseAssetModal({ asset, workflows, onSaved, onClose, toast }
       onClose={onClose}
       title="Edit pose asset"
       width="min(480px, calc(100vw - 40px))"
-      thumbnail={{ thumbnailKey: asset.thumbnailKey, r2Key: asset.r2Key, storagePublicUrl }}
+      thumbnail={{ thumbnailUrl: asset.thumbnailUrl, fullUrl: asset.r2Url }}
       saving={saving}
       onSave={handleSave}
       saveDisabled={!label.trim()}
@@ -339,11 +337,7 @@ export function EditPoseAssetModal({ asset, workflows, onSaved, onClose, toast }
         <ImagePicker
           id="epa-pose-img"
           label="Pose image"
-          currentUrl={
-            storagePublicUrl && asset.thumbnailKey
-              ? `${storagePublicUrl}/${asset.thumbnailKey}`
-              : null
-          }
+          currentUrl={asset.thumbnailUrl}
           file={poseFile}
           disabled={saving}
           onChange={setPoseFile}

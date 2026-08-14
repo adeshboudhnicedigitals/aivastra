@@ -29,7 +29,6 @@ export async function adminMeRoutes(app: FastifyInstance) {
         userId: req.userId,
         email: user.email,
         role: req.adminRole,
-        storagePublicUrl: app.env.R2_PUBLIC_URL.replace(/\/$/, ''),
         preferences: adminUser?.preferences ?? {},
       };
     },

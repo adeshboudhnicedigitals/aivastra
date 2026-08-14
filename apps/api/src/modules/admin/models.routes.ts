@@ -15,7 +15,7 @@ import {
   PublicApiSlugField,
 } from '@aivastra/types';
 import AdmZip from 'adm-zip';
-import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { and, eq, ilike, inArray, isNull, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import sharp from 'sharp';
 import { z } from 'zod';
@@ -36,7 +36,16 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       .from(schema.modelFaces)
       .where(isNull(schema.modelFaces.deletedAt))
       .orderBy(schema.modelFaces.sortOrder);
-    return { items: rows };
+    const items = await Promise.all(
+      rows.map(async (r) => ({
+        ...r,
+        thumbnailUrl: r.thumbnailKey
+          ? (await app.storage.presignGet(r.thumbnailKey, 3600)).url
+          : null,
+        r2Url: r.r2Key ? (await app.storage.presignGet(r.r2Key, 3600)).url : null,
+      })),
+    );
+    return { items };
   });
 
   app.post(
@@ -83,7 +92,25 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         faceSideR2Key?: string;
         sortOrder: number;
         tags?: string[];
+        publicApiSlug?: string | null;
       };
+      const [existingLabel] = await app.db
+        .select({ id: schema.modelFaces.id })
+        .from(schema.modelFaces)
+        .where(
+          and(
+            ilike(schema.modelFaces.label, body.label),
+            eq(schema.modelFaces.gender, body.gender),
+            isNull(schema.modelFaces.deletedAt),
+          ),
+        );
+      if (existingLabel) {
+        throw new AppError(
+          'CONFLICT',
+          409,
+          `label "${body.label}" already exists for ${body.gender}`,
+        );
+      }
       const [row] = await app.db
         .insert(schema.modelFaces)
         .values({
@@ -95,6 +122,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           faceSideR2Key: body.faceSideR2Key ?? null,
           sortOrder: body.sortOrder,
           tags: body.tags ?? [],
+          publicApiSlug: body.publicApiSlug ?? null,
         })
         .returning();
       return row;
@@ -109,6 +137,31 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { id } = req.params as { id: string };
+      const body = req.body as { label?: string; gender?: string };
+      if (body.label) {
+        const gender =
+          body.gender ??
+          (
+            await app.db
+              .select({ gender: schema.modelFaces.gender })
+              .from(schema.modelFaces)
+              .where(eq(schema.modelFaces.id, id))
+          )[0]?.gender;
+        const [existingLabel] = await app.db
+          .select({ id: schema.modelFaces.id })
+          .from(schema.modelFaces)
+          .where(
+            and(
+              ilike(schema.modelFaces.label, body.label),
+              isNull(schema.modelFaces.deletedAt),
+              ne(schema.modelFaces.id, id),
+              gender ? eq(schema.modelFaces.gender, gender) : undefined,
+            ),
+          );
+        if (existingLabel) {
+          throw new AppError('CONFLICT', 409, `label "${body.label}" already exists for ${gender}`);
+        }
+      }
       const [updated] = await app.db
         .update(schema.modelFaces)
         .set({ ...(req.body as object), updatedAt: new Date() })
@@ -210,7 +263,16 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
               : eq(schema.modelBackgrounds.scope, scope ?? 'general'),
           ),
         );
-      return { items: rows };
+      const items = await Promise.all(
+        rows.map(async (r) => ({
+          ...r,
+          thumbnailUrl: r.thumbnailKey
+            ? (await app.storage.presignGet(r.thumbnailKey, 3600)).url
+            : null,
+          r2Url: r.r2Key ? (await app.storage.presignGet(r.r2Key, 3600)).url : null,
+        })),
+      );
+      return { items };
     },
   );
 
@@ -550,7 +612,16 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           ),
         )
         .orderBy(schema.modelPoseAssets.sortOrder, schema.modelPoseAssets.label);
-      return { items: rows };
+      const items = await Promise.all(
+        rows.map(async (r) => ({
+          ...r,
+          thumbnailUrl: r.thumbnailKey
+            ? (await app.storage.presignGet(r.thumbnailKey, 3600)).url
+            : null,
+          r2Url: r.r2Key ? (await app.storage.presignGet(r.r2Key, 3600)).url : null,
+        })),
+      );
+      return { items };
     },
   );
 
@@ -624,6 +695,22 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         scope?: 'general' | 'template';
         shotType?: 'full' | 'half' | 'closeup';
       };
+
+      const [existingLabel] = await app.db
+        .select({ id: schema.modelPoseAssets.id })
+        .from(schema.modelPoseAssets)
+        .where(
+          and(
+            ilike(schema.modelPoseAssets.label, body.label),
+            isNull(schema.modelPoseAssets.deletedAt),
+            body.genderSlug
+              ? eq(schema.modelPoseAssets.genderSlug, body.genderSlug)
+              : isNull(schema.modelPoseAssets.genderSlug),
+          ),
+        );
+      if (existingLabel) {
+        throw new AppError('CONFLICT', 409, `label "${body.label}" already exists`);
+      }
 
       const [inserted] = await app.db
         .insert(schema.modelPoseAssets)
@@ -706,6 +793,30 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         sortOrder?: number;
         publicApiSlug?: string | null;
       };
+
+      if (body.label) {
+        const [current] = await app.db
+          .select({ genderSlug: schema.modelPoseAssets.genderSlug })
+          .from(schema.modelPoseAssets)
+          .where(eq(schema.modelPoseAssets.id, id));
+        const genderSlug = body.genderSlug !== undefined ? body.genderSlug : current?.genderSlug;
+        const [existingLabel] = await app.db
+          .select({ id: schema.modelPoseAssets.id })
+          .from(schema.modelPoseAssets)
+          .where(
+            and(
+              ilike(schema.modelPoseAssets.label, body.label),
+              isNull(schema.modelPoseAssets.deletedAt),
+              ne(schema.modelPoseAssets.id, id),
+              genderSlug
+                ? eq(schema.modelPoseAssets.genderSlug, genderSlug)
+                : isNull(schema.modelPoseAssets.genderSlug),
+            ),
+          );
+        if (existingLabel) {
+          throw new AppError('CONFLICT', 409, `label "${body.label}" already exists`);
+        }
+      }
 
       const set: Record<string, unknown> = {};
       if (body.label !== undefined) set.label = body.label;
@@ -862,7 +973,28 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         .where(sql`${schema.modelPoseAssets.deletedAt} IS NOT NULL`)
         .orderBy(schema.modelPoseAssets.deletedAt),
     ]);
-    return { faces, backgrounds, poseAssets };
+    const withUrls = async <T extends { thumbnailKey?: string | null; r2Key?: string | null }>(
+      rows: T[],
+    ) =>
+      Promise.all(
+        rows.map(async (r) => ({
+          ...r,
+          thumbnailUrl: r.thumbnailKey
+            ? (await app.storage.presignGet(r.thumbnailKey, 3600)).url
+            : null,
+          r2Url: r.r2Key ? (await app.storage.presignGet(r.r2Key, 3600)).url : null,
+        })),
+      );
+    const [facesWithUrls, backgroundsWithUrls, poseAssetsWithUrls] = await Promise.all([
+      withUrls(faces),
+      withUrls(backgrounds),
+      withUrls(poseAssets),
+    ]);
+    return {
+      faces: facesWithUrls,
+      backgrounds: backgroundsWithUrls,
+      poseAssets: poseAssetsWithUrls,
+    };
   });
 
   app.post(
@@ -1277,7 +1409,15 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       .select()
       .from(schema.sareeMannequinStyles)
       .orderBy(schema.sareeMannequinStyles.sortOrder, schema.sareeMannequinStyles.label);
-    return { items: rows };
+    const items = await Promise.all(
+      rows.map(async (r) => ({
+        ...r,
+        previewImageUrl: r.previewImageKey
+          ? (await app.storage.presignGet(r.previewImageKey, 3600)).url
+          : null,
+      })),
+    );
+    return { items };
   });
 
   app.post(

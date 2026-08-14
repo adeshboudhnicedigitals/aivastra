@@ -8,7 +8,6 @@ import { SearchableSelect } from '../components/SearchableSelect';
 import { Switch } from '../components/Switch';
 import type { SortDir } from '../components/Th';
 import { Th } from '../components/Th';
-import { useAuth } from '../context/AuthContext';
 import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
 import type { CatalogItem } from '../types';
@@ -48,7 +47,6 @@ interface Props {
 }
 
 export default function CatalogPage({ onNav: _onNav, toast }: Props) {
-  const { storagePublicUrl } = useAuth();
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [tab, setTab] = useState<Tab>('all');
@@ -344,10 +342,10 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
                 <tr key={c.id}>
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      {storagePublicUrl && c.thumbnailKey ? (
+                      {c.thumbnailUrl ? (
                         // biome-ignore lint/performance/noImgElement: catalog thumbnail in table
                         <img
-                          src={`${storagePublicUrl}/${c.thumbnailKey}`}
+                          src={c.thumbnailUrl}
                           alt={c.label}
                           style={{
                             width: 40,
@@ -438,7 +436,7 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
           onClose={() => setEditItem(null)}
           title="Edit catalog item"
           width="min(720px, calc(100vw - 80px))"
-          thumbnail={{ thumbnailKey: editItem.thumbnailKey, storagePublicUrl }}
+          thumbnail={{ thumbnailUrl: editItem.thumbnailUrl }}
           saving={editSaving}
           onSave={() => void saveEdit()}
           saveDisabled={!editLabel.trim()}
@@ -486,13 +484,10 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
             <div className="field">
               <label>Replace image</label>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                {(editReplacePreview ??
-                  (storagePublicUrl && editItem.thumbnailKey
-                    ? `${storagePublicUrl}/${editItem.thumbnailKey}`
-                    : null)) && (
+                {(editReplacePreview ?? editItem.thumbnailUrl) && (
                   // biome-ignore lint/performance/noImgElement: edit catalog thumbnail preview
                   <img
-                    src={editReplacePreview ?? `${storagePublicUrl}/${editItem.thumbnailKey}`}
+                    src={editReplacePreview ?? (editItem.thumbnailUrl as string)}
                     alt=""
                     style={{
                       width: 56,

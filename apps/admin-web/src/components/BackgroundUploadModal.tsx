@@ -108,7 +108,7 @@ export function BackgroundUploadModal({
         const row = await apiFetch<ModelBackground>('/admin/assets/backgrounds/confirm', {
           method: 'POST',
           body: JSON.stringify({
-            label: entry.label.trim() || entry.file.name,
+            label: entry.label.trim(),
             r2Key: presign.r2Key,
             sortOrder: sortStart + i,
             genderSlug: genderSlug || undefined,
@@ -136,7 +136,8 @@ export function BackgroundUploadModal({
 
   const allDone = entries.length > 0 && entries.every((e) => e.status === 'done');
   const hasErrors = entries.some((e) => e.status === 'error');
-  const canUpload = !busy && entries.length > 0 && !allDone;
+  const allLabeled = entries.every((e) => e.label.trim());
+  const canUpload = !busy && entries.length > 0 && !allDone && allLabeled;
   const pendingCount = entries.filter((e) => e.status !== 'done').length;
 
   return (
