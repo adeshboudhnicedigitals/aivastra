@@ -15,7 +15,7 @@ import {
   PublicApiSlugField,
 } from '@aivastra/types';
 import AdmZip from 'adm-zip';
-import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { and, eq, ilike, inArray, isNull, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import sharp from 'sharp';
 import { z } from 'zod';
@@ -83,7 +83,25 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         faceSideR2Key?: string;
         sortOrder: number;
         tags?: string[];
+        publicApiSlug?: string | null;
       };
+      const [existingLabel] = await app.db
+        .select({ id: schema.modelFaces.id })
+        .from(schema.modelFaces)
+        .where(
+          and(
+            ilike(schema.modelFaces.label, body.label),
+            eq(schema.modelFaces.gender, body.gender),
+            isNull(schema.modelFaces.deletedAt),
+          ),
+        );
+      if (existingLabel) {
+        throw new AppError(
+          'CONFLICT',
+          409,
+          `label "${body.label}" already exists for ${body.gender}`,
+        );
+      }
       const [row] = await app.db
         .insert(schema.modelFaces)
         .values({
@@ -95,6 +113,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           faceSideR2Key: body.faceSideR2Key ?? null,
           sortOrder: body.sortOrder,
           tags: body.tags ?? [],
+          publicApiSlug: body.publicApiSlug ?? null,
         })
         .returning();
       return row;
@@ -109,6 +128,31 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { id } = req.params as { id: string };
+      const body = req.body as { label?: string; gender?: string };
+      if (body.label) {
+        const gender =
+          body.gender ??
+          (
+            await app.db
+              .select({ gender: schema.modelFaces.gender })
+              .from(schema.modelFaces)
+              .where(eq(schema.modelFaces.id, id))
+          )[0]?.gender;
+        const [existingLabel] = await app.db
+          .select({ id: schema.modelFaces.id })
+          .from(schema.modelFaces)
+          .where(
+            and(
+              ilike(schema.modelFaces.label, body.label),
+              isNull(schema.modelFaces.deletedAt),
+              ne(schema.modelFaces.id, id),
+              gender ? eq(schema.modelFaces.gender, gender) : undefined,
+            ),
+          );
+        if (existingLabel) {
+          throw new AppError('CONFLICT', 409, `label "${body.label}" already exists for ${gender}`);
+        }
+      }
       const [updated] = await app.db
         .update(schema.modelFaces)
         .set({ ...(req.body as object), updatedAt: new Date() })
@@ -625,6 +669,22 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         shotType?: 'full' | 'half' | 'closeup';
       };
 
+      const [existingLabel] = await app.db
+        .select({ id: schema.modelPoseAssets.id })
+        .from(schema.modelPoseAssets)
+        .where(
+          and(
+            ilike(schema.modelPoseAssets.label, body.label),
+            isNull(schema.modelPoseAssets.deletedAt),
+            body.genderSlug
+              ? eq(schema.modelPoseAssets.genderSlug, body.genderSlug)
+              : isNull(schema.modelPoseAssets.genderSlug),
+          ),
+        );
+      if (existingLabel) {
+        throw new AppError('CONFLICT', 409, `label "${body.label}" already exists`);
+      }
+
       const [inserted] = await app.db
         .insert(schema.modelPoseAssets)
         .values({
@@ -706,6 +766,30 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         sortOrder?: number;
         publicApiSlug?: string | null;
       };
+
+      if (body.label) {
+        const [current] = await app.db
+          .select({ genderSlug: schema.modelPoseAssets.genderSlug })
+          .from(schema.modelPoseAssets)
+          .where(eq(schema.modelPoseAssets.id, id));
+        const genderSlug = body.genderSlug !== undefined ? body.genderSlug : current?.genderSlug;
+        const [existingLabel] = await app.db
+          .select({ id: schema.modelPoseAssets.id })
+          .from(schema.modelPoseAssets)
+          .where(
+            and(
+              ilike(schema.modelPoseAssets.label, body.label),
+              isNull(schema.modelPoseAssets.deletedAt),
+              ne(schema.modelPoseAssets.id, id),
+              genderSlug
+                ? eq(schema.modelPoseAssets.genderSlug, genderSlug)
+                : isNull(schema.modelPoseAssets.genderSlug),
+            ),
+          );
+        if (existingLabel) {
+          throw new AppError('CONFLICT', 409, `label "${body.label}" already exists`);
+        }
+      }
 
       const set: Record<string, unknown> = {};
       if (body.label !== undefined) set.label = body.label;

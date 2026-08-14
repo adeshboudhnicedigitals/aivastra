@@ -7,7 +7,7 @@ import {
   PresignCatalogueTemplateThumbnailBody,
   PutCatalogueTemplateLooksBody,
 } from '@aivastra/types';
-import { and, asc, eq, inArray, isNull, ne, notInArray } from 'drizzle-orm';
+import { and, asc, eq, ilike, inArray, isNull, ne, notInArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -59,6 +59,19 @@ export async function adminCatalogueTemplatesRoutes(app: FastifyInstance) {
     { preHandler: RW, schema: { body: CreateCatalogueTemplateBody } },
     async (req) => {
       const body = req.body as z.infer<typeof CreateCatalogueTemplateBody>;
+      const [existingLabel] = await app.db
+        .select({ id: schema.catalogueTemplates.id })
+        .from(schema.catalogueTemplates)
+        .where(
+          and(
+            ilike(schema.catalogueTemplates.label, body.label),
+            eq(schema.catalogueTemplates.genderSlug, body.genderSlug),
+            isNull(schema.catalogueTemplates.deletedAt),
+          ),
+        );
+      if (existingLabel) {
+        throw new AppError('CONFLICT', 409, `label "${body.label}" already exists`);
+      }
       const [row] = await app.db
         .insert(schema.catalogueTemplates)
         .values({
@@ -78,6 +91,26 @@ export async function adminCatalogueTemplatesRoutes(app: FastifyInstance) {
     async (req) => {
       const { id } = req.params as { id: string };
       const body = req.body as Record<string, unknown>;
+      if (typeof body.label === 'string') {
+        const [current] = await app.db
+          .select({ genderSlug: schema.catalogueTemplates.genderSlug })
+          .from(schema.catalogueTemplates)
+          .where(eq(schema.catalogueTemplates.id, id));
+        const [existingLabel] = await app.db
+          .select({ id: schema.catalogueTemplates.id })
+          .from(schema.catalogueTemplates)
+          .where(
+            and(
+              ilike(schema.catalogueTemplates.label, body.label),
+              isNull(schema.catalogueTemplates.deletedAt),
+              ne(schema.catalogueTemplates.id, id),
+              current ? eq(schema.catalogueTemplates.genderSlug, current.genderSlug) : undefined,
+            ),
+          );
+        if (existingLabel) {
+          throw new AppError('CONFLICT', 409, `label "${body.label}" already exists`);
+        }
+      }
       if ('thumbnailKey' in body) {
         const [current] = await app.db
           .select({ thumbnailKey: schema.catalogueTemplates.thumbnailKey })

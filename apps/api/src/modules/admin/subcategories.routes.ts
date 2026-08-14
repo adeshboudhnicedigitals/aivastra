@@ -7,7 +7,7 @@ import {
   PresignGarmentTypeBody,
   PresignGarmentTypeInstructionBody,
 } from '@aivastra/types';
-import { and, asc, eq, gt, gte, inArray, isNull, lt, lte, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, ilike, inArray, isNull, lt, lte, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -92,6 +92,18 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
         requiresThirdUpload?: boolean;
         tryonCategoryId?: string | null;
       };
+      const [existingLabel] = await app.db
+        .select({ id: schema.garmentSubcategories.id })
+        .from(schema.garmentSubcategories)
+        .where(
+          and(
+            ilike(schema.garmentSubcategories.label, label),
+            eq(schema.garmentSubcategories.genderSlug, genderSlug),
+          ),
+        );
+      if (existingLabel) {
+        throw new AppError('CONFLICT', 409, `label "${label}" already exists for ${genderSlug}`);
+      }
       const row = await app.db.transaction(async (tx) => {
         let targetSortOrder = sortOrder;
         if (targetSortOrder === undefined) {
@@ -142,6 +154,26 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
     async (req) => {
       const { id } = req.params as { id: string };
       const body = req.body as Record<string, unknown>;
+
+      if (typeof body.label === 'string') {
+        const [current] = await app.db
+          .select({ genderSlug: schema.garmentSubcategories.genderSlug })
+          .from(schema.garmentSubcategories)
+          .where(eq(schema.garmentSubcategories.id, id));
+        const [existingLabel] = await app.db
+          .select({ id: schema.garmentSubcategories.id })
+          .from(schema.garmentSubcategories)
+          .where(
+            and(
+              ilike(schema.garmentSubcategories.label, body.label),
+              ne(schema.garmentSubcategories.id, id),
+              current ? eq(schema.garmentSubcategories.genderSlug, current.genderSlug) : undefined,
+            ),
+          );
+        if (existingLabel) {
+          throw new AppError('CONFLICT', 409, `label "${body.label}" already exists`);
+        }
+      }
 
       if ('instructionImageKey' in body) {
         const [current] = await app.db

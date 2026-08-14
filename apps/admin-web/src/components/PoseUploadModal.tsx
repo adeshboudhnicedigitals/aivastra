@@ -172,7 +172,7 @@ export function PoseUploadModal({
         const result = await apiFetch<ModelPoseAsset>('/admin/assets/pose-assets', {
           method: 'POST',
           body: JSON.stringify({
-            label: entry.label.trim() || stemFromFilename(entry.file.name),
+            label: entry.label.trim(),
             r2Key: presign.r2Key,
             thumbnailKey: presign.thumbnailKey,
             workflowTemplateId,
@@ -202,7 +202,8 @@ export function PoseUploadModal({
   };
 
   const pendingCount = entries.filter((e) => e.status === 'pending' || e.status === 'error').length;
-  const canUpload = !uploading && pendingCount > 0 && !!workflowTemplateId;
+  const allLabeled = entries.every((e) => e.label.trim());
+  const canUpload = !uploading && pendingCount > 0 && !!workflowTemplateId && allLabeled;
 
   return (
     <EditDrawer

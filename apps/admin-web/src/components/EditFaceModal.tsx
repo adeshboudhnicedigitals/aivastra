@@ -153,6 +153,12 @@ export function EditFaceModal({
             onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
           />
         </div>
+        <PublicApiSlugField
+          value={form.publicApiSlug}
+          disabled={saving}
+          kind="model"
+          onChange={(v) => setForm((f) => ({ ...f, publicApiSlug: v }))}
+        />
         <div className="field">
           <label>Gender</label>
           <select
@@ -225,12 +231,6 @@ export function EditFaceModal({
             onChange={(e) => setForm((f) => ({ ...f, sortOrder: Number(e.target.value) }))}
           />
         </div>
-        <PublicApiSlugField
-          value={form.publicApiSlug}
-          disabled={saving}
-          kind="model"
-          onChange={(v) => setForm((f) => ({ ...f, publicApiSlug: v }))}
-        />
         <div className="field">
           <label>
             Tags <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>

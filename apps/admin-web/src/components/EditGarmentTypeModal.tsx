@@ -519,7 +519,7 @@ export function EditGarmentTypeModal({
       width="min(780px, calc(100vw - 60px))"
       saving={saving}
       onSave={() => void save()}
-      saveDisabled={!dirty}
+      saveDisabled={!dirty || !label.trim()}
       sections={[
         {
           title: 'Basic Info',
