@@ -30,7 +30,6 @@ export function FacesTab() {
     setFaces,
     loadFaces,
     loading,
-    storagePublicUrl,
     setPreviewUrl,
     toast,
   } = useAssetsContext();
@@ -51,8 +50,8 @@ export function FacesTab() {
     }, 250);
   }
 
-  function handleImageDoubleClick(r2Key: string) {
-    setPreviewUrl(`${storagePublicUrl}/${r2Key}`);
+  function handleImageDoubleClick(r2Url: string | null) {
+    if (r2Url) setPreviewUrl(r2Url);
   }
 
   const [selectedFaceIds, setSelectedFaceIds] = useState<string[]>([]);
@@ -368,7 +367,7 @@ export function FacesTab() {
                   cursor: 'pointer',
                 }}
                 onClick={() => handleImageClick(face.id)}
-                onDoubleClick={() => handleImageDoubleClick(face.r2Key)}
+                onDoubleClick={() => handleImageDoubleClick(face.r2Url)}
               >
                 <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                   <input
@@ -388,12 +387,11 @@ export function FacesTab() {
                     }}
                   />
                   <AssetThumb
-                    thumbnailKey={face.thumbnailKey}
-                    r2Key={face.r2Key}
+                    thumbnailUrl={face.thumbnailUrl}
+                    fullUrl={face.r2Url}
                     label={face.label}
                     w={48}
                     h={64}
-                    storageBase={storagePublicUrl}
                     onPreview={setPreviewUrl}
                   />
                   <div style={{ marginTop: 4 }}>
@@ -581,7 +579,6 @@ export function FacesTab() {
       {editingFace && (
         <EditFaceModal
           face={editingFace}
-          storagePublicUrl={storagePublicUrl}
           knownContinents={knownContinents}
           onSaved={(updated) => {
             setFaces((prev) => prev.map((f) => (f.id === updated.id ? updated : f)));

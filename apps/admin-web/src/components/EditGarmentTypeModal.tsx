@@ -20,7 +20,6 @@ interface Props {
   catalogItems: CatalogItem[];
   tryonCategories: TryonCategory[];
   workflows: WorkflowOption[];
-  storagePublicUrl: string | null;
   onSaved: (patch: Record<string, unknown>) => void;
   onClose: () => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
@@ -189,7 +188,6 @@ function ItemPicker({
   categories,
   selectedId,
   onSelect,
-  storagePublicUrl,
 }: {
   type: 'lower' | 'shoe';
   gender: string;
@@ -197,7 +195,6 @@ function ItemPicker({
   categories: CatalogCategory[];
   selectedId: string;
   onSelect: (id: string) => void;
-  storagePublicUrl: string | null;
 }) {
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<number | 'all'>('all');
@@ -310,13 +307,7 @@ function ItemPicker({
             label={c.label}
             onClick={() => onSelect(c.id === selectedId ? '' : c.id)}
           >
-            <AssetThumb
-              thumbnailKey={c.thumbnailKey}
-              label={c.label}
-              w={88}
-              h={88}
-              storageBase={storagePublicUrl}
-            />
+            <AssetThumb thumbnailUrl={c.thumbnailUrl} label={c.label} w={88} h={88} />
           </PickerTile>
         ))}
         {filtered.length === 0 && (
@@ -342,7 +333,6 @@ export function EditGarmentTypeModal({
   catalogItems,
   tryonCategories,
   workflows,
-  storagePublicUrl,
   onSaved,
   onClose,
   toast,
@@ -386,9 +376,7 @@ export function EditGarmentTypeModal({
 
   const imagePreview = imageFile
     ? URL.createObjectURL(imageFile)
-    : garmentType.thumbnailKey && storagePublicUrl
-      ? `${storagePublicUrl}/${garmentType.thumbnailKey}`
-      : null;
+    : (garmentType.thumbnailUrl ?? null);
   const instructionPreview = instructionFile
     ? URL.createObjectURL(instructionFile)
     : removeInstructionImage
@@ -515,7 +503,7 @@ export function EditGarmentTypeModal({
       title="Edit Garment Type"
       subtitle={garmentType.slug}
       tags={[{ label: garmentType.genderSlug, tone: 'dot-accent' }]}
-      thumbnail={{ thumbnailKey: garmentType.thumbnailKey ?? undefined, storagePublicUrl }}
+      thumbnail={{ thumbnailUrl: garmentType.thumbnailUrl }}
       width="min(780px, calc(100vw - 60px))"
       saving={saving}
       onSave={() => void save()}
@@ -736,7 +724,6 @@ export function EditGarmentTypeModal({
               categories={categories}
               selectedId={defaultLowerId}
               onSelect={setDefaultLowerId}
-              storagePublicUrl={storagePublicUrl}
             />
           ),
         },
@@ -751,7 +738,6 @@ export function EditGarmentTypeModal({
               categories={categories}
               selectedId={defaultShoeId}
               onSelect={setDefaultShoeId}
-              storagePublicUrl={storagePublicUrl}
             />
           ),
         },

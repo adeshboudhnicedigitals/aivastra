@@ -11,7 +11,9 @@ export interface ModelFace {
   continent: Continent | null;
   label: string;
   thumbnailKey: string;
+  thumbnailUrl: string | null;
   r2Key: string;
+  r2Url: string | null;
   faceSideR2Key: string | null;
   tags: string[];
   /** Non-null = published to the public developer API under this slug. */
@@ -27,7 +29,9 @@ export interface ModelBackground {
   id: string;
   label: string;
   thumbnailKey: string;
+  thumbnailUrl: string | null;
   r2Key: string;
+  r2Url: string | null;
   bgComfyR2Key: string | null;
   categoryId: number | null;
   tags: string[];
@@ -49,6 +53,7 @@ export interface GarmentType {
   slug: string;
   label: string;
   thumbnailKey?: string | null;
+  thumbnailUrl?: string | null;
   instructionImageKey?: string | null;
   instructionImageUrl?: string | null;
   isActive: boolean;
@@ -149,29 +154,6 @@ export interface ShotTypeWorkflow {
   workflowTemplateId: string | null;
 }
 
-// Poses are per (garment type × face × background) combo
-export interface ModelPose {
-  id: string;
-  garmentTypeId: string;
-  faceId: string;
-  backgroundId: string;
-  label: string;
-  thumbnailKey: string;
-  r2Key: string;
-  faceSideR2Key: string | null;
-  bgComfyR2Key: string | null;
-  workflowTemplateId: string; // UUID FK to workflow_templates
-  promptFacePhase: string | null;
-  promptGarmentPhase: string | null;
-  showsLower: boolean;
-  showsShoes: boolean;
-  workflowLabel: string | null;
-  isActive: boolean;
-  sortOrder: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export type CategoryTag = 'featured' | 'trending' | 'popular';
 
 export interface CatalogCategory {
@@ -195,7 +177,9 @@ export interface CatalogItem {
   genderSlug: string | null;
   label: string;
   thumbnailKey: string;
+  thumbnailUrl: string | null;
   r2Key: string;
+  r2Url: string | null;
   publicApiSlug: string | null;
   isActive: boolean;
   sortOrder: number;
@@ -364,7 +348,9 @@ export interface ModelPoseAsset {
   label: string;
   displayName: string | null;
   r2Key: string;
+  r2Url: string | null;
   thumbnailKey: string;
+  thumbnailUrl: string | null;
   genderSlug: string | null;
   workflowTemplateId: string | null;
   promptGarmentPhase: string | null;
@@ -383,6 +369,7 @@ export interface SareeMannequinStyle {
   id: string;
   label: string;
   previewImageKey: string | null;
+  previewImageUrl: string | null;
   mannequinWorkflowTemplateId: string;
   mannequinTwoInputWorkflowTemplateId: string | null;
   sortOrder: number;

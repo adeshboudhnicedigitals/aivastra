@@ -36,7 +36,16 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       .from(schema.modelFaces)
       .where(isNull(schema.modelFaces.deletedAt))
       .orderBy(schema.modelFaces.sortOrder);
-    return { items: rows };
+    const items = await Promise.all(
+      rows.map(async (r) => ({
+        ...r,
+        thumbnailUrl: r.thumbnailKey
+          ? (await app.storage.presignGet(r.thumbnailKey, 3600)).url
+          : null,
+        r2Url: r.r2Key ? (await app.storage.presignGet(r.r2Key, 3600)).url : null,
+      })),
+    );
+    return { items };
   });
 
   app.post(
@@ -254,7 +263,16 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
               : eq(schema.modelBackgrounds.scope, scope ?? 'general'),
           ),
         );
-      return { items: rows };
+      const items = await Promise.all(
+        rows.map(async (r) => ({
+          ...r,
+          thumbnailUrl: r.thumbnailKey
+            ? (await app.storage.presignGet(r.thumbnailKey, 3600)).url
+            : null,
+          r2Url: r.r2Key ? (await app.storage.presignGet(r.r2Key, 3600)).url : null,
+        })),
+      );
+      return { items };
     },
   );
 
@@ -594,7 +612,16 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           ),
         )
         .orderBy(schema.modelPoseAssets.sortOrder, schema.modelPoseAssets.label);
-      return { items: rows };
+      const items = await Promise.all(
+        rows.map(async (r) => ({
+          ...r,
+          thumbnailUrl: r.thumbnailKey
+            ? (await app.storage.presignGet(r.thumbnailKey, 3600)).url
+            : null,
+          r2Url: r.r2Key ? (await app.storage.presignGet(r.r2Key, 3600)).url : null,
+        })),
+      );
+      return { items };
     },
   );
 
@@ -946,7 +973,28 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         .where(sql`${schema.modelPoseAssets.deletedAt} IS NOT NULL`)
         .orderBy(schema.modelPoseAssets.deletedAt),
     ]);
-    return { faces, backgrounds, poseAssets };
+    const withUrls = async <T extends { thumbnailKey?: string | null; r2Key?: string | null }>(
+      rows: T[],
+    ) =>
+      Promise.all(
+        rows.map(async (r) => ({
+          ...r,
+          thumbnailUrl: r.thumbnailKey
+            ? (await app.storage.presignGet(r.thumbnailKey, 3600)).url
+            : null,
+          r2Url: r.r2Key ? (await app.storage.presignGet(r.r2Key, 3600)).url : null,
+        })),
+      );
+    const [facesWithUrls, backgroundsWithUrls, poseAssetsWithUrls] = await Promise.all([
+      withUrls(faces),
+      withUrls(backgrounds),
+      withUrls(poseAssets),
+    ]);
+    return {
+      faces: facesWithUrls,
+      backgrounds: backgroundsWithUrls,
+      poseAssets: poseAssetsWithUrls,
+    };
   });
 
   app.post(
@@ -1361,7 +1409,15 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       .select()
       .from(schema.sareeMannequinStyles)
       .orderBy(schema.sareeMannequinStyles.sortOrder, schema.sareeMannequinStyles.label);
-    return { items: rows };
+    const items = await Promise.all(
+      rows.map(async (r) => ({
+        ...r,
+        previewImageUrl: r.previewImageKey
+          ? (await app.storage.presignGet(r.previewImageKey, 3600)).url
+          : null,
+      })),
+    );
+    return { items };
   });
 
   app.post(

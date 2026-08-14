@@ -7,7 +7,6 @@ interface AuthState {
   token: string | null;
   role: AdminRole | null;
   email: string | null;
-  storagePublicUrl: string | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -19,7 +18,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setTokenState] = useState<string | null>(null);
   const [role, setRole] = useState<AdminRole | null>(null);
   const [email, setEmail] = useState<string | null>(null);
-  const [storagePublicUrl, setStoragePublicUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const handleAuthFailure = useCallback(() => {
@@ -36,11 +34,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       userId: string;
       email: string;
       role: AdminRole;
-      storagePublicUrl?: string;
     }>('/admin/me');
     setRole(me.role);
     setEmail(me.email);
-    if (me.storagePublicUrl) setStoragePublicUrl(me.storagePublicUrl);
   }, []);
 
   useEffect(() => {
@@ -97,7 +93,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setTokenState(null);
     setRole(null);
     setEmail(null);
-    setStoragePublicUrl(null);
   }, []);
 
   return (
@@ -106,7 +101,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         token,
         role,
         email,
-        storagePublicUrl,
         isLoading,
         login,
         logout,

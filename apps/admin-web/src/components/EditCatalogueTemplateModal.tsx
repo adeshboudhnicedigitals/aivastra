@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { useAuth } from '../context/AuthContext';
 import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
 import type { CatalogueTemplate, GenderSlug, ModelBackground, ModelPoseAsset } from '../types';
@@ -35,9 +34,8 @@ interface LookRow {
 /** Click-to-upload tile — no picking from existing assets, every look uploads fresh. */
 function UploadTile({
   label,
-  thumbnailKey,
+  thumbnailUrl,
   previewUrl,
-  storageBase,
   disabled,
   loading = false,
   w = 72,
@@ -45,17 +43,16 @@ function UploadTile({
   onClick,
 }: {
   label: string;
-  thumbnailKey?: string;
+  thumbnailUrl?: string | null;
   /** Local blob preview, for deferred (not-yet-uploaded) selections — takes priority. */
   previewUrl?: string | null;
-  storageBase: string | null;
   disabled: boolean;
   loading?: boolean;
   w?: number;
   h?: number;
   onClick: () => void;
 }) {
-  const src = previewUrl ?? (thumbnailKey && storageBase ? `${storageBase}/${thumbnailKey}` : null);
+  const src = previewUrl ?? thumbnailUrl ?? null;
   return (
     <button
       type="button"
@@ -155,7 +152,6 @@ export function EditCatalogueTemplateModal({
   onClose,
   toast,
 }: Props) {
-  const { storagePublicUrl } = useAuth();
   const isEditing = template !== null;
   const [label, setLabel] = useState(template?.label ?? '');
   const [genderSlug, setGenderSlug] = useState<GenderSlug>(
@@ -433,8 +429,7 @@ export function EditCatalogueTemplateModal({
                 <UploadTile
                   label="Cover"
                   previewUrl={coverPreviewUrl}
-                  thumbnailKey={!thumbnailFile ? (template?.thumbnailKey ?? undefined) : undefined}
-                  storageBase={storagePublicUrl}
+                  thumbnailUrl={!thumbnailFile ? template?.thumbnailUrl : undefined}
                   disabled={saving}
                   w={96}
                   h={120}
@@ -539,16 +534,14 @@ export function EditCatalogueTemplateModal({
                     >
                       <UploadTile
                         label="Pose"
-                        thumbnailKey={poseAssetById.get(row.poseAssetId)?.thumbnailKey}
-                        storageBase={storagePublicUrl}
+                        thumbnailUrl={poseAssetById.get(row.poseAssetId)?.thumbnailUrl}
                         disabled={saving || uploadingPoseForRow === row.key}
                         loading={uploadingPoseForRow === row.key}
                         onClick={() => openPoseUpload(row.key)}
                       />
                       <UploadTile
                         label="Background"
-                        thumbnailKey={backgroundById.get(row.backgroundId)?.thumbnailKey}
-                        storageBase={storagePublicUrl}
+                        thumbnailUrl={backgroundById.get(row.backgroundId)?.thumbnailUrl}
                         disabled={saving || uploadingBackgroundForRow === row.key}
                         loading={uploadingBackgroundForRow === row.key}
                         onClick={() => openBackgroundUpload(row.key)}

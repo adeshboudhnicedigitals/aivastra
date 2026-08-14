@@ -36,7 +36,6 @@ function StyleModal({
   existing,
   singleInputWorkflows,
   twoInputWorkflows,
-  storagePublicUrl,
   onSaved,
   onClose,
   toast,
@@ -44,7 +43,6 @@ function StyleModal({
   existing: SareeMannequinStyle | null;
   singleInputWorkflows: WorkflowOption[];
   twoInputWorkflows: WorkflowOption[];
-  storagePublicUrl: string | null;
   onSaved: (style: SareeMannequinStyle) => void;
   onClose: () => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
@@ -145,10 +143,9 @@ function StyleModal({
           />
         ) : (
           <AssetThumb
-            thumbnailKey={existing?.previewImageKey ?? undefined}
-            r2Key={existing?.previewImageKey ?? undefined}
+            thumbnailUrl={existing?.previewImageUrl}
+            fullUrl={existing?.previewImageUrl}
             label={label || 'Style'}
-            storageBase={storagePublicUrl}
             w={72}
             h={92}
           />
@@ -225,7 +222,7 @@ function StyleModal({
 }
 
 export function SareeStylesTab() {
-  const { storagePublicUrl, toast } = useAssetsContext();
+  const { toast } = useAssetsContext();
   const [styles, setStyles] = useState<SareeMannequinStyle[]>([]);
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
   const [loading, setLoading] = useState(true);
@@ -330,10 +327,9 @@ export function SareeStylesTab() {
               style={{ padding: 12, opacity: style.isActive ? 1 : 0.55 }}
             >
               <AssetThumb
-                thumbnailKey={style.previewImageKey ?? undefined}
-                r2Key={style.previewImageKey ?? undefined}
+                thumbnailUrl={style.previewImageUrl}
+                fullUrl={style.previewImageUrl}
                 label={style.label}
-                storageBase={storagePublicUrl}
                 w={160}
                 h={200}
               />
@@ -380,7 +376,6 @@ export function SareeStylesTab() {
           existing={editing}
           singleInputWorkflows={workflows.filter((w) => w.workflowType === 'saree_step1')}
           twoInputWorkflows={workflows.filter((w) => w.workflowType === 'saree_step1_two_input')}
-          storagePublicUrl={storagePublicUrl}
           onSaved={(saved) => {
             setStyles((previous) => {
               const exists = previous.some((style) => style.id === saved.id);

@@ -15,20 +15,12 @@ const SPECIAL_TAG_OPTIONS: { value: CategoryTag; label: string }[] = [
 interface Props {
   background: ModelBackground;
   categories: CatalogCategory[];
-  storagePublicUrl: string | null;
   onSaved: (updated: ModelBackground) => void;
   onClose: () => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
-export function EditBackgroundModal({
-  background,
-  categories,
-  storagePublicUrl,
-  onSaved,
-  onClose,
-  toast,
-}: Props) {
+export function EditBackgroundModal({ background, categories, onSaved, onClose, toast }: Props) {
   const [form, setForm] = useState({
     label: background.label,
     sortOrder: background.sortOrder,
@@ -141,7 +133,7 @@ export function EditBackgroundModal({
       onClose={onClose}
       title="Edit background"
       width="min(640px, calc(100vw - 40px))"
-      thumbnail={{ thumbnailKey: background.thumbnailKey, storagePublicUrl }}
+      thumbnail={{ thumbnailUrl: background.thumbnailUrl }}
       saving={saving || replaceUploading}
       onSave={handleSave}
       saveDisabled={!form.label.trim()}
@@ -246,13 +238,10 @@ export function EditBackgroundModal({
       <div className="field">
         <label>Replace image</label>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {(replacePreview ??
-            (storagePublicUrl && background.thumbnailKey
-              ? `${storagePublicUrl}/${background.thumbnailKey}`
-              : null)) && (
+          {(replacePreview ?? background.thumbnailUrl) && (
             // biome-ignore lint/performance/noImgElement: thumbnail preview
             <img
-              src={replacePreview ?? `${storagePublicUrl}/${background.thumbnailKey}`}
+              src={replacePreview ?? (background.thumbnailUrl as string)}
               alt=""
               style={{
                 width: 56,

@@ -1,6 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
 import { apiFetch } from '../../lib/data';
 import type {
   CatalogItem,
@@ -59,7 +58,6 @@ interface AssetsContextValue {
   setLoading: React.Dispatch<React.SetStateAction<boolean>>;
   previewUrl: string | null;
   setPreviewUrl: React.Dispatch<React.SetStateAction<string | null>>;
-  storagePublicUrl: string | null;
   toast: Toast;
 }
 
@@ -72,7 +70,6 @@ export function useAssetsContext() {
 }
 
 export function AssetsProvider({ toast, children }: { toast: Toast; children: React.ReactNode }) {
-  const { storagePublicUrl } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const rawTab = searchParams.get('tab') as AssetTab | null;
   const activeTab: AssetTab = rawTab && VALID_TABS.includes(rawTab) ? rawTab : 'garment-types';
@@ -166,7 +163,6 @@ export function AssetsProvider({ toast, children }: { toast: Toast; children: Re
       setLoading,
       previewUrl,
       setPreviewUrl,
-      storagePublicUrl,
       toast,
     }),
     [
@@ -183,7 +179,6 @@ export function AssetsProvider({ toast, children }: { toast: Toast; children: Re
       catalogItems,
       loading,
       previewUrl,
-      storagePublicUrl,
       toast,
     ],
   );
