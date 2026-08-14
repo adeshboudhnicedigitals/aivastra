@@ -118,8 +118,10 @@ explicitly reactivates it.
   `jobs:video`. Consumer group `dispatcher-cg`. The three GPU streams are capped
   by worker-registry size; `jobs:video` is a separate lane capped by
   `VIDEO_CONCURRENCY` (PixVerse needs no GPU).
-- **Storage:** S3-compatible — Cloudflare R2 in prod, MinIO locally.
-  `StorageProvider` interface in `packages/storage`.
+- **Storage:** S3-compatible — self-hosted MinIO in prod (`aivastra-prod-minio`,
+  `minio:9000` internal, proxied via `app.aivastra.com/minio/`) and locally.
+  `R2_*` env var names are used for both; don't infer the backend from the var
+  name. `StorageProvider` interface in `packages/storage`.
 - **Logging:** pino via `@aivastra/logger` (`createLogger(service)`). No
   `console.log` in committed code. Use child loggers bound with `jobId`/`userId`.
 - **Tests:** Vitest. No testcontainers — see Testing below.
@@ -480,7 +482,8 @@ hangs on streaming responses.
 | `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_BASE_PATH` | catalogues-web (build time) |
 | `VITE_API_BASE_URL`, `VITE_SHOPIFY_API_KEY`, `VITE_CHATBOT_URL` | SPAs (build time) |
 
-In dev, `R2_*` point at MinIO on `http://127.0.0.1:9000`.
+In dev, `R2_*` point at MinIO on `http://127.0.0.1:9000`. Prod also runs
+self-hosted MinIO, not Cloudflare R2 — see Stack above.
 
 ---
 
