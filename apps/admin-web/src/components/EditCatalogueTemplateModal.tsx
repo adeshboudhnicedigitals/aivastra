@@ -353,7 +353,7 @@ export function EditCatalogueTemplateModal({
           '/admin/assets/catalogue-templates/thumbnail/presign',
           { method: 'POST', body: JSON.stringify({ contentType: thumbnailFile.type }) },
         );
-        await putFile(presign.uploadUrl, thumbnailFile);
+        await putFile(presign.uploadUrl, await makeThumbnail(thumbnailFile));
         thumbnailKey = presign.thumbnailKey;
       }
 

@@ -22,9 +22,8 @@
  *               R2_BUCKET, (optional) R2_FORCE_PATH_STYLE (default true).
  */
 
-import { createDb, eq, schema } from '@aivastra/db';
+import { createDb, eq, isNull, schema } from '@aivastra/db';
 import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { isNull } from 'drizzle-orm';
 import sharp from 'sharp';
 
 const THUMB_MAX = 512;
@@ -143,6 +142,18 @@ const SPECS: TableSpec[] = [
     name: 'subcategories',
     load: async (db) =>
       (await db.select().from(schema.garmentSubcategories)).map((r) => ({
+        id: r.id,
+        src: r.thumbnailKey,
+        dst: r.thumbnailKey,
+      })),
+  },
+  {
+    // Same shape as subcategories: catalogue template covers have only a single
+    // thumbnail_key slot (no separate full-res field), and the admin upload flow
+    // was uploading the raw file straight into it until fixed — resize in place.
+    name: 'catalogue-templates',
+    load: async (db) =>
+      (await db.select().from(schema.catalogueTemplates)).map((r) => ({
         id: r.id,
         src: r.thumbnailKey,
         dst: r.thumbnailKey,
