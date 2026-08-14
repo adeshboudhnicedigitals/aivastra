@@ -38,6 +38,11 @@ export async function setWorkerStatus(
   const workers = await getWorkers(redis);
   const entry = workers.get(workerId);
   if (!entry) return;
+  // A job release (status IDLE) must not resurrect a worker an admin drained
+  // mid-job — DRAINING sticks until an explicit undrain or a startup resync.
+  // Without this guard, deactivating a BUSY worker gets silently undone the
+  // instant its in-flight job finishes.
+  if (status === 'IDLE' && entry.status === 'DRAINING') return;
   entry.status = status;
   entry.lastSeen = Date.now();
   await redis.hset(REGISTRY_KEY, workerId, JSON.stringify(entry));
