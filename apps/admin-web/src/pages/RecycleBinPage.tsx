@@ -12,16 +12,8 @@ interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
-function Thumb({
-  thumbnailKey,
-  label,
-  storageBase,
-}: {
-  thumbnailKey: string;
-  label: string;
-  storageBase: string | null;
-}) {
-  const src = thumbnailKey && storageBase ? `${storageBase}/${thumbnailKey}` : null;
+function Thumb({ thumbnailUrl, label }: { thumbnailUrl: string | null; label: string }) {
+  const src = thumbnailUrl;
   if (src) {
     return (
       // biome-ignore lint/performance/noImgElement: thumbnail in recycle bin table
@@ -55,7 +47,7 @@ function Thumb({
 }
 
 export default function RecycleBinPage({ toast }: Props) {
-  const { storagePublicUrl, role } = useAuth();
+  const { role } = useAuth();
   const canHardDelete = role === 'SUPER_ADMIN' || role === 'MODERATOR';
   const [loading, setLoading] = useState(false);
   const [faces, setFaces] = useState<ModelFace[]>([]);
@@ -317,11 +309,7 @@ export default function RecycleBinPage({ toast }: Props) {
                         </td>
                         <td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <Thumb
-                              thumbnailKey={f.thumbnailKey}
-                              label={f.label}
-                              storageBase={storagePublicUrl}
-                            />
+                            <Thumb thumbnailUrl={f.thumbnailUrl} label={f.label} />
                             <span>{f.label}</span>
                           </div>
                         </td>
@@ -396,11 +384,7 @@ export default function RecycleBinPage({ toast }: Props) {
                         </td>
                         <td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <Thumb
-                              thumbnailKey={b.thumbnailKey}
-                              label={b.label}
-                              storageBase={storagePublicUrl}
-                            />
+                            <Thumb thumbnailUrl={b.thumbnailUrl} label={b.label} />
                             <span>{b.label}</span>
                           </div>
                         </td>
@@ -476,11 +460,7 @@ export default function RecycleBinPage({ toast }: Props) {
                         </td>
                         <td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <Thumb
-                              thumbnailKey={p.thumbnailKey}
-                              label={p.label}
-                              storageBase={storagePublicUrl}
-                            />
+                            <Thumb thumbnailUrl={p.thumbnailUrl} label={p.label} />
                             <span>{p.displayName ?? p.label}</span>
                           </div>
                         </td>

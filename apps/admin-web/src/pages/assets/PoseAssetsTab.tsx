@@ -28,7 +28,6 @@ export function PoseAssetsTab() {
     setWorkflows,
     loading,
     setLoading,
-    storagePublicUrl,
     setPreviewUrl,
     toast,
   } = useAssetsContext();
@@ -92,8 +91,8 @@ export function PoseAssetsTab() {
     }, 250);
   }
 
-  function handleImageDoubleClick(r2Key: string) {
-    setPreviewUrl(`${storagePublicUrl}/${r2Key}`);
+  function handleImageDoubleClick(r2Url: string | null) {
+    if (r2Url) setPreviewUrl(r2Url);
   }
 
   const loadPoseAssets = useCallback(async () => {
@@ -541,13 +540,12 @@ export function PoseAssetsTab() {
                       position: 'relative',
                     }}
                     onClick={() => handleImageClick(a.id)}
-                    onDoubleClick={() => handleImageDoubleClick(a.r2Key)}
+                    onDoubleClick={() => handleImageDoubleClick(a.r2Url)}
                   >
                     <AssetThumb
-                      thumbnailKey={a.thumbnailKey}
-                      r2Key={a.r2Key}
+                      thumbnailUrl={a.thumbnailUrl}
+                      fullUrl={a.r2Url}
                       label={a.label}
-                      storageBase={storagePublicUrl}
                       cursor="pointer"
                       w={160}
                       h={210}

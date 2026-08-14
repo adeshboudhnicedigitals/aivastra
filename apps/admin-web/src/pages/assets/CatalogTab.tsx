@@ -30,7 +30,6 @@ export function CatalogTab() {
     garmentTypes,
     loading,
     setLoading,
-    storagePublicUrl,
     setPreviewUrl,
     toast,
   } = useAssetsContext();
@@ -53,8 +52,8 @@ export function CatalogTab() {
     }, 250);
   }
 
-  function handleImageDoubleClick(r2Key: string) {
-    setPreviewUrl(`${storagePublicUrl}/${r2Key}`);
+  function handleImageDoubleClick(r2Url: string | null) {
+    if (r2Url) setPreviewUrl(r2Url);
   }
 
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
@@ -449,16 +448,15 @@ export function CatalogTab() {
                     cursor: 'pointer',
                   }}
                   onClick={() => handleImageClick(c.id)}
-                  onDoubleClick={() => handleImageDoubleClick(c.r2Key)}
+                  onDoubleClick={() => handleImageDoubleClick(c.r2Url)}
                 >
                   <div style={{ position: 'relative' }}>
                     <AssetThumb
-                      thumbnailKey={c.thumbnailKey ?? ''}
-                      r2Key={c.r2Key}
+                      thumbnailUrl={c.thumbnailUrl}
+                      fullUrl={c.r2Url}
                       label={c.label}
                       w={120}
                       h={120}
-                      storageBase={storagePublicUrl}
                       onPreview={setPreviewUrl}
                     />
                     <input
@@ -1073,7 +1071,7 @@ export function CatalogTab() {
           onClose={() => setEditingCatalogItem(null)}
           title="Edit catalog item"
           width="min(440px, calc(100vw - 40px))"
-          thumbnail={{ thumbnailKey: editingCatalogItem.thumbnailKey, storagePublicUrl }}
+          thumbnail={{ thumbnailUrl: editingCatalogItem.thumbnailUrl }}
           saving={editCatalogSaving}
           onSave={async () => {
             setEditCatalogSaving(true);
@@ -1200,16 +1198,10 @@ export function CatalogTab() {
             <div className="field">
               <label>Replace image</label>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                {(catalogReplacePreview ??
-                  (storagePublicUrl && editingCatalogItem.thumbnailKey
-                    ? `${storagePublicUrl}/${editingCatalogItem.thumbnailKey}`
-                    : null)) && (
+                {(catalogReplacePreview ?? editingCatalogItem.thumbnailUrl) && (
                   // biome-ignore lint/performance/noImgElement: admin panel
                   <img
-                    src={
-                      catalogReplacePreview ??
-                      `${storagePublicUrl}/${editingCatalogItem.thumbnailKey}`
-                    }
+                    src={catalogReplacePreview ?? (editingCatalogItem.thumbnailUrl as string)}
                     alt=""
                     style={{
                       width: 56,

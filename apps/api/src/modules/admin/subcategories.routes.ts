@@ -31,6 +31,9 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
           instructionImageUrl: r.instructionImageKey
             ? (await app.storage.presignGet(r.instructionImageKey, 3600)).url
             : null,
+          thumbnailUrl: r.thumbnailKey
+            ? (await app.storage.presignGet(r.thumbnailKey, 3600)).url
+            : null,
         })),
       ),
     };

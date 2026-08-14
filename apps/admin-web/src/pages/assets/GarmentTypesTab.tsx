@@ -95,7 +95,6 @@ export function GarmentTypesTab() {
     setWorkflows,
     catalogItems,
     loading,
-    storagePublicUrl,
     toast,
   } = useAssetsContext();
 
@@ -405,7 +404,6 @@ export function GarmentTypesTab() {
             loading={configsLoading}
             savingId={savingConfigId}
             workflows={workflows}
-            storagePublicUrl={storagePublicUrl}
             onSave={saveConfig}
             onToggleActive={(poseAssetId, isActive) =>
               togglePoseActive(subView.sub.id, poseAssetId, isActive)
@@ -452,11 +450,10 @@ export function GarmentTypesTab() {
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <AssetThumb
-                          thumbnailKey={sub.thumbnailKey ?? undefined}
+                          thumbnailUrl={sub.thumbnailUrl}
                           label={sub.label}
                           w={40}
                           h={40}
-                          storageBase={storagePublicUrl}
                         />
                         <div>
                           <span className="semi">{sub.label}</span>
@@ -478,11 +475,10 @@ export function GarmentTypesTab() {
                             title={item.label}
                           >
                             <AssetThumb
-                              thumbnailKey={item.thumbnailKey}
+                              thumbnailUrl={item.thumbnailUrl}
                               label={item.label}
                               w={32}
                               h={32}
-                              storageBase={storagePublicUrl}
                             />
                             <span
                               style={{
@@ -511,11 +507,10 @@ export function GarmentTypesTab() {
                             title={item.label}
                           >
                             <AssetThumb
-                              thumbnailKey={item.thumbnailKey}
+                              thumbnailUrl={item.thumbnailUrl}
                               label={item.label}
                               w={32}
                               h={32}
-                              storageBase={storagePublicUrl}
                             />
                             <span
                               style={{
@@ -655,13 +650,7 @@ export function GarmentTypesTab() {
                         flex: 1,
                       }}
                     >
-                      <AssetThumb
-                        thumbnailKey={sub.thumbnailKey ?? undefined}
-                        label={sub.label}
-                        w={32}
-                        h={32}
-                        storageBase={storagePublicUrl}
-                      />
+                      <AssetThumb thumbnailUrl={sub.thumbnailUrl} label={sub.label} w={32} h={32} />
                       <span
                         className="semi"
                         style={{
@@ -1074,7 +1063,6 @@ export function GarmentTypesTab() {
           catalogItems={catalogItems}
           tryonCategories={tryonCategories}
           workflows={workflows}
-          storagePublicUrl={storagePublicUrl}
           onSaved={() => {
             // A sortOrder change shifts other rows of this gender server-side -
             // refetch instead of patching just the edited row.
@@ -1850,7 +1838,6 @@ interface PoseConfigsPanelProps {
   loading: boolean;
   savingId: string | null;
   workflows: WorkflowOption[];
-  storagePublicUrl: string | null;
   onSave: (
     garmentTypeId: string,
     poseAssetId: string,
@@ -1872,7 +1859,6 @@ function PoseConfigsPanel({
   loading,
   savingId,
   workflows,
-  storagePublicUrl,
   onSave,
   onToggleActive,
   onSaveDefaultPose,
@@ -2175,13 +2161,7 @@ function PoseConfigsPanel({
                   position: 'relative',
                 }}
               >
-                <AssetThumb
-                  thumbnailKey={item.thumbnailKey}
-                  label={item.label}
-                  storageBase={storagePublicUrl}
-                  w={160}
-                  h={210}
-                />
+                <AssetThumb thumbnailUrl={item.thumbnailUrl} label={item.label} w={160} h={210} />
                 <input
                   type="checkbox"
                   checked={selectedIds.includes(item.id)}

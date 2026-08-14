@@ -11,21 +11,13 @@ const ADD_NEW = '__add_new__';
 
 interface Props {
   face: ModelFace;
-  storagePublicUrl: string | null;
   knownContinents: { value: Continent; label: string }[];
   onSaved: (updated: ModelFace) => void;
   onClose: () => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
-export function EditFaceModal({
-  face,
-  storagePublicUrl,
-  knownContinents,
-  onSaved,
-  onClose,
-  toast,
-}: Props) {
+export function EditFaceModal({ face, knownContinents, onSaved, onClose, toast }: Props) {
   const [form, setForm] = useState({
     label: face.label,
     gender: face.gender,
@@ -137,7 +129,7 @@ export function EditFaceModal({
       onClose={onClose}
       title="Edit model face"
       width="min(480px, calc(100vw - 40px))"
-      thumbnail={{ thumbnailKey: face.thumbnailKey, storagePublicUrl }}
+      thumbnail={{ thumbnailUrl: face.thumbnailUrl }}
       saving={saving || replaceUploading}
       onSave={handleSave}
       saveDisabled={!form.label.trim()}
@@ -249,13 +241,10 @@ export function EditFaceModal({
         <div className="field">
           <label>Replace image</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            {(replacePreview ??
-              (storagePublicUrl && face.thumbnailKey
-                ? `${storagePublicUrl}/${face.thumbnailKey}`
-                : null)) && (
+            {(replacePreview ?? face.thumbnailUrl) && (
               // biome-ignore lint/performance/noImgElement: face thumbnail preview
               <img
-                src={replacePreview ?? `${storagePublicUrl}/${face.thumbnailKey}`}
+                src={replacePreview ?? (face.thumbnailUrl as string)}
                 alt=""
                 style={{
                   width: 56,

@@ -1,27 +1,24 @@
 import { useState } from 'react';
 
 export function AssetThumb({
-  thumbnailKey,
-  r2Key,
+  thumbnailUrl,
+  fullUrl,
   label,
   w = 64,
   h = 64,
-  storageBase,
   onPreview,
   cursor,
 }: {
-  thumbnailKey?: string;
-  r2Key?: string;
+  thumbnailUrl?: string | null;
+  fullUrl?: string | null;
   label: string;
   w?: number;
   h?: number;
-  storageBase: string | null;
   onPreview?: (url: string) => void;
   cursor?: string;
 }) {
   const [broken, setBroken] = useState(false);
-  const src = thumbnailKey && storageBase && !broken ? `${storageBase}/${thumbnailKey}` : null;
-  const fullUrl = r2Key && storageBase ? `${storageBase}/${r2Key}` : null;
+  const src = thumbnailUrl && !broken ? thumbnailUrl : null;
   if (src) {
     const img = (
       // biome-ignore lint/performance/noImgElement: admin panel

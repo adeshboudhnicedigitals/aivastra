@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
 import { SearchableSelect } from '../components/SearchableSelect';
-import { useAuth } from '../context/AuthContext';
 import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
 import type { TryonCategory, WorkflowOption } from '../types';
@@ -40,7 +39,6 @@ interface Props {
 }
 
 export default function TryonPage({ toast }: Props) {
-  const { storagePublicUrl: _storagePublicUrl } = useAuth();
   const [categories, setCategories] = useState<TryonCategory[]>([]);
   const [tryonWorkflows, setTryonWorkflows] = useState<WorkflowOption[]>([]);
   const [loading, setLoading] = useState(true);

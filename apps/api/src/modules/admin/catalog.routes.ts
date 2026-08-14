@@ -70,7 +70,16 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
         if (!subMap.has(l.catalogItemId)) subMap.set(l.catalogItemId, []);
         subMap.get(l.catalogItemId)?.push(l.subcategoryId);
       }
-      return rows.map((r) => ({ ...r, subcategoryIds: subMap.get(r.id) ?? [] }));
+      return Promise.all(
+        rows.map(async (r) => ({
+          ...r,
+          subcategoryIds: subMap.get(r.id) ?? [],
+          thumbnailUrl: r.thumbnailKey
+            ? (await app.storage.presignGet(r.thumbnailKey, 3600)).url
+            : null,
+          r2Url: r.r2Key ? (await app.storage.presignGet(r.r2Key, 3600)).url : null,
+        })),
+      );
     },
   );
 
