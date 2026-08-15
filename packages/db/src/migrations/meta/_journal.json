@@ -1086,6 +1086,13 @@
       "when": 1786798350837,
       "tag": "0154_merchants_job_rate_limit",
       "breakpoints": true
+    },
+    {
+      "idx": 155,
+      "version": "7",
+      "when": 1786814344832,
+      "tag": "0155_jobs_queued_status_idx",
+      "breakpoints": true
     }
   ]
 }
