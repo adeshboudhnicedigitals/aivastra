@@ -245,6 +245,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
 
   const [maxOutputPx, setMaxOutputPx] = useState(2048);
   const [maxBatchJobs, setMaxBatchJobs] = useState(200);
+  const [maxQueueDepth, setMaxQueueDepth] = useState(50);
   const [sellerGstin, setSellerGstin] = useState('');
   const [sellerLegalName, setSellerLegalName] = useState('');
   const [sellerAddress, setSellerAddress] = useState('');
@@ -296,6 +297,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
     apiFetch<{
       maxOutputPx?: number;
       maxBatchJobs?: number;
+      maxQueueDepth?: number;
       seller?: { gstin?: string; legalName?: string; address?: string };
       merchantCatalogDefaults?: Record<
         string,
@@ -307,6 +309,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
       .then((cfg) => {
         if (cfg.maxOutputPx) setMaxOutputPx(cfg.maxOutputPx);
         if (cfg.maxBatchJobs) setMaxBatchJobs(cfg.maxBatchJobs);
+        if (cfg.maxQueueDepth) setMaxQueueDepth(cfg.maxQueueDepth);
         if (cfg.seller) {
           setSellerGstin(cfg.seller.gstin ?? '');
           setSellerLegalName(cfg.seller.legalName ?? '');
@@ -425,6 +428,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
         body: JSON.stringify({
           maxOutputPx,
           maxBatchJobs,
+          maxQueueDepth,
           seller: {
             gstin: sellerGstin.trim(),
             legalName: sellerLegalName.trim(),
@@ -867,6 +871,41 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
 
                 <div style={{ marginTop: 24, marginBottom: 8 }}>
                   <div className="setting-lbl" style={{ marginBottom: 4 }}>
+                    Max Queue Depth
+                  </div>
+                  <div className="setting-desc" style={{ marginBottom: 12 }}>
+                    Ceiling on QUEUED catalog/saree jobs system-wide. New Studio submissions are
+                    rejected with "server is busy" once this many jobs are already waiting for a
+                    worker, instead of being accepted and silently timing out 10 minutes later.
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: '10px 12px',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--r)',
+                      background: 'var(--surface-2)',
+                      maxWidth: 260,
+                    }}
+                  >
+                    <input
+                      className="input"
+                      type="number"
+                      min={1}
+                      max={5000}
+                      style={{ width: 100 }}
+                      value={maxQueueDepth}
+                      disabled={sysSaving}
+                      onChange={(e) => setMaxQueueDepth(Number(e.target.value))}
+                    />
+                    <span style={{ fontSize: 13, color: 'var(--muted)' }}>jobs queued</span>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 24, marginBottom: 8 }}>
+                  <div className="setting-lbl" style={{ marginBottom: 4 }}>
                     GST Invoice — Seller Details
                   </div>
                   <div className="setting-desc" style={{ marginBottom: 12 }}>
@@ -1251,7 +1290,10 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                       maxOutputPx > 4096 ||
                       !Number.isInteger(maxBatchJobs) ||
                       maxBatchJobs < 1 ||
-                      maxBatchJobs > 2000
+                      maxBatchJobs > 2000 ||
+                      !Number.isInteger(maxQueueDepth) ||
+                      maxQueueDepth < 1 ||
+                      maxQueueDepth > 5000
                     }
                   >
                     {sysSaving ? 'Saving…' : 'Save'}
