@@ -113,6 +113,12 @@ export const SystemConfigBody = z.object({
   // Ceiling on jobs per Studio batch submission (createBatch.ts) — same number
   // GET /v1/catalogues?batchId uses to size its row cap, so the two stay in sync.
   maxBatchJobs: z.number().int().min(1).max(2000).optional(),
+  // Ceiling on QUEUED jobs across source IN ('catalog','saree','saree_mannequin') —
+  // see assertQueueCapacity in apps/api/src/lib/queue-capacity-config.ts. Exists so
+  // a burst of submissions the current worker pool can't drain inside the sweeper's
+  // 10-minute QUEUED_SLA_MS is rejected up front instead of accepted and later
+  // silently refunded as STUCK_IN_QUEUE.
+  maxQueueDepth: z.number().int().min(1).max(5000).optional(),
   // Admin-fixed inputs for merchant catalogue-manager's constrained "flat garment
   // -> catalogue image" generation. Keyed by category so studio-style face/background
   // variety per gender is preserved without per-merchant or per-item picking.
