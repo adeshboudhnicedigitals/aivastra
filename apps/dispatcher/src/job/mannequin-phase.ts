@@ -30,6 +30,7 @@ export interface MannequinPhaseParams {
   faceId: string | null;
   mannequinWorkflowTemplateId: string;
   jobLog: Logger;
+  jobType: string | null;
 }
 
 export async function runMannequinPhase(
@@ -37,7 +38,7 @@ export async function runMannequinPhase(
   params: MannequinPhaseParams,
 ): Promise<string> {
   const { db, redis, s3, r2Bucket } = cfg;
-  const { jobId, garmentKey, faceId, mannequinWorkflowTemplateId, jobLog } = params;
+  const { jobId, garmentKey, faceId, mannequinWorkflowTemplateId, jobLog, jobType } = params;
   const [template] = await db
     .select({
       jsonContent: schema.workflowTemplates.jsonContent,
@@ -128,7 +129,12 @@ export async function runMannequinPhase(
         error: jobLog.error.bind(jobLog),
       },
     );
-    comfyRequestDuration.observe((Date.now() - comfyStartedAt) / 1000);
+    const comfyMs = Date.now() - comfyStartedAt;
+    comfyRequestDuration.observe({ job_type: jobType ?? 'unknown' }, comfyMs / 1000);
+    await db
+      .update(schema.jobs)
+      .set({ comfyDurationMs: Math.round(comfyMs) })
+      .where(eq(schema.jobs.id, jobId));
     const [firstImage] = await fetchHistory(w.url, w.apiKey, promptId, jobLog, outputNodeId);
     if (!firstImage) throw new Error('ComfyUI returned no output images for mannequin phase');
     const imageBytes = await downloadOutputImage(

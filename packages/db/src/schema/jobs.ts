@@ -71,6 +71,12 @@ export const jobs = pgTable(
     queuedAt: timestamp('queued_at', { withTimezone: true }),
     startedAt: timestamp('started_at', { withTimezone: true }),
     completedAt: timestamp('completed_at', { withTimezone: true }),
+    // Duration of the last ComfyUI /prompt round-trip observed for this job (ms).
+    // Overwritten per attempt/phase — for two-phase jobs (mannequin + main) this
+    // reflects only the most recent phase's comfy call, not a sum. Mirrors the
+    // comfy_request_duration_seconds Prometheus histogram; kept in Postgres too so
+    // the admin dashboard doesn't need a Grafana Cloud round-trip to render it.
+    comfyDurationMs: integer('comfy_duration_ms'),
   },
   (t) => ({
     // Every Shopify analytics query filters on exactly this pair. Without it

@@ -46,6 +46,7 @@ import { adminShopifyFunnelsRoutes } from './modules/admin/shopify-funnels.route
 import { adminShopifyStoresRoutes } from './modules/admin/shopify-stores.routes.js';
 import { adminSignupCampaignsRoutes } from './modules/admin/signupCampaigns.routes.js';
 import { adminGarmentTypesRoutes } from './modules/admin/subcategories.routes.js';
+import { adminTelemetryRoutes } from './modules/admin/telemetry.routes.js';
 import { adminTryonRoutes } from './modules/admin/tryon.routes.js';
 import { adminUsersRoutes } from './modules/admin/users.routes.js';
 import { adminWorkersRoutes } from './modules/admin/workers.routes.js';
@@ -369,6 +370,7 @@ export async function buildServer(env: Env) {
   await app.register(adminDemoCatalogRoutes);
   await app.register(adminWorkersRoutes);
   await app.register(adminConfigRoutes);
+  await app.register(adminTelemetryRoutes);
   await app.register(adminMeRoutes);
   await app.register(adminAssetsRoutes);
   await app.register(adminGarmentTypesRoutes);
