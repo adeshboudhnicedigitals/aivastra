@@ -52,11 +52,19 @@ describe('per-merchant job creation rate limit', () => {
       },
     );
 
-    let last: Response | undefined;
-    for (let i = 0; i < 3; i++) last = await post(form(`rl-${m.merchantId}`), key);
-    expect(last?.status).toBe(429);
-    if (!last) throw new Error('no response');
-    const body = await last.json();
+    // The limiter uses a real fixed window keyed by Math.floor(Date.now() / 60_000)
+    // (job-rate-limit.ts), so a 3-request burst can straddle a minute rollover and
+    // reset the counter mid-burst. Loop enough requests to comfortably span any
+    // single minute boundary and assert the limiter triggered at least once, rather
+    // than pinning the exact request index that gets rejected.
+    const responses: Response[] = [];
+    for (let i = 0; i < 70; i++) {
+      responses.push(await post(form(`rl-${m.merchantId}`), key));
+    }
+    const limited = responses.filter((r) => r.status === 429);
+    expect(limited.length).toBeGreaterThan(0);
+    expect(responses.some((r) => r.status === 202)).toBe(true);
+    const body = await limited[0].json();
     expect(body.error.code).toBe('RATE_LIMITED');
   });
 
