@@ -23,6 +23,21 @@
         "label": "Data source",
         "current": {},
         "hide": 0
+      },
+      {
+        "name": "job_type",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "label": "Job type",
+        "query": {
+          "query": "label_values(job_processing_duration_seconds_bucket, job_type)",
+          "refId": "job_type_values"
+        },
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "current": { "text": "All", "value": "$__all" },
+        "hide": 0
       }
     ]
   },
@@ -94,58 +109,58 @@
       ]
     },
     {
-      "title": "Job processing duration (p50 / p95)",
+      "title": "Job processing duration by job type (p50 / p95)",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
       "fieldConfig": { "defaults": { "unit": "s" } },
       "targets": [
         {
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(job_processing_duration_seconds_bucket[5m])))",
-          "legendFormat": "p50",
+          "expr": "histogram_quantile(0.5, sum by (le, job_type) (rate(job_processing_duration_seconds_bucket{job_type=~\"$job_type\"}[5m])))",
+          "legendFormat": "{{job_type}} p50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(job_processing_duration_seconds_bucket[5m])))",
-          "legendFormat": "p95",
+          "expr": "histogram_quantile(0.95, sum by (le, job_type) (rate(job_processing_duration_seconds_bucket{job_type=~\"$job_type\"}[5m])))",
+          "legendFormat": "{{job_type}} p95",
           "refId": "B"
         }
       ]
     },
     {
-      "title": "E2E job latency: click to result (p50 / p95)",
+      "title": "E2E job latency by job type: click to result (p50 / p95)",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
       "fieldConfig": { "defaults": { "unit": "s" } },
       "targets": [
         {
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(job_e2e_duration_seconds_bucket[5m])))",
-          "legendFormat": "p50",
+          "expr": "histogram_quantile(0.5, sum by (le, job_type) (rate(job_e2e_duration_seconds_bucket{job_type=~\"$job_type\"}[5m])))",
+          "legendFormat": "{{job_type}} p50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(job_e2e_duration_seconds_bucket[5m])))",
-          "legendFormat": "p95",
+          "expr": "histogram_quantile(0.95, sum by (le, job_type) (rate(job_e2e_duration_seconds_bucket{job_type=~\"$job_type\"}[5m])))",
+          "legendFormat": "{{job_type}} p95",
           "refId": "B"
         }
       ]
     },
     {
-      "title": "ComfyUI round-trip (p50 / p95)",
+      "title": "ComfyUI round-trip by job type (p50 / p95)",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
       "fieldConfig": { "defaults": { "unit": "s" } },
       "targets": [
         {
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(comfy_request_duration_seconds_bucket[5m])))",
-          "legendFormat": "p50",
+          "expr": "histogram_quantile(0.5, sum by (le, job_type) (rate(comfy_request_duration_seconds_bucket{job_type=~\"$job_type\"}[5m])))",
+          "legendFormat": "{{job_type}} p50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(comfy_request_duration_seconds_bucket[5m])))",
-          "legendFormat": "p95",
+          "expr": "histogram_quantile(0.95, sum by (le, job_type) (rate(comfy_request_duration_seconds_bucket{job_type=~\"$job_type\"}[5m])))",
+          "legendFormat": "{{job_type}} p95",
           "refId": "B"
         }
       ]

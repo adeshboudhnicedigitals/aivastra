@@ -132,6 +132,12 @@ const groups: NavGroup[] = [
         roles: ['SUPER_ADMIN', 'SUPPORT', 'ADMIN'],
       },
       {
+        k: 'telemetry',
+        label: 'Telemetry',
+        icon: Icon.Clock,
+        roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN'],
+      },
+      {
         k: 'shopify-stores',
         label: 'Shopify Stores',
         icon: Icon.Coin,

@@ -53,7 +53,7 @@ export const jobsProcessedTotal = new Counter({
 export const jobProcessingDuration = new Histogram({
   name: 'job_processing_duration_seconds',
   help: 'End-to-end job processing duration in the dispatcher',
-  labelNames: ['outcome'] as const,
+  labelNames: ['outcome', 'job_type'] as const, // job_type mirrors jobs.source (JOB_SOURCE)
   buckets: [1, 5, 10, 30, 60, 120, 300, 600],
   registers: [register],
 });
@@ -67,7 +67,7 @@ export const jobAttemptsTotal = new Counter({
 export const jobE2eDuration = new Histogram({
   name: 'job_e2e_duration_seconds',
   help: 'Wall-clock time from job creation to terminal status (includes queue wait)',
-  labelNames: ['outcome'] as const, // completed | failed | cancelled
+  labelNames: ['outcome', 'job_type'] as const, // outcome: completed | failed | cancelled; job_type mirrors jobs.source
   buckets: [5, 10, 30, 60, 120, 300, 600, 1200, 1800, 3600],
   registers: [register],
 });
@@ -75,6 +75,7 @@ export const jobE2eDuration = new Histogram({
 export const comfyRequestDuration = new Histogram({
   name: 'comfy_request_duration_seconds',
   help: 'Duration of the ComfyUI /prompt round-trip',
+  labelNames: ['job_type'] as const, // mirrors jobs.source (JOB_SOURCE)
   buckets: [1, 5, 10, 30, 60, 120, 300, 600],
   registers: [register],
 });
