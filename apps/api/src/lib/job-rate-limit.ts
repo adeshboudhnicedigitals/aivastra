@@ -7,9 +7,12 @@ import { AppError } from './errors.js';
 /**
  * Fixed-window (per-UTC-minute) counter, keyed by merchant — merchants.userId is
  * unique (one merchant per user), so merchantUserId is a valid per-merchant key
- * without needing a separate merchantId lookup. Scoped to job-creation calls only
- * (createDevJobCore, the shared core every /v1/dev/* job route funnels through),
- * distinct from the flat per-key request-volume limiter already on those routes.
+ * without needing a separate merchantId lookup. Scoped to job-creation calls
+ * through createDevJobCore only — i.e. /v1/dev/tryon and /v1/dev/saree-mannequin,
+ * NOT every /v1/dev/* route. /v1/dev/catalog/generate (dev/catalog.routes.ts)
+ * creates jobs through a different path (createJob with source: API_CATALOG) and
+ * is deliberately not covered by this limiter. Distinct from the flat per-key
+ * request-volume limiter already on those routes.
  *
  * Fails open on a Redis error, matching server.ts's `skipOnError: true` on the
  * general rate limiter: a Redis blip must not turn into a wall of 500s on a

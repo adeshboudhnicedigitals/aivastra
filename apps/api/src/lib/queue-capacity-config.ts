@@ -1,22 +1,26 @@
 import { schema } from '@aivastra/db';
-import { DEFAULT_MAX_QUEUE_DEPTH } from '@aivastra/types';
-import { and, count, eq, inArray } from 'drizzle-orm';
+import { DEFAULT_MAX_QUEUE_DEPTH, JOB_SOURCE } from '@aivastra/types';
+import { and, count, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from './errors.js';
 
 const CONFIG_KEY = 'config:system';
 
-// The three sources that land QUEUED immediately off the Studio/catalogue path
-// and therefore compete for a worker inside the sweeper's 10-minute SLA. Does
-// NOT include catalog_video (own lane, own 30-minute SLA — see sweeper.ts) or
-// the saree-mannequin step-2 rows, which insert as PENDING_MANNEQUIN, not
-// QUEUED, until promoted later (see createSareeMannequinJob).
-const QUEUE_CAPPED_SOURCES = ['catalog', 'saree', 'saree_mannequin'];
+// Every job source competes for the same worker pool and is subject to the same
+// sweeper QUEUED SLA (apps/dispatcher/src/stream/sweeper.ts) EXCEPT catalog_video,
+// which rides its own jobs:video lane (capped by VIDEO_CONCURRENCY, not the GPU
+// worker count) with its own 30-minute SLA — see VIDEO_SOURCE / VIDEO_QUEUED_SLA_MS
+// there. So the queue-depth count mirrors the sweeper's own exclusion exactly,
+// not just the sources this plan's own job-creation functions produce, since a
+// Shopify, merchant, kiosk, dev-catalog, or tryon-direct job sitting QUEUED is
+// just as much a worker-pool consumer as a catalog/saree job is.
+const VIDEO_SOURCE = JOB_SOURCE.CATALOG_VIDEO;
 
 /**
- * Reads the admin-configured ceiling on concurrently QUEUED catalog-path jobs
- * from the same `config:system` Redis key the admin panel edits (GET/PATCH
- * /admin/config), mirroring getMaxBatchJobs() in batch-config.ts. Falls back to
+ * Reads the admin-configured ceiling on concurrently QUEUED jobs (system-wide,
+ * see assertQueueCapacity below for the exact scope) from the same
+ * `config:system` Redis key the admin panel edits (GET/PATCH /admin/config),
+ * mirroring getMaxBatchJobs() in batch-config.ts. Falls back to
  * DEFAULT_MAX_QUEUE_DEPTH when nothing is stored or the entry is malformed.
  */
 export async function getMaxQueueDepth(app: FastifyInstance): Promise<number> {
@@ -32,10 +36,15 @@ export async function getMaxQueueDepth(app: FastifyInstance): Promise<number> {
 
 /**
  * Rejects a job submission before any credit/DB work if accepting it would push
- * the system-wide QUEUED count (across QUEUE_CAPPED_SOURCES) past the admin's
- * ceiling. This is an admission-control gate, not a correctness guard — a
- * concurrent submission can still race past it, same tradeoff createBatchJobs's
- * preflight balance check already accepts (see create.ts comment there).
+ * the system-wide QUEUED count — every source except catalog_video, mirroring the
+ * sweeper's own SLA scope (see VIDEO_SOURCE above) rather than just the sources
+ * this plan's own 4 gated functions create — past the admin's ceiling. This is an
+ * admission-control gate, not a correctness guard — a concurrent submission can
+ * still race past it, same tradeoff createBatchJobs's preflight balance check
+ * already accepts (see create.ts comment there). Note: only the count widened
+ * here; the rejection gate itself still applies to just the 4 Studio-path
+ * functions that call this (createJob, createBatchJobs, createSareeJob,
+ * createSareeMannequinJob).
  */
 export async function assertQueueCapacity(
   app: FastifyInstance,
@@ -46,7 +55,13 @@ export async function assertQueueCapacity(
     .select({ c: count() })
     .from(schema.jobs)
     .where(
-      and(eq(schema.jobs.status, 'QUEUED'), inArray(schema.jobs.source, QUEUE_CAPPED_SOURCES)),
+      and(
+        eq(schema.jobs.status, 'QUEUED'),
+        // jobs.source is nullable, so the negative branch must COALESCE — a bare
+        // `source <> 'catalog_video'` evaluates to NULL on legacy rows and would
+        // silently exclude them from the count (same trap sweeper.ts guards against).
+        sql`coalesce(${schema.jobs.source}, '') <> ${VIDEO_SOURCE}`,
+      ),
     );
   const current = row?.c ?? 0;
 
