@@ -123,7 +123,7 @@ function DurationChart({ title, data }: { title: string; data: ChartPoint[] }) {
                 borderRadius: 8,
                 fontSize: 12,
               }}
-              formatter={(value: number, name: string) => [`${value.toFixed(2)}s`, name]}
+              formatter={(value, name) => [`${Number(value).toFixed(2)}s`, name]}
             />
             <Legend wrapperStyle={{ fontSize: 12 }} />
             <Bar dataKey="p50" name="p50" fill={P50_COLOR} radius={[4, 4, 0, 0]} />
