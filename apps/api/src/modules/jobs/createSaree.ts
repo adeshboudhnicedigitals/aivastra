@@ -7,6 +7,7 @@ import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { assertQueueCapacity } from '../../lib/queue-capacity-config.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { atomicDeduct, refundAndMarkFailed } from '../credits/ledger.js';
 import { getSareeSettings } from '../saree/settings.js';
@@ -50,6 +51,8 @@ export async function createSareeJob(
     resolveQueueRouting(app, userId),
   ]);
   if (!user || user.isBanned) throw new AppError('FORBIDDEN', 403, 'banned');
+
+  await assertQueueCapacity(app, 1);
 
   const { queueStream, priority, watermark } = routing;
 
