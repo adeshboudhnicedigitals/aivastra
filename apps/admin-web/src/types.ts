@@ -198,6 +198,7 @@ export interface UserMerchant {
   demoData: boolean;
   kioskEnabled: boolean;
   maxKioskDevices: number;
+  jobRateLimitPerMin: number | null;
   logoKey: string | null;
   logoUrl: string | null;
 }
