@@ -6,6 +6,7 @@ import { and, eq, inArray, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { getMaxBatchJobs } from '../../lib/batch-config.js';
 import { AppError, withRowIndex } from '../../lib/errors.js';
+import { assertQueueCapacity } from '../../lib/queue-capacity-config.js';
 import { atomicDeduct, refundAndMarkFailed } from '../credits/ledger.js';
 import {
   createTryonPlanCache,
@@ -171,6 +172,8 @@ export async function createBatchJobs(
 
   const totalJobs = plans.reduce((n, plan) => n + plan.looks.length, 0);
   const creditsCharged = plans.reduce((n, plan) => n + plan.cost * plan.looks.length, 0);
+
+  await assertQueueCapacity(app, totalJobs);
 
   // Preflight so an unaffordable batch is rejected with a useful message instead
   // of surfacing as an opaque mid-transaction atomicDeduct failure. This is not

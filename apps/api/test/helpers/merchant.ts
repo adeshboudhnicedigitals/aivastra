@@ -10,6 +10,7 @@ export async function createTestMerchant(
     isActive?: boolean;
     balance?: number;
     demoData?: boolean;
+    jobRateLimitPerMin?: number;
   } = {},
 ) {
   const [user] = await app.db
@@ -32,6 +33,7 @@ export async function createTestMerchant(
       isActive: opts.isActive ?? true,
       demoData: opts.demoData ?? true,
       userId: user.id,
+      jobRateLimitPerMin: opts.jobRateLimitPerMin,
     })
     .returning();
   if (!merchant) throw new Error('failed to create test merchant');

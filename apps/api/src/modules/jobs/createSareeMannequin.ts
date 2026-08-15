@@ -5,6 +5,7 @@ import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { assertQueueCapacity } from '../../lib/queue-capacity-config.js';
 import { atomicDeduct } from '../credits/ledger.js';
 import { assertOwnsUploadKey, resolveQueueRouting, resolveTryonPlan } from './create.js';
 import { promptGuard } from './sanitize.js';
@@ -61,6 +62,8 @@ export async function createSareeMannequinJob(
     resolveQueueRouting(app, userId),
   ]);
   if (!user || user.isBanned) throw new AppError('FORBIDDEN', 403, 'banned');
+
+  await assertQueueCapacity(app, 1);
 
   const { queueStream, priority, watermark } = routing;
 
