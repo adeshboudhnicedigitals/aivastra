@@ -1079,6 +1079,13 @@
       "when": 1786606800000,
       "tag": "0153_jobs_comfy_duration_ms",
       "breakpoints": true
+    },
+    {
+      "idx": 154,
+      "version": "7",
+      "when": 1786798350837,
+      "tag": "0154_merchants_job_rate_limit",
+      "breakpoints": true
     }
   ]
 }

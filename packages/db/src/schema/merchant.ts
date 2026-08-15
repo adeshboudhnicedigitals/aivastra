@@ -23,6 +23,14 @@ export const merchants = pgTable('merchants', {
   demoData: boolean('demo_data').notNull().default(true),
   kioskEnabled: boolean('kiosk_enabled').notNull().default(false),
   maxKioskDevices: integer('max_kiosk_devices').notNull().default(5),
+  // Null = use DEFAULT_JOB_RATE_LIMIT_PER_MIN (packages/types/src/rate-limits.ts).
+  // Per-merchant override for how many /v1/dev/* job-creation calls this merchant's
+  // API keys may make per minute (combined across all their keys) — see
+  // assertMerchantJobRateLimit in apps/api/src/lib/job-rate-limit.ts. Distinct from
+  // the flat per-key request-volume limiter already on those routes (rateLimitConfig
+  // in apps/api/src/modules/dev/routes.ts), which caps raw request count, not job
+  // creation specifically.
+  jobRateLimitPerMin: integer('job_rate_limit_per_min'),
   webhookUrl: text('webhook_url'),
   webhookSecret: text('webhook_secret'),
   // Nullable -- R2 object key for the merchant's uploaded logo, shown by the
