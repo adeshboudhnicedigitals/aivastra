@@ -11,7 +11,7 @@ const CONFIG_KEY = 'config:system';
 // NOT include catalog_video (own lane, own 30-minute SLA — see sweeper.ts) or
 // the saree-mannequin step-2 rows, which insert as PENDING_MANNEQUIN, not
 // QUEUED, until promoted later (see createSareeMannequinJob).
-const QUEUE_CAPPED_SOURCES = ['catalog', 'saree', 'saree_mannequin'] as const;
+const QUEUE_CAPPED_SOURCES = ['catalog', 'saree', 'saree_mannequin'];
 
 /**
  * Reads the admin-configured ceiling on concurrently QUEUED catalog-path jobs
