@@ -36,7 +36,7 @@ There's no public self-serve signup yet — merchant accounts are created by an 
 Every request carries your API key as a bearer token:
 
 ```
-Authorization: Bearer sk_live_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+Authorization: Bearer <your-api-key>
 ```
 
 Get a key from the **Developers** dashboard (`/developers` in the web app) after your
@@ -72,7 +72,7 @@ Optionally call **`GET /v1/dev/me`** any time as a key smoke test — it returns
 ## 3. curl example — full flow
 
 ```bash
-export API_KEY="sk_live_abc123def456ghi789jkl012mno345pqr678stu9"
+export API_KEY="<your-api-key>"
 export API_URL="https://app.aivastra.com"
 
 # 1. List categories
@@ -166,7 +166,7 @@ Requires Node 20+ (global `fetch`, `FormData`, and `Blob` — no extra dependenc
 import { readFileSync } from 'node:fs';
 
 const API_URL = process.env.DEV_API_URL ?? 'https://app.aivastra.com';
-const API_KEY = process.env.DEV_API_KEY; // e.g. "sk_live_abc123def456ghi789jkl012mno345pqr678stu9"
+const API_KEY = process.env.DEV_API_KEY; // e.g. "<your-api-key>"
 
 if (!API_KEY) {
   throw new Error('Set DEV_API_KEY to your sk_live_... key before running this script.');
