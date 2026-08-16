@@ -63,7 +63,6 @@ import { kioskAuthRoutes } from './modules/kiosk/auth.routes.js';
 import { kioskCatalogRoutes } from './modules/kiosk/catalog.routes.js';
 import { kioskJobsRoutes } from './modules/kiosk/jobs.routes.js';
 import { kioskResultsRoutes } from './modules/kiosk/results.routes.js';
-import { merchantAnalyticsRoutes } from './modules/merchant/analytics.routes.js';
 import { merchantApiKeysRoutes } from './modules/merchant/api-keys.routes.js';
 import { merchantCatalogRoutes } from './modules/merchant/catalog.routes.js';
 import { merchantKioskDevicesRoutes } from './modules/merchant/kiosk-devices.routes.js';
@@ -371,7 +370,6 @@ export async function buildServer(env: Env) {
   await app.register(merchantUploadSessionRoutes);
   await app.register(merchantPaymentsRoutes);
   await app.register(merchantApiKeysRoutes);
-  await app.register(merchantAnalyticsRoutes);
   await app.register(devRoutes);
   await app.register(devCatalogRoutes);
   await app.register(shopifyRoutes);
