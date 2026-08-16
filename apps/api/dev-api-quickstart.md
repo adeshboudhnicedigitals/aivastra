@@ -12,8 +12,11 @@ is **not** resolved automatically, set it yourself before running any example.
 > OpenAPI spec (`$API_URL/v1/dev/openapi.json`). Use it to explore request/response
 > schemas or try a call from the browser; use this guide for the end-to-end walkthrough.
 >
-> **Postman:** import [`$API_URL/v1/dev/postman-collection.json`]($API_URL/v1/dev/postman-collection.json)
-> directly into Postman (File → Import → Link) for a ready-made request collection.
+> **Postman:** import a ready-made request collection via File → Import → Link, using:
+>
+> ```
+> $API_URL/v1/dev/postman-collection.json
+> ```
 
 ## 0. Getting a merchant account
 

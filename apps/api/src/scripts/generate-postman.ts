@@ -18,7 +18,7 @@ import { buildServer } from '../server.js';
 
 const OUT_PATH = resolve(
   dirname(fileURLToPath(import.meta.url)),
-  '../../../../docs/postman/aivastra-dev-api.postman_collection.json',
+  '../../postman/aivastra-dev-api.postman_collection.json',
 );
 
 async function main() {
