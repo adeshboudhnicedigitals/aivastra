@@ -12,7 +12,8 @@
     "test:unit": "vitest run --exclude 'test/integration/**'",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "lint": "biome check src/",
-    "cleanup:kiosk-inputs": "tsx --env-file=../../.env src/scripts/cleanup-kiosk-inputs.ts"
+    "cleanup:kiosk-inputs": "tsx --env-file=../../.env src/scripts/cleanup-kiosk-inputs.ts",
+    "postman:generate": "tsx --env-file=../../.env src/scripts/generate-postman.ts"
   },
   "dependencies": {
     "@aivastra/db": "workspace:*",
@@ -49,6 +50,7 @@
     "@types/pdfkit": "^0.17.6",
     "dotenv": "^17.4.2",
     "ioredis-mock": "^8.13.1",
+    "openapi-to-postmanv2": "^6.3.3",
     "postgres": "^3.4.4",
     "tsx": "^4.19.1",
     "typescript": "^5.6.3",
