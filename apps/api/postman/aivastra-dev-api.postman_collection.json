@@ -1,11 +1,11 @@
 {
   "item": [
     {
-      "id": "c9b15ebc-4660-4357-98c4-145905acaa45",
+      "id": "d9a4819f-ed73-4d63-9b1d-6c71c57bd8c6",
       "name": "v1/dev",
       "item": [
         {
-          "id": "a6669bca-75de-4d5b-a118-13620196d62c",
+          "id": "7cbfcf21-cebe-4a74-9d86-f8356db09f92",
           "name": "List try-on categories",
           "request": {
             "name": "List try-on categories",
@@ -27,7 +27,7 @@
           },
           "response": [
             {
-              "id": "39b056e7-9693-405e-a2ab-0cdcb0ec3c4f",
+              "id": "7ec1b4df-14e5-4923-9b0a-fef60ebfbb82",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -66,7 +66,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "e6bbb65a-bece-473f-80ca-f7df6021638b",
+              "id": "c78b4ea1-2320-4ff6-bf6e-142a01e19e67",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -105,7 +105,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "72d7c0e5-d0a4-4517-8d84-d47ad937379a",
+              "id": "c36c3dc5-18bc-40f4-9558-b3cce74753a2",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -150,7 +150,7 @@
           }
         },
         {
-          "id": "78603192-c298-45b4-915d-33b7972db0f2",
+          "id": "fc1c5d1a-72a6-436a-97fb-2cb6e08dfbf9",
           "name": "Get account info",
           "request": {
             "name": "Get account info",
@@ -172,7 +172,7 @@
           },
           "response": [
             {
-              "id": "f13c12e4-78f8-4787-bb29-d5329c2d8e9e",
+              "id": "8b726df1-c6c3-42ca-89dd-7d9fd9b07d34",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -206,12 +206,12 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"merchantId\": \"97b27287-dd79-e5eb-b8e9-0d14e9372af7\",\n  \"companyName\": \"string\",\n  \"credits\": 1796\n}",
+              "body": "{\n  \"merchantId\": \"36caa0ff-aebb-aa0b-63cb-4d4149b69c63\",\n  \"companyName\": \"string\",\n  \"credits\": 2122\n}",
               "cookie": [],
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "ff3d7ede-845d-49bd-b9f6-6f7b47ae65c7",
+              "id": "69f34db2-40fb-4fdc-ae65-e8a1fd1541fc",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -250,7 +250,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "2d947569-6ace-4662-a838-0b3667c9378f",
+              "id": "15efd88d-234f-4f47-a025-e8e85ecae44c",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -289,7 +289,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "2bc8db15-7da9-42ec-b76f-9fa5c6505899",
+              "id": "9e9ce248-f6e9-41cb-95a7-f58e3b207c86",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -334,7 +334,7 @@
           }
         },
         {
-          "id": "b4b94680-201f-4484-9947-552e35a65ebf",
+          "id": "90a8152b-1c32-4dde-aae8-24b22440682d",
           "name": "Create a try-on job",
           "request": {
             "name": "Create a try-on job",
@@ -386,7 +386,7 @@
           },
           "response": [
             {
-              "id": "71a26715-3c09-441e-b7a2-d8f4f589a648",
+              "id": "ca751344-57d6-4d16-bc7b-3230add139d9",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -451,12 +451,12 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"jobId\": \"f051ef4f-8e8b-0cef-9ccf-1f63f48fce22\",\n  \"status\": \"QUEUED\"\n}",
+              "body": "{\n  \"jobId\": \"03646e43-03ae-9a98-feb6-305341eb945a\",\n  \"status\": \"COMPLETED\"\n}",
               "cookie": [],
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "a0dcbaa7-2d29-432f-b863-e3fbb24e1b82",
+              "id": "e2091fa5-f0b5-4d2b-a999-e20b3a4cccc3",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -526,7 +526,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "9fceae25-f68a-4dd7-94f7-8571612da2e9",
+              "id": "10c4fc62-6052-490b-9a3d-d957afc151d6",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -596,7 +596,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "5ff599bd-a384-4cf6-be08-972d140e2303",
+              "id": "ddcc9b59-8022-4d42-b1b6-0fb8bd9a5330",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -666,7 +666,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "d615b3ab-ccff-4fa2-a3b6-36dde98df4dd",
+              "id": "95c46e7e-db62-42b2-90af-39b4d02f5919",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -736,7 +736,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "e0092813-e578-426e-91c6-7627994171a1",
+              "id": "cf17a912-ce61-4202-8d31-57c05744de83",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -806,7 +806,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "87d955a1-c32a-4747-bc24-0134f035b3f3",
+              "id": "09b565f0-3c9d-4e57-a6df-e3eb00237787",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -882,7 +882,7 @@
           }
         },
         {
-          "id": "5da137d9-a6f8-4f43-800c-96dd421c599b",
+          "id": "7e22ba2a-b09b-45f8-9d32-0c36d357ad52",
           "name": "Generate a saree-draped mannequin image from a garment cloth photo",
           "request": {
             "name": "Generate a saree-draped mannequin image from a garment cloth photo",
@@ -922,7 +922,7 @@
           },
           "response": [
             {
-              "id": "5c3b364a-aec3-4bad-9aa3-46ec4c807067",
+              "id": "07646f64-ea4a-43ea-993b-efb2bc8fffad",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -969,12 +969,12 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"jobId\": \"f051ef4f-8e8b-0cef-9ccf-1f63f48fce22\",\n  \"status\": \"QUEUED\"\n}",
+              "body": "{\n  \"jobId\": \"03646e43-03ae-9a98-feb6-305341eb945a\",\n  \"status\": \"COMPLETED\"\n}",
               "cookie": [],
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "12e589c4-e71b-4506-96d8-0cba723168d3",
+              "id": "82245018-8e01-493c-8764-4c3b9735094a",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -1026,7 +1026,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "08bf297e-f346-4b6a-ba21-d058e18e0ade",
+              "id": "67b74a30-6f2d-4628-8af6-78c58517bd41",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -1078,7 +1078,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "1ab2557c-1720-4560-845a-5733f7b069f3",
+              "id": "430af5fd-d88b-4198-9db9-0ec03e5ee924",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -1130,7 +1130,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "110dc932-2755-42bf-bf4f-e778bb9d2c53",
+              "id": "43f7dc14-e225-4416-8061-091115bd905e",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -1182,7 +1182,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "b1bb69bb-51c8-407e-836e-7530d6a7afdc",
+              "id": "6915d78e-384d-4d0d-a681-2c38b7171def",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -1234,7 +1234,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "a06dd724-3959-4f48-8d25-a10e7189a33b",
+              "id": "8e80b867-1fc5-471c-b44e-0aeb96d32689",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -1292,7 +1292,7 @@
           }
         },
         {
-          "id": "4d3b88bb-7f98-4ae5-9787-f7999e2770ca",
+          "id": "48d72e34-5373-499c-9f60-203c93244dda",
           "name": "Get try-on job status and result",
           "request": {
             "name": "Get try-on job status and result",
@@ -1322,7 +1322,7 @@
           },
           "response": [
             {
-              "id": "b4133c6a-05df-4836-849c-09a96380f62d",
+              "id": "5b1b412e-2c9b-4f33-bd82-d76a20cdca86",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -1364,12 +1364,12 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"jobId\": \"b6eb1d3f-6e67-9501-6560-6db73e181bb8\",\n  \"status\": \"COMPLETED\",\n  \"imageUrl\": \"https://MMsUxjJiQuMAKqeQQUWEmXLzMKyxKnss.mwE-zXYEg732qkZyPPUwcFgCtFR.fqvKFLEwmLVHNNLZhmZu0bFk9k\",\n  \"error\": \"string\"\n}",
+              "body": "{\n  \"jobId\": \"43073bc0-98ee-2950-0f00-25e61ed3d687\",\n  \"status\": \"FAILED\",\n  \"imageUrl\": \"http://o.hhLioo06Ct1TnZn7RScmi.Dgf\",\n  \"error\": \"string\"\n}",
               "cookie": [],
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "08465e00-9a95-4e87-aa82-017f1dcaa03c",
+              "id": "0a40cf15-de13-4c20-9ef7-c1b6c0d370e0",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -1416,7 +1416,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "692286f0-8f12-4ce3-a432-e5d9213a3b68",
+              "id": "d8c9b1a4-2614-483e-813b-c7b7afc66c97",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -1463,7 +1463,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "0cc37add-c185-4b3a-89ed-53cac0468bec",
+              "id": "5236bff1-30ae-4b74-8402-b076209820a8",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -1516,11 +1516,11 @@
           }
         },
         {
-          "id": "f9f6b817-7c38-4f73-a0f1-1be2713dd9ed",
+          "id": "1411773a-f368-4760-83ed-08da6c9a06c5",
           "name": "catalog",
           "item": [
             {
-              "id": "29adc308-2909-4d08-97b3-a9ba3c4bedbc",
+              "id": "183e6362-dee9-4c1d-ac5e-7ac594c34ee3",
               "name": "List selectable catalog assets",
               "request": {
                 "name": "List selectable catalog assets",
@@ -1557,7 +1557,7 @@
               },
               "response": [
                 {
-                  "id": "7e66d670-bf4d-4a49-a03d-add907f79583",
+                  "id": "600ea453-6354-4e1a-ad2f-febeac644399",
                   "name": "Default Response",
                   "originalRequest": {
                     "url": {
@@ -1600,12 +1600,12 @@
                       "value": "application/json"
                     }
                   ],
-                  "body": "{\n  \"garmentTypes\": [\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\"\n    },\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\"\n    }\n  ],\n  \"faces\": [\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    },\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    }\n  ],\n  \"backgrounds\": [\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    },\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    }\n  ],\n  \"poses\": [\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\",\n      \"hasLower\": false,\n      \"hasShoes\": true\n    },\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\",\n      \"hasLower\": false,\n      \"hasShoes\": false\n    }\n  ],\n  \"lowerItems\": [\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    },\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    }\n  ],\n  \"shoeItems\": [\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    },\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    }\n  ]\n}",
+                  "body": "{\n  \"garmentTypes\": [\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\"\n    },\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\"\n    }\n  ],\n  \"faces\": [\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    },\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    }\n  ],\n  \"backgrounds\": [\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    },\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    }\n  ],\n  \"poses\": [\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\",\n      \"hasLower\": true,\n      \"hasShoes\": true\n    },\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\",\n      \"hasLower\": false,\n      \"hasShoes\": false\n    }\n  ],\n  \"lowerItems\": [\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    },\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    }\n  ],\n  \"shoeItems\": [\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    },\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    }\n  ]\n}",
                   "cookie": [],
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "b1698e62-b3b6-4d08-81b7-02b0fc439bbc",
+                  "id": "2740cadb-1849-489d-9ff6-06a8d866ad7b",
                   "name": "Default Response",
                   "originalRequest": {
                     "url": {
@@ -1653,7 +1653,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "c59e2c17-0607-47f7-af39-93f668b8250d",
+                  "id": "93aeee76-5eab-41f8-bf79-362775dbf6a0",
                   "name": "Default Response",
                   "originalRequest": {
                     "url": {
@@ -1701,7 +1701,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "8e2d7e44-2a74-4250-b446-a013b50a07f2",
+                  "id": "9ed13b21-9b81-4d62-a9b4-230cd122d027",
                   "name": "Default Response",
                   "originalRequest": {
                     "url": {
@@ -1749,7 +1749,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "d7cda6c7-ccdb-43ba-b615-a74a72d223ed",
+                  "id": "923980ef-b0dd-4e63-b765-5554d3e74159",
                   "name": "Default Response",
                   "originalRequest": {
                     "url": {
@@ -1803,7 +1803,7 @@
               }
             },
             {
-              "id": "95179bbb-6526-43d3-bc09-c5713466eb41",
+              "id": "4616be7e-6741-4a65-8d90-c977e8dd7639",
               "name": "Generate a catalog from admin-curated assets",
               "request": {
                 "name": "Generate a catalog from admin-curated assets",
@@ -1891,7 +1891,7 @@
               },
               "response": [
                 {
-                  "id": "dfb4e1ff-e658-4c13-aca3-3d3f9ae32ae2",
+                  "id": "060eaa45-87cf-4cb2-9417-ddd4a7ef212d",
                   "name": "Default Response",
                   "originalRequest": {
                     "url": {
@@ -2010,12 +2010,12 @@
                       "value": "application/json"
                     }
                   ],
-                  "body": "{\n  \"catalogueId\": \"bc7e98b4-351e-6a06-d348-2d0e4c12215b\",\n  \"jobs\": [\n    {\n      \"jobId\": \"be29f46c-6b96-f08f-b1bc-90415e7dd3c8\",\n      \"pose\": \"string\",\n      \"background\": \"string\"\n    },\n    {\n      \"jobId\": \"7dee8613-da22-7eca-d3b0-8f221d1077b3\",\n      \"pose\": \"string\",\n      \"background\": \"string\"\n    }\n  ]\n}",
+                  "body": "{\n  \"catalogueId\": \"3b250521-56fa-ae90-bdc8-841cade05f24\",\n  \"jobs\": [\n    {\n      \"jobId\": \"a53093f5-50be-a505-dfab-907ead751556\",\n      \"pose\": \"string\",\n      \"background\": \"string\"\n    },\n    {\n      \"jobId\": \"084eb8cc-ea7c-572b-33cc-1a0dec11acad\",\n      \"pose\": \"string\",\n      \"background\": \"string\"\n    }\n  ]\n}",
                   "cookie": [],
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "9a8c8115-1ef6-48a4-9e5f-9b5bce591478",
+                  "id": "4483a63b-6d58-483a-86b3-40336a629d12",
                   "name": "Default Response",
                   "originalRequest": {
                     "url": {
@@ -2139,7 +2139,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "868947f0-e293-4e8e-b997-419a17d252f8",
+                  "id": "e04b2f59-fbea-4836-9aac-1c8efb5ba25b",
                   "name": "Default Response",
                   "originalRequest": {
                     "url": {
@@ -2263,7 +2263,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "429f001e-c84f-432a-97ae-480265a7e488",
+                  "id": "a3b1101d-09fc-4d13-a116-b24fcaf048bc",
                   "name": "Default Response",
                   "originalRequest": {
                     "url": {
@@ -2387,7 +2387,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "94544fa2-76f7-4c02-95a0-fae86456cdf9",
+                  "id": "74de823c-22be-452a-a67d-92f450814366",
                   "name": "Default Response",
                   "originalRequest": {
                     "url": {
@@ -2511,7 +2511,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "509923a4-18b7-45eb-8df3-c60b7f0c1d7b",
+                  "id": "4734e2f1-1d5c-401d-bd70-16ff3e9955fa",
                   "name": "Default Response",
                   "originalRequest": {
                     "url": {
@@ -2635,7 +2635,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "a7ec0937-0034-4278-a7de-357d5cd74bf6",
+                  "id": "5d95e921-b16b-40a4-b0cf-3456f9ce1422",
                   "name": "Default Response",
                   "originalRequest": {
                     "url": {
@@ -2768,7 +2768,7 @@
           "event": []
         },
         {
-          "id": "dd7914ab-efae-45b3-a26c-ac0310754164",
+          "id": "bff33faa-3490-4f64-bddb-43afe1ea8c06",
           "name": "Get status of every job in a catalog",
           "request": {
             "name": "Get status of every job in a catalog",
@@ -2801,7 +2801,7 @@
           },
           "response": [
             {
-              "id": "69ea1f59-7298-4697-ba50-02547f9e4788",
+              "id": "81f80e9d-2e31-40ef-badf-3063da1d874d",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -2843,12 +2843,12 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"catalogueId\": \"f8980cdf-b15a-b59d-05f7-4bbf0766e620\",\n  \"jobs\": [\n    {\n      \"jobId\": \"8aa11a50-5c0a-0a69-e64d-5a96a3e7d967\",\n      \"status\": \"RUNNING\",\n      \"imageUrl\": \"https://g.tpatdxKOOqIjmV323mUfGlW4P7FyNzJ6J8vG8si6-iyJqan\",\n      \"error\": \"string\"\n    },\n    {\n      \"jobId\": \"793f43b2-ce52-11a5-2747-c3bd544826cb\",\n      \"status\": \"RUNNING\",\n      \"imageUrl\": \"http://qduCQQxyYGauywrWy.puN.BKpefKeg14\",\n      \"error\": \"string\"\n    }\n  ]\n}",
+              "body": "{\n  \"catalogueId\": \"5bd7d1b1-2a5e-e877-3afa-2175d33faef9\",\n  \"jobs\": [\n    {\n      \"jobId\": \"5e8234dd-e176-85af-df2f-f9e7ced45b90\",\n      \"status\": \"COMPLETED\",\n      \"imageUrl\": \"http://PSrIUYTBHXhdWXCYTDNYwzD.thbaEQ3Ol89fK-3,xHLkh+XVE6larMNj0xEf\",\n      \"error\": \"string\"\n    },\n    {\n      \"jobId\": \"600a0479-2177-4686-aff4-45044ae1afa8\",\n      \"status\": \"RUNNING\",\n      \"imageUrl\": \"http://o.litCJ26h3fIzpDKb-4EXBI-mxPzCo4dlv2PIS9i2euo+.yjQzHSZerbcJA54VYJY6m9IRau\",\n      \"error\": \"string\"\n    }\n  ]\n}",
               "cookie": [],
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "08ac6c24-3733-489b-9851-9852d6fc7bb8",
+              "id": "9175eab0-8661-4296-8bd4-89e12436bea1",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -2895,7 +2895,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "00b27469-a17e-498b-997e-6ff075f121c7",
+              "id": "d741ccdf-787b-4ea9-9146-8d471755e001",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -2942,7 +2942,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "87e28620-620f-4cbf-9ca8-d6c5eeadfa5c",
+              "id": "6fdf5d23-b9cc-44ee-8c1c-1c7b4435605d",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -3016,7 +3016,7 @@
     ]
   },
   "info": {
-    "_postman_id": "5b76cbb6-fd9f-4ebc-a79c-a941301257cf",
+    "_postman_id": "07452b9a-b25e-4a33-87a1-71dc55865768",
     "name": "Try-On API",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "description": {
