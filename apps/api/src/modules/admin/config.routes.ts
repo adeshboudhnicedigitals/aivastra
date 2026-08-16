@@ -1,6 +1,11 @@
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
-import { DEFAULT_MAX_BATCH_JOBS, PresignAppVideoBody, SystemConfigBody } from '@aivastra/types';
+import {
+  DEFAULT_MAX_BATCH_JOBS,
+  DEFAULT_MAX_QUEUE_DEPTH,
+  PresignAppVideoBody,
+  SystemConfigBody,
+} from '@aivastra/types';
 import { and, count, countDistinct, eq, gte, lt, lte, sql, sum } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import {
@@ -49,6 +54,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
       cfg.resolutions = cfg.resolutions ?? DEFAULT_RESOLUTION_CONFIG;
       cfg.maxOutputPx = cfg.maxOutputPx ?? DEFAULT_MAX_OUTPUT_PX;
       cfg.maxBatchJobs = cfg.maxBatchJobs ?? DEFAULT_MAX_BATCH_JOBS;
+      cfg.maxQueueDepth = cfg.maxQueueDepth ?? DEFAULT_MAX_QUEUE_DEPTH;
       cfg.tryon = cfg.tryon ?? DEFAULT_TRYON_CONFIG;
       cfg.sareeMannequinDev = cfg.sareeMannequinDev ?? DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG;
       cfg.pixverse = cfg.pixverse ?? DEFAULT_PIXVERSE_CONFIG;

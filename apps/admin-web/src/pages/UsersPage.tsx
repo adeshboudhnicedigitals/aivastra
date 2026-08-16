@@ -25,6 +25,7 @@ const EMPTY_EDIT_MERCHANT_FORM = {
   contactName: '',
   phone: '',
   businessAddress: '',
+  jobRateLimitPerMin: '',
 };
 const EMPTY_CREATE_USER_FORM = {
   username: '',
@@ -470,6 +471,7 @@ export default function UsersPage({ onNav, toast }: Props) {
       contactName: m.contactName,
       phone: m.phone,
       businessAddress: m.businessAddress,
+      jobRateLimitPerMin: m.jobRateLimitPerMin != null ? String(m.jobRateLimitPerMin) : '',
     });
     setShowEditMerchant(true);
   }
@@ -478,9 +480,16 @@ export default function UsersPage({ onNav, toast }: Props) {
     if (!detail?.merchant) return;
     setSavingMerchantEdit(true);
     try {
+      const trimmedLimit = merchantEditForm.jobRateLimitPerMin.trim();
       await apiFetch(`/admin/merchants/${detail.merchant.id}`, {
         method: 'PATCH',
-        body: JSON.stringify(merchantEditForm),
+        body: JSON.stringify({
+          companyName: merchantEditForm.companyName,
+          contactName: merchantEditForm.contactName,
+          phone: merchantEditForm.phone,
+          businessAddress: merchantEditForm.businessAddress,
+          jobRateLimitPerMin: trimmedLimit === '' ? null : Number(trimmedLimit),
+        }),
       });
       toast({ title: 'Merchant details updated' });
       setShowEditMerchant(false);
@@ -1356,6 +1365,20 @@ export default function UsersPage({ onNav, toast }: Props) {
                   value={merchantEditForm.businessAddress}
                   onChange={(e) =>
                     setMerchantEditForm((f) => ({ ...f, businessAddress: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="field">
+                <label>Job rate limit (per minute)</label>
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  max={500}
+                  placeholder="Default (15/min)"
+                  value={merchantEditForm.jobRateLimitPerMin}
+                  onChange={(e) =>
+                    setMerchantEditForm((f) => ({ ...f, jobRateLimitPerMin: e.target.value }))
                   }
                 />
               </div>

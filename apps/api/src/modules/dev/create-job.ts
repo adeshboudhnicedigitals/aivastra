@@ -6,6 +6,7 @@ import { JOB_SOURCE, type JobSource } from '@aivastra/types';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
+import { assertMerchantJobRateLimit } from '../../lib/job-rate-limit.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { atomicDeduct, refundAndMarkFailed } from '../credits/ledger.js';
 
@@ -25,6 +26,8 @@ export async function createDevJobCore(
     buildJobInputs: () => Omit<typeof schema.jobInputs.$inferInsert, 'jobId'>;
   },
 ): Promise<{ jobId: string }> {
+  await assertMerchantJobRateLimit(app, params.merchantUserId);
+
   const catalogueId = randomUUID();
   const [job] = await app.db.transaction(async (tx) => {
     const [newJob] = await tx

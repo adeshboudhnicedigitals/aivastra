@@ -129,6 +129,7 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
           demoData: schema.merchants.demoData,
           kioskEnabled: schema.merchants.kioskEnabled,
           maxKioskDevices: schema.merchants.maxKioskDevices,
+          jobRateLimitPerMin: schema.merchants.jobRateLimitPerMin,
           createdAt: schema.merchants.createdAt,
           updatedAt: schema.merchants.updatedAt,
           creditBalance: schema.userCredits.balance,
@@ -243,6 +244,7 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
           demoData: schema.merchants.demoData,
           kioskEnabled: schema.merchants.kioskEnabled,
           maxKioskDevices: schema.merchants.maxKioskDevices,
+          jobRateLimitPerMin: schema.merchants.jobRateLimitPerMin,
           userId: schema.merchants.userId,
           webhookUrl: schema.merchants.webhookUrl,
           webhookSecret: schema.merchants.webhookSecret,
@@ -323,6 +325,9 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
       if (body.businessAddress !== undefined) updates.businessAddress = body.businessAddress;
       if (body.kioskEnabled !== undefined) updates.kioskEnabled = body.kioskEnabled;
       if (body.maxKioskDevices !== undefined) updates.maxKioskDevices = body.maxKioskDevices;
+      if (body.jobRateLimitPerMin !== undefined) {
+        updates.jobRateLimitPerMin = body.jobRateLimitPerMin;
+      }
       if (body.webhookUrl !== undefined) {
         if (body.webhookUrl) assertWebhookUrlShape(body.webhookUrl);
         updates.webhookUrl = body.webhookUrl || null;

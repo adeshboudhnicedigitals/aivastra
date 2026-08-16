@@ -54,13 +54,17 @@ export async function transitionJob(
     .update(schema.jobs)
     .set(patch as Parameters<ReturnType<typeof db.update>['set']>[0])
     .where(eq(schema.jobs.id, jobId))
-    .returning({ createdAt: schema.jobs.createdAt });
+    .returning({ createdAt: schema.jobs.createdAt, source: schema.jobs.source });
 
   if (status === 'COMPLETED' || status === 'FAILED' || status === 'CANCELLED') {
     const createdAt = updated[0]?.createdAt;
     if (createdAt) {
       const outcome = status.toLowerCase();
-      jobE2eDuration.observe({ outcome }, (now.getTime() - createdAt.getTime()) / 1000);
+      const jobType = updated[0]?.source ?? 'unknown';
+      jobE2eDuration.observe(
+        { outcome, job_type: jobType },
+        (now.getTime() - createdAt.getTime()) / 1000,
+      );
     }
   }
 

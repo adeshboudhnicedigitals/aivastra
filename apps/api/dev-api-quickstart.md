@@ -11,6 +11,12 @@ is **not** resolved automatically, set it yourself before running any example.
 > `$API_URL/v1/dev/docs` — a Scalar-rendered page generated straight from the API's
 > OpenAPI spec (`$API_URL/v1/dev/openapi.json`). Use it to explore request/response
 > schemas or try a call from the browser; use this guide for the end-to-end walkthrough.
+>
+> **Postman:** import a ready-made request collection via File → Import → Link, using:
+>
+> ```
+> $API_URL/v1/dev/postman-collection.json
+> ```
 
 ## 0. Getting a merchant account
 

@@ -18,6 +18,7 @@ import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
+import { assertQueueCapacity } from '../../lib/queue-capacity-config.js';
 import {
   getMaxOutputPx,
   getPixverseCreditCost,
@@ -829,6 +830,8 @@ export async function createJob(
     resolvedUpperGarmentKey: resolvedUpperGarmentKey ?? null,
     trustedGarmentKeys: opts?.trustedGarmentKeys,
   });
+
+  await assertQueueCapacity(app, plan.looks.length);
 
   const [[user], routing] = await Promise.all([
     app.db.select().from(schema.users).where(eq(schema.users.id, userId)),

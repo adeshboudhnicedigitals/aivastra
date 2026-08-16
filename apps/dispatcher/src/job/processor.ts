@@ -47,9 +47,30 @@ const REQUEUE_BACKOFF_MS = 10_000;
 type JobOutcome = 'success' | 'failed' | 'retried' | 'cancelled';
 
 /** Record the terminal (or retry) outcome of a processing attempt with its duration. */
-function recordJobOutcome(outcome: JobOutcome, startedAt: number): void {
+function recordJobOutcome(outcome: JobOutcome, startedAt: number, jobType: string | null): void {
+  const job_type = jobType ?? 'unknown';
   jobsProcessedTotal.inc({ outcome });
-  jobProcessingDuration.observe({ outcome }, (Date.now() - startedAt) / 1000);
+  jobProcessingDuration.observe({ outcome, job_type }, (Date.now() - startedAt) / 1000);
+}
+
+/**
+ * Record a ComfyUI /prompt round-trip: Prometheus histogram (for Grafana) plus
+ * jobs.comfy_duration_ms (so the admin dashboard can read it straight from
+ * Postgres without a Grafana Cloud round-trip). Overwritten per attempt/phase —
+ * for two-phase jobs (mannequin + main) this reflects only the most recent call.
+ */
+async function recordComfyDuration(
+  db: DB,
+  jobId: string,
+  jobType: string | null,
+  comfyStartedAt: number,
+): Promise<void> {
+  const ms = Date.now() - comfyStartedAt;
+  comfyRequestDuration.observe({ job_type: jobType ?? 'unknown' }, ms / 1000);
+  await db
+    .update(schema.jobs)
+    .set({ comfyDurationMs: Math.round(ms) })
+    .where(eq(schema.jobs.id, jobId));
 }
 
 interface RequeueForNoWorkerArgs {
@@ -64,6 +85,7 @@ interface RequeueForNoWorkerArgs {
   extraFields: string[];
   jobLog: Logger;
   startedAt: number;
+  jobType: string | null;
 }
 
 /**
@@ -73,7 +95,18 @@ interface RequeueForNoWorkerArgs {
  * consecutive misses — see the constant's comment for why that's needed at all.
  */
 async function requeueForNoWorker(args: RequeueForNoWorkerArgs): Promise<void> {
-  const { db, redis, jobId, stream, messageId, retryCount, extraFields, jobLog, startedAt } = args;
+  const {
+    db,
+    redis,
+    jobId,
+    stream,
+    messageId,
+    retryCount,
+    extraFields,
+    jobLog,
+    startedAt,
+    jobType,
+  } = args;
   const nextRetryCount = retryCount + 1;
   const targetStream =
     stream !== PRIORITY_STREAM && nextRetryCount >= PROMOTE_TO_PRIORITY_AFTER_RETRIES
@@ -100,7 +133,7 @@ async function requeueForNoWorker(args: RequeueForNoWorkerArgs): Promise<void> {
     ...extraFields,
   );
   await redis.xack(stream, 'dispatcher-cg', messageId);
-  recordJobOutcome('retried', startedAt);
+  recordJobOutcome('retried', startedAt, jobType);
 }
 
 export interface ProcessorConfig {
@@ -139,6 +172,7 @@ export async function processJob(
       createdAt: schema.jobs.createdAt,
       queuedAt: schema.jobs.queuedAt,
       watermark: schema.jobs.watermark,
+      source: schema.jobs.source,
     })
     .from(schema.jobs)
     .where(eq(schema.jobs.id, jobId));
@@ -199,7 +233,17 @@ export async function processJob(
 
   // Catalog-video jobs use PixVerse image-to-video and never require a ComfyUI worker.
   if (!inputs.faceId && !inputs.backgroundId && !inputs.poseId && rawParams.kind === 'video') {
-    await processVideoJob(cfg, jobId, rawParams, userId, stream, messageId, jobLog, startedAt);
+    await processVideoJob(
+      cfg,
+      jobId,
+      rawParams,
+      userId,
+      stream,
+      messageId,
+      jobLog,
+      startedAt,
+      job.source,
+    );
     return;
   }
 
@@ -403,6 +447,7 @@ export async function processJob(
             faceId: inputs.faceId,
             mannequinWorkflowTemplateId: garmentTypeRow.mannequinWorkflowTemplateId,
             jobLog,
+            jobType: job.source,
           });
         } catch (err) {
           jobLog.error({ err }, 'mannequin phase failed');
@@ -517,6 +562,7 @@ export async function processJob(
         job.creditsCharged,
         jobLog,
         startedAt,
+        job.source,
       );
     } else {
       jobLog.warn('no idle worker — re-enqueuing with backoff');
@@ -530,6 +576,7 @@ export async function processJob(
         extraFields: ['userId', userId],
         jobLog,
         startedAt,
+        jobType: job.source,
       });
     }
     return;
@@ -684,7 +731,7 @@ export async function processJob(
       },
       async () => (await redis.exists(`job:cancel:${jobId}`)) === 1,
     );
-    comfyRequestDuration.observe((Date.now() - comfyStartedAt) / 1000);
+    await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
 
     // 8. Fetch output metadata + download image
     await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
@@ -719,7 +766,7 @@ export async function processJob(
     });
     await redis.xack(stream, 'dispatcher-cg', messageId);
     await setWorkerStatus(redis, w.id, 'IDLE');
-    recordJobOutcome('success', startedAt);
+    recordJobOutcome('success', startedAt, job.source);
     jobLog.info('job completed successfully');
   } catch (err) {
     if (err instanceof JobCancelledError) {
@@ -736,6 +783,7 @@ export async function processJob(
         job.creditsCharged,
         jobLog,
         startedAt,
+        job.source,
         'CANCELLED',
       );
       return;
@@ -776,6 +824,7 @@ async function processVideoJob(
   messageId: string,
   jobLog: Logger,
   startedAt: number,
+  jobType: string | null,
 ): Promise<void> {
   const { db, redis, pub, storage, s3, r2Bucket } = cfg;
   const sourceImageKey = rawParams.sourceImageKey as string;
@@ -843,7 +892,7 @@ async function processVideoJob(
 
     await transitionJob(db, pub, jobId, userId, 'COMPLETED', { resultKey }, jobLog);
     await redis.xack(stream, 'dispatcher-cg', messageId);
-    recordJobOutcome('success', startedAt);
+    recordJobOutcome('success', startedAt, jobType);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
@@ -856,6 +905,7 @@ type TryonDirectJob = {
   attempts: number;
   createdAt: Date;
   watermark: boolean;
+  source: string | null;
 };
 
 async function processTryonDirectJob(
@@ -952,6 +1002,7 @@ async function processTryonDirectJob(
         job.creditsCharged,
         jobLog,
         startedAt,
+        job.source,
       );
     } else {
       jobLog.warn('no idle worker — re-enqueuing tryon direct job with backoff');
@@ -965,6 +1016,7 @@ async function processTryonDirectJob(
         extraFields: ['userId', userId],
         jobLog,
         startedAt,
+        jobType: job.source,
       });
     }
     return;
@@ -1039,7 +1091,7 @@ async function processTryonDirectJob(
         error: jobLog.error.bind(jobLog),
       },
     );
-    comfyRequestDuration.observe((Date.now() - comfyStartedAt) / 1000);
+    await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
 
     await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
     const outputImages = await fetchHistory(w.url, w.apiKey, promptId, jobLog, outputNodeId);
@@ -1070,7 +1122,7 @@ async function processTryonDirectJob(
     });
     await redis.xack(stream, 'dispatcher-cg', messageId);
     await setWorkerStatus(redis, w.id, 'IDLE');
-    recordJobOutcome('success', startedAt);
+    recordJobOutcome('success', startedAt, job.source);
     jobLog.info('tryon direct job completed');
   } catch (err) {
     jobLog.error({ err }, 'tryon direct job processing error');
@@ -1086,6 +1138,7 @@ type SareeMannequinJob = {
   id: string;
   attempts: number;
   createdAt: Date;
+  source: string | null;
 };
 
 async function processSareeMannequinJob(
@@ -1287,7 +1340,18 @@ async function processSareeMannequinJob(
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn('no idle saree worker — mannequin job exceeded max queue wait, terminating');
-      await terminateJob(cfg, jobId, userId, stream, messageId, 'NO_WORKER', 0, jobLog, startedAt);
+      await terminateJob(
+        cfg,
+        jobId,
+        userId,
+        stream,
+        messageId,
+        'NO_WORKER',
+        0,
+        jobLog,
+        startedAt,
+        job.source,
+      );
     } else {
       jobLog.warn('no idle saree worker — re-enqueuing with backoff');
       await requeueForNoWorker({
@@ -1300,6 +1364,7 @@ async function processSareeMannequinJob(
         extraFields: ['userId', userId],
         jobLog,
         startedAt,
+        jobType: job.source,
       });
     }
     return;
@@ -1387,7 +1452,7 @@ async function processSareeMannequinJob(
         error: jobLog.error.bind(jobLog),
       },
     );
-    comfyRequestDuration.observe((Date.now() - comfyStartedAt) / 1000);
+    await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
 
     await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
     const outputImages = await fetchHistory(w.url, w.apiKey, promptId, jobLog, outputNodeId);
@@ -1415,7 +1480,7 @@ async function processSareeMannequinJob(
     });
     await redis.xack(stream, 'dispatcher-cg', messageId);
     await setWorkerStatus(redis, w.id, 'IDLE');
-    recordJobOutcome('success', startedAt);
+    recordJobOutcome('success', startedAt, job.source);
     jobLog.info('mannequin job completed successfully');
   } catch (err) {
     jobLog.error({ err }, 'mannequin job processing error');
@@ -1434,6 +1499,7 @@ type SareeJob = {
   attempts: number;
   createdAt: Date;
   watermark: boolean;
+  source: string | null;
 };
 
 async function processSareeJob(
@@ -1531,6 +1597,7 @@ async function processSareeJob(
         job.creditsCharged,
         jobLog,
         startedAt,
+        job.source,
       );
     } else {
       jobLog.warn('no idle saree worker — re-enqueuing with backoff');
@@ -1544,6 +1611,7 @@ async function processSareeJob(
         extraFields: ['userId', userId],
         jobLog,
         startedAt,
+        jobType: job.source,
       });
     }
     return;
@@ -1618,7 +1686,7 @@ async function processSareeJob(
         error: jobLog.error.bind(jobLog),
       },
     );
-    comfyRequestDuration.observe((Date.now() - comfyStartedAt) / 1000);
+    await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
 
     await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
     const outputImages = await fetchHistory(w.url, w.apiKey, promptId, jobLog, outputNodeId);
@@ -1646,7 +1714,7 @@ async function processSareeJob(
     });
     await redis.xack(stream, 'dispatcher-cg', messageId);
     await setWorkerStatus(redis, w.id, 'IDLE');
-    recordJobOutcome('success', startedAt);
+    recordJobOutcome('success', startedAt, job.source);
     jobLog.info('saree job completed successfully');
   } catch (err) {
     jobLog.error({ err }, 'saree job processing error');
@@ -1667,6 +1735,7 @@ type WidgetJob = {
   creditsCharged: number;
   createdAt: Date;
   watermark: boolean;
+  source: string | null;
 };
 
 async function processWidgetJob(
@@ -1720,6 +1789,7 @@ async function processWidgetJob(
       'NO_CUSTOMER_PHOTO',
       jobLog,
       startedAt,
+      job.source,
     );
     return;
   }
@@ -1735,6 +1805,7 @@ async function processWidgetJob(
       'MISSING_GARMENT_INPUT',
       jobLog,
       startedAt,
+      job.source,
     );
     return;
   }
@@ -1759,6 +1830,7 @@ async function processWidgetJob(
       'WIDGET_TEMPLATE_MISSING',
       jobLog,
       startedAt,
+      job.source,
     );
     return;
   }
@@ -1790,6 +1862,7 @@ async function processWidgetJob(
       'WIDGET_TEMPLATE_MISSING',
       jobLog,
       startedAt,
+      job.source,
     );
     return;
   }
@@ -1813,6 +1886,7 @@ async function processWidgetJob(
       'TRYON_NODES_NOT_CONFIGURED',
       jobLog,
       startedAt,
+      job.source,
     );
     return;
   }
@@ -1839,6 +1913,7 @@ async function processWidgetJob(
         'NO_WORKER',
         jobLog,
         startedAt,
+        job.source,
       );
     } else {
       jobLog.warn('no idle merchant worker — re-enqueuing with backoff');
@@ -1852,6 +1927,7 @@ async function processWidgetJob(
         extraFields: [],
         jobLog,
         startedAt,
+        jobType: job.source,
       });
     }
     return;
@@ -1923,7 +1999,7 @@ async function processWidgetJob(
         error: jobLog.error.bind(jobLog),
       },
     );
-    comfyRequestDuration.observe((Date.now() - comfyStartedAt) / 1000);
+    await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
 
     await transitionJob(db, pub, jobId, '', 'UPLOADING', {}, jobLog);
     const outputImages = await fetchHistory(w.url, w.apiKey, promptId, jobLog, outputNodeId);
@@ -1972,7 +2048,7 @@ async function processWidgetJob(
     );
     await redis.xack(stream, 'dispatcher-cg', messageId);
     await setWorkerStatus(redis, w.id, 'IDLE');
-    recordJobOutcome('success', startedAt);
+    recordJobOutcome('success', startedAt, job.source);
     jobLog.info({ resultKey }, 'widget job completed successfully');
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
@@ -1988,6 +2064,7 @@ async function processWidgetJob(
       errMsg.slice(0, 1000),
       jobLog,
       startedAt,
+      job.source,
     );
   }
 }
@@ -2042,6 +2119,7 @@ async function processShopifyJob(
       !workflowTemplateId ? 'NO_WORKFLOW_CONFIGURED' : 'SHOPIFY_INPUTS_MISSING',
       jobLog,
       startedAt,
+      job.source,
     );
     return;
   }
@@ -2069,6 +2147,7 @@ async function processShopifyJob(
       'WORKFLOW_NOT_FOUND',
       jobLog,
       startedAt,
+      job.source,
     );
     return;
   }
@@ -2088,6 +2167,7 @@ async function processShopifyJob(
       'SHOPIFY_NODES_NOT_CONFIGURED',
       jobLog,
       startedAt,
+      job.source,
     );
     return;
   }
@@ -2113,6 +2193,7 @@ async function processShopifyJob(
         'NO_WORKER',
         jobLog,
         startedAt,
+        job.source,
       );
     } else {
       jobLog.warn('no idle shopify worker — re-enqueuing with backoff');
@@ -2126,6 +2207,7 @@ async function processShopifyJob(
         extraFields: [],
         jobLog,
         startedAt,
+        jobType: job.source,
       });
     }
     return;
@@ -2208,7 +2290,7 @@ async function processShopifyJob(
         error: jobLog.error.bind(jobLog),
       },
     );
-    comfyRequestDuration.observe((Date.now() - comfyStartedAt) / 1000);
+    await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
 
     await transitionJob(db, pub, jobId, '', 'UPLOADING', { shopifyStoreId }, jobLog);
     const outputImages = await fetchHistory(w.url, w.apiKey, promptId, jobLog, outputNodeId);
@@ -2237,7 +2319,7 @@ async function processShopifyJob(
 
     await redis.xack(stream, 'dispatcher-cg', messageId);
     await setWorkerStatus(redis, w.id, 'IDLE');
-    recordJobOutcome('success', startedAt);
+    recordJobOutcome('success', startedAt, job.source);
     jobLog.info({ resultKey }, 'shopify job completed successfully');
   } catch (err) {
     jobLog.error({ err }, 'shopify job processing error');
@@ -2253,6 +2335,7 @@ async function processShopifyJob(
       errMsg.slice(0, 1000),
       jobLog,
       startedAt,
+      job.source,
     );
   }
 }
@@ -2267,6 +2350,7 @@ async function markWidgetFailed(
   errorCode: string,
   log: Logger,
   startedAt: number,
+  jobType: string | null,
 ): Promise<void> {
   const { db, redis, pub } = cfg;
 
@@ -2327,7 +2411,7 @@ async function markWidgetFailed(
     errorCode,
   );
   await redis.xack(stream, 'dispatcher-cg', messageId);
-  recordJobOutcome('failed', startedAt);
+  recordJobOutcome('failed', startedAt, jobType);
   log.warn({ jobId, errorCode }, 'widget job FAILED — credits refunded');
 }
 
@@ -2341,6 +2425,7 @@ async function markShopifyFailed(
   errorCode: string,
   log: Logger,
   startedAt: number,
+  jobType: string | null,
 ): Promise<void> {
   const { db, redis, pub } = cfg;
 
@@ -2369,7 +2454,7 @@ async function markShopifyFailed(
 
   await transitionJob(db, pub, jobId, '', 'FAILED', { errorCode, shopifyStoreId }, log);
   await redis.xack(stream, 'dispatcher-cg', messageId);
-  recordJobOutcome('failed', startedAt);
+  recordJobOutcome('failed', startedAt, jobType);
   log.warn({ jobId, shopifyStoreId, errorCode }, 'shopify job FAILED — store credits refunded');
 }
 
@@ -2390,6 +2475,7 @@ async function terminateJob(
   creditsCharged: number,
   _log: Logger,
   startedAt: number,
+  jobType: string | null,
   status: 'FAILED' | 'CANCELLED' = 'FAILED',
 ): Promise<void> {
   const { db, redis, pub } = cfg;
@@ -2443,7 +2529,7 @@ async function terminateJob(
   ]);
 
   await redis.xack(stream, 'dispatcher-cg', messageId);
-  recordJobOutcome(status === 'CANCELLED' ? 'cancelled' : 'failed', startedAt);
+  recordJobOutcome(status === 'CANCELLED' ? 'cancelled' : 'failed', startedAt, jobType);
 }
 
 async function handleFailure(
@@ -2476,6 +2562,7 @@ async function handleFailure(
       current.creditsCharged,
       log,
       startedAt,
+      current.source,
     );
     log.warn(
       { jobId, attempts: newAttempts, errorCode },
@@ -2486,7 +2573,7 @@ async function handleFailure(
     await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
     await redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId, 'userId', userId);
     await redis.xack(stream, 'dispatcher-cg', messageId);
-    recordJobOutcome('retried', startedAt);
+    recordJobOutcome('retried', startedAt, current.source);
     log.info(
       { jobId, attempts: newAttempts },
       `job re-enqueued for retry (attempt ${newAttempts})`,
@@ -2515,6 +2602,7 @@ async function markFailed(
     job?.creditsCharged ?? 0,
     log,
     startedAt,
+    job?.source ?? null,
   );
   log.warn({ jobId, errorCode }, 'job FAILED (pre-flight) — credits refunded');
 }
