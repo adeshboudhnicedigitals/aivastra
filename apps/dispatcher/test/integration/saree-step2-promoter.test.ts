@@ -310,14 +310,12 @@ describe('promoteSareeStep2Jobs', () => {
     expect(updatedJob?.status).toBe('QUEUED');
   });
 
-  it('resets createdAt on promotion so the sweeper does not immediately reap a long-pending step-2 job', async () => {
+  it('resets createdAt on promotion so it reflects when the job actually became QUEUED', async () => {
     // Regression test: a PENDING_MANNEQUIN job is stamped with createdAt at
     // *submit* time, and can sit in that status for however long step 1
-    // (the mannequin job) takes. If the claim UPDATE in the COMPLETED branch
-    // didn't reset createdAt, a step-2 job promoted after a long step-1 wait
-    // would already be past the sweeper's QUEUED_SLA_MS (10 min) the instant
-    // it flips to QUEUED, and would be reaped as STUCK_IN_QUEUE on the very
-    // next sweep tick.
+    // (the mannequin job) takes. The claim UPDATE in the COMPLETED branch must
+    // reset createdAt so it reflects when the job actually became QUEUED,
+    // not its original submit time.
     const userId = await seedUser();
     const [mannequinJob] = await cfg.db
       .insert(schema.jobs)
