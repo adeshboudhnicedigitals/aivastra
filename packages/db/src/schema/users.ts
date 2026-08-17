@@ -10,7 +10,6 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import { signupCampaigns } from './campaigns.js';
-import { kioskDevices } from './kiosk.js';
 import { merchants } from './merchant.js';
 
 export const users = pgTable(
@@ -68,9 +67,6 @@ export const refreshTokens = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
-    kioskDeviceId: uuid('kiosk_device_id').references(() => kioskDevices.id, {
-      onDelete: 'cascade',
-    }),
     merchantId: uuid('merchant_id').references(() => merchants.id, {
       onDelete: 'cascade',
     }),
@@ -86,12 +82,7 @@ export const refreshTokens = pgTable(
     deviceName: text('device_name'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  () => [
-    check(
-      'refresh_tokens_exactly_one_owner',
-      sql`num_nonnulls(user_id, kiosk_device_id, merchant_id) = 1`,
-    ),
-  ],
+  () => [check('refresh_tokens_exactly_one_owner', sql`num_nonnulls(user_id, merchant_id) = 1`)],
 );
 
 export const oauthAccounts = pgTable(

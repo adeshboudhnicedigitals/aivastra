@@ -10,7 +10,6 @@ const SOURCES = [
   JOB_SOURCE.CATALOG,
   JOB_SOURCE.TRYON,
   JOB_SOURCE.SAREE,
-  JOB_SOURCE.KIOSK,
   JOB_SOURCE.SHOPIFY,
 ] as const;
 const DAY_RANGES = ['7', '30', '90', 'all'] as const;
@@ -43,8 +42,6 @@ function sourceCondition(source: SourceFilter) {
       // backfilled to match — but match on either so the filter is robust even if
       // one of the two is ever missing.
       return sql`(${schema.jobs.source} = 'shopify' OR ${schema.jobs.shopifyStoreId} IS NOT NULL)`;
-    case 'kiosk':
-      return sql`${schema.jobs.kioskDeviceId} IS NOT NULL`;
     case 'catalog':
     case 'tryon':
     case 'saree':
@@ -55,9 +52,9 @@ function sourceCondition(source: SourceFilter) {
 }
 
 // Jobs are attributed to whichever user "owns" them: jobs.userId directly,
-// or — for kiosk jobs, which always have userId = null — the user who owns
-// the merchant profile the kiosk device belongs to (merchants.userId is a
-// real 1:1 link; a merchant IS a user).
+// or — for the rare merchant-attributed job with no userId of its own — the
+// user who owns the merchant profile (merchants.userId is a real 1:1 link;
+// a merchant IS a user).
 const rankedUserId = sql<string>`COALESCE(${schema.jobs.userId}, ${schema.merchants.userId})`;
 
 export async function adminCreditAnalysisRoutes(app: FastifyInstance) {
@@ -225,8 +222,7 @@ export async function adminCreditAnalysisRoutes(app: FastifyInstance) {
       // have no job to attribute a source to — effectiveSource is NULL for those,
       // and they're correctly dropped when a specific source filter is active
       // (sourceCondition's checks all evaluate false/NULL against a NULL-joined
-      // job row). Precedence mirrors sourceCondition/the backfill script: a kiosk
-      // job's own `source` column is never set, so kioskDeviceId is checked first.
+      // job row).
       const ledgerConditions = [
         eq(schema.creditLedger.userId, id),
         since ? gte(schema.creditLedger.createdAt, since) : undefined,
@@ -242,7 +238,6 @@ export async function adminCreditAnalysisRoutes(app: FastifyInstance) {
           createdAt: schema.creditLedger.createdAt,
           source: sql<string | null>`CASE
             WHEN ${schema.jobs.shopifyStoreId} IS NOT NULL THEN 'shopify'
-            WHEN ${schema.jobs.kioskDeviceId} IS NOT NULL THEN 'kiosk'
             ELSE ${schema.jobs.source}
           END`,
         })

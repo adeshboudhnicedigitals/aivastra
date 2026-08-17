@@ -12,7 +12,6 @@ export const JOB_SOURCE = {
   MERCHANT_CATALOG: 'merchant_catalog',
   MERCHANT_CATALOG_SAREE_MANNEQUIN: 'merchant_catalog_saree_mannequin',
   MERCHANT_TRYON: 'merchant_tryon',
-  KIOSK: 'kiosk',
   API_TRYON: 'api_tryon',
   API_SAREE_MANNEQUIN: 'api_saree_mannequin',
   API_CATALOG: 'api_catalog',

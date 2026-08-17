@@ -1,3 +1,69 @@
+## 2026-08-17 — Removed the orphaned kiosk_devices pairing feature
+
+**Done**
+- Confirmed `kiosk_devices` (pairing-code device auth), all `/v1/kiosk/*`
+  routes, `/v1/merchant/kiosk-devices*`, and `/admin/merchants/:id/kiosk-devices*`
+  had zero callers anywhere in the repo — not `virtual_tryon_android` (which
+  authenticates via `/v1/auth/device-login` + `/v1/merchant/tryon/*` instead),
+  not `admin-web` (only ever displayed `kioskEnabled` read-only, never wrote
+  it or listed devices), not `catalogues-web`'s `/kiosk-upload/[token]` page
+  (that hits the unrelated, live `/v1/kiosk-upload-sessions/*` QR-photo flow).
+- Deleted: `apps/api/src/modules/kiosk/` (6 files), `merchant/kiosk-devices.routes.ts`,
+  `apps/api/src/scripts/cleanup-kiosk-inputs.ts` + its `cleanup:kiosk-inputs`
+  npm script, `apps/api/_g.ts` (broken scratch script referencing a
+  pre-rename column name), 4 kiosk-only test files.
+- Unwired `requireKioskDevice`/`verifyKioskAccess` from `portal-auth.ts`,
+  removed the `kioskDevice` owner-type branch from `rotateTokenFamily`
+  (`auth/routes.ts`) — the live `platform: 'mobile' | 'kiosk'` device-login
+  flag and `refreshTokens.portal = 'kiosk'` value were NOT touched; that's a
+  separate, real feature (shared/staff Android login mode).
+- Dropped `jobs.kiosk_device_id`, `refresh_tokens.kiosk_device_id`,
+  `merchants.kiosk_enabled`/`max_kiosk_devices`, and the FK column on
+  `kiosk_result_likes`/`kiosk_result_cart_items` (those two tables themselves
+  stay — they back the live `/v1/merchant/tryon/jobs/:id/like|cart` routes).
+  Migration `0156_drop_kiosk_devices.sql`, hand-written and hand-appended to
+  `meta/_journal.json` because `drizzle-kit generate` currently fails on a
+  pre-existing snapshot-parent collision at idx 119/121/122/125 (unrelated to
+  this change — flagged below, not fixed).
+- Removed `JOB_SOURCE.KIOSK`, the dead `Kiosk*` zod types, the
+  `kioskUploadMaxBytes` config key (backend + admin Settings UI), and every
+  now-unreachable branch in `admin/credit-analysis.routes.ts`'s source filter
+  and `admin/merchants.routes.ts`.
+- `pnpm --filter @aivastra/{types,db,storage} build` + `@aivastra/api`,
+  `@aivastra/admin` typecheck all clean. `@aivastra/api test:unit`: 241
+  passed, 0 kiosk-related failures (the 43 failing files are all the generic
+  `startContainers()` timeout — this sandbox has no Docker daemon running).
+
+**Failed / Not Done**
+- Could not run `pnpm docker:up` + integration tests in this environment (no
+  Docker daemon available) — the migration and route removal are untested
+  against a real Postgres. Run `apps/api/test/integration/**` before merging.
+- Did not fix the pre-existing `drizzle-kit generate` snapshot collision
+  (`0119`/`0121`/`0122`/`0125` meta files) — it predates this change and is a
+  separate, riskier fix per CLAUDE.md's migration-surgery caution. Worked
+  around it by hand-writing the migration SQL; `db:migrate`'s hash-based
+  runner doesn't depend on the snapshot chain, so this is safe for deploy,
+  but `generate` will keep failing until someone repairs that history.
+- Noticed (not fixed, out of scope): `apps/api/test/integration/admin-credit-analysis.test.ts`
+  inserts `merchants` rows with `websiteUrl`/`companySize`/`purpose` fields
+  that don't exist on the current `merchants` schema — pre-existing drift,
+  unrelated to kiosk.
+- `pnpm install` (needed to fix a stale `@node-rs/argon2` link after the
+  `dev` branch switch) wanted to rewrite ~7000 lines of `pnpm-lock.yaml`;
+  reverted that file since it's unrelated to this change — worth someone
+  deliberately running `pnpm install` on `dev` and reviewing that diff on its
+  own.
+
+**Open Questions / Decisions**
+- If `cleanup:kiosk-inputs` was wired into a cron/systemd timer on the prod
+  VPS (outside this repo), that entry needs manual removal there too — the
+  npm script is gone but I can't reach VPS cron config from here.
+- `kiosk_devices.android_id`/`app_version` hinted the feature was originally
+  meant to pair a dedicated Android build; nobody could confirm whether that
+  client ever shipped. Worth asking before assuming this was truly
+  never-used in production, though no code path in this repo could have
+  driven traffic to it.
+
 ## 2026-08-14 — SEC-H3 bucket flip complete; CLAUDE.md storage backend correction
 
 **Done**

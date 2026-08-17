@@ -59,13 +59,8 @@ import { creditsRoutes } from './modules/credits/routes.js';
 import { devCatalogRoutes } from './modules/dev/catalog.routes.js';
 import { devRoutes } from './modules/dev/routes.js';
 import { jobsRoutes } from './modules/jobs/routes.js';
-import { kioskAuthRoutes } from './modules/kiosk/auth.routes.js';
-import { kioskCatalogRoutes } from './modules/kiosk/catalog.routes.js';
-import { kioskJobsRoutes } from './modules/kiosk/jobs.routes.js';
-import { kioskResultsRoutes } from './modules/kiosk/results.routes.js';
 import { merchantApiKeysRoutes } from './modules/merchant/api-keys.routes.js';
 import { merchantCatalogRoutes } from './modules/merchant/catalog.routes.js';
-import { merchantKioskDevicesRoutes } from './modules/merchant/kiosk-devices.routes.js';
 import { merchantMeRoutes } from './modules/merchant/me.routes.js';
 import { merchantOnboardingRoutes } from './modules/merchant/onboarding.routes.js';
 import { merchantPaymentsRoutes } from './modules/merchant/payments.routes.js';
@@ -202,7 +197,7 @@ export async function buildServer(env: Env) {
   // produces spurious 429s. Salting the key per instance isolates each test
   // file's app from every other's, while still bucketing by IP *within* one
   // instance/file — so a test that deliberately varies its own remoteAddress
-  // (e.g. kiosk-auth.test.ts's "rate-limits the 11th claim attempt" case) is
+  // (e.g. a test asserting the Nth attempt from one IP gets rate-limited) is
   // unaffected.
   const rateLimitTestSalt = env.NODE_ENV === 'test' ? randomUUID() : '';
   await app.register(rateLimit, {
@@ -360,13 +355,8 @@ export async function buildServer(env: Env) {
   await app.register(uploadsRoutes);
   await app.register(backgroundsRoutes);
   await app.register(jobsRoutes);
-  await app.register(kioskAuthRoutes);
-  await app.register(kioskCatalogRoutes);
-  await app.register(kioskJobsRoutes);
-  await app.register(kioskResultsRoutes);
   await app.register(merchantCatalogRoutes);
   await app.register(merchantOnboardingRoutes);
-  await app.register(merchantKioskDevicesRoutes);
   await app.register(merchantTryonRoutes);
   await app.register(merchantMeRoutes);
   await app.register(merchantTryonResultsRoutes);

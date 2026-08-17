@@ -21,8 +21,6 @@ export const merchants = pgTable('merchants', {
   businessAddress: text('business_address').notNull(),
   isActive: boolean('is_active').notNull().default(false),
   demoData: boolean('demo_data').notNull().default(true),
-  kioskEnabled: boolean('kiosk_enabled').notNull().default(false),
-  maxKioskDevices: integer('max_kiosk_devices').notNull().default(5),
   // Null = use DEFAULT_JOB_RATE_LIMIT_PER_MIN (packages/types/src/rate-limits.ts).
   // Per-merchant override for how many job-creation calls this merchant's API keys
   // may make per minute (combined across all their keys) to /v1/dev/tryon and
