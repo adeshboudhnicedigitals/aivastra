@@ -39,7 +39,7 @@ describe('admin config', () => {
       method: 'PATCH',
       url: '/admin/config',
       headers: { ...adminAuth, 'content-type': 'application/json' },
-      payload: JSON.stringify({ uploadLimits: { kioskUploadMaxBytes: 5 * 1024 * 1024 } }),
+      payload: JSON.stringify({ uploadLimits: { devApiMaxBytes: 5 * 1024 * 1024 } }),
     });
     expect(patchRes.statusCode).toBe(200);
 
@@ -48,7 +48,7 @@ describe('admin config', () => {
       url: '/admin/config',
       headers: adminAuth,
     });
-    expect(getRes2.json().uploadLimits.kioskUploadMaxBytes).toBe(5 * 1024 * 1024);
+    expect(getRes2.json().uploadLimits.devApiMaxBytes).toBe(5 * 1024 * 1024);
     // Untouched fields still default-fill correctly alongside the override.
     expect(getRes2.json().uploadLimits.merchantCatalogMaxBytes).toBe(20 * 1024 * 1024);
   });

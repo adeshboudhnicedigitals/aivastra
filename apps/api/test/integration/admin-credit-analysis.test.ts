@@ -78,7 +78,7 @@ describe('admin credit analysis routes', () => {
 
     const res = await app.inject({
       method: 'GET',
-      url: '/admin/credit-analysis/users?days=all&search=' + encodeURIComponent(user.email),
+      url: `/admin/credit-analysis/users?days=all&search=${encodeURIComponent(user.email)}`,
       headers: authHeader,
     });
     const body = res.json() as { items: { totalSpent: number; totalJobs: number }[] };
@@ -109,12 +109,12 @@ describe('admin credit analysis routes', () => {
     expect(shopifyBody.items[0].totalSpent).toBe(7);
   });
 
-  it('attributes kiosk jobs (userId=null) via the merchant owner', async () => {
+  it('attributes a merchant-owned job with userId=null via the merchant owner', async () => {
     const merchantOwner = await seedUser(1000);
     const [merchant] = await app.db
       .insert(schema.merchants)
       .values({
-        companyName: 'Kiosk Co',
+        companyName: 'Merchant Co',
         contactName: 'Owner',
         phone: '9999999999',
         websiteUrl: 'https://example.com',
@@ -125,7 +125,7 @@ describe('admin credit analysis routes', () => {
         userId: merchantOwner.id,
       })
       .returning();
-    // biome-ignore lint/suspicious/noExplicitAny: kiosk jobs legitimately have null userId, matching apps/api/src/modules/kiosk/create-job.ts.
+    // biome-ignore lint/suspicious/noExplicitAny: exercising the defensive COALESCE(jobs.userId, merchants.userId) attribution fallback (apps/api/src/modules/admin/credit-analysis.routes.ts) with a synthetic null-userId row — no current writer produces this shape.
     await (app.db.insert(schema.jobs).values as any)({
       userId: null,
       merchantId: merchant.id,

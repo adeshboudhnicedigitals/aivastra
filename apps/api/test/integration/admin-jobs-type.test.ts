@@ -60,7 +60,6 @@ describe('admin job type classification', () => {
       'saree_mannequin',
       'shopify',
       'merchant_tryon',
-      'kiosk',
       'merchant_catalog',
       'merchant_catalog_saree_mannequin',
       'api',

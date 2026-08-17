@@ -12,7 +12,6 @@ import {
 } from 'drizzle-orm/pg-core';
 import { apiKeys } from './api-keys.js';
 import { catalogItems } from './catalog.js';
-import { kioskDevices } from './kiosk.js';
 import { merchants } from './merchant.js';
 import { garmentSubcategories, modelBackgrounds, modelFaces, modelPoseAssets } from './models.js';
 import { shopifyShoppers, shopifyStores } from './shopify.js';
@@ -40,8 +39,7 @@ export const jobs = pgTable(
     // Which flow created this job. Canonical value set + a matching WORKER_POOL split
     // live in @aivastra/types (packages/types/src/job-taxonomy.ts) — see
     // docs/superpowers/specs/2026-07-30-job-taxonomy-registry-design.md. Null for
-    // kiosk jobs (attributed via merchants.userId instead, see the admin
-    // credit-analysis routes) and for historical rows not yet backfilled.
+    // historical rows not yet backfilled.
     source: text('source'),
     // Nullable self-FK: set only by the regenerate endpoint for traceability.
     parentJobId: uuid('parent_job_id'),
@@ -51,9 +49,6 @@ export const jobs = pgTable(
     // Set only by /v1/dev/* jobs — stamps which API key created the job so the
     // developer dashboard can report per-key usage without a second credit balance.
     apiKeyId: uuid('api_key_id').references(() => apiKeys.id, { onDelete: 'set null' }),
-    kioskDeviceId: uuid('kiosk_device_id').references(() => kioskDevices.id, {
-      onDelete: 'set null',
-    }),
     shopifyStoreId: uuid('shopify_store_id').references(() => shopifyStores.id, {
       onDelete: 'set null',
     }),

@@ -7,8 +7,8 @@ import { adminGrant, atomicDeduct, refund } from '../credits/ledger.js';
 /**
  * A merchant is a tag on a user, not a separate financial entity: there is one
  * credit pool per human, keyed by `users.id`. These helpers keep their
- * merchantId-shaped signatures so call sites (kiosk + android tryon job
- * creation, cancellation refunds, admin grants) stay unchanged, and resolve
+ * merchantId-shaped signatures so call sites (android tryon job creation,
+ * cancellation refunds, admin grants) stay unchanged, and resolve
  * the owning user here — the single place that mapping lives.
  */
 export async function resolveMerchantUserId(db: DB, merchantId: string): Promise<string> {

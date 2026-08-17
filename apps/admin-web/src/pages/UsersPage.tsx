@@ -845,7 +845,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div className="semi">No merchant access</div>
                       <div className="sub">
-                        Grant access to seed a product catalogue for kiosk and mobile try-on.
+                        Grant access to seed a product catalogue for mobile try-on.
                       </div>
                     </div>
                     <button className="btn primary" onClick={openGrantMerchant}>
@@ -861,14 +861,6 @@ export default function UsersPage({ onNav, toast }: Props) {
                     <KV k="Company" v={u.merchant.companyName} />
                     <KV k="Contact" v={u.merchant.contactName || '—'} />
                     <KV k="Phone" v={u.merchant.phone || '—'} />
-                    <KV
-                      k="Kiosk access"
-                      v={
-                        u.merchant.kioskEnabled
-                          ? `Enabled (${u.merchant.maxKioskDevices})`
-                          : 'Disabled'
-                      }
-                    />
                     <KV
                       k="Demo data"
                       v={

@@ -159,8 +159,6 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           businessAddress: schema.merchants.businessAddress,
           isActive: schema.merchants.isActive,
           demoData: schema.merchants.demoData,
-          kioskEnabled: schema.merchants.kioskEnabled,
-          maxKioskDevices: schema.merchants.maxKioskDevices,
           jobRateLimitPerMin: schema.merchants.jobRateLimitPerMin,
           logoKey: schema.merchants.logoKey,
           logoUpdatedAt: schema.merchants.updatedAt,
