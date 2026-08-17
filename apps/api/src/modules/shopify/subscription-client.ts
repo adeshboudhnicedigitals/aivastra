@@ -30,7 +30,14 @@ export interface ActiveSubscription {
   /** ISO-8601. Null on subscriptions that have no dated period yet. */
   currentPeriodEnd: string | null;
   test: boolean;
-  lineItems: Array<{ id: string }>;
+  lineItems: Array<{
+    id: string;
+    // Optional, not `| null` at the required-key level: the existing
+    // sub() test fixture in shopify-billing-sync.test.ts (and every new
+    // override built on it in Task 4) constructs lineItems literals that
+    // predate this field and must keep typechecking without adding it.
+    usageBalanceUsdCents?: number | null;
+  }>;
 }
 
 /**
@@ -51,6 +58,16 @@ const ACTIVE_SUBSCRIPTIONS_QUERY = `
         test
         lineItems {
           id
+          plan {
+            pricingDetails {
+              __typename
+              ... on AppUsagePricing {
+                balanceUsed {
+                  amount
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -82,7 +99,31 @@ export async function getActiveSubscription(
     accessToken,
     ACTIVE_SUBSCRIPTIONS_QUERY,
   );
-  const subscriptions = data.currentAppInstallation?.activeSubscriptions ?? [];
+  const rawSubscriptions = data.currentAppInstallation?.activeSubscriptions ?? [];
+  const subscriptions: ActiveSubscription[] = rawSubscriptions.map((raw) => {
+    // biome-ignore lint/suspicious/noExplicitAny: raw GraphQL response before mapping to the typed shape
+    const r = raw as any;
+    return {
+      id: r.id,
+      name: r.name,
+      status: r.status,
+      currentPeriodEnd: r.currentPeriodEnd,
+      test: r.test,
+      lineItems: (r.lineItems ?? []).map(
+        (li: {
+          id: string;
+          plan?: { pricingDetails?: { __typename?: string; balanceUsed?: { amount?: string } } };
+        }) => ({
+          id: li.id,
+          usageBalanceUsdCents:
+            li.plan?.pricingDetails?.__typename === 'AppUsagePricing' &&
+            li.plan.pricingDetails.balanceUsed?.amount
+              ? Math.round(Number.parseFloat(li.plan.pricingDetails.balanceUsed.amount) * 100)
+              : null,
+        }),
+      ),
+    };
+  });
   const [first] = subscriptions;
   if (!first) return null;
   return subscriptions.find((s) => s.status === 'ACTIVE') ?? first;
