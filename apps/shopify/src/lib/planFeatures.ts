@@ -1,3 +1,5 @@
+import { PAYG_PRICE_PER_TRYON_USD_CENTS } from '@aivastra/types';
+
 export interface PlanFeatureSet {
   handle: 'starter' | 'growth' | 'pro';
   label: string;
@@ -52,11 +54,10 @@ export const PLAN_FEATURE_SETS: PlanFeatureSet[] = [
   },
 ];
 
-// Display copy only — the price-per-try-on source of truth is
-// apps/api/src/modules/shopify/payg.ts's PAYG_PRICE_PER_TRYON_USD_CENTS,
-// kept separate for the same reason PLAN_FEATURE_SETS is separate from
-// billing-plans.ts.
-export const PAYG_PRICE_PER_TRYON_USD = 0.1;
+// Derived from the shared constant (packages/types/src/payg-constants.ts) —
+// the same one apps/api's payg.ts and the dispatcher's usage-event writer
+// use, so this display value can't drift from what actually gets billed.
+export const PAYG_PRICE_PER_TRYON_USD = PAYG_PRICE_PER_TRYON_USD_CENTS / 100;
 export const PAYG_MIN_SPEND_CAP_USD = 5;
 
 // Identical across every tier per the pricing sheet — rendered once per
