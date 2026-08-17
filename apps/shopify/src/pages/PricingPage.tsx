@@ -1,3 +1,4 @@
+import { DEFAULT_PAYG_SPEND_CAP_USD_CENTS } from '@aivastra/types';
 import {
   Badge,
   Banner,
@@ -195,7 +196,10 @@ export default function PricingPage() {
               <BlockStack gap="200">
                 <Text as="p">
                   ${((me.paygSpendThisCycleUsdCents ?? 0) / 100).toFixed(2)} spent this cycle of $
-                  {((me.store.paygSpendCapUsdCents ?? 0) / 100).toFixed(2)} cap
+                  {(
+                    (me.store.paygSpendCapUsdCents ?? DEFAULT_PAYG_SPEND_CAP_USD_CENTS) / 100
+                  ).toFixed(2)}{' '}
+                  cap
                 </Text>
                 <InlineStack gap="200" blockAlign="end">
                   <TextField
@@ -204,7 +208,9 @@ export default function PricingPage() {
                     autoComplete="off"
                     value={capInput}
                     onChange={setCapInput}
-                    placeholder={((me.store.paygSpendCapUsdCents ?? 0) / 100).toString()}
+                    placeholder={(
+                      (me.store.paygSpendCapUsdCents ?? DEFAULT_PAYG_SPEND_CAP_USD_CENTS) / 100
+                    ).toString()}
                   />
                   <Button onClick={saveSpendCap} disabled={capSaving} loading={capSaving}>
                     Save
