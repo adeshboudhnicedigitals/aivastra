@@ -130,17 +130,54 @@ to the code default for a known pack, returning `null` for an unknown one.
 **Price has no such override** — it is sent to Shopify in the charge mutation, so
 it comes from code and only from code.
 
-Default packs (credits chosen to sit above the plan tiers on a per-credit basis,
-so a top-up is convenience-priced and never undercuts subscribing):
+#### Pack sizing
 
-| Pack | Price | Credits | ¢/credit |
-|---|---|---|---|
-| `topup_500` | $12 | 500 | 2.40 |
-| `topup_1500` | $32 | 1500 | 2.13 |
-| `topup_4000` | $79 | 4000 | 1.98 |
+A try-on costs `SIMPLE_TRYON_COST` = 5 credits (`packages/types/src/jobs.ts`,
+itself admin-tunable via `tryon.creditCost`). Two consequences:
 
-For reference, the plans run 1.51 (starter), 1.18 (growth) and 1.04 (pro)
-¢/credit — every pack is deliberately more expensive per credit than every plan.
+- Every pack's credit count is a multiple of 5, so a pack never leaves an
+  unspendable remainder.
+- **Try-ons are the merchant-facing unit.** The Shopify UI leads with "100
+  try-ons", not "500 credits" — credits are an internal accounting unit and no
+  merchant has an intuition for what 500 of them buys. The charge name sent to
+  Shopify follows suit ("AiVastra — 100 try-ons").
+
+Note the coupling: an admin who raises `tryon.creditCost` to 6 silently makes
+every pack buy fewer try-ons than its label claims. The label is derived from
+the live cost at render time rather than hardcoded, so it stays honest; the
+`credits` figure is what is actually granted and never moves.
+
+#### Default packs
+
+| Pack | Price | Try-ons | Credits | ¢/credit | vs starter |
+|---|---|---|---|---|---|
+| `topup_500` | $10 | 100 | 500 | 2.00 | 1.33× |
+| `topup_1250` | $24 | 250 | 1250 | 1.92 | 1.27× |
+| `topup_2500` | $45 | 500 | 2500 | 1.80 | 1.20× |
+
+Against the plans (1.51 starter, 1.18 growth, 1.04 pro ¢/credit), every pack is
+deliberately more expensive per credit than every plan. **Starter's 1.51¢ is the
+binding constraint** — it is the cheapest plan, so a pack priced below it would
+make subscribing pointless. The ladder is anchored 1.20–1.33× above it.
+
+The largest pack is 500 try-ons for $45; growth gives 1000 for $59. A merchant
+who needs volume is always better off subscribing, which is the intended funnel:
+top-up bridges a gap mid-cycle, it does not replace a plan. No fourth, larger
+pack for that reason — someone repeatedly buying 500+ try-ons should be
+upgrading, and making that easy to avoid would cost more MRR than the pack earns.
+
+Two known limits of this pricing, recorded so they are not rediscovered as bugs:
+
+- **Flat pricing means each tier pays a different multiple.** A pro merchant
+  (1.04¢) buying the $45 pack pays 1.73× their own plan rate, against starter's
+  1.20×. The best customers get the worst deal. Accepted for v1 — pro carries
+  4400 try-ons and rarely runs dry — but it is the thing to revisit if pro
+  merchants start topping up regularly. The fix, if needed, is a per-tier pack
+  set, not a change to these numbers.
+- **Margin is unverified.** GPU cost per try-on is not recorded anywhere in this
+  repo, so these prices are set against plan pricing, not against cost. If a
+  try-on costs more than roughly $0.04, the small pack is where the margin
+  actually is and the discount curve should flatten.
 
 Shopify rejects an application charge under $0.50 USD, so every pack must stay
 above that floor — a constraint worth a comment rather than a runtime check,
@@ -272,9 +309,11 @@ Request/response shapes go in `packages/types` per the repo's Zod convention.
 
 Unit:
 - `topup-packs.test.ts` — lookup, unknown id → null, every pack above the $0.50
-  floor, and every default pack priced above every plan on a ¢/credit basis (a
-  regression test on the pricing intent, not just the mechanics). Mirrors
-  `billing-plans.test.ts`.
+  floor, every pack's credits a multiple of `SIMPLE_TRYON_COST`, and every
+  default pack priced above every plan on a ¢/credit basis. That last one is a
+  regression test on the pricing *intent* rather than the mechanics: it is what
+  catches someone later editing a default into a value that quietly undercuts
+  starter. Mirrors `billing-plans.test.ts`.
 - `getShopifyTopupCredits` — admin override wins, code default when unset,
   `null` for an unknown pack, code default when the stored value is malformed
   (matching `getShopifyPlanCredits`'s try/catch behaviour).
