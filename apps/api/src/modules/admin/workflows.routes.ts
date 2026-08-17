@@ -9,7 +9,8 @@ import { and, count, eq, ne } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { requireAdmin } from './guard.js';
+import { recordAudit } from './audit.js';
+import { requirePermission } from './guard.js';
 import { detectTryonMappings } from './tryon-detect.js';
 import { detectTryonTwoInputMappings } from './tryon-two-input-detect.js';
 import { classifyNode, detectMappings, type NodeCategory } from './workflow-detect.js';
@@ -131,8 +132,8 @@ function writeKSamplerValues(
 // ── Routes ────────────────────────────────────────────────────────────────
 
 export async function adminWorkflowsRoutes(app: FastifyInstance) {
-  const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
-  const R = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
+  const W = requirePermission('workflows.write');
+  const R = requirePermission('workflows.read');
   const uuidParam = z.object({ id: z.string().uuid() });
 
   // GET /admin/workflows
@@ -303,27 +304,47 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
           negNode,
           posNode,
         );
-        const [row] = await app.db
-          .insert(schema.workflowTemplates)
-          .values({
-            slug: body.slug,
-            label: body.label,
-            jsonContent: body.jsonContent,
-            workflowType,
-            faceNodeId: '',
-            poseNodeId: '',
-            bgNodeId: '',
-            upperNodeIds: [],
-            facePhasePromptNode: negNode,
-            garmentPhasePromptNode: posNode,
-            defaultFacePhasePrompt,
-            defaultGarmentPhasePrompt,
-            tryonPersonNodeId: personNodeId || null,
-            tryonGarmentNodeId: bodyNodeId,
-            tryonGarmentNodeId2: palluNodeId,
-            tryonOutputNodeId: outputNodeId,
-          })
-          .returning();
+        const row = await app.db.transaction(async (tx) => {
+          const [inserted] = await tx
+            .insert(schema.workflowTemplates)
+            .values({
+              slug: body.slug,
+              label: body.label,
+              jsonContent: body.jsonContent,
+              workflowType,
+              faceNodeId: '',
+              poseNodeId: '',
+              bgNodeId: '',
+              upperNodeIds: [],
+              facePhasePromptNode: negNode,
+              garmentPhasePromptNode: posNode,
+              defaultFacePhasePrompt,
+              defaultGarmentPhasePrompt,
+              tryonPersonNodeId: personNodeId || null,
+              tryonGarmentNodeId: bodyNodeId,
+              tryonGarmentNodeId2: palluNodeId,
+              tryonOutputNodeId: outputNodeId,
+            })
+            .returning();
+          if (!inserted)
+            throw new AppError('INSERT_FAILED', 500, 'failed to insert workflow template');
+
+          await recordAudit(tx, {
+            actor: { userId: req.userId, role: req.adminRole! },
+            action: 'workflow.create',
+            resourceType: 'workflow',
+            resourceId: inserted.id,
+            after: {
+              id: inserted.id,
+              slug: inserted.slug,
+              label: inserted.label,
+              workflowType: inserted.workflowType,
+            },
+            request: req,
+          });
+
+          return inserted;
+        });
         return {
           id: row?.id,
           slug: row?.slug,
@@ -387,26 +408,46 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
           posNode,
         );
 
-        const [row] = await app.db
-          .insert(schema.workflowTemplates)
-          .values({
-            slug: body.slug,
-            label: body.label,
-            jsonContent: body.jsonContent,
-            workflowType,
-            faceNodeId: '',
-            poseNodeId: '',
-            bgNodeId: '',
-            upperNodeIds: [],
-            facePhasePromptNode: negNode,
-            garmentPhasePromptNode: posNode,
-            defaultFacePhasePrompt,
-            defaultGarmentPhasePrompt,
-            tryonPersonNodeId: personNodeId || null,
-            tryonGarmentNodeId: garmentNodeId,
-            tryonOutputNodeId: outputNodeId,
-          })
-          .returning();
+        const row = await app.db.transaction(async (tx) => {
+          const [inserted] = await tx
+            .insert(schema.workflowTemplates)
+            .values({
+              slug: body.slug,
+              label: body.label,
+              jsonContent: body.jsonContent,
+              workflowType,
+              faceNodeId: '',
+              poseNodeId: '',
+              bgNodeId: '',
+              upperNodeIds: [],
+              facePhasePromptNode: negNode,
+              garmentPhasePromptNode: posNode,
+              defaultFacePhasePrompt,
+              defaultGarmentPhasePrompt,
+              tryonPersonNodeId: personNodeId || null,
+              tryonGarmentNodeId: garmentNodeId,
+              tryonOutputNodeId: outputNodeId,
+            })
+            .returning();
+          if (!inserted)
+            throw new AppError('INSERT_FAILED', 500, 'failed to insert workflow template');
+
+          await recordAudit(tx, {
+            actor: { userId: req.userId, role: req.adminRole! },
+            action: 'workflow.create',
+            resourceType: 'workflow',
+            resourceId: inserted.id,
+            after: {
+              id: inserted.id,
+              slug: inserted.slug,
+              label: inserted.label,
+              workflowType: inserted.workflowType,
+            },
+            request: req,
+          });
+
+          return inserted;
+        });
 
         return {
           id: row?.id,
@@ -475,32 +516,52 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         ? extractPromptText(body.jsonContent[body.facePhasePromptNode] as WorkflowNode | undefined)
         : '';
 
-      const [row] = await app.db
-        .insert(schema.workflowTemplates)
-        .values({
-          slug: body.slug,
-          label: body.label,
-          jsonContent: body.jsonContent,
-          workflowType: 'regular',
-          faceNodeId: body.faceNodeId ?? null,
-          poseNodeId,
-          bgNodeId: body.bgNodeId ?? null,
-          upperNodeIds,
-          lowerNodeId: body.lowerNodeId ?? null,
-          shoeNodeId: body.shoeNodeId ?? null,
-          thirdNodeId: body.thirdNodeId ?? null,
-          sizeNodeIds: body.sizeNodeIds ?? [],
-          latentSizeNodeIds: body.latentSizeNodeIds ?? [],
-          ...(body.latentMaxPx !== undefined ? { latentMaxPx: body.latentMaxPx } : {}),
-          outputSizeNodeIds: body.outputSizeNodeIds ?? [],
-          ...(body.outputMaxPx !== undefined ? { outputMaxPx: body.outputMaxPx } : {}),
-          resultNodeId: body.resultNodeId ?? null,
-          facePhasePromptNode: body.facePhasePromptNode ?? null,
-          garmentPhasePromptNode,
-          defaultFacePhasePrompt,
-          defaultGarmentPhasePrompt,
-        })
-        .returning();
+      const row = await app.db.transaction(async (tx) => {
+        const [inserted] = await tx
+          .insert(schema.workflowTemplates)
+          .values({
+            slug: body.slug,
+            label: body.label,
+            jsonContent: body.jsonContent,
+            workflowType: 'regular',
+            faceNodeId: body.faceNodeId ?? null,
+            poseNodeId,
+            bgNodeId: body.bgNodeId ?? null,
+            upperNodeIds,
+            lowerNodeId: body.lowerNodeId ?? null,
+            shoeNodeId: body.shoeNodeId ?? null,
+            thirdNodeId: body.thirdNodeId ?? null,
+            sizeNodeIds: body.sizeNodeIds ?? [],
+            latentSizeNodeIds: body.latentSizeNodeIds ?? [],
+            ...(body.latentMaxPx !== undefined ? { latentMaxPx: body.latentMaxPx } : {}),
+            outputSizeNodeIds: body.outputSizeNodeIds ?? [],
+            ...(body.outputMaxPx !== undefined ? { outputMaxPx: body.outputMaxPx } : {}),
+            resultNodeId: body.resultNodeId ?? null,
+            facePhasePromptNode: body.facePhasePromptNode ?? null,
+            garmentPhasePromptNode,
+            defaultFacePhasePrompt,
+            defaultGarmentPhasePrompt,
+          })
+          .returning();
+        if (!inserted)
+          throw new AppError('INSERT_FAILED', 500, 'failed to insert workflow template');
+
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'workflow.create',
+          resourceType: 'workflow',
+          resourceId: inserted.id,
+          after: {
+            id: inserted.id,
+            slug: inserted.slug,
+            label: inserted.label,
+            workflowType: inserted.workflowType,
+          },
+          request: req,
+        });
+
+        return inserted;
+      });
 
       return {
         id: row?.id,
@@ -776,10 +837,29 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       if ('tryonOutputNodeId' in body)
         updateValues.tryonOutputNodeId = body.tryonOutputNodeId ?? null;
 
-      await app.db
-        .update(schema.workflowTemplates)
-        .set(updateValues)
-        .where(eq(schema.workflowTemplates.id, id));
+      await app.db.transaction(async (tx) => {
+        const [locked] = await tx
+          .select()
+          .from(schema.workflowTemplates)
+          .where(eq(schema.workflowTemplates.id, id))
+          .for('update');
+        if (!locked) throw new AppError('NOT_FOUND', 404, 'workflow not found');
+
+        await tx
+          .update(schema.workflowTemplates)
+          .set(updateValues)
+          .where(eq(schema.workflowTemplates.id, id));
+
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'workflow.update',
+          resourceType: 'workflow',
+          resourceId: id,
+          before: locked,
+          after: { ...locked, ...updateValues },
+          request: req,
+        });
+      });
 
       return { ok: true };
     },
@@ -800,29 +880,42 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         throw new AppError('CONFLICT', 409, 'source and target workflow are the same');
       }
 
-      const [source] = await app.db
-        .select({ id: schema.workflowTemplates.id })
-        .from(schema.workflowTemplates)
-        .where(eq(schema.workflowTemplates.id, sourceId));
-      if (!source) throw new AppError('NOT_FOUND', 404, 'source workflow not found');
+      const result = await app.db.transaction(async (tx) => {
+        const [source] = await tx
+          .select({ id: schema.workflowTemplates.id })
+          .from(schema.workflowTemplates)
+          .where(eq(schema.workflowTemplates.id, sourceId));
+        if (!source) throw new AppError('NOT_FOUND', 404, 'source workflow not found');
 
-      const [target] = await app.db
-        .select({
-          id: schema.workflowTemplates.id,
-          defaultGarmentPhasePrompt: schema.workflowTemplates.defaultGarmentPhasePrompt,
-        })
-        .from(schema.workflowTemplates)
-        .where(eq(schema.workflowTemplates.id, targetWorkflowId));
-      if (!target) throw new AppError('NOT_FOUND', 404, 'target workflow not found');
+        const [target] = await tx
+          .select({
+            id: schema.workflowTemplates.id,
+            defaultGarmentPhasePrompt: schema.workflowTemplates.defaultGarmentPhasePrompt,
+          })
+          .from(schema.workflowTemplates)
+          .where(eq(schema.workflowTemplates.id, targetWorkflowId));
+        if (!target) throw new AppError('NOT_FOUND', 404, 'target workflow not found');
 
-      const result = await app.db
-        .update(schema.modelPoseAssets)
-        .set({
-          workflowTemplateId: targetWorkflowId,
-          promptGarmentPhase: target.defaultGarmentPhasePrompt ?? null,
-        })
-        .where(eq(schema.modelPoseAssets.workflowTemplateId, sourceId))
-        .returning({ id: schema.modelPoseAssets.id });
+        const updatedRows = await tx
+          .update(schema.modelPoseAssets)
+          .set({
+            workflowTemplateId: targetWorkflowId,
+            promptGarmentPhase: target.defaultGarmentPhasePrompt ?? null,
+          })
+          .where(eq(schema.modelPoseAssets.workflowTemplateId, sourceId))
+          .returning({ id: schema.modelPoseAssets.id });
+
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'workflow.reassign',
+          resourceType: 'workflow',
+          resourceId: sourceId,
+          after: { targetWorkflowId, updatedPoses: updatedRows.length },
+          request: req,
+        });
+
+        return updatedRows;
+      });
 
       return { ok: true, updated: result.length };
     },
@@ -838,42 +931,51 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
     async (req) => {
       const { id } = req.params as { id: string };
 
-      const [row] = await app.db
-        .select({ id: schema.workflowTemplates.id })
-        .from(schema.workflowTemplates)
-        .where(eq(schema.workflowTemplates.id, id));
-      if (!row) throw new AppError('NOT_FOUND', 404, 'workflow not found');
+      await app.db.transaction(async (tx) => {
+        const [row] = await tx
+          .select()
+          .from(schema.workflowTemplates)
+          .where(eq(schema.workflowTemplates.id, id))
+          .for('update');
+        if (!row) throw new AppError('NOT_FOUND', 404, 'workflow not found');
 
-      const [poseCountRow] = await app.db
-        .select({ cnt: count() })
-        .from(schema.modelPoseAssets)
-        .where(eq(schema.modelPoseAssets.workflowTemplateId, id));
-      const poseCount = Number(poseCountRow?.cnt ?? 0);
-      if (poseCount > 0) {
-        throw new AppError(
-          'CONFLICT',
-          409,
-          `Cannot delete: ${poseCount} pose asset${poseCount === 1 ? '' : 's'} use this workflow. Reassign those poses first.`,
-        );
-      }
+        const [poseCountRow] = await tx
+          .select({ cnt: count() })
+          .from(schema.modelPoseAssets)
+          .where(eq(schema.modelPoseAssets.workflowTemplateId, id));
+        const poseCount = Number(poseCountRow?.cnt ?? 0);
+        if (poseCount > 0) {
+          throw new AppError(
+            'CONFLICT',
+            409,
+            `Cannot delete: ${poseCount} pose asset${poseCount === 1 ? '' : 's'} use this workflow. Reassign those poses first.`,
+          );
+        }
 
-      // shopify_funnel_templates.workflow_template_id is NOT NULL with no onDelete —
-      // an unguarded delete would hit a raw FK violation and surface as a generic
-      // 500 instead of an actionable message.
-      const [funnelCountRow] = await app.db
-        .select({ cnt: count() })
-        .from(schema.shopifyFunnelTemplates)
-        .where(eq(schema.shopifyFunnelTemplates.workflowTemplateId, id));
-      const funnelCount = Number(funnelCountRow?.cnt ?? 0);
-      if (funnelCount > 0) {
-        throw new AppError(
-          'CONFLICT',
-          409,
-          `Cannot delete: ${funnelCount} Shopify funnel template${funnelCount === 1 ? '' : 's'} use this workflow. Reassign those funnel templates first.`,
-        );
-      }
+        const [funnelCountRow] = await tx
+          .select({ cnt: count() })
+          .from(schema.shopifyFunnelTemplates)
+          .where(eq(schema.shopifyFunnelTemplates.workflowTemplateId, id));
+        const funnelCount = Number(funnelCountRow?.cnt ?? 0);
+        if (funnelCount > 0) {
+          throw new AppError(
+            'CONFLICT',
+            409,
+            `Cannot delete: ${funnelCount} Shopify funnel template${funnelCount === 1 ? '' : 's'} use this workflow. Reassign those funnel templates first.`,
+          );
+        }
 
-      await app.db.delete(schema.workflowTemplates).where(eq(schema.workflowTemplates.id, id));
+        await tx.delete(schema.workflowTemplates).where(eq(schema.workflowTemplates.id, id));
+
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'workflow.delete',
+          resourceType: 'workflow',
+          resourceId: id,
+          before: row,
+          request: req,
+        });
+      });
 
       return { ok: true };
     },

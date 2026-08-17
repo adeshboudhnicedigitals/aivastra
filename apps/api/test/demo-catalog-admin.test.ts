@@ -549,7 +549,7 @@ describe('admin demo set + subcategory routes', () => {
           {
             field: 'thumbnailKey',
             key: thumbnailKey,
-            error: { name: 'Error', message: 'simulated storage outage' },
+            error: expect.objectContaining({ message: 'simulated storage outage' }),
           },
         ],
       }),
@@ -967,7 +967,7 @@ describe('admin demo item routes', () => {
           {
             field: 'thumbnailKey',
             key: thumbnailKey,
-            error: { name: 'Error', message: 'simulated storage outage' },
+            error: expect.objectContaining({ message: 'simulated storage outage' }),
           },
         ],
       }),

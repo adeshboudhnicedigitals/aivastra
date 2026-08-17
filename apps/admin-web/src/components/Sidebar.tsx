@@ -143,6 +143,12 @@ const groups: NavGroup[] = [
         icon: Icon.Coin,
         roles: ['SUPER_ADMIN', 'SUPPORT', 'ADMIN'],
       },
+      {
+        k: 'audit-logs',
+        label: 'Activity Logs',
+        icon: Icon.Clock,
+        roles: ['SUPER_ADMIN'],
+      },
     ],
   },
   {

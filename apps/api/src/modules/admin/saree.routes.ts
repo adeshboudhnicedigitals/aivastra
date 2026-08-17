@@ -10,12 +10,12 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { getSareeSettings, upsertSareeSettings } from '../saree/settings.js';
-import { requireAdmin } from './guard.js';
+import { requirePermission } from './guard.js';
 import { detectSareeMappings } from './saree-detect.js';
 
 export async function adminSareeRoutes(app: FastifyInstance) {
-  const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
-  const R = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
+  const W = requirePermission('saree.write');
+  const R = requirePermission('saree.read');
   const uuidParam = z.object({ id: z.string().uuid() });
 
   // ── Workflows ─────────────────────────────────────────────────────────────

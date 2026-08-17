@@ -347,7 +347,8 @@ aborts. Full provisioning guide: `docs/staging-runbook.md`.
 **Auth & users** — `users` (email/password or Google OAuth, tier, ban, email
 verification), `refresh_tokens` (family rotation: `familyId`, `generation`,
 `usedAt`, `revokedAt`; partial unique index for one active token per family),
-`oauth_accounts`, `admin_users` (roles), `api_keys` (sha256 hash + display
+`oauth_accounts`, `admin_users` (roles), `permissions` & `role_permissions` (capability
+matrices), `audit_logs` (immutable append-only audit trail), `api_keys` (sha256 hash + display
 prefix).
 
 **Credits & payments** — `user_credits` (one balance row per user),
@@ -447,8 +448,25 @@ hangs on streaming responses.
 - ComfyUI workflow templates live in `workflow_templates.jsonContent`. Never
   inline-mutate — always `structuredClone` then patch.
 - Postgres and Redis bind to `127.0.0.1` only, never `0.0.0.0`.
-- Every `/admin/*` route double-checks the admin role: JWT claim **and**
-  `admin_users` row lookup.
+- Every `/admin/*` route resolves the caller through `requirePermission`/
+  `requireAnyPermission` (`apps/api/src/modules/admin/guard.ts`): JWT claim,
+  `admin_users` row + `status === 'active'`, then a `role_permissions` capability
+  check. `/results` shares the same `resolveAdminAccess` resolution as `/admin/*`,
+  though it currently only requires an active admin of any role, not a specific
+  permission — see the code comment at its login handler.
+- Admin mutations that write `audit_logs` do so via `recordAudit(tx, ...)` inside
+  the same Postgres transaction as the mutation, after the write, before commit —
+  fail-closed: if the audit insert throws, the mutation rolls back and
+  `audit_log_write_failures_total` (Prometheus) increments. This makes `audit_logs`
+  a hard dependency for every admin write it's wired into.
+- `audit_logs` is append-only via a `BEFORE UPDATE OR DELETE` trigger
+  (`audit_logs_prevent_mutation`, migration `0157`), **not** a `REVOKE`-based ACL —
+  `POSTGRES_USER=tryon` is a Postgres superuser in every environment including
+  production (no second, restricted DB role exists yet), so a `REVOKE` would be
+  inert. The trigger stops accidental `UPDATE`/`DELETE` but a superuser can still
+  `ALTER TABLE ... DISABLE TRIGGER` first — genuine ACL enforcement is a separate,
+  not-yet-scheduled infra task (non-superuser runtime role + a distinct migration
+  credential, since `tryon` also runs `db:migrate:prod`).
 - The user hint field (300 char max) goes through sanitization before reaching a
   workflow prompt.
 - `packages/db/src/index.ts` exports `* as schema` — never add a duplicate

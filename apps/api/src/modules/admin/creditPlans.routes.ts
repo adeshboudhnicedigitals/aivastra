@@ -3,7 +3,7 @@ import { asc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { requireAdmin } from './guard.js';
+import { requirePermission } from './guard.js';
 
 const PlanBody = z.object({
   slug: z
@@ -26,7 +26,7 @@ const PlanBody = z.object({
 });
 
 export async function adminCreditPlansRoutes(app: FastifyInstance) {
-  const W = requireAdmin(['SUPER_ADMIN']);
+  const W = requirePermission('credit_plans.write');
 
   app.get('/admin/credit-plans', { preHandler: W }, async () => {
     return app.db.select().from(schema.creditPlans).orderBy(asc(schema.creditPlans.sortOrder));

@@ -1,3 +1,49 @@
+## 2026-08-17 — Implemented Admin Identity, Capability Authorization & Audit Trail
+
+**Done**
+- **Phase 0 & 1:** Documented break-glass attribution model. Extracted and unified admin access resolution via `resolveAdminAccess(app, userId)` in `guard.ts`, unifying `/results/login` and `/admin/*` routes. Verified with passing integration test `test/integration/results-auth.test.ts`.
+- **Phase 2 (`audit_logs`):**
+  - Hand-crafted migration `0157_audit_logs.sql` (journal idx 157) defining append-only `audit_logs` table with PostgreSQL trigger `audit_logs_prevent_mutation` rejecting `UPDATE`/`DELETE`.
+  - Added Prometheus counter `audit_log_write_failures_total` via `@aivastra/observability`.
+  - Implemented transactional, fail-closed `recordAudit(tx, params)` helper in `apps/api/src/modules/admin/audit.ts`.
+  - Wired audit logging into high-risk administrative mutations (workers create/patch/delete, workflows create/patch/reassign/delete, users patch/erase/admin role changes, credits grant/deduct).
+  - Implemented `GET /admin/audit-logs` endpoint with action/resourceType/resourceId filters and pagination in `apps/api/src/modules/admin/audit.routes.ts`.
+  - Verified with comprehensive integration tests in `test/integration/admin-audit-logs.test.ts` (3/3 pass: append-only trigger rejection, fail-closed rollback + metric, and full mutation lifecycle).
+- **Phase 3 (Capability Permissions Model):**
+  - Hand-crafted migration `0158_permissions.sql` (journal idx 158) with `permissions` & `role_permissions` schema and exact role capability seed data. Added `admin_users_role_check` constraint.
+  - Implemented `requirePermission`, `requireAnyPermission`, and `getRolePermissions` in `apps/api/src/modules/admin/guard.ts`.
+  - Migrated all 27 admin route files and 64 route handler sites from legacy role-list checks to granular capability permissions (zero legacy `requireAdmin(` call sites remaining in route definitions).
+  - Wired user capabilities into `GET /admin/me` (`permissions: Array<string>`).
+  - Created and ran comprehensive parity test suite (`test/integration/permissions-parity.test.ts`) validating 100% matrix parity across all 4 admin roles (`SUPER_ADMIN`, `ADMIN`, `MODERATOR`, `SUPPORT`).
+- **Phase 4 (Frontend Gating & Activity Trail):**
+  - Extended `AuthContext.tsx` with `permissions` state and `hasPermission(perm)` helper.
+  - Added Activity Logs (`/audit-logs`) page with action/resource filters, pagination, and expandable Before/After payload JSON diff viewer in `apps/admin-web/src/pages/AuditLogsPage.tsx`.
+  - Wired `/audit-logs` into `Sidebar.tsx` and `App.tsx`.
+  - All workspace packages typechecked and built cleanly (`pnpm typecheck`, `pnpm --filter @aivastra/admin build`).
+
+**Failed / Not Done**
+- All 5 phases from the design plan (`docs/superpowers/plans/2026-08-17-admin-identity-authz-audit-trail.md`)
+  are implemented and verified — but that plan deliberately scoped one piece of work
+  *out* of Phase 2 rather than skipping it silently:
+
+**Open Questions / Decisions**
+- **`audit_logs` append-only enforcement is trigger-based, not privilege-based, and
+  that's a known, tracked gap, not an oversight.** `POSTGRES_USER=tryon` is a Postgres
+  superuser in every environment (dev/staging/prod — verified against
+  `infra/docker-compose*.yml` and `.env.production.example`, no second role exists
+  anywhere), so `REVOKE UPDATE, DELETE` would be inert against it. The
+  `audit_logs_prevent_mutation` trigger (migration `0157`) stops accidental
+  `UPDATE`/`DELETE` but not a superuser who explicitly disables the trigger first —
+  which is exactly the failure mode this whole initiative exists to reduce (shared,
+  over-privileged credentials). The real fix — a genuinely non-superuser runtime DB
+  role, plus a *separate*, more-privileged credential for `db:migrate:prod` since
+  `tryon` currently does both — is real infra work (new role, new secret(s),
+  `docker-compose`/CI wiring across all three environments) and was explicitly left
+  unscheduled by design rather than attempted inline. Not started yet; needs its own
+  task when prioritized.
+
+---
+
 ## 2026-08-17 — Removed the orphaned kiosk_devices pairing feature
 
 **Done**

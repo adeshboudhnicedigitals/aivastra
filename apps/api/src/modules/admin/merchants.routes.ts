@@ -8,7 +8,7 @@ import { AppError } from '../../lib/errors.js';
 import { assignMerchantToActiveDemoSets } from '../merchant/demo-catalog-read.js';
 import { merchantAdminGrant } from '../merchant/ledger.js';
 import { findOrCreateUserForMerchant } from '../merchant/user-link.js';
-import { requireAdmin } from './guard.js';
+import { requirePermission } from './guard.js';
 
 const AdminCreateClient = z
   .object({
@@ -23,8 +23,9 @@ const AdminCreateClient = z
     businessAddress: z.string().min(1).optional(),
     initialCredits: z.number().int().min(0).optional(),
   })
-  .refine((body) => body.userId || body.email, {
-    message: 'userId or email is required',
+  .refine((data) => data.userId || data.email, {
+    message: 'Either userId or email is required',
+    path: ['email'],
   });
 
 const AdminCreditBody = z.object({
@@ -32,30 +33,27 @@ const AdminCreditBody = z.object({
   reason: z.string().min(1),
 });
 
-// Save-time shape check for merchant webhook URLs. This rejects the obvious cases
-// (non-https, hostnames that are literal private/loopback IPs) so an admin gets an
-// immediate error instead of a silent drop. The authoritative SSRF guard — full DNS
-// resolution against private ranges — runs at send-time in the dispatcher, since DNS
-// can be repointed after save.
-function assertWebhookUrlShape(urlStr: string): void {
-  let u: URL;
+function assertWebhookUrlShape(url: string): void {
+  let parsed: URL;
   try {
-    u = new URL(urlStr);
+    parsed = new URL(url);
   } catch {
-    throw new AppError('VALIDATION', 400, 'webhookUrl must be a valid URL');
+    throw new AppError('VALIDATION', 400, 'webhookUrl must be a valid absolute URL');
   }
-  if (u.protocol !== 'https:') {
-    throw new AppError('VALIDATION', 400, 'webhookUrl must use https');
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new AppError('VALIDATION', 400, 'webhookUrl must use http or https protocol');
   }
-  const host = u.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  const host = parsed.hostname.toLowerCase();
   if (
     host === 'localhost' ||
+    host === '127.0.0.1' ||
     host === '::1' ||
-    host.startsWith('127.') ||
+    host === '0.0.0.0' ||
+    host.endsWith('.local') ||
     host.startsWith('10.') ||
     host.startsWith('192.168.') ||
-    host.startsWith('169.254.') ||
     /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+    host.startsWith('169.254.') ||
     host.startsWith('fc') ||
     host.startsWith('fd') ||
     host.startsWith('fe80')
@@ -69,75 +67,71 @@ function assertWebhookUrlShape(urlStr: string): void {
 }
 
 export async function adminMerchantsRoutes(app: FastifyInstance) {
-  app.get(
-    '/admin/merchants',
-    { preHandler: requireAdmin(['SUPER_ADMIN', 'ADMIN']) },
-    async (req) => {
-      const {
-        page = '1',
-        limit = '20',
-        search = '',
-      } = req.query as {
-        page?: string;
-        limit?: string;
-        search?: string;
-      };
-      const p = Math.max(1, parseInt(page, 10) || 1);
-      const l = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
-      const offset = (p - 1) * l;
+  app.get('/admin/merchants', { preHandler: requirePermission('merchants.read') }, async (req) => {
+    const {
+      page = '1',
+      limit = '20',
+      search = '',
+    } = req.query as {
+      page?: string;
+      limit?: string;
+      search?: string;
+    };
+    const p = Math.max(1, parseInt(page, 10) || 1);
+    const l = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+    const offset = (p - 1) * l;
 
-      const where = search
-        ? orOp(
-            ilike(schema.users.email, `%${search}%`),
-            ilike(schema.merchants.companyName, `%${search}%`),
-          )
-        : undefined;
+    const where = search
+      ? orOp(
+          ilike(schema.users.email, `%${search}%`),
+          ilike(schema.merchants.companyName, `%${search}%`),
+        )
+      : undefined;
 
-      const [totalRow] = await app.db
-        .select({ n: count() })
-        .from(schema.merchants)
-        .innerJoin(schema.users, eq(schema.merchants.userId, schema.users.id))
-        // biome-ignore lint/suspicious/noExplicitAny: drizzle where-clause union type
-        .where(where as any);
+    const [totalRow] = await app.db
+      .select({ n: count() })
+      .from(schema.merchants)
+      .innerJoin(schema.users, eq(schema.merchants.userId, schema.users.id))
+      // biome-ignore lint/suspicious/noExplicitAny: drizzle where-clause union type
+      .where(where as any);
 
-      const clients = await app.db
-        .select({
-          id: schema.merchants.id,
-          signupSource: schema.merchants.signupSource,
-          companyName: schema.merchants.companyName,
-          contactName: schema.merchants.contactName,
-          email: schema.users.email,
-          phone: schema.merchants.phone,
-          businessAddress: schema.merchants.businessAddress,
-          isActive: schema.merchants.isActive,
-          demoData: schema.merchants.demoData,
-          jobRateLimitPerMin: schema.merchants.jobRateLimitPerMin,
-          createdAt: schema.merchants.createdAt,
-          updatedAt: schema.merchants.updatedAt,
-          creditBalance: schema.userCredits.balance,
-        })
-        .from(schema.merchants)
-        .innerJoin(schema.users, eq(schema.merchants.userId, schema.users.id))
-        .leftJoin(schema.userCredits, eq(schema.merchants.userId, schema.userCredits.userId))
-        // biome-ignore lint/suspicious/noExplicitAny: drizzle where-clause union type
-        .where(where as any)
-        .orderBy(desc(schema.merchants.createdAt))
-        .limit(l)
-        .offset(offset);
+    const clients = await app.db
+      .select({
+        id: schema.merchants.id,
+        signupSource: schema.merchants.signupSource,
+        companyName: schema.merchants.companyName,
+        contactName: schema.merchants.contactName,
+        email: schema.users.email,
+        phone: schema.merchants.phone,
+        businessAddress: schema.merchants.businessAddress,
+        isActive: schema.merchants.isActive,
+        demoData: schema.merchants.demoData,
+        jobRateLimitPerMin: schema.merchants.jobRateLimitPerMin,
+        createdAt: schema.merchants.createdAt,
+        updatedAt: schema.merchants.updatedAt,
+        creditBalance: schema.userCredits.balance,
+      })
+      .from(schema.merchants)
+      .innerJoin(schema.users, eq(schema.merchants.userId, schema.users.id))
+      .leftJoin(schema.userCredits, eq(schema.merchants.userId, schema.userCredits.userId))
+      // biome-ignore lint/suspicious/noExplicitAny: drizzle where-clause union type
+      .where(where as any)
+      .orderBy(desc(schema.merchants.createdAt))
+      .limit(l)
+      .offset(offset);
 
-      return {
-        clients,
-        total: totalRow?.n ?? 0,
-        page: p,
-        limit: l,
-      };
-    },
-  );
+    return {
+      clients,
+      total: totalRow?.n ?? 0,
+      page: p,
+      limit: l,
+    };
+  });
 
   app.post(
     '/admin/merchants',
     {
-      preHandler: requireAdmin(['SUPER_ADMIN']),
+      preHandler: requirePermission('merchants.write'),
       schema: { body: AdminCreateClient },
     },
     async (req, reply) => {
@@ -210,7 +204,7 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
 
   app.get(
     '/admin/merchants/:id',
-    { preHandler: requireAdmin(['SUPER_ADMIN', 'ADMIN']) },
+    { preHandler: requirePermission('merchants.read') },
     async (req) => {
       const { id } = req.params as { id: string };
 
@@ -282,7 +276,7 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
   app.patch(
     '/admin/merchants/:id',
     {
-      preHandler: requireAdmin(['SUPER_ADMIN']),
+      preHandler: requirePermission('merchants.write'),
       schema: { body: AdminMerchantUpdateBody },
     },
     async (req) => {
@@ -329,7 +323,7 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
   app.post(
     '/admin/merchants/:id/logo/presign',
     {
-      preHandler: requireAdmin(['SUPER_ADMIN']),
+      preHandler: requirePermission('merchants.write'),
       schema: { body: z.object({ contentType: AssetContentType }) },
     },
     async (req) => {
@@ -344,7 +338,7 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
   app.post(
     '/admin/merchants/:id/credits',
     {
-      preHandler: requireAdmin(['SUPER_ADMIN']),
+      preHandler: requirePermission('merchants.write'),
       schema: { body: AdminCreditBody },
     },
     async (req) => {

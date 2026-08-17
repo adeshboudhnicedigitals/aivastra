@@ -3,11 +3,11 @@ import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { requireAdmin } from './guard.js';
+import { requirePermission } from './guard.js';
 
 export async function adminContactRoutes(app: FastifyInstance) {
-  const R = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN', 'SUPPORT']);
-  const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
+  const R = requirePermission('contact.read');
+  const W = requirePermission('contact.write');
 
   // GET /admin/contact-requests?status=new|read|done|all&source=<value>|__null__|all&limit=50&offset=0
   app.get('/admin/contact-requests', { preHandler: R }, async (req) => {

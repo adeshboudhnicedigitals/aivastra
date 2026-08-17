@@ -11,12 +11,12 @@ import { and, asc, eq, ilike, inArray, isNull, ne, notInArray } from 'drizzle-or
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { requireAdmin } from './guard.js';
+import { requirePermission } from './guard.js';
 import { resolveForTemplate } from './shot-type-resolve.js';
 
 export async function adminCatalogueTemplatesRoutes(app: FastifyInstance) {
-  const RW = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
-  const D = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
+  const RW = requirePermission('catalogue_templates.write');
+  const D = requirePermission('catalogue_templates.delete');
   const uuidParam = z.object({ id: z.string().uuid() });
 
   app.get('/admin/assets/catalogue-templates', { preHandler: RW }, async () => {

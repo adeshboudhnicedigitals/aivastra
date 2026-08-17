@@ -2,7 +2,7 @@ import { schema } from '@aivastra/db';
 import { AdminHeldJobsReleaseResponse, AdminHeldJobsResponse } from '@aivastra/types';
 import { and, count, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { requireAdmin } from './guard.js';
+import { requirePermission } from './guard.js';
 
 /**
  * Bulk-flat catalogue jobs are parked at status HELD at upload time (credits
@@ -11,10 +11,12 @@ import { requireAdmin } from './guard.js';
  * merchant's backlog at once, rather than per-merchant scheduling.
  */
 export async function adminHeldJobsRoutes(app: FastifyInstance) {
+  const GUARD = requirePermission('held_jobs.manage');
+
   app.get(
     '/admin/held-jobs',
     {
-      preHandler: requireAdmin(['SUPER_ADMIN', 'ADMIN']),
+      preHandler: GUARD,
       schema: { response: { 200: AdminHeldJobsResponse } },
     },
     async () => {
@@ -49,7 +51,7 @@ export async function adminHeldJobsRoutes(app: FastifyInstance) {
   app.post(
     '/admin/held-jobs/release',
     {
-      preHandler: requireAdmin(['SUPER_ADMIN', 'ADMIN']),
+      preHandler: GUARD,
       schema: { response: { 200: AdminHeldJobsReleaseResponse } },
     },
     async (req) => {
