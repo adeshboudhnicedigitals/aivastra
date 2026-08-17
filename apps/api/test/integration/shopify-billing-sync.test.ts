@@ -63,6 +63,7 @@ describe('syncStoreSubscription', () => {
       planHandle: 'growth',
       subscriptionStatus: 'active',
       creditsGranted: 5000,
+      billingMode: 'prepaid',
     });
 
     const [balanceRow] = await app.db
@@ -179,6 +180,7 @@ describe('syncStoreSubscription', () => {
       planHandle: null,
       subscriptionStatus: 'cancelled',
       creditsGranted: 0,
+      billingMode: 'prepaid',
     });
     const [updatedStore] = await app.db
       .select()
@@ -354,6 +356,73 @@ describe('syncStoreSubscription', () => {
     } finally {
       await app.redis.del('config:system');
     }
+  });
+
+  it('sets billingMode to usage and seeds a default spend cap for the PAYG plan', async () => {
+    const store = await seedStore();
+    const result = await syncStoreSubscription(app, store, {
+      getActiveSubscription: async () =>
+        sub({
+          name: 'Pay as you go',
+          lineItems: [{ id: 'gid://shopify/AppSubscriptionLineItem/1' }],
+        }),
+    });
+    expect(result.billingMode).toBe('usage');
+    const [updated] = await app.db
+      .select()
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, store.id));
+    expect(updated?.billingMode).toBe('usage');
+    expect(updated?.paygSpendCapUsdCents).not.toBeNull();
+  });
+
+  it('does not re-seed the spend cap on a later sync once it has been set', async () => {
+    const store = await seedStore();
+    await syncStoreSubscription(app, store, {
+      getActiveSubscription: async () => sub({ name: 'Pay as you go' }),
+    });
+    const [afterFirst] = await app.db
+      .select()
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, store.id));
+    await app.db
+      .update(schema.shopifyStores)
+      .set({ paygSpendCapUsdCents: 12345 })
+      .where(eq(schema.shopifyStores.id, store.id));
+    const [beforeResync] = await app.db
+      .select()
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, store.id));
+
+    await syncStoreSubscription(app, beforeResync!, {
+      getActiveSubscription: async () => sub({ name: 'Pay as you go' }),
+    });
+    const [afterResync] = await app.db
+      .select()
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, store.id));
+    expect(afterFirst?.paygSpendCapUsdCents).not.toBeNull();
+    expect(afterResync?.paygSpendCapUsdCents).toBe(12345);
+  });
+
+  it('persists subscriptionIsTest from the synced subscription', async () => {
+    const store = await seedStore();
+    await syncStoreSubscription(app, store, {
+      getActiveSubscription: async () => sub({ test: true }),
+    });
+    const [updated] = await app.db
+      .select()
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, store.id));
+    expect(updated?.subscriptionIsTest).toBe(true);
+  });
+
+  it('falls back to prepaid billingMode for a non-PAYG plan', async () => {
+    const store = await seedStore();
+    const result = await syncStoreSubscription(app, store, {
+      getActiveSubscription: async () => sub({ name: 'Growth' }),
+    });
+    expect(result.billingMode).toBe('prepaid');
   });
 });
 
