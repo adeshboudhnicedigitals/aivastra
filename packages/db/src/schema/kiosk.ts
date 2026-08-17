@@ -1,25 +1,11 @@
-import { pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
+import { pgTable, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
 import { jobs } from './jobs.js';
 import { merchants } from './merchant.js';
 
-export const kioskDevices = pgTable('kiosk_devices', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  merchantId: uuid('merchant_id')
-    .notNull()
-    .references(() => merchants.id, { onDelete: 'cascade' }),
-  label: text('label').notNull(),
-  status: text('status').notNull().default('pending'),
-  pairingCodeHash: text('pairing_code_hash'),
-  pairingCodeExpiresAt: timestamp('pairing_code_expires_at', { withTimezone: true }),
-  androidId: text('android_id'),
-  appVersion: text('app_version'),
-  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
-  pairedAt: timestamp('paired_at', { withTimezone: true }),
-  revokedAt: timestamp('revoked_at', { withTimezone: true }),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
-
+// Like/cart toggles on a merchant tryon result — named kiosk* from an earlier
+// in-store kiosk feature that has since been removed, but the tables are live:
+// PUT/DELETE /v1/merchant/tryon/jobs/:jobId/like and .../cart
+// (apps/api/src/modules/merchant/tryon-results.routes.ts) still read/write them.
 export const kioskResultLikes = pgTable(
   'kiosk_result_likes',
   {
@@ -30,9 +16,6 @@ export const kioskResultLikes = pgTable(
     merchantId: uuid('merchant_id')
       .notNull()
       .references(() => merchants.id, { onDelete: 'cascade' }),
-    kioskDeviceId: uuid('kiosk_device_id').references(() => kioskDevices.id, {
-      onDelete: 'set null',
-    }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
@@ -50,9 +33,6 @@ export const kioskResultCartItems = pgTable(
     merchantId: uuid('merchant_id')
       .notNull()
       .references(() => merchants.id, { onDelete: 'cascade' }),
-    kioskDeviceId: uuid('kiosk_device_id').references(() => kioskDevices.id, {
-      onDelete: 'set null',
-    }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({

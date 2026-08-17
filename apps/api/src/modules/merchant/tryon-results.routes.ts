@@ -31,7 +31,7 @@ export async function merchantTryonResultsRoutes(app: FastifyInstance) {
 
       await app.db
         .insert(schema.kioskResultLikes)
-        .values({ jobId, merchantId, kioskDeviceId: null })
+        .values({ jobId, merchantId })
         .onConflictDoNothing();
 
       reply.code(204);
@@ -73,7 +73,7 @@ export async function merchantTryonResultsRoutes(app: FastifyInstance) {
 
       await app.db
         .insert(schema.kioskResultCartItems)
-        .values({ jobId, merchantId, kioskDeviceId: null })
+        .values({ jobId, merchantId })
         .onConflictDoNothing();
 
       reply.code(204);

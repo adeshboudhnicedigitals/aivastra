@@ -1093,6 +1093,13 @@
       "when": 1786814344832,
       "tag": "0155_jobs_queued_status_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 156,
+      "version": "7",
+      "when": 1786900000000,
+      "tag": "0156_drop_kiosk_devices",
+      "breakpoints": true
     }
   ]
 }

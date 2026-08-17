@@ -6,7 +6,6 @@ export type UploadLimitKey =
   | 'merchantCatalogMaxBytes'
   | 'webGarmentMaxBytes'
   | 'merchantTryonMaxBytes'
-  | 'kioskUploadMaxBytes'
   | 'devApiMaxBytes'
   | 'shopifyCatalogSourceMaxBytes'
   | 'shopifyCustomerPhotoMaxBytes'
@@ -18,7 +17,6 @@ export const DEFAULT_UPLOAD_LIMITS: Record<UploadLimitKey, number> = {
   merchantCatalogMaxBytes: 20 * 1024 * 1024,
   webGarmentMaxBytes: 20 * 1024 * 1024,
   merchantTryonMaxBytes: 20 * 1024 * 1024,
-  kioskUploadMaxBytes: 20 * 1024 * 1024,
   devApiMaxBytes: 20 * 1024 * 1024,
   shopifyCatalogSourceMaxBytes: 20 * 1024 * 1024,
   shopifyCustomerPhotoMaxBytes: 20 * 1024 * 1024,

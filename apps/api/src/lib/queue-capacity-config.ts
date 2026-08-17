@@ -6,14 +6,12 @@ import { AppError } from './errors.js';
 
 const CONFIG_KEY = 'config:system';
 
-// Every job source competes for the same worker pool and is subject to the same
-// sweeper QUEUED SLA (apps/dispatcher/src/stream/sweeper.ts) EXCEPT catalog_video,
-// which rides its own jobs:video lane (capped by VIDEO_CONCURRENCY, not the GPU
-// worker count) with its own 30-minute SLA — see VIDEO_SOURCE / VIDEO_QUEUED_SLA_MS
-// there. So the queue-depth count mirrors the sweeper's own exclusion exactly,
-// not just the sources this plan's own job-creation functions produce, since a
-// Shopify, merchant, kiosk, dev-catalog, or tryon-direct job sitting QUEUED is
-// just as much a worker-pool consumer as a catalog/saree job is.
+// Every job source competes for the same GPU worker pool EXCEPT catalog_video, which
+// rides its own jobs:video lane (capped by VIDEO_CONCURRENCY, not the GPU worker
+// count) — so it's excluded from the count. Not just the sources this plan's own
+// job-creation functions produce, since a Shopify, merchant, kiosk, dev-catalog, or
+// tryon-direct job sitting QUEUED is just as much a worker-pool consumer as a
+// catalog/saree job is.
 const VIDEO_SOURCE = JOB_SOURCE.CATALOG_VIDEO;
 
 /**
@@ -36,14 +34,13 @@ export async function getMaxQueueDepth(app: FastifyInstance): Promise<number> {
 
 /**
  * Rejects a job submission before any credit/DB work if accepting it would push
- * the system-wide QUEUED count — every source except catalog_video, mirroring the
- * sweeper's own SLA scope (see VIDEO_SOURCE above) rather than just the sources
- * this plan's own 4 gated functions create — past the admin's ceiling. This is an
- * admission-control gate, not a correctness guard — a concurrent submission can
- * still race past it, same tradeoff createBatchJobs's preflight balance check
- * already accepts (see create.ts comment there). Note: only the count widened
- * here; the rejection gate itself still applies to just the 4 Studio-path
- * functions that call this (createJob, createBatchJobs, createSareeJob,
+ * the system-wide QUEUED count — every source except catalog_video (see VIDEO_SOURCE
+ * above), not just the sources this plan's own 4 gated functions create — past the
+ * admin's ceiling. This is an admission-control gate, not a correctness guard — a
+ * concurrent submission can still race past it, same tradeoff createBatchJobs's
+ * preflight balance check already accepts (see create.ts comment there). Note: only
+ * the count widened here; the rejection gate itself still applies to just the 4
+ * Studio-path functions that call this (createJob, createBatchJobs, createSareeJob,
  * createSareeMannequinJob).
  */
 export async function assertQueueCapacity(

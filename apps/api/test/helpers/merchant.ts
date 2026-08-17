@@ -38,7 +38,7 @@ export async function createTestMerchant(
     .returning();
   if (!merchant) throw new Error('failed to create test merchant');
 
-  // One pool: merchant spend (kiosk, android tryon) and personal spend
+  // One pool: merchant spend (android tryon) and personal spend
   // (studio, catalogue generation) both draw from this balance.
   await app.db.insert(schema.userCredits).values({ userId: user.id, balance: opts.balance ?? 100 });
 

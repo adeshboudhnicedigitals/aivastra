@@ -269,7 +269,6 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
     merchantCatalogMaxBytes: 20,
     webGarmentMaxBytes: 20,
     merchantTryonMaxBytes: 20,
-    kioskUploadMaxBytes: 20,
     devApiMaxBytes: 20,
     shopifyCatalogSourceMaxBytes: 20,
     shopifyCustomerPhotoMaxBytes: 20,
@@ -327,9 +326,6 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
             webGarmentMaxBytes: bytesToMb(cfg.uploadLimits.webGarmentMaxBytes ?? 20 * 1024 * 1024),
             merchantTryonMaxBytes: bytesToMb(
               cfg.uploadLimits.merchantTryonMaxBytes ?? 20 * 1024 * 1024,
-            ),
-            kioskUploadMaxBytes: bytesToMb(
-              cfg.uploadLimits.kioskUploadMaxBytes ?? 20 * 1024 * 1024,
             ),
             devApiMaxBytes: bytesToMb(cfg.uploadLimits.devApiMaxBytes ?? 20 * 1024 * 1024),
             shopifyCatalogSourceMaxBytes: bytesToMb(
@@ -440,7 +436,6 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
             merchantCatalogMaxBytes: mbToBytes(uploadLimitsMb.merchantCatalogMaxBytes),
             webGarmentMaxBytes: mbToBytes(uploadLimitsMb.webGarmentMaxBytes),
             merchantTryonMaxBytes: mbToBytes(uploadLimitsMb.merchantTryonMaxBytes),
-            kioskUploadMaxBytes: mbToBytes(uploadLimitsMb.kioskUploadMaxBytes),
             devApiMaxBytes: mbToBytes(uploadLimitsMb.devApiMaxBytes),
             shopifyCatalogSourceMaxBytes: mbToBytes(uploadLimitsMb.shopifyCatalogSourceMaxBytes),
             shopifyCustomerPhotoMaxBytes: mbToBytes(uploadLimitsMb.shopifyCustomerPhotoMaxBytes),
@@ -1054,7 +1049,6 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                           ['merchantCatalogMaxBytes', 'Merchant catalogue (Android flat photo)'],
                           ['webGarmentMaxBytes', 'Studio / web garment upload'],
                           ['merchantTryonMaxBytes', 'Merchant try-on customer photo'],
-                          ['kioskUploadMaxBytes', 'Kiosk customer photo'],
                           ['devApiMaxBytes', 'Dev API upload'],
                           ['shopifyCatalogSourceMaxBytes', 'Shopify catalogue source image'],
                           ['shopifyCustomerPhotoMaxBytes', 'Shopify storefront customer photo'],

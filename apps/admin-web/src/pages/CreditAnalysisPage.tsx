@@ -5,14 +5,13 @@ import { Pager } from '../components/Pager';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 
 type DayRange = '7' | '30' | '90' | 'all';
-type SourceFilter = 'all' | 'catalog' | 'tryon' | 'saree' | 'kiosk' | 'shopify';
+type SourceFilter = 'all' | 'catalog' | 'tryon' | 'saree' | 'shopify';
 
 const SOURCE_LABELS: Record<SourceFilter, string> = {
   all: 'All sources',
   catalog: 'Catalog generation',
   tryon: 'Tryon (our app)',
   saree: 'Saree',
-  kiosk: 'Kiosk',
   shopify: 'Shopify tryon',
 };
 
@@ -49,7 +48,6 @@ const SOURCE_TAG_COLORS: Record<JobSource, string> = {
   catalog: '#8a7cff',
   tryon: '#4caf50',
   saree: '#e08e45',
-  kiosk: '#5aa9e6',
   shopify: '#95bf47',
 };
 

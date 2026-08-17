@@ -115,9 +115,8 @@ export const SystemConfigBody = z.object({
   maxBatchJobs: z.number().int().min(1).max(2000).optional(),
   // Ceiling on QUEUED jobs across source IN ('catalog','saree','saree_mannequin') —
   // see assertQueueCapacity in apps/api/src/lib/queue-capacity-config.ts. Exists so
-  // a burst of submissions the current worker pool can't drain inside the sweeper's
-  // 10-minute QUEUED_SLA_MS is rejected up front instead of accepted and later
-  // silently refunded as STUCK_IN_QUEUE.
+  // a burst of submissions the current worker pool can't drain is rejected up front
+  // instead of accepted and left to queue indefinitely.
   maxQueueDepth: z.number().int().min(1).max(5000).optional(),
   // Admin-fixed inputs for merchant catalogue-manager's constrained "flat garment
   // -> catalogue image" generation. Keyed by category so studio-style face/background
@@ -167,7 +166,6 @@ export const SystemConfigBody = z.object({
       merchantCatalogMaxBytes: z.number().int().positive().max(52_428_800).optional(),
       webGarmentMaxBytes: z.number().int().positive().max(52_428_800).optional(),
       merchantTryonMaxBytes: z.number().int().positive().max(52_428_800).optional(),
-      kioskUploadMaxBytes: z.number().int().positive().max(52_428_800).optional(),
       devApiMaxBytes: z.number().int().positive().max(52_428_800).optional(),
       shopifyCatalogSourceMaxBytes: z.number().int().positive().max(52_428_800).optional(),
       shopifyCustomerPhotoMaxBytes: z.number().int().positive().max(52_428_800).optional(),
