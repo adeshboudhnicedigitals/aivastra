@@ -124,10 +124,16 @@ export async function syncStoreSubscription(
 
   const amount = planHandle ? await getShopifyPlanCredits(app, planHandle) : null;
 
-  if (amount === null) {
+  if (amount === null && billingMode !== 'usage') {
     // Operator-visible rather than silent: a plan renamed in Partner Dashboard
     // without the matching change to billing-plans.ts stops all credit grants
     // for every merchant on that plan, and nothing else would surface it.
+    // Excludes 'usage' (PAYG) stores: amount === null is the expected,
+    // intentional path there (PAYG is deliberately absent from
+    // SHOPIFY_PLAN_HANDLES — it gets zero prepaid credits by design, not by
+    // misconfiguration), so logging it as "unrecognized" here would fire on
+    // every sync for every PAYG store forever and bury genuine mismatches
+    // under per-store, per-hour noise.
     app.log.error(
       { storeId: store.id, planName: subscription.name },
       'unrecognized Shopify plan name — no credits granted',

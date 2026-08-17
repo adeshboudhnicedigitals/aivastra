@@ -368,6 +368,9 @@ describe('syncStoreSubscription', () => {
         }),
     });
     expect(result.billingMode).toBe('usage');
+    // PAYG stores are billed entirely through the usage meter — the prepaid
+    // credit ledger must never be touched for them.
+    expect(result.creditsGranted).toBe(0);
     const [updated] = await app.db
       .select()
       .from(schema.shopifyStores)
