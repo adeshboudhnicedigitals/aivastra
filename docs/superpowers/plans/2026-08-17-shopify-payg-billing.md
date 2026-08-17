@@ -397,7 +397,7 @@ git commit -m "feat(shopify): PAYG pricing constants and spend-cap check"
 
 **Interfaces:**
 - Consumes: `shopifyGraphQL` (existing, `service.js`), `getValidAccessToken` (existing, `token.js`)
-- Produces: `ActiveSubscription.usageBalanceUsdCents: number | null` (new field), same `getActiveSubscription(app, store): Promise<ActiveSubscription | null>` signature — no breaking change for existing callers in `billing.ts`
+- Produces: `ActiveSubscription.lineItems[].usageBalanceUsdCents?: number | null` (new optional field, so the existing `sub()` test fixture keeps typechecking unmodified), same `getActiveSubscription(app, store): Promise<ActiveSubscription | null>` signature — no breaking change for existing callers in `billing.ts`
 
 - [ ] **Step 1: Extend the query and type**
 
@@ -412,7 +412,11 @@ export interface ActiveSubscription {
   test: boolean;
   lineItems: Array<{
     id: string;
-    usageBalanceUsdCents: number | null;
+    // Optional, not `| null` at the required-key level: the existing
+    // sub() test fixture in shopify-billing-sync.test.ts (and every new
+    // override built on it in Task 4) constructs lineItems literals that
+    // predate this field and must keep typechecking without adding it.
+    usageBalanceUsdCents?: number | null;
   }>;
 }
 
@@ -652,7 +656,7 @@ Finally, add the reconciliation check. After the main `.set()` call above (i.e.,
   // silently wrong (a misconfigured meter handle, an unmetered plan) and is
   // otherwise invisible.
   if (billingMode === 'usage') {
-    const reportedLineItem = subscription.lineItems.find((li) => li.usageBalanceUsdCents !== null);
+    const reportedLineItem = subscription.lineItems.find((li) => li.usageBalanceUsdCents != null);
     if (reportedLineItem?.usageBalanceUsdCents != null) {
       const ourTotal = await getPaygSpendThisCycleCentsForReconciliation(app, store.id, periodEnd);
       const mismatch = Math.abs(reportedLineItem.usageBalanceUsdCents - ourTotal);
