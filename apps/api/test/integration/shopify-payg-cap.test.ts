@@ -25,6 +25,7 @@ describe('PAYG spend cap', () => {
         accessToken: 'enc',
         scope: 'read_products',
         billingMode: 'usage',
+        subscriptionStatus: 'active',
         paygSpendCapUsdCents: 100, // $1.00 = 10 try-ons at $0.10 each
         ...overrides,
       })
@@ -68,5 +69,16 @@ describe('PAYG spend cap', () => {
     await seedUsageRow(store.id, 90, lastCycle);
     const spend = await getPaygSpendThisCycleCents(app, store);
     expect(spend).toBe(0);
+  });
+
+  it('rejects dispatch when the subscription is not active, even well under the spend cap', async () => {
+    // billingMode is set to 'usage' purely from the plan name match — a
+    // PENDING subscription (merchant never approved the charge) still
+    // leaves billingMode as 'usage'. Without this gate the store could
+    // generate try-ons up to the cap for free, indefinitely.
+    const store = await seedStore({ subscriptionStatus: 'pending' });
+    await expect(checkPaygSpendCap(app, store)).rejects.toMatchObject({
+      code: 'SUBSCRIPTION_INACTIVE',
+    });
   });
 });

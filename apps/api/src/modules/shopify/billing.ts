@@ -201,7 +201,17 @@ export async function syncStoreSubscription(
   // fixed / the subscription goes live, still sees isNewCycle === true for the
   // same cycle and grants it. Advancing unconditionally would silently mark an
   // unbilled cycle as "seen" and the merchant would never get those credits.
-  const marker = grantable
+  //
+  // PAYG stores are the one exception: `amount` is always null for them
+  // (PAYG is deliberately absent from SHOPIFY_PLAN_HANDLES), so `grantable`
+  // is always false and the marker above would never advance — leaving
+  // currentPeriodEnd permanently null. There's no "unbilled cycle" risk to
+  // protect against here (no credit grant to lose), so advance it whenever
+  // the subscription is actually ACTIVE. This is what lets cycleWindowStart
+  // (payg.ts) align the spend-cap window to the real Shopify billing cycle
+  // instead of falling back to a rolling 30 days forever.
+  const advanceMarker = grantable || (billingMode === 'usage' && subscription.status === 'ACTIVE');
+  const marker = advanceMarker
     ? { currentSubscriptionId: subscription.id, currentPeriodEnd: periodEnd }
     : {
         currentSubscriptionId: store.currentSubscriptionId,
@@ -251,6 +261,20 @@ export async function syncStoreSubscription(
             ourTotalCents: ourTotal,
           },
           'PAYG usage reconciliation mismatch — check Partner Dashboard meter configuration',
+        );
+      }
+    } else {
+      // No AppUsagePricing line item at all — every line item on this
+      // subscription priced out as AppRecurringPricing, meaning the Partner
+      // Dashboard meter was never attached (or was removed) for this plan.
+      // Only worth surfacing if this store has actually reported usage this
+      // cycle: a brand-new PAYG store with zero try-ons yet would otherwise
+      // trip this on every sync before it ever generates anything.
+      const ourTotal = await getPaygSpendThisCycleCentsForReconciliation(app, store.id, periodEnd);
+      if (ourTotal > 0) {
+        app.log.error(
+          { storeId: store.id, subscriptionId: subscription.id },
+          'PAYG store has reported usage but its subscription exposes no AppUsagePricing line item — meter not configured in Partner Dashboard',
         );
       }
     }

@@ -1,6 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   buildPlanSelectionUrl,
   grantShopifyTrialCredits,
@@ -426,6 +427,87 @@ describe('syncStoreSubscription', () => {
       getActiveSubscription: async () => sub({ name: 'Growth' }),
     });
     expect(result.billingMode).toBe('prepaid');
+  });
+
+  it('persists currentPeriodEnd for a PAYG store even though it grants no credits', async () => {
+    // PAYG's `amount` is always null (not in SHOPIFY_PLAN_HANDLES), so
+    // `grantable` is always false — before the fix this meant the cycle
+    // marker (currentSubscriptionId/currentPeriodEnd) never advanced for a
+    // usage-mode store and currentPeriodEnd stayed null forever, which broke
+    // cycleWindowStart's alignment to the real Shopify billing cycle.
+    const store = await seedStore();
+    const result = await syncStoreSubscription(app, store, {
+      getActiveSubscription: async () =>
+        sub({ name: 'Pay as you go', currentPeriodEnd: '2026-09-15T00:00:00Z' }),
+    });
+    expect(result.billingMode).toBe('usage');
+    const [updated] = await app.db
+      .select()
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, store.id));
+    expect(updated?.currentPeriodEnd).not.toBeNull();
+    expect(updated?.currentPeriodEnd?.toISOString()).toBe('2026-09-15T00:00:00.000Z');
+    expect(updated?.currentSubscriptionId).toBe('gid://shopify/AppSubscription/1');
+  });
+
+  async function seedReportedUsage(storeId: string, priceUsdCents: number) {
+    await app.db.insert(schema.shopifyUsageEvents).values({
+      storeId,
+      jobId: randomUUID(),
+      priceUsdCents,
+      status: 'REPORTED',
+    });
+  }
+
+  it('logs a reconciliation mismatch when our reported total diverges from Shopify balance', async () => {
+    const store = await seedStore();
+    await seedReportedUsage(store.id, 10); // we reported $0.10 this cycle
+    const errorSpy = vi.spyOn(app.log, 'error');
+
+    await syncStoreSubscription(app, store, {
+      getActiveSubscription: async () =>
+        sub({
+          name: 'Pay as you go',
+          lineItems: [{ id: 'gid://shopify/AppSubscriptionLineItem/1', usageBalanceUsdCents: 500 }],
+        }),
+    });
+
+    const mismatchCalls = errorSpy.mock.calls.filter(
+      ([, msg]) =>
+        msg === 'PAYG usage reconciliation mismatch — check Partner Dashboard meter configuration',
+    );
+    expect(mismatchCalls).toHaveLength(1);
+    expect(mismatchCalls[0]?.[0]).toMatchObject({
+      storeId: store.id,
+      shopifyBalanceCents: 500,
+      ourTotalCents: 10,
+    });
+    errorSpy.mockRestore();
+  });
+
+  it('does not log a reconciliation mismatch when our reported total matches Shopify balance', async () => {
+    const store = await seedStore();
+    await seedReportedUsage(store.id, 480);
+    await seedReportedUsage(store.id, 20); // sums to 500 — exact match
+    const errorSpy = vi.spyOn(app.log, 'error');
+
+    await syncStoreSubscription(app, store, {
+      getActiveSubscription: async () =>
+        sub({
+          name: 'Pay as you go',
+          lineItems: [{ id: 'gid://shopify/AppSubscriptionLineItem/1', usageBalanceUsdCents: 500 }],
+        }),
+    });
+
+    // Specific to the mismatch log — other unrelated app.log.error calls (e.g.
+    // the C1 missing-meter path, which cannot fire here since a usage line
+    // item is present) are out of scope for this assertion.
+    const mismatchCalls = errorSpy.mock.calls.filter(
+      ([, msg]) =>
+        msg === 'PAYG usage reconciliation mismatch — check Partner Dashboard meter configuration',
+    );
+    expect(mismatchCalls).toHaveLength(0);
+    errorSpy.mockRestore();
   });
 });
 

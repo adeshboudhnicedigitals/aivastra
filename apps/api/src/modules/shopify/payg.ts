@@ -1,22 +1,17 @@
 import { schema } from '@aivastra/db';
-import { DEFAULT_PAYG_SPEND_CAP_USD_CENTS } from '@aivastra/types';
+import { DEFAULT_PAYG_SPEND_CAP_USD_CENTS, PAYG_PRICE_PER_TRYON_USD_CENTS } from '@aivastra/types';
 import { and, eq, gte, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 
-/**
- * The code-side mirror of the Partner Dashboard meter price. Must match it
- * exactly — this is what the spend cap is checked against, and if it drifts
- * from what Shopify actually bills, the cap stops meaning what it says. If
- * the Partner Dashboard price ever changes, this constant changes in the
- * same PR.
- */
-export const PAYG_PRICE_PER_TRYON_USD_CENTS = 10;
-
 /** Must match the meter handle configured in Partner Dashboard exactly — case-sensitive. */
 export const EVENT_HANDLE = 'tryon_generated';
 
-export { DEFAULT_PAYG_SPEND_CAP_USD_CENTS, MIN_PAYG_SPEND_CAP_USD_CENTS } from '@aivastra/types';
+export {
+  DEFAULT_PAYG_SPEND_CAP_USD_CENTS,
+  MIN_PAYG_SPEND_CAP_USD_CENTS,
+  PAYG_PRICE_PER_TRYON_USD_CENTS,
+} from '@aivastra/types';
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -64,11 +59,23 @@ export async function getPaygSpendThisCycleCents(
  * a live Shopify read — a per-job GraphQL round trip before every dispatch
  * isn't worth the latency, same reasoning as why credits are checked locally
  * today. Accurate to within reporting lag, not to the millisecond.
+ *
+ * Also gates on subscriptionStatus === 'active': billingMode is set to
+ * 'usage' purely from the plan *name* match in syncStoreSubscription,
+ * independent of whether Shopify is actually billing this subscription. A
+ * PENDING (merchant never approved the charge), FROZEN, or DECLINED
+ * subscription still leaves billingMode as 'usage' — without this check a
+ * merchant who never approves the PAYG charge could generate try-ons up to
+ * the spend cap for free, indefinitely. Checked first since it's cheaper
+ * than the spend-cap query and should fail fast.
  */
 export async function checkPaygSpendCap(
   app: FastifyInstance,
   store: typeof schema.shopifyStores.$inferSelect,
 ): Promise<void> {
+  if (store.subscriptionStatus !== 'active') {
+    throw new AppError('SUBSCRIPTION_INACTIVE', 402, 'no active subscription');
+  }
   const cap = store.paygSpendCapUsdCents ?? DEFAULT_PAYG_SPEND_CAP_USD_CENTS;
   const spent = await getPaygSpendThisCycleCents(app, store);
   if (spent + PAYG_PRICE_PER_TRYON_USD_CENTS > cap) {

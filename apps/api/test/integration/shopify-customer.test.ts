@@ -465,6 +465,7 @@ describe('shopify customer routes', () => {
         accessToken: 'enc',
         scope: 'read_products',
         billingMode: 'usage',
+        subscriptionStatus: 'active',
       })
       .returning();
     const r2Key = await uploadCustomerPhoto(store.storeKey, Buffer.from('photo-bytes'));
@@ -505,6 +506,7 @@ describe('shopify customer routes', () => {
         accessToken: 'enc',
         scope: 'read_products',
         billingMode: 'usage',
+        subscriptionStatus: 'active',
         paygSpendCapUsdCents: 10,
       })
       .returning();
@@ -536,6 +538,43 @@ describe('shopify customer routes', () => {
       .from(schema.jobs)
       .where(eq(schema.jobs.shopifyStoreId, store.id));
     expect(jobs).toHaveLength(1); // only the pre-seeded one — nothing new was inserted
+  });
+
+  it('rejects job creation for a usage-mode store with no active subscription', async () => {
+    // billingMode is set to 'usage' from the plan name alone — a PENDING
+    // subscription (merchant never approved the charge) still leaves
+    // billingMode as 'usage'. Without checkPaygSpendCap's subscription-status
+    // gate, this store could generate try-ons for free, well under its cap.
+    await seedDefaultFunnelTemplate();
+    const [store] = await app.db
+      .insert(schema.shopifyStores)
+      .values({
+        shopDomain: `payg-pending-${Date.now()}-${Math.random()}.myshopify.com`,
+        shopifyShopId: Date.now() + 2,
+        accessToken: 'enc',
+        scope: 'read_products',
+        billingMode: 'usage',
+        subscriptionStatus: 'pending',
+        paygSpendCapUsdCents: 5000, // well under the cap — status is the only blocker
+      })
+      .returning();
+    const r2Key = await uploadCustomerPhoto(store.storeKey, Buffer.from('photo-bytes'));
+    await seedGarment(store.id, 93);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/customer/jobs',
+      headers: { 'x-widget-key': store.storeKey },
+      payload: { customerPhotoKey: r2Key, shopifyProductId: 93 },
+    });
+    expect(res.statusCode).toBe(402);
+    expect((res.json() as { error: { code: string } }).error.code).toBe('SUBSCRIPTION_INACTIVE');
+
+    const jobs = await app.db
+      .select()
+      .from(schema.jobs)
+      .where(eq(schema.jobs.shopifyStoreId, store.id));
+    expect(jobs).toHaveLength(0);
   });
 
   it('returns a presigned preview URL for a photo owned by this store', async () => {
