@@ -160,5 +160,14 @@ describe('dispatcher PAYG usage-event write', () => {
       .from(schema.shopifyUsageEvents)
       .where(eq(schema.shopifyUsageEvents.jobId, jobId));
     expect(rows).toHaveLength(0);
+
+    // PAYG jobs always have creditsCharged === 0 — the failure path must
+    // never write a zero-delta JOB_FAIL_REFUND row to shopify_credit_ledger.
+    // That table is prepaid-only; a PAYG store must never touch it.
+    const ledgerRows = await env.db
+      .select()
+      .from(schema.shopifyCreditLedger)
+      .where(eq(schema.shopifyCreditLedger.jobId, jobId));
+    expect(ledgerRows).toHaveLength(0);
   });
 });
