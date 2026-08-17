@@ -225,8 +225,8 @@ export function FacesTab() {
       return (
         f.label?.toLowerCase().includes(q) ||
         f.id?.toLowerCase().includes(q) ||
-        (f.publicApiSlug && f.publicApiSlug.toLowerCase().includes(q)) ||
-        (continentTxt && continentTxt.toLowerCase().includes(q)) ||
+        f.publicApiSlug?.toLowerCase().includes(q) ||
+        continentTxt?.toLowerCase().includes(q) ||
         f.tags?.some((t) => t.toLowerCase().includes(q))
       );
     })
@@ -479,7 +479,9 @@ export function FacesTab() {
                   padding: '2rem',
                 }}
               >
-                {searchQuery.trim() ? `No faces matching "${searchQuery.trim()}".` : 'No faces found.'}
+                {searchQuery.trim()
+                  ? `No faces matching "${searchQuery.trim()}".`
+                  : 'No faces found.'}
               </div>
             )}
           </div>
