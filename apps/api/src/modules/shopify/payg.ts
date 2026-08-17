@@ -1,4 +1,5 @@
 import { schema } from '@aivastra/db';
+import { DEFAULT_PAYG_SPEND_CAP_USD_CENTS } from '@aivastra/types';
 import { and, eq, gte, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
@@ -15,8 +16,7 @@ export const PAYG_PRICE_PER_TRYON_USD_CENTS = 10;
 /** Must match the meter handle configured in Partner Dashboard exactly — case-sensitive. */
 export const EVENT_HANDLE = 'tryon_generated';
 
-export const DEFAULT_PAYG_SPEND_CAP_USD_CENTS = 5000; // $50
-export const MIN_PAYG_SPEND_CAP_USD_CENTS = 500; // $5
+export { DEFAULT_PAYG_SPEND_CAP_USD_CENTS, MIN_PAYG_SPEND_CAP_USD_CENTS } from '@aivastra/types';
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 

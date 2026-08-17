@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MIN_PAYG_SPEND_CAP_USD_CENTS } from './payg-constants.js';
 
 export const MerchantStatusSchema = z.enum(['ONBOARDING_REQUIRED', 'PENDING_ACTIVATION', 'ACTIVE']);
 export type MerchantStatusSchema = z.infer<typeof MerchantStatusSchema>;
@@ -454,6 +455,11 @@ export const ShopifyCustomerPhotoPreviewRequest = z.object({
   r2Key: z.string().min(1),
 });
 export type ShopifyCustomerPhotoPreviewRequest = z.infer<typeof ShopifyCustomerPhotoPreviewRequest>;
+
+export const PaygSpendCapBody = z.object({
+  spendCapUsdCents: z.number().int().min(MIN_PAYG_SPEND_CAP_USD_CENTS).max(100_000_00),
+});
+export type PaygSpendCapBody = z.infer<typeof PaygSpendCapBody>;
 
 // Fixed option sets, not free ranges. A dropdown of allowed values eliminates
 // the "2000 instead of 200" typo class, and an out-of-set value is a 400
