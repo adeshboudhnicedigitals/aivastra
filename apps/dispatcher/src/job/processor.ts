@@ -23,6 +23,7 @@ import {
 } from '../comfyui/client.js';
 import { JobCancelledError, waitForCompletion } from '../comfyui/progress.js';
 import { loadEnv } from '../env.js';
+import { PAYG_PRICE_PER_TRYON_USD_CENTS } from '../lib/payg-constants.js';
 import { createVideoTask, pollVideoTask } from '../pixverse/client.js';
 import { setWorkerStatus } from '../worker/registry.js';
 import { selectWorker } from '../worker/selector.js';
@@ -2316,6 +2317,25 @@ async function processShopifyJob(
       r2Bucket,
       jobLog,
     });
+
+    // billingMode is pinned into params at creation time (same reasoning as
+    // workflowTemplateId above) — never re-queried here, so a plan change
+    // mid-flight can't change how a job already in progress gets billed.
+    // Best-effort: a failed insert here logs but must not prevent the
+    // already-COMPLETED job from being ack'd — the merchant already got
+    // their result either way, and a missed usage row is a lost-revenue
+    // risk, not a correctness one.
+    if (params.billingMode === 'usage') {
+      try {
+        await db.insert(schema.shopifyUsageEvents).values({
+          storeId: shopifyStoreId,
+          jobId,
+          priceUsdCents: PAYG_PRICE_PER_TRYON_USD_CENTS,
+        });
+      } catch (err) {
+        jobLog.error({ err, jobId, shopifyStoreId }, 'PAYG usage_events insert failed');
+      }
+    }
 
     await redis.xack(stream, 'dispatcher-cg', messageId);
     await setWorkerStatus(redis, w.id, 'IDLE');
