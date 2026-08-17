@@ -72,6 +72,6 @@ export async function checkPaygSpendCap(
   const cap = store.paygSpendCapUsdCents ?? DEFAULT_PAYG_SPEND_CAP_USD_CENTS;
   const spent = await getPaygSpendThisCycleCents(app, store);
   if (spent + PAYG_PRICE_PER_TRYON_USD_CENTS > cap) {
-    throw new AppError('PAYG_CAP_REACHED', 402, 'PAYG_CAP_REACHED');
+    throw new AppError('PAYG_CAP_REACHED', 402, 'monthly spend cap reached');
   }
 }

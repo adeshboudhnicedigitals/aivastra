@@ -57,7 +57,9 @@ describe('PAYG spend cap', () => {
     const store = await seedStore();
     await seedUsageRow(store.id, 60);
     await seedUsageRow(store.id, 40); // exactly at the $1.00 cap
-    await expect(checkPaygSpendCap(app, store)).rejects.toThrow('PAYG_CAP_REACHED');
+    await expect(checkPaygSpendCap(app, store)).rejects.toMatchObject({
+      code: 'PAYG_CAP_REACHED',
+    });
   });
 
   it('excludes usage from before the current billing cycle', async () => {
