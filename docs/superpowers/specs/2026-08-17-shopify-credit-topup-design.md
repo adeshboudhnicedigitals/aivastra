@@ -1,8 +1,37 @@
 # Shopify credit top-up (one-time purchase) — design
 
 **Date:** 2026-08-17
-**Status:** approved, not yet implemented
+**Status:** SUPERSEDED — see "Why this was abandoned" below
 **Branch:** `feature/shopify-credit-topup`
+
+## Why this was abandoned
+
+This design depends on `appPurchaseOneTimeCreate`, which is a **manual pricing
+(Billing API)** mutation. Verified against shopify.dev (not assumed): Shopify
+App Pricing's own limitations page lists exactly three supported models —
+fixed recurring, usage-based, and combinations of the two — and one-time
+purchases are not among them. The `appPurchaseOneTimeCreate` docs live
+exclusively under `/docs/apps/launch/billing/manual-pricing/`, never under
+`/shopify-app-pricing/`. Most tellingly, Shopify's own migration guide tells
+apps that used one-time charges for PAYG to **replace them with a usage
+meter** when moving onto App Pricing — there is no "keep issuing new one-time
+charges" path once on App Pricing.
+
+This app is on Shopify App Pricing (`subscription-client.ts`,
+`buildPlanSelectionUrl`, the hosted plan picker). Building this feature would
+have meant running two billing systems side by side, or migrating the three
+existing plans off App Pricing entirely — losing the hosted picker, proration,
+and trial automation Shopify currently provides for free — just to add prepaid
+packs.
+
+Decision: stay on App Pricing, solve the underlying problem (merchant runs out
+of credits mid-cycle) with **usage-based pricing** instead, which is native to
+App Pricing and needs none of that trade-off. See
+`docs/superpowers/specs/2026-08-17-shopify-payg-design.md`.
+
+The content below is kept for the record — the problem framing and the
+"snapshot config at purchase time" / "price is code, credits are admin-tunable"
+reasoning are still valid ideas, just not implementable on this billing system.
 
 ## Problem
 
