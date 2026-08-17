@@ -80,8 +80,11 @@ export interface ShopifyMe {
     connectedSince: string;
     planHandle: string | null;
     subscriptionStatus: string | null;
+    billingMode: 'prepaid' | 'usage';
+    paygSpendCapUsdCents: number | null;
   };
   creditBalance: number;
+  paygSpendThisCycleUsdCents: number;
   stats: ShopifyStats;
 }
 

@@ -52,6 +52,13 @@ export const PLAN_FEATURE_SETS: PlanFeatureSet[] = [
   },
 ];
 
+// Display copy only — the price-per-try-on source of truth is
+// apps/api/src/modules/shopify/payg.ts's PAYG_PRICE_PER_TRYON_USD_CENTS,
+// kept separate for the same reason PLAN_FEATURE_SETS is separate from
+// billing-plans.ts.
+export const PAYG_PRICE_PER_TRYON_USD = 0.1;
+export const PAYG_MIN_SPEND_CAP_USD = 5;
+
 // Identical across every tier per the pricing sheet — rendered once per
 // column rather than as a per-tier boolean.
 export const SHARED_FEATURE_BULLETS = [
