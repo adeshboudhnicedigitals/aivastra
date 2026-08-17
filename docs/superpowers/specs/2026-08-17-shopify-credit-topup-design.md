@@ -46,6 +46,9 @@ retry treatment `BillingCallbackPage.tsx` already gives the subscription case.
 | Eligibility | Active paid subscription only | Top-up is an add-on, not an alternative to subscribing. Keeps "a paying store" as the single precondition and stops top-up becoming a way to route around plans entirely. |
 | UI surface | `apps/shopify` embedded admin | Where merchants already see plan and credit state. |
 | Test-charge gate | Reuse `SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS` | Same risk, same environments, one knob. |
+| Pack set | Fixed three, ids and prices in code | Mirrors `planCredits`. A fourth pack is a deploy, which is the right friction for something that changes what a merchant is billed. |
+| Who tunes credits | Admin panel, per pack | Lets pack generosity be tuned against real GPU cost without a deploy — the same reason `planCredits` is already admin-tunable. |
+| Who tunes price | Nobody, code only | The price is the number sent to Shopify in the charge mutation. Config that can change what a merchant is charged is a different risk class from config that changes what they receive. |
 
 ## Flow
 
@@ -86,13 +89,29 @@ than extra columns on `shopify_credit_ledger` because a purchase has state
 | `store_id` | uuid fk → `shopify_stores` (cascade) | checked on confirm |
 | `shopify_purchase_id` | text, nullable | the `AppPurchaseOneTime` GID; null between INSERT and the mutation returning |
 | `pack_id` | text | e.g. `topup_500` |
-| `credits` | integer | what to grant — authoritative, never re-derived from Shopify's response |
+| `credits` | integer | what to grant, snapshotted from config at purchase time — see "Credits are snapshotted" below |
 | `price_usd` | integer (cents) | what we asked Shopify to charge, for reconciliation |
 | `status` | text | `PENDING` \| `ACTIVE` \| `DECLINED` \| `EXPIRED` — last status observed at Shopify — or `FAILED`, which is ours and means the charge was never created |
 | `created_at` / `updated_at` | timestamptz | |
 
 Index on `store_id`. Abandoned `PENDING` rows are harmless (no credits, no
 charge) and are left alone; a sweep is out of scope.
+
+### Credits are snapshotted, not re-read
+
+`credits` is written at INSERT, before the merchant ever sees Shopify's
+confirmation page, and the grant reads **that column** — never the config, and
+never anything in Shopify's response (Shopify knows the price, not the credits).
+
+This is load-bearing because credits are admin-editable while a purchase can sit
+unconfirmed indefinitely: the merchant may approve the charge a second later or
+leave the tab open for an hour. Re-reading config at confirm time would mean an
+admin editing a pack silently changes what an already-paying merchant receives,
+with no record of the number they were shown when they agreed to pay. The row is
+that record.
+
+The price is snapshotted for the same reason, though the exposure is smaller —
+price only changes on deploy.
 
 ## Components
 
@@ -104,23 +123,57 @@ unknown id. Unlike plan names, pack ids are ours end to end — Shopify never
 echoes one back — so this needs no case-insensitive matching and no
 Partner Dashboard coordination.
 
-Credits per pack follow the `getShopifyPlanCredits` precedent: admin-overridable
-from the `config:system` Redis key, falling back to the code default. **Price
-does not** — price is sent to Shopify in the mutation and must come from code,
-so that a bad admin edit cannot change what a merchant is charged.
+Credits per pack follow the `getShopifyPlanCredits` precedent exactly — a new
+`getShopifyTopupCredits(app, packId)` in `resolution-config.ts` reads
+`shopify.topupCredits[packId]` from the `config:system` Redis key and falls back
+to the code default for a known pack, returning `null` for an unknown one.
+**Price has no such override** — it is sent to Shopify in the charge mutation, so
+it comes from code and only from code.
 
-Draft packs (credits chosen to sit slightly below plan-tier per-credit value, so
-top-up never undercuts subscribing):
+Default packs (credits chosen to sit above the plan tiers on a per-credit basis,
+so a top-up is convenience-priced and never undercuts subscribing):
 
-| Pack | Price | Credits |
-|---|---|---|
-| `topup_500` | $12 | 500 |
-| `topup_1500` | $32 | 1500 |
-| `topup_4000` | $79 | 4000 |
+| Pack | Price | Credits | ¢/credit |
+|---|---|---|---|
+| `topup_500` | $12 | 500 | 2.40 |
+| `topup_1500` | $32 | 1500 | 2.13 |
+| `topup_4000` | $79 | 4000 | 1.98 |
+
+For reference, the plans run 1.51 (starter), 1.18 (growth) and 1.04 (pro)
+¢/credit — every pack is deliberately more expensive per credit than every plan.
 
 Shopify rejects an application charge under $0.50 USD, so every pack must stay
 above that floor — a constraint worth a comment rather than a runtime check,
-since the values are static.
+since prices are static and none is close.
+
+### `apps/admin-web/src/pages/settings/ShopifyCreditsTab.tsx` (extended)
+
+Three more number inputs, below the existing per-plan ones, in the tab that
+already edits `trialCredits` and `planCredits`. Same `PATCH /admin/config`
+(SUPER_ADMIN only), same Redis key, same save button — `shopify.topupCredits`
+sits alongside `shopify.planCredits` in the payload, and `GET /admin/config`
+merges it over `DEFAULT_TOPUP_CREDITS` the way it already does for
+`DEFAULT_CREDITS_BY_PLAN_HANDLE`. `SystemConfigBody` in `packages/types/src/admin.ts`
+gains the matching optional object.
+
+Each pack row shows its fixed price as static text (it is not editable and must
+not look editable) and a live-computed **¢/credit** next to the input.
+
+**Cannibalization warning.** Because price is fixed and credits float, an admin
+raising a pack's credits far enough makes it cheaper per credit than subscribing
+— at which point the rational merchant buys top-ups forever and never takes a
+plan. The tab computes every pack's ¢/credit against the cheapest plan's and
+shows an amber inline warning when a pack undercuts it, naming the plan it beats.
+
+The warning does **not** block the save: promotional pricing and deliberate
+testing are legitimate, and a hard block would need an override escape hatch
+that is itself another way to get this wrong. Making the consequence visible at
+the moment of the edit is the whole goal — today the number can be changed with
+no signal at all that it crossed a line that matters.
+
+This is presentation-layer only. It is not a security control and the API does
+not re-check it; it guards against an honest mistake by a SUPER_ADMIN who
+already has full authority over these values.
 
 ### `apps/api/src/modules/shopify/topup.ts` (new)
 
@@ -219,7 +272,12 @@ Request/response shapes go in `packages/types` per the repo's Zod convention.
 
 Unit:
 - `topup-packs.test.ts` — lookup, unknown id → null, every pack above the $0.50
-  floor. Mirrors `billing-plans.test.ts`.
+  floor, and every default pack priced above every plan on a ¢/credit basis (a
+  regression test on the pricing intent, not just the mechanics). Mirrors
+  `billing-plans.test.ts`.
+- `getShopifyTopupCredits` — admin override wins, code default when unset,
+  `null` for an unknown pack, code default when the stored value is malformed
+  (matching `getShopifyPlanCredits`'s try/catch behaviour).
 
 Integration (`apps/api/test/integration/`), `deps`-injected Shopify client so no
 network is touched:
@@ -231,6 +289,10 @@ network is touched:
 - confirm: `PENDING` / `DECLINED` grant nothing
 - confirm: `test: true` with the gate off warns and grants nothing
 - confirm: another store's row id returns 404
+- confirm: an admin changing the pack's configured credits **after** the row was
+  written still grants the snapshotted amount, not the new one — the guarantee
+  in "Credits are snapshotted" is the one thing here a future refactor could
+  quietly undo
 
 ## Out of scope
 
