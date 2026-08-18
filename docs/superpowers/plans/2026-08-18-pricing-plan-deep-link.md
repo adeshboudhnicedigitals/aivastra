@@ -321,7 +321,7 @@ Expected: no errors. If TypeScript complains that `startBuy` is used before its 
 pnpm --filter @aivastra/web build
 ```
 
-Expected: build succeeds with no `useSearchParams() should be wrapped in a suspense boundary` error. This route already ships `apps/catalogues-web/src/app/(app)/pricing/loading.tsx`, which Next.js treats as an automatic Suspense boundary for the page — if the build *does* emit that error, wrap `PricingPage`'s default export in `apps/catalogues-web/src/app/(app)/pricing/page.tsx` in an explicit `<Suspense>` (see `apps/catalogues-web/src/app/(auth)/login/page.tsx` for the existing pattern in this codebase) before proceeding.
+Expected: build succeeds with no `useSearchParams() should be wrapped in a suspense boundary` error. `/pricing` isn't statically prerendered at all (confirm: no `.next/server/app/pricing.html` after the build) — a fully dynamic route has no static shell to fail at prerender time, which is why `useSearchParams` is safe here without an explicit `<Suspense>` wrapper. (`loading.tsx` is unrelated to this: the sibling `apps/catalogues-web/src/app/(app)/catalogues/` route also ships a `loading.tsx` and still needed an explicit `<Suspense>` wrapper around its `useSearchParams` usage — see the `missing-suspense-with-csr-bailout` comment in that route — so `loading.tsx` alone does not grant an automatic Suspense boundary.) If the build *does* emit that error, wrap `PricingPage`'s default export in `apps/catalogues-web/src/app/(app)/pricing/page.tsx` in an explicit `<Suspense>` (see `apps/catalogues-web/src/app/(auth)/login/page.tsx` for the existing pattern in this codebase) before proceeding.
 
 - [ ] **Step 7: Manual verification — already-logged-in visitor**
 

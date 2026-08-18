@@ -309,7 +309,10 @@ export function usePricingData() {
     autoOpenedRef.current = true;
     const plan = visiblePlans.find((p) => p.slug === planSlug);
     if (plan) startBuy(plan);
-    router.replace(`${BASE}/pricing`, { scroll: false });
+    const rest = new URLSearchParams(searchParams);
+    rest.delete('plan');
+    const qs = rest.toString();
+    router.replace(qs ? `/pricing?${qs}` : '/pricing', { scroll: false });
   }, [
     plansLoading,
     creditsLoading,
