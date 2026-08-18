@@ -65,12 +65,16 @@ Add a branch scoped to `/tryon-library-app`, evaluated before/alongside the exis
 ```ts
 if (path === '/tryon-library-app' || path.startsWith('/tryon-library-app/')) {
   const deviceToken = request.headers.get('x-aivastra-device-token');
-  const hasCatalogCookie = request.cookies.get('catalog_app_refresh');
-  if (deviceToken && !hasCatalogCookie) {
+  if (deviceToken) {
     try {
+      const cfIp = request.headers.get('cf-connecting-ip');
       const res = await fetch(`${API_URL}/v1/auth/catalog-app-device-exchange`, {
         method: 'POST',
-        headers: { authorization: `Bearer ${deviceToken}` },
+        headers: {
+          authorization: `Bearer ${deviceToken}`,
+          ...(cfIp ? { 'cf-connecting-ip': cfIp } : {}),
+        },
+        signal: AbortSignal.timeout(3000),
       });
       if (res.ok) {
         const h = res.headers as Headers & { getSetCookie?: () => string[] };
