@@ -127,7 +127,7 @@ export const PLAN_IMAGE_COUNT: Record<string, string> = {
   starter: '80 Images',
   growth: '225 Images',
   pro: '480 Images',
-  enterprise: '1,000 Images'
+  enterprise: '1,000 Images',
 };
 
 export const PLAN_FEATURES = [
