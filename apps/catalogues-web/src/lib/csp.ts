@@ -11,7 +11,7 @@ function originOf(url: string | undefined): string | null {
   }
 }
 
-const apiOrigin = originOf(process.env.NEXT_PUBLIC_API_URL);
+const apiOrigin = originOf(process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000');
 const chatbotOrigin = originOf(process.env.NEXT_PUBLIC_CHATBOT_URL);
 const chatbotWsOrigin = chatbotOrigin?.replace(/^http/, 'ws') ?? null;
 const sentryOrigin = originOf(process.env.NEXT_PUBLIC_SENTRY_DSN);
