@@ -46,16 +46,6 @@ export type PaymentResult =
       onRetry: () => void;
     };
 
-interface ResolutionConfig {
-  enabled: boolean;
-  creditCost: number;
-}
-export interface ResolutionConfigs {
-  HD?: ResolutionConfig;
-  '2K'?: ResolutionConfig;
-  '4K'?: ResolutionConfig;
-}
-
 const CURRENCY: Record<string, { code: string; locale: string }> = {
   IN: { code: 'INR', locale: 'en-IN' },
   US: { code: 'USD', locale: 'en-US' },
@@ -82,8 +72,8 @@ export const PLAN_META = [
     iconSrc: undefined,
     iconBg: C.mid,
     checkGrad: false,
-    icon2k: `${BASE}/assets/2k-b-vec.svg`,
-    icon4k: `${BASE}/assets/4k-b-vec.svg`,
+    // icon2k: `${BASE}/assets/2k-b-vec.svg`,
+    // icon4k: `${BASE}/assets/4k-b-vec.svg`,
     invertUsage: true,
   },
   {
@@ -94,8 +84,8 @@ export const PLAN_META = [
     iconSrc: `${BASE}/assets/gro-vec.svg`,
     iconBg: C.mid,
     checkGrad: true,
-    icon2k: `${BASE}/assets/2k-vec.svg`,
-    icon4k: `${BASE}/assets/4k-vec.svg`,
+    // icon2k: `${BASE}/assets/2k-vec.svg`,
+    // icon4k: `${BASE}/assets/4k-vec.svg`,
     invertUsage: false,
   },
   {
@@ -106,36 +96,50 @@ export const PLAN_META = [
     iconSrc: `${BASE}/assets/pro-vec.svg`,
     iconBg: C.mid,
     checkGrad: false,
-    icon2k: `${BASE}/assets/2k-b-vec.svg`,
-    icon4k: `${BASE}/assets/4k-b-vec.svg`,
+    // icon2k: `${BASE}/assets/2k-b-vec.svg`,
+    // icon4k: `${BASE}/assets/4k-b-vec.svg`,
     invertUsage: true,
   },
 ] as const;
 
+// Fixed marketing per-photo price shown beneath each plan's price on the
+// pricing cards — not derived from credits/basePaise (those price 1:1 with
+// no volume discount today), so this is set per plan by slug instead.
+export const PER_PHOTO_PRICE: Record<string, string> = {
+  starter: '₹12.50 per Catalogue photo',
+  growth: '₹11.11 per Catalogue photo',
+  pro: '₹10.00 per Catalogue photo',
+};
+
+// Fixed marketing image count shown next to each plan's price — same basis as
+// PER_PHOTO_PRICE above, set per plan by slug rather than derived.
+export const PLAN_IMAGE_COUNT: Record<string, string> = {
+  starter: '80 Images',
+  growth: '450 Images',
+  pro: '1,000 Images',
+};
+
 export const PLAN_FEATURES = [
   [
-    'Both 2K & 4K Resolution',
     'Standard AI Models',
     'Standard Backgrounds',
-    'Single Image Generation',
+    'Single Catalogue photo Generation',
     'Product Catalogue Templates',
     'Email Support',
   ],
   [
-    'Both 2K & 4K Resolution',
-    'Premium AI Models',
-    'Premium Backgrounds',
-    'Bulk Image Generation',
-    'Marketplace Templates',
-    'Priority Support',
+    'Standard AI Models',
+    'Standard Backgrounds',
+    'Bulk Catalogue photo Generation',
+    'Product Catalogue Templates',
+    'Email Support',
   ],
   [
-    'Both 2K & 4K Resolution',
-    'Premium AI Models',
-    'Premium Backgrounds',
-    'Bulk Image Generation',
-    'Marketplace Templates',
-    'Dedicated Support',
+    'Standard AI Models',
+    'Standard Backgrounds',
+    'Bulk Catalogue photo Generation',
+    'Product Catalogue Templates',
+    'Email Support',
   ],
 ] as const;
 
@@ -253,18 +257,6 @@ export function usePricingData() {
   });
   const visiblePlans = plans.filter((plan) => plan.slug !== 'free');
   const hasPriorPurchase = paymentHistory?.payments?.some((p) => p.status === 'paid') ?? false;
-
-  const { data: resolutionData } = useQuery<{ resolutions: ResolutionConfigs }>({
-    queryKey: ['resolution-configs'],
-    queryFn: () => api.get('/v1/config/resolutions'),
-    staleTime: 10 * 60 * 1000,
-  });
-
-  const resolutions: ResolutionConfigs = resolutionData?.resolutions ?? {
-    HD: { enabled: false, creditCost: 10 },
-    '2K': { enabled: true, creditCost: 25 },
-    '4K': { enabled: true, creditCost: 40 },
-  };
 
   useEffect(() => {
     setCountry(detectCountry());
@@ -533,7 +525,6 @@ export function usePricingData() {
     visiblePlans,
     plansLoading,
     firstPurchaseBonusPercent,
-    resolutions,
     displayBase,
     displayTotal,
     displayTax,
