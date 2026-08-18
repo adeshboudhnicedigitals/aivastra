@@ -29,6 +29,7 @@ import {
   reserveStoreDailySlot,
   ShopperLimitRaceRefusal,
 } from './limits.js';
+import { checkPaygSpendCap } from './payg.js';
 import { resolveShopper } from './shopper.js';
 
 const SLOT_RELEASE_MAX_ATTEMPTS = 3;
@@ -302,8 +303,12 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
       const storeId = req.shopifyStoreId as string;
       const store = req.shopifyStoreRow as typeof schema.shopifyStores.$inferSelect;
 
-      const jobCost = await getTryonCreditCost(app);
-      await requireStoreHasCredits(app, store, jobCost);
+      const jobCost = store.billingMode === 'usage' ? 0 : await getTryonCreditCost(app);
+      if (store.billingMode === 'usage') {
+        await checkPaygSpendCap(app, store);
+      } else {
+        await requireStoreHasCredits(app, store, jobCost);
+      }
 
       const {
         customerPhotoKey,
@@ -455,9 +460,16 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
               // than re-resolving — a default promoted mid-flight can't change the
               // workflow under a job whose credits are already deducted.
               workflowTemplateId,
+              // Pinned at creation, same reasoning as workflowTemplateId: the
+              // dispatcher must never re-check the store's live billingMode,
+              // since a plan change mid-flight could otherwise change how a
+              // job in progress gets billed.
+              ...(store.billingMode === 'usage' ? { billingMode: 'usage' as const } : {}),
             },
           });
-          await atomicDeductStore(tx as never, storeId, jobCost, jobId);
+          if (store.billingMode !== 'usage') {
+            await atomicDeductStore(tx as never, storeId, jobCost, jobId);
+          }
         });
         jobCommitted = true;
 
@@ -495,18 +507,34 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
               { err, jobId },
               'redis enqueue preparation failed — job will be refunded',
             );
-            // One atomic, idempotent transaction: the refund, its ledger
-            // entry, and the FAILED transition either all land or none do —
-            // see refundStoreAndMarkFailed for why the old two-step version could
-            // leave a partially-compensated job after a crash.
-            const { compensated } = await refundStoreAndMarkFailed(
-              app.db,
-              storeId,
-              jobCost,
-              jobId,
-              'REFUND_ENQUEUE_FAIL',
-              'ENQUEUE_FAIL',
-            );
+            // Prepaid path: one atomic, idempotent transaction — the refund,
+            // its ledger entry, and the FAILED transition either all land or
+            // none do — see refundStoreAndMarkFailed for why the old
+            // two-step version could leave a partially-compensated job after
+            // a crash. The usage-mode branch below is not that: there's
+            // nothing to refund and no ledger entry, so it's a plain
+            // conditional status update, not a transaction.
+            let compensated: boolean;
+            if (store.billingMode === 'usage') {
+              // Nothing was deducted for a usage-mode job — only the FAILED
+              // transition matters here, same QUEUED-guard idempotency as
+              // refundStoreAndMarkFailed's job update below.
+              const [claimed] = await app.db
+                .update(schema.jobs)
+                .set({ status: 'FAILED', errorCode: 'ENQUEUE_FAIL' })
+                .where(and(eq(schema.jobs.id, jobId), eq(schema.jobs.status, 'QUEUED')))
+                .returning({ id: schema.jobs.id });
+              compensated = Boolean(claimed);
+            } else {
+              ({ compensated } = await refundStoreAndMarkFailed(
+                app.db,
+                storeId,
+                jobCost,
+                jobId,
+                'REFUND_ENQUEUE_FAIL',
+                'ENQUEUE_FAIL',
+              ));
+            }
             if (!compensated) {
               // The XADD looked like it failed but actually landed: the
               // dispatcher already picked the job up and moved it past QUEUED
