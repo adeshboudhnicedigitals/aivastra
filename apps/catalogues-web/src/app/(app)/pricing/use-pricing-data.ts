@@ -107,16 +107,28 @@ export const PLAN_META = [
 // no volume discount today), so this is set per plan by slug instead.
 export const PER_PHOTO_PRICE: Record<string, string> = {
   starter: '₹12.50 per Catalogue photo',
-  growth: '₹11.11 per Catalogue photo',
-  pro: '₹10.00 per Catalogue photo',
+  enterprise: '₹10.00 per Catalogue photo',
+  growth: '₹11.50 per Catalogue photo',
+  pro: '₹10.50 per Catalogue photo',
+};
+
+// Fixed marketing per-try-on price shown beneath the catalogue-photo price on
+// each plan's card — same basis as PER_PHOTO_PRICE above, set per plan by
+// slug rather than derived.
+export const PER_TRYON_PRICE: Record<string, string> = {
+  starter: '₹6.25 per Try-on photo',
+  enterprise: '₹5.00 per Try-on photo',
+  growth: '₹5.58 per Try-on photo',
+  pro: '₹5.25 per Try-on photo',
 };
 
 // Fixed marketing image count shown next to each plan's price — same basis as
 // PER_PHOTO_PRICE above, set per plan by slug rather than derived.
 export const PLAN_IMAGE_COUNT: Record<string, string> = {
   starter: '80 Images',
-  growth: '450 Images',
-  pro: '1,000 Images',
+  growth: '225 Images',
+  pro: '480 Images',
+  enterprise: '1,000 Images',
 };
 
 export const PLAN_FEATURES = [
