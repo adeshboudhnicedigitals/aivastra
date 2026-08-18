@@ -1,5 +1,4 @@
 import { schema } from '@aivastra/db';
-import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { signAccess } from '../../src/modules/auth/service.js';
 import { buildTestApp, type TestApp } from '../helpers/api.js';
