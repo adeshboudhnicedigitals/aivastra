@@ -16,7 +16,7 @@ Backend (`apps/api`) and web (`apps/catalogues-web`) only. The native Android ap
 
 1. The native app authenticates as it already does (unchanged), holding a short-lived device access token (`aud: 'device'`) and a refresh token.
 2. When opening the WebView, the native app calls `webView.loadUrl(url, mapOf("X-Aivastra-Device-Token" to deviceAccessToken))` — the header is sent only on that first top-level navigation, never appended to the URL.
-3. Next.js middleware sees the header on `/tryon-library-app` with no `catalog_app_refresh` cookie present yet, and exchanges the device token for a catalog-app session server-to-server (middleware → BFF logic → API).
+3. Next.js middleware sees the header on `/tryon-library-app` and exchanges the device token for a catalog-app session server-to-server, calling the API directly — no BFF hop (see "Web changes" below for why).
 4. `AuthGate.tsx` requires **no changes**: its existing mount-time call to `/api/catalog-app/refresh` finds the cookie already set by the middleware and renders the library directly, with no flash of the login form.
 5. After the first successful exchange, the WebView's persistent cookie store carries the session like a normal browser tab. The header is not needed again unless the WebView's cookies are cleared (e.g. on native logout).
 
@@ -28,7 +28,7 @@ This deliberately keeps the device token out of the URL, browser history, and Re
 
 Location: `apps/api/src/modules/auth/routes.ts`, placed next to the existing `POST /v1/auth/catalog-app-refresh`.
 
-- `preHandler: app.requireDeviceUser` — this guard already exists (`apps/api/src/plugins/auth.ts:85`) and does exactly what's needed here: verifies the bearer token has `aud: 'device'`, `kind: 'access'`, and resolves to a real, email-verified, non-banned user. No new token-verification logic is required.
+- `preHandler: app.requireDeviceUser` — this guard already exists (`apps/api/src/plugins/auth.ts:85`) and does exactly what's needed here: verifies the bearer token has `aud: 'device'`, `kind: 'access'`, and resolves to a real, email-verified user — but **not** a non-banned one (`requireDeviceUser` has no `isBanned` check, unlike the password-based `portal: 'catalog-app'` login this route mirrors). The route adds its own explicit ban check for this reason — see the implementation.
 - No request body — `req.userId` comes from the guard.
 - Logic, mirroring the existing `portal: 'catalog-app'` branch of `POST /v1/auth/login` (`routes.ts:395-403`):
   ```ts

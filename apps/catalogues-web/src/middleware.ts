@@ -66,15 +66,22 @@ export async function middleware(request: NextRequest) {
   // first navigation only. Exchange it for a catalog_app_refresh cookie before
   // AuthGate's own client-side check ever runs, so an already-signed-in
   // merchant never sees this PWA's separate login form. No-op for every other
-  // visitor (no header, or the cookie is already set).
+  // visitor (no header). Always attempted when the header is present, even if a
+  // catalog_app_refresh cookie already exists — that cookie's 7-day lifetime is
+  // independent of the server-side session it points at (native logout, family-
+  // reuse revocation), so a present-but-stale cookie must not skip the exchange.
   if (path === '/tryon-library-app' || path.startsWith('/tryon-library-app/')) {
     const deviceToken = request.headers.get('x-aivastra-device-token');
-    const hasCatalogCookie = request.cookies.get('catalog_app_refresh');
-    if (deviceToken && !hasCatalogCookie) {
+    if (deviceToken) {
       try {
+        const cfIp = request.headers.get('cf-connecting-ip');
         const res = await fetch(`${API_URL}/v1/auth/catalog-app-device-exchange`, {
           method: 'POST',
-          headers: { authorization: `Bearer ${deviceToken}` },
+          headers: {
+            authorization: `Bearer ${deviceToken}`,
+            ...(cfIp ? { 'cf-connecting-ip': cfIp } : {}),
+          },
+          signal: AbortSignal.timeout(3000),
         });
         if (res.ok) {
           const h = res.headers as Headers & { getSetCookie?: () => string[] };

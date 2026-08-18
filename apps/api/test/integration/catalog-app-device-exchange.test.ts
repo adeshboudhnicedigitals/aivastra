@@ -1,6 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { signAccess } from '../../src/modules/auth/service.js';
+import { hashPassword, signAccess } from '../../src/modules/auth/service.js';
 import { buildTestApp, type TestApp } from '../helpers/api.js';
 import { type Containers, startContainers } from '../helpers/containers.js';
 import { createTestMerchant } from '../helpers/merchant.js';
@@ -119,5 +121,55 @@ describe('POST /v1/auth/catalog-app-device-exchange', () => {
       url: '/v1/auth/catalog-app-device-exchange',
     });
     expect(res.statusCode).toBe(401);
+  });
+
+  it('rejects a banned device user', async () => {
+    const merchant = await createTestMerchant(app, { isActive: true });
+    await app.db
+      .update(schema.users)
+      .set({ isBanned: true })
+      .where(eq(schema.users.id, merchant.userId));
+    const token = await deviceTokenFor(merchant.userId);
+
+    const res = await exchange(token);
+
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe('BANNED');
+  });
+
+  it('accepts a token obtained via the real device-login -> device-refresh path (regression: device-refresh must preserve aud "device")', async () => {
+    const merchant = await createTestMerchant(app, { isActive: true });
+    const email = `real-flow-${randomUUID()}@example.com`;
+    await app.db
+      .update(schema.users)
+      .set({ email, passwordHash: await hashPassword('Passw0rdTest123') })
+      .where(eq(schema.users.id, merchant.userId));
+
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/device-login',
+      payload: {
+        email,
+        password: 'Passw0rdTest123',
+        deviceId: randomUUID(),
+        platform: 'mobile',
+      },
+    });
+    expect(loginRes.statusCode).toBe(200);
+    const { refreshToken } = loginRes.json() as { refreshToken: string };
+
+    const refreshRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/device-refresh',
+      payload: { refreshToken, platform: 'mobile' },
+    });
+    expect(refreshRes.statusCode).toBe(200);
+    const { accessToken } = refreshRes.json() as { accessToken: string };
+
+    const res = await exchange(accessToken);
+
+    expect(res.statusCode).toBe(200);
+    const cookies = res.cookies.map((ck) => ck.name);
+    expect(cookies).toContain('catalog_app_refresh');
   });
 });
