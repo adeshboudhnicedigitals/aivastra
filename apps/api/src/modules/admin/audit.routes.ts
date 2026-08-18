@@ -1,8 +1,55 @@
 import { schema } from '@aivastra/db';
-import { and, count, desc, eq, gte, ilike, lte } from 'drizzle-orm';
+import { and, count, desc, eq, gte, ilike, inArray, lte } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { requirePermission } from './guard.js';
+
+// resourceId is stored as plain text (workers.id is text, users/workflow_templates
+// ids are uuid) so there's no single FK to join generically — resolve a
+// human-readable label per resourceType with one batched lookup query each,
+// rather than a fragile cross-type SQL join.
+const USER_SHAPED_RESOURCE_TYPES = new Set(['user', 'admin_user', 'user_credits']);
+
+async function resolveResourceLabels(
+  app: FastifyInstance,
+  rows: Array<{ resourceType: string; resourceId: string | null }>,
+): Promise<Map<string, string>> {
+  const labels = new Map<string, string>();
+
+  const userIds = rows
+    .filter((r) => USER_SHAPED_RESOURCE_TYPES.has(r.resourceType) && r.resourceId)
+    .map((r) => r.resourceId as string);
+  const workerIds = rows
+    .filter((r) => r.resourceType === 'worker' && r.resourceId)
+    .map((r) => r.resourceId as string);
+  const workflowIds = rows
+    .filter((r) => r.resourceType === 'workflow' && r.resourceId)
+    .map((r) => r.resourceId as string);
+
+  if (userIds.length > 0) {
+    const users = await app.db
+      .select({ id: schema.users.id, email: schema.users.email, username: schema.users.username })
+      .from(schema.users)
+      .where(inArray(schema.users.id, userIds));
+    for (const u of users) labels.set(u.id, u.email ?? u.username ?? u.id);
+  }
+  if (workerIds.length > 0) {
+    const workers = await app.db
+      .select({ id: schema.workers.id, label: schema.workers.label })
+      .from(schema.workers)
+      .where(inArray(schema.workers.id, workerIds));
+    for (const w of workers) labels.set(w.id, w.label || w.id);
+  }
+  if (workflowIds.length > 0) {
+    const workflows = await app.db
+      .select({ id: schema.workflowTemplates.id, label: schema.workflowTemplates.label })
+      .from(schema.workflowTemplates)
+      .where(inArray(schema.workflowTemplates.id, workflowIds));
+    for (const wf of workflows) labels.set(wf.id, wf.label || wf.id);
+  }
+
+  return labels;
+}
 
 const AuditLogsQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -69,11 +116,17 @@ export async function adminAuditRoutes(app: FastifyInstance) {
         .limit(pageSize)
         .offset((page - 1) * pageSize);
 
+      const resourceLabels = await resolveResourceLabels(app, rows);
+      const items = rows.map((row) => ({
+        ...row,
+        resourceLabel: row.resourceId ? (resourceLabels.get(row.resourceId) ?? null) : null,
+      }));
+
       return {
         page,
         pageSize,
         total: Number(total),
-        items: rows,
+        items,
       };
     },
   );

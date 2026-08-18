@@ -972,7 +972,9 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
           action: 'workflow.delete',
           resourceType: 'workflow',
           resourceId: id,
-          before: row,
+          // Omit jsonContent — the full ComfyUI workflow blob doesn't belong in an
+          // audit-log payload.
+          before: { id: row.id, slug: row.slug, label: row.label, workflowType: row.workflowType },
           request: req,
         });
       });

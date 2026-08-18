@@ -145,7 +145,7 @@ const groups: NavGroup[] = [
       },
       {
         k: 'audit-logs',
-        label: 'Activity Logs',
+        label: 'Team Activity',
         icon: Icon.Clock,
         roles: ['SUPER_ADMIN'],
       },

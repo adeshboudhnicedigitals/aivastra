@@ -256,13 +256,15 @@ export async function adminUsersRoutes(app: FastifyInstance) {
             .where(eq(schema.refreshTokens.userId, id));
         }
 
+        const { passwordHash: _beforeHash, ...beforeSafe } = existing;
+        const { passwordHash: _afterHash, ...afterSafe } = { ...existing, ...patch };
         await recordAudit(tx, {
           actor: { userId: req.userId, role: req.adminRole! },
           action: isBanned ? 'users.ban' : 'users.update',
           resourceType: 'user',
           resourceId: id,
-          before: existing,
-          after: { ...existing, ...patch },
+          before: beforeSafe,
+          after: afterSafe,
           request: req,
         });
       });
@@ -416,7 +418,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           action: 'users.delete',
           resourceType: 'user',
           resourceId: id,
-          before: existing,
+          before: { id: existing.id, username: existing.username, email: existing.email },
         });
       }
     });
@@ -614,7 +616,9 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           action: 'admin_users.revoke',
           resourceType: 'admin_user',
           resourceId: userId,
-          before: existing,
+          // Never persist passwordHash into audit_logs — it's copied onto admin_users
+          // from users.passwordHash at approval time (see schema comment).
+          before: { role: existing.role, status: existing.status },
           request: req,
         });
       });
