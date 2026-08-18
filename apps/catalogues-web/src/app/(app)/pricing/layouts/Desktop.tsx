@@ -12,6 +12,7 @@ import {
   COUNTRIES,
   FLAGS,
   PER_PHOTO_PRICE,
+  PER_TRYON_PRICE,
   PLAN_FEATURES,
   PLAN_IMAGE_COUNT,
   PLAN_META,
@@ -955,21 +956,21 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
           <div
             style={{
               display: 'flex',
-              gap: 20,
+              gap: 24,
               justifyContent: 'center',
               alignItems: 'stretch',
               flexWrap: 'wrap',
-              maxWidth: 1080,
+              maxWidth: 1500,
               margin: '0 auto',
               padding: '0 24px',
             }}
           >
             {plansLoading
-              ? [0, 1, 2].map((i) => (
+              ? [0, 1, 2, 3].map((i) => (
                   <div
                     key={i}
                     style={{
-                      width: 320,
+                      width: 330,
                       minHeight: 560,
                       background: C.card,
                       border: `1px solid ${C.border}`,
@@ -1096,10 +1097,22 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
                               fontSize: 14,
                               fontWeight: 700,
                               color: C.text,
-                              marginBottom: 20,
+                              marginBottom: PER_TRYON_PRICE[plan.slug] ? 6 : 20,
                             }}
                           >
                             {PER_PHOTO_PRICE[plan.slug]}
+                          </div>
+                        )}
+                        {PER_TRYON_PRICE[plan.slug] && (
+                          <div
+                            style={{
+                              fontSize: 14,
+                              fontWeight: 700,
+                              color: C.text,
+                              marginBottom: 20,
+                            }}
+                          >
+                            {PER_TRYON_PRICE[plan.slug]}
                           </div>
                         )}
                       </div>
@@ -1213,7 +1226,7 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
                     <div
                       key={plan.slug}
                       style={{
-                        width: 320,
+                        width: 330,
                         paddingTop: 16,
                         display: 'flex',
                         flexDirection: 'column',
@@ -1237,7 +1250,7 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
                     <div
                       key={plan.slug}
                       style={{
-                        width: 320,
+                        width: 330,
                         paddingTop: 16,
                         display: 'flex',
                         flexDirection: 'column',

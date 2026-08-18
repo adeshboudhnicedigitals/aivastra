@@ -10,6 +10,7 @@ import {
   COUNTRIES,
   FLAGS,
   PER_PHOTO_PRICE,
+  PER_TRYON_PRICE,
   PLAN_FEATURES,
   PLAN_IMAGE_COUNT,
   PLAN_META,
@@ -529,10 +530,22 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
                               fontSize: 14,
                               fontWeight: 700,
                               color: C.text,
-                              marginBottom: 20,
+                              marginBottom: PER_TRYON_PRICE[plan.slug] ? 6 : 20,
                             }}
                           >
                             {PER_PHOTO_PRICE[plan.slug]}
+                          </div>
+                        )}
+                        {PER_TRYON_PRICE[plan.slug] && (
+                          <div
+                            style={{
+                              fontSize: 14,
+                              fontWeight: 700,
+                              color: C.text,
+                              marginBottom: 20,
+                            }}
+                          >
+                            {PER_TRYON_PRICE[plan.slug]}
                           </div>
                         )}
                       </div>

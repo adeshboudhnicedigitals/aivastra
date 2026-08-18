@@ -10,6 +10,7 @@ import {
   COUNTRIES,
   FLAGS,
   PER_PHOTO_PRICE,
+  PER_TRYON_PRICE,
   PLAN_FEATURES,
   PLAN_IMAGE_COUNT,
   PLAN_META,
@@ -532,10 +533,22 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                               fontSize: 13,
                               fontWeight: 700,
                               color: C.text,
-                              marginBottom: 16,
+                              marginBottom: PER_TRYON_PRICE[plan.slug] ? 6 : 16,
                             }}
                           >
                             {PER_PHOTO_PRICE[plan.slug]}
+                          </div>
+                        )}
+                        {PER_TRYON_PRICE[plan.slug] && (
+                          <div
+                            style={{
+                              fontSize: 13,
+                              fontWeight: 700,
+                              color: C.text,
+                              marginBottom: 16,
+                            }}
+                          >
+                            {PER_TRYON_PRICE[plan.slug]}
                           </div>
                         )}
                       </div>
