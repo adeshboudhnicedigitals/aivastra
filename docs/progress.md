@@ -1,3 +1,41 @@
+## 2026-08-18 — Android tryon-library-app SSO bypass (backend + web)
+
+**Done**
+- New endpoint `POST /v1/auth/catalog-app-device-exchange`
+  (`apps/api/src/modules/auth/routes.ts`, guarded by the existing
+  `app.requireDeviceUser`): exchanges a live device-session bearer token
+  (`aud: 'device'`, minted by `/v1/auth/device-login` or
+  `/device-login/google`) for a `catalog-app` cookie session — same session
+  type and `NOT_A_MERCHANT` gate the password-based
+  `portal: 'catalog-app'` branch of `/v1/auth/login` already issues, reused
+  unmodified via `createSessionTokens`. Rate-limited `10/min`. 6 integration
+  tests, all green.
+- `apps/catalogues-web/src/middleware.ts` now recognizes a
+  `X-Aivastra-Device-Token` header on requests to `/tryon-library-app`: if
+  present and no `catalog_app_refresh` cookie exists yet, it calls the new
+  endpoint server-to-server and attaches the resulting cookie before the
+  page's own client-side login check (`AuthGate.tsx`, left unmodified)
+  ever runs. Manually verified against live local dev servers: valid
+  token → cookie set; no header → no cookie, unaffected; invalid token →
+  no cookie, no 500, clean 401 fall-through.
+- Built via superpowers:subagent-driven-development (2 tasks, both
+  reviewed clean, no Critical/Important findings).
+
+**Android integration contract (for the native app, separate repo, not
+implemented here):**
+- Send `X-Aivastra-Device-Token: <deviceAccessToken>` only on the WebView's
+  first `loadUrl` call for `/tryon-library-app` — the resulting cookie
+  persists in the WebView's cookie jar afterward, no header needed again.
+- On native logout, clear this origin's WebView cookies and ideally also
+  call `POST /api/catalog-app/logout`, or a shared/kiosk device can leave
+  the previous merchant's session live in the WebView.
+
+**Open Questions / Decisions**
+- Design + plan: `docs/superpowers/specs/2026-08-18-android-tryon-library-app-sso-design.md`,
+  `docs/superpowers/plans/2026-08-18-android-tryon-library-app-sso.md`.
+- Branch `feature/android-tryon-library-app-sso` pushed to origin for
+  manual review/merge — no PR opened yet (explicit request).
+
 ## 2026-08-18 — Pricing plan deep-link for WordPress Buy Now buttons
 
 **Done**
