@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BarChart2, Building2, Rocket } from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import React, { useEffect, useRef, useState } from 'react';
 import { FlagAE, FlagGB, FlagIN, FlagUS } from '@/components/icons';
 import { C } from '@/components/tokens';
@@ -45,16 +46,6 @@ export type PaymentResult =
       onRetry: () => void;
     };
 
-interface ResolutionConfig {
-  enabled: boolean;
-  creditCost: number;
-}
-export interface ResolutionConfigs {
-  HD?: ResolutionConfig;
-  '2K'?: ResolutionConfig;
-  '4K'?: ResolutionConfig;
-}
-
 const CURRENCY: Record<string, { code: string; locale: string }> = {
   IN: { code: 'INR', locale: 'en-IN' },
   US: { code: 'USD', locale: 'en-US' },
@@ -81,8 +72,8 @@ export const PLAN_META = [
     iconSrc: undefined,
     iconBg: C.mid,
     checkGrad: false,
-    icon2k: `${BASE}/assets/2k-b-vec.svg`,
-    icon4k: `${BASE}/assets/4k-b-vec.svg`,
+    // icon2k: `${BASE}/assets/2k-b-vec.svg`,
+    // icon4k: `${BASE}/assets/4k-b-vec.svg`,
     invertUsage: true,
   },
   {
@@ -93,8 +84,8 @@ export const PLAN_META = [
     iconSrc: `${BASE}/assets/gro-vec.svg`,
     iconBg: C.mid,
     checkGrad: true,
-    icon2k: `${BASE}/assets/2k-vec.svg`,
-    icon4k: `${BASE}/assets/4k-vec.svg`,
+    // icon2k: `${BASE}/assets/2k-vec.svg`,
+    // icon4k: `${BASE}/assets/4k-vec.svg`,
     invertUsage: false,
   },
   {
@@ -105,36 +96,62 @@ export const PLAN_META = [
     iconSrc: `${BASE}/assets/pro-vec.svg`,
     iconBg: C.mid,
     checkGrad: false,
-    icon2k: `${BASE}/assets/2k-b-vec.svg`,
-    icon4k: `${BASE}/assets/4k-b-vec.svg`,
+    // icon2k: `${BASE}/assets/2k-b-vec.svg`,
+    // icon4k: `${BASE}/assets/4k-b-vec.svg`,
     invertUsage: true,
   },
 ] as const;
 
+// Fixed marketing per-photo price shown beneath each plan's price on the
+// pricing cards — not derived from credits/basePaise (those price 1:1 with
+// no volume discount today), so this is set per plan by slug instead.
+export const PER_PHOTO_PRICE: Record<string, string> = {
+  starter: '₹12.50 per Catalogue photo',
+  enterprise: '₹10.00 per Catalogue photo',
+  growth: '₹11.50 per Catalogue photo',
+  pro: '₹10.50 per Catalogue photo',
+};
+
+// Fixed marketing per-try-on price shown beneath the catalogue-photo price on
+// each plan's card — same basis as PER_PHOTO_PRICE above, set per plan by
+// slug rather than derived.
+export const PER_TRYON_PRICE: Record<string, string> = {
+  starter: '₹6.25 per Try-on photo',
+  enterprise: '₹5.00 per Try-on photo',
+  growth: '₹5.58 per Try-on photo',
+  pro: '₹5.25 per Try-on photo',
+};
+
+// Fixed marketing image count shown next to each plan's price — same basis as
+// PER_PHOTO_PRICE above, set per plan by slug rather than derived.
+export const PLAN_IMAGE_COUNT: Record<string, string> = {
+  starter: '80 Images',
+  growth: '225 Images',
+  pro: '480 Images',
+  enterprise: '1,000 Images',
+};
+
 export const PLAN_FEATURES = [
   [
-    'Both 2K & 4K Resolution',
     'Standard AI Models',
     'Standard Backgrounds',
-    'Single Image Generation',
+    'Single Catalogue photo Generation',
     'Product Catalogue Templates',
     'Email Support',
   ],
   [
-    'Both 2K & 4K Resolution',
-    'Premium AI Models',
-    'Premium Backgrounds',
-    'Bulk Image Generation',
-    'Marketplace Templates',
-    'Priority Support',
+    'Standard AI Models',
+    'Standard Backgrounds',
+    'Bulk Catalogue photo Generation',
+    'Product Catalogue Templates',
+    'Email Support',
   ],
   [
-    'Both 2K & 4K Resolution',
-    'Premium AI Models',
-    'Premium Backgrounds',
-    'Bulk Image Generation',
-    'Marketplace Templates',
-    'Dedicated Support',
+    'Standard AI Models',
+    'Standard Backgrounds',
+    'Bulk Catalogue photo Generation',
+    'Product Catalogue Templates',
+    'Email Support',
   ],
 ] as const;
 
@@ -193,6 +210,8 @@ function loadRazorpay(): Promise<boolean> {
 
 export function usePricingData() {
   const qc = useQueryClient();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [paymentResult, setPaymentResult] = useState<PaymentResult | null>(null);
   const [buying, setBuying] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'catalogue' | 'tryon'>('catalogue');
@@ -210,8 +229,9 @@ export function usePricingData() {
   const [rates, setRates] = useState<Record<string, number>>(FALLBACK_RATES);
   const [ratesLoading, setRatesLoading] = useState(true);
   const countryRef = useRef<HTMLDivElement>(null);
+  const autoOpenedRef = useRef(false);
 
-  const { data: credits } = useQuery<{
+  const { data: credits, isLoading: creditsLoading } = useQuery<{
     balance: number;
     firstPurchaseBonusPercent: number | null;
     recent: { delta: number; reason: string; createdAt: string }[];
@@ -228,7 +248,7 @@ export function usePricingData() {
     staleTime: 60_000,
   });
 
-  const { data: paymentHistory } = useQuery<{
+  const { data: paymentHistory, isLoading: paymentHistoryLoading } = useQuery<{
     payments: {
       planId: string;
       planName: string | null;
@@ -249,18 +269,6 @@ export function usePricingData() {
   });
   const visiblePlans = plans.filter((plan) => plan.slug !== 'free');
   const hasPriorPurchase = paymentHistory?.payments?.some((p) => p.status === 'paid') ?? false;
-
-  const { data: resolutionData } = useQuery<{ resolutions: ResolutionConfigs }>({
-    queryKey: ['resolution-configs'],
-    queryFn: () => api.get('/v1/config/resolutions'),
-    staleTime: 10 * 60 * 1000,
-  });
-
-  const resolutions: ResolutionConfigs = resolutionData?.resolutions ?? {
-    HD: { enabled: false, creditCost: 10 },
-    '2K': { enabled: true, creditCost: 25 },
-    '4K': { enabled: true, creditCost: 40 },
-  };
 
   useEffect(() => {
     setCountry(detectCountry());
@@ -288,6 +296,36 @@ export function usePricingData() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
+
+  // WordPress "Buy Now" buttons deep-link to /pricing?plan=<slug> and expect
+  // checkout to open automatically — no extra click. Waits for plans,
+  // credits, and payment history to finish loading so startBuy's
+  // first-time-buyer gating (coupon modal vs. straight to GSTIN/Razorpay)
+  // sees real data instead of pre-load defaults. Fires at most once per page
+  // load (autoOpenedRef), then strips `plan` from the URL either way so a
+  // refresh or back-navigation doesn't reopen the modal or re-check a
+  // now-stale slug.
+  useEffect(() => {
+    if (autoOpenedRef.current) return;
+    if (plansLoading || creditsLoading || paymentHistoryLoading) return;
+    const planSlug = searchParams.get('plan');
+    if (!planSlug) return;
+    autoOpenedRef.current = true;
+    const plan = visiblePlans.find((p) => p.slug === planSlug);
+    if (plan) startBuy(plan);
+    const rest = new URLSearchParams(searchParams);
+    rest.delete('plan');
+    const qs = rest.toString();
+    router.replace(qs ? `/pricing?${qs}` : '/pricing', { scroll: false });
+  }, [
+    plansLoading,
+    creditsLoading,
+    paymentHistoryLoading,
+    visiblePlans,
+    searchParams,
+    router,
+    startBuy,
+  ]);
 
   const isNonIn = country !== 'IN';
 
@@ -499,7 +537,6 @@ export function usePricingData() {
     visiblePlans,
     plansLoading,
     firstPurchaseBonusPercent,
-    resolutions,
     displayBase,
     displayTotal,
     displayTax,
