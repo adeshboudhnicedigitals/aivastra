@@ -9,4 +9,4 @@ export const DEFAULT_PAYG_SPEND_CAP_USD_CENTS = 5000; // $50
 // exactly — this is what the spend cap is checked against, and what the
 // dispatcher stamps onto every shopify_usage_events row. If the Partner
 // Dashboard price ever changes, this constant changes in the same PR.
-export const PAYG_PRICE_PER_TRYON_USD_CENTS = 10;
+export const PAYG_PRICE_PER_TRYON_USD_CENTS = 8;

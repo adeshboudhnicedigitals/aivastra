@@ -1,5 +1,6 @@
 import { schema } from '@aivastra/db';
 import { createLogger } from '@aivastra/logger';
+import { PAYG_PRICE_PER_TRYON_USD_CENTS } from '@aivastra/types';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
@@ -136,7 +137,7 @@ describe('dispatcher PAYG usage-event write', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.storeId).toBe(storeId);
     expect(rows[0]?.status).toBe('PENDING');
-    expect(rows[0]?.priceUsdCents).toBe(10);
+    expect(rows[0]?.priceUsdCents).toBe(PAYG_PRICE_PER_TRYON_USD_CENTS);
   });
 
   it('writes no usage_events row when the job fails', async () => {

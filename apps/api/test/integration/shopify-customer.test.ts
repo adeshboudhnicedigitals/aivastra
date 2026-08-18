@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer';
 import { schema } from '@aivastra/db';
+import { PAYG_PRICE_PER_TRYON_USD_CENTS } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildTestApp } from '../helpers/api.js';
@@ -507,7 +508,7 @@ describe('shopify customer routes', () => {
         scope: 'read_products',
         billingMode: 'usage',
         subscriptionStatus: 'active',
-        paygSpendCapUsdCents: 10,
+        paygSpendCapUsdCents: PAYG_PRICE_PER_TRYON_USD_CENTS,
       })
       .returning();
     const [existingJob] = await (app.db.insert(schema.jobs).values as never)({
@@ -519,7 +520,7 @@ describe('shopify customer routes', () => {
     await app.db.insert(schema.shopifyUsageEvents).values({
       storeId: store.id,
       jobId: existingJob.id,
-      priceUsdCents: 10, // already at the $0.10 cap
+      priceUsdCents: PAYG_PRICE_PER_TRYON_USD_CENTS, // already at the cap
     });
 
     const r2Key = await uploadCustomerPhoto(store.storeKey, Buffer.from('photo-bytes'));
