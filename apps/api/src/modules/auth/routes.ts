@@ -780,6 +780,29 @@ export async function authRoutes(app: FastifyInstance) {
     };
   });
 
+  // Lets the Android app's WebView (already signed into the native device
+  // session) pick up a catalog-app cookie session without showing the Try On
+  // Library's own login form. requireDeviceUser proves this is a live
+  // 'device'-audience session; the merchant-active gate matches the
+  // password-based portal: 'catalog-app' branch of /v1/auth/login above.
+  app.post(
+    '/v1/auth/catalog-app-device-exchange',
+    {
+      preHandler: app.requireDeviceUser,
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    },
+    async (req, reply) => {
+      const [merchantRow] = await app.db
+        .select({ isActive: schema.merchants.isActive })
+        .from(schema.merchants)
+        .where(eq(schema.merchants.userId, req.userId));
+      if (!merchantRow?.isActive) {
+        throw new AppError('NOT_A_MERCHANT', 403, 'This account has no Try On Library access.');
+      }
+      return createSessionTokens(app, req.userId, reply, 200, 'catalog-app');
+    },
+  );
+
   // ── Mobile auth (body-based tokens, no cookies) ──────────────────────────
 
   app.post(
