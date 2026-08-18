@@ -1,11 +1,10 @@
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import { AdminMerchantUpdateBody, AssetContentType } from '@aivastra/types';
-import { and, count, desc, eq, ilike, or as orOp } from 'drizzle-orm';
+import { count, desc, eq, ilike, or as orOp } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { createKioskDevice, generatePairingCode, hashPairingCode } from '../kiosk/provisioning.js';
 import { assignMerchantToActiveDemoSets } from '../merchant/demo-catalog-read.js';
 import { merchantAdminGrant } from '../merchant/ledger.js';
 import { findOrCreateUserForMerchant } from '../merchant/user-link.js';
@@ -32,21 +31,6 @@ const AdminCreditBody = z.object({
   amount: z.number().int().positive(),
   reason: z.string().min(1),
 });
-
-const AdminKioskDeviceBody = z.object({ label: z.string().min(1).max(120) });
-const AdminPatchKioskDeviceBody = z
-  .object({
-    label: z.string().min(1).max(120).optional(),
-    status: z.literal('revoked').optional(),
-  })
-  .refine((body) => body.label !== undefined || body.status !== undefined, {
-    message: 'label or status is required',
-  });
-
-function publicKioskDevice(device: typeof schema.kioskDevices.$inferSelect) {
-  const { pairingCodeHash: _pairingCodeHash, ...rest } = device;
-  return rest;
-}
 
 // Save-time shape check for merchant webhook URLs. This rejects the obvious cases
 // (non-https, hostnames that are literal private/loopback IPs) so an admin gets an
@@ -127,8 +111,6 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
           businessAddress: schema.merchants.businessAddress,
           isActive: schema.merchants.isActive,
           demoData: schema.merchants.demoData,
-          kioskEnabled: schema.merchants.kioskEnabled,
-          maxKioskDevices: schema.merchants.maxKioskDevices,
           jobRateLimitPerMin: schema.merchants.jobRateLimitPerMin,
           createdAt: schema.merchants.createdAt,
           updatedAt: schema.merchants.updatedAt,
@@ -242,8 +224,6 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
           businessAddress: schema.merchants.businessAddress,
           isActive: schema.merchants.isActive,
           demoData: schema.merchants.demoData,
-          kioskEnabled: schema.merchants.kioskEnabled,
-          maxKioskDevices: schema.merchants.maxKioskDevices,
           jobRateLimitPerMin: schema.merchants.jobRateLimitPerMin,
           userId: schema.merchants.userId,
           webhookUrl: schema.merchants.webhookUrl,
@@ -290,18 +270,11 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
         emailVerified: client.emailVerified,
       };
 
-      const kioskDevices = await app.db
-        .select()
-        .from(schema.kioskDevices)
-        .where(eq(schema.kioskDevices.merchantId, id))
-        .orderBy(desc(schema.kioskDevices.createdAt));
-
       return {
         ...client,
         ledger,
         recentJobs,
         linkedUser,
-        kioskDevices: kioskDevices.map(publicKioskDevice),
       };
     },
   );
@@ -323,8 +296,6 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
       if (body.contactName !== undefined) updates.contactName = body.contactName;
       if (body.phone !== undefined) updates.phone = body.phone;
       if (body.businessAddress !== undefined) updates.businessAddress = body.businessAddress;
-      if (body.kioskEnabled !== undefined) updates.kioskEnabled = body.kioskEnabled;
-      if (body.maxKioskDevices !== undefined) updates.maxKioskDevices = body.maxKioskDevices;
       if (body.jobRateLimitPerMin !== undefined) {
         updates.jobRateLimitPerMin = body.jobRateLimitPerMin;
       }
@@ -397,75 +368,6 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
         .limit(1);
 
       return { newBalance: credits?.balance ?? amount };
-    },
-  );
-  app.post(
-    '/admin/merchants/:id/kiosk-devices',
-    {
-      preHandler: requireAdmin(['SUPER_ADMIN']),
-      schema: { body: AdminKioskDeviceBody },
-    },
-    async (req, reply) => {
-      const { id } = req.params as { id: string };
-      const { label } = req.body as z.infer<typeof AdminKioskDeviceBody>;
-      const [client] = await app.db
-        .select({ id: schema.merchants.id })
-        .from(schema.merchants)
-        .where(eq(schema.merchants.id, id))
-        .limit(1);
-      if (!client) throw new AppError('NOT_FOUND', 404, 'Merchant not found');
-
-      const { device, pairingCode } = await createKioskDevice(app, id, label);
-      reply.code(201);
-      return { device: publicKioskDevice(device), pairingCode };
-    },
-  );
-
-  app.patch(
-    '/admin/merchants/:id/kiosk-devices/:deviceId',
-    {
-      preHandler: requireAdmin(['SUPER_ADMIN']),
-      schema: { body: AdminPatchKioskDeviceBody },
-    },
-    async (req) => {
-      const { id, deviceId } = req.params as { id: string; deviceId: string };
-      const body = req.body as z.infer<typeof AdminPatchKioskDeviceBody>;
-      const now = new Date();
-      const [updated] = await app.db
-        .update(schema.kioskDevices)
-        .set({
-          ...(body.label !== undefined ? { label: body.label } : {}),
-          ...(body.status === 'revoked' ? { status: 'revoked', revokedAt: now } : {}),
-          updatedAt: now,
-        })
-        .where(and(eq(schema.kioskDevices.id, deviceId), eq(schema.kioskDevices.merchantId, id)))
-        .returning();
-      if (!updated) throw new AppError('NOT_FOUND', 404, 'kiosk device not found');
-      return publicKioskDevice(updated);
-    },
-  );
-
-  app.post(
-    '/admin/merchants/:id/kiosk-devices/:deviceId/pairing-code',
-    { preHandler: requireAdmin(['SUPER_ADMIN']) },
-    async (req) => {
-      const { id, deviceId } = req.params as { id: string; deviceId: string };
-      const pairingCode = generatePairingCode();
-      const now = new Date();
-      const [updated] = await app.db
-        .update(schema.kioskDevices)
-        .set({
-          status: 'pending',
-          pairingCodeHash: hashPairingCode(pairingCode),
-          pairingCodeExpiresAt: new Date(now.getTime() + 15 * 60 * 1000),
-          revokedAt: null,
-          pairedAt: null,
-          updatedAt: now,
-        })
-        .where(and(eq(schema.kioskDevices.id, deviceId), eq(schema.kioskDevices.merchantId, id)))
-        .returning();
-      if (!updated) throw new AppError('NOT_FOUND', 404, 'kiosk device not found');
-      return { device: publicKioskDevice(updated), pairingCode };
     },
   );
 }

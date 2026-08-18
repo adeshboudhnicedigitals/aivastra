@@ -166,7 +166,6 @@ export const SystemConfigBody = z.object({
       merchantCatalogMaxBytes: z.number().int().positive().max(52_428_800).optional(),
       webGarmentMaxBytes: z.number().int().positive().max(52_428_800).optional(),
       merchantTryonMaxBytes: z.number().int().positive().max(52_428_800).optional(),
-      kioskUploadMaxBytes: z.number().int().positive().max(52_428_800).optional(),
       devApiMaxBytes: z.number().int().positive().max(52_428_800).optional(),
       shopifyCatalogSourceMaxBytes: z.number().int().positive().max(52_428_800).optional(),
       shopifyCustomerPhotoMaxBytes: z.number().int().positive().max(52_428_800).optional(),

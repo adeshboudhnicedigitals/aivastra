@@ -3,9 +3,6 @@
  *
  * jobs.source is set going forward at 4 job-creation call sites (catalog, tryon,
  * saree, shopify — see docs/superpowers/specs/2026-07-10-admin-credit-analysis-design.md).
- * Kiosk jobs never get source set going forward (attributed via merchants.userId
- * instead at query time); this backfill still labels historical kiosk rows 'kiosk'
- * as a side effect of the CASE order below — harmless, corroborating not load-bearing.
  *
  * Idempotent + re-runnable: only touches rows where source IS NULL. Run this once
  * per environment (dev already done; run again against staging/prod before/at deploy,
@@ -25,7 +22,6 @@ async function main() {
   const result = await sql`
     UPDATE jobs j SET source = CASE
       WHEN j.shopify_store_id IS NOT NULL THEN 'shopify'
-      WHEN j.kiosk_device_id IS NOT NULL THEN 'kiosk'
       WHEN EXISTS (
         SELECT 1 FROM job_inputs ji WHERE ji.job_id = j.id AND ji.params->>'kind' = 'saree'
       ) THEN 'saree'

@@ -1,6 +1,6 @@
 {
-  "id": "c71ab006-7a80-41e1-b299-325363dd9d45",
-  "prevId": "3b19a355-e6db-4a50-92ce-3a95a38d4a2e",
+  "id": "e2885719-d969-496b-b191-88dde9230180",
+  "prevId": "c71ab006-7a80-41e1-b299-325363dd9d45",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -6060,6 +6060,26 @@
           "primaryKey": false,
           "notNull": false
         },
+        "billing_mode": {
+          "name": "billing_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'prepaid'"
+        },
+        "payg_spend_cap_usd_cents": {
+          "name": "payg_spend_cap_usd_cents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "subscription_is_test": {
+          "name": "subscription_is_test",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -6103,6 +6123,102 @@
           "name": "shopify_stores_shopify_shop_id_unique",
           "nullsNotDistinct": false,
           "columns": ["shopify_shop_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.shopify_usage_events": {
+      "name": "shopify_usage_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "store_id": {
+          "name": "store_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "job_id": {
+          "name": "job_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "price_usd_cents": {
+          "name": "price_usd_cents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'PENDING'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "reported_at": {
+          "name": "reported_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "shopify_usage_events_store_created_idx": {
+          "name": "shopify_usage_events_store_created_idx",
+          "columns": [
+            {
+              "expression": "store_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "shopify_usage_events_store_id_shopify_stores_id_fk": {
+          "name": "shopify_usage_events_store_id_shopify_stores_id_fk",
+          "tableFrom": "shopify_usage_events",
+          "tableTo": "shopify_stores",
+          "columnsFrom": ["store_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "shopify_usage_events_job_id_unique": {
+          "name": "shopify_usage_events_job_id_unique",
+          "nullsNotDistinct": false,
+          "columns": ["job_id"]
         }
       },
       "policies": {},

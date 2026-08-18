@@ -3,7 +3,6 @@ import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { signAccess } from '../../src/modules/auth/service';
-import { createKioskDevice } from '../../src/modules/kiosk/provisioning';
 import { adminAuthHeader } from '../helpers/admin';
 import { buildTestApp, type TestApp } from '../helpers/api';
 import { type Containers, startContainers } from '../helpers/containers';
@@ -16,7 +15,7 @@ const CONFIG_KEY = 'config:system';
  * Drives the whole bulk-flat-upload lifecycle end to end through public
  * routes: generate-bulk (HELD) -> admin release (QUEUED + jobs:low) ->
  * simulated dispatcher completion -> reconcile-held (pending product) ->
- * delete + re-reconcile (idempotency) -> PATCH publish -> kiosk catalog read.
+ * delete + re-reconcile (idempotency) -> PATCH publish.
  * Every other test in this feature hand-seeds its own starting state; this is
  * the one place the whole chain is proven to actually connect.
  */
@@ -118,8 +117,6 @@ describe('merchant catalog bulk-flat lifecycle (E2E)', () => {
         phone: '9999999999',
         businessAddress: 'Test Street',
         isActive: true,
-        kioskEnabled: true,
-        maxKioskDevices: 5,
         userId: merchantUser.id,
       })
       .returning();
@@ -160,8 +157,8 @@ describe('merchant catalog bulk-flat lifecycle (E2E)', () => {
     return r2Key;
   }
 
-  it('flows a bulk-flat batch from upload through HELD, release, completion, reconcile, publish, and kiosk visibility', async () => {
-    const { auth, subcategoryId, merchantId } = await seedEverything();
+  it('flows a bulk-flat batch from upload through HELD, release, completion, reconcile, and publish', async () => {
+    const { auth, subcategoryId } = await seedEverything();
 
     // 1. Upload two flat images and submit the bulk-flat batch — both HELD.
     const keyA = await presignFlat(auth);
@@ -252,28 +249,5 @@ describe('merchant catalog bulk-flat lifecycle (E2E)', () => {
     });
     expect(patchRes.statusCode).toBe(200);
     expect((patchRes.json() as { isActive: boolean }).isActive).toBe(true);
-
-    // 7. Kiosk device reads the catalog — the published product appears, the
-    // deleted one does not.
-    const { device, pairingCode } = await createKioskDevice(app, merchantId, 'Front Tablet');
-    const claim = await app.inject({
-      method: 'POST',
-      url: '/v1/kiosk/auth/claim',
-      payload: { pairingCode, androidId: 'android-lifecycle', appVersion: '1.0.0' },
-    });
-    expect(claim.statusCode).toBe(200);
-    const { accessToken } = claim.json() as { accessToken: string };
-    expect(device.merchantId).toBe(merchantId);
-
-    const kioskCatalog = await app.inject({
-      method: 'GET',
-      url: '/v1/kiosk/catalog',
-      headers: { authorization: `Bearer ${accessToken}` },
-    });
-    expect(kioskCatalog.statusCode).toBe(200);
-    const { items } = kioskCatalog.json() as { items: Array<{ id: string }> };
-    const ids = items.map((i) => i.id);
-    expect(ids).toContain(toKeep.id);
-    expect(ids).not.toContain(toDelete.id);
   });
 });

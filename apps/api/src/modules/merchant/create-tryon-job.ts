@@ -26,7 +26,6 @@ export async function createMerchantTryonJob(
       id: jobId,
       userId: input.merchantUserId,
       merchantId: input.merchantId,
-      kioskDeviceId: null,
       customerPhotoKey: input.customerPhotoKey,
       status: 'QUEUED',
       creditsCharged: cost,

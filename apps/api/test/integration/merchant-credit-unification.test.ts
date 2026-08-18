@@ -3,7 +3,6 @@ import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { getTryonCreditCost } from '../../src/lib/resolution-config.js';
-import { createKioskJob } from '../../src/modules/kiosk/create-job.js';
 import { createMerchantTryonJob } from '../../src/modules/merchant/create-tryon-job.js';
 import { atomicMerchantDeduct, merchantRefund } from '../../src/modules/merchant/ledger.js';
 import { buildTestApp, type TestApp } from '../helpers/api';
@@ -46,31 +45,6 @@ describe('merchant credit unification', () => {
       .from(schema.userCredits)
       .where(eq(schema.userCredits.userId, merchant.userId));
     expect(credits?.balance).toBe(100 - cost);
-  });
-
-  it('kiosk jobs bill the merchant owner but leave jobs.user_id null', async () => {
-    const merchant = await createTestMerchant(app, { balance: 100 });
-
-    const jobId = await createKioskJob(app, {
-      merchantId: merchant.merchantId,
-      upperGarmentKey: 'test/garment.jpg',
-      customerPhotoKey: 'test/photo.jpg',
-      cost: 10,
-      workflowTemplateId: workflowTemplateId,
-    });
-
-    const [job] = await app.db
-      .select({ userId: schema.jobs.userId })
-      .from(schema.jobs)
-      .where(eq(schema.jobs.id, jobId));
-    // The shopper is anonymous — the job has no owning user, only a payer.
-    expect(job?.userId).toBeNull();
-
-    const [credits] = await app.db
-      .select({ balance: schema.userCredits.balance })
-      .from(schema.userCredits)
-      .where(eq(schema.userCredits.userId, merchant.userId));
-    expect(credits?.balance).toBe(90);
   });
 
   it('refunding a merchant job twice credits it only once', async () => {
