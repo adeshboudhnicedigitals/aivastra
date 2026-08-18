@@ -195,7 +195,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
               // changes across re-uploads, so without a query param keyed to updatedAt the
               // browser/CDN keeps serving the previous image after the admin replaces it.
               logoUrl: merchantRow.logoKey
-                ? `${(await app.storage.presignGet(merchantRow.logoKey, 3600)).url}?v=${merchantRow.logoUpdatedAt.getTime()}`
+                ? `${(await app.storage.presignGet(merchantRow.logoKey, 3600)).url}&v=${merchantRow.logoUpdatedAt.getTime()}`
                 : null,
             }
           : null,

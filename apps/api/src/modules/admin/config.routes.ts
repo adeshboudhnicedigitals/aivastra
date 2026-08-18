@@ -338,7 +338,7 @@ async function readAppVideoConfig(
 // place), so without this a CDN/client cache would keep serving the old clip.
 async function appVideoUrl(app: FastifyInstance, key: string, updatedAt: string): Promise<string> {
   const { url } = await app.storage.presignGet(key, 3600);
-  return `${url}?v=${new Date(updatedAt).getTime()}`;
+  return `${url}&v=${new Date(updatedAt).getTime()}`;
 }
 
 function formatAge(d: Date | null): string {
