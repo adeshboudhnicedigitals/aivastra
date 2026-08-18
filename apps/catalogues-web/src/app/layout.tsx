@@ -25,9 +25,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        {/* Apply saved theme before first paint to avoid flash */}
+        {/* Apply saved theme before first paint to avoid flash. suppressHydrationWarning:
+            browsers always report element.nonce as "" (CSP nonce-hiding spec behavior),
+            so React's hydration check sees a false mismatch against the real nonce
+            attribute even though the correct nonce is applied and CSP is enforced. */}
         <script
           nonce={nonce}
+          suppressHydrationWarning
           // biome-ignore lint/security/noDangerouslySetInnerHtml: theme flash prevention requires inline script
           dangerouslySetInnerHTML={{
             __html: `(function(){try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.classList.add('dark');}catch(e){}})();`,

@@ -1,4 +1,4 @@
-import { ArrowRight, Info } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { CheckIcon, ChevronDown, ChevronRight } from '@/components/icons';
 import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
@@ -6,7 +6,14 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { CouponModal } from '../CouponModal';
 import { GstinConfirmModal } from '../GstinConfirmModal';
 import { PaymentResultModal } from '../PaymentResultModal';
-import { COUNTRIES, FLAGS, PLAN_FEATURES, PLAN_META } from '../use-pricing-data';
+import {
+  COUNTRIES,
+  FLAGS,
+  PER_PHOTO_PRICE,
+  PLAN_FEATURES,
+  PLAN_IMAGE_COUNT,
+  PLAN_META,
+} from '../use-pricing-data';
 import type { PricingLayoutProps } from './types';
 
 export function Mobile(props: PricingLayoutProps): React.ReactElement {
@@ -514,78 +521,17 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                           >
                             {displayBase(plan.basePaise)}
                           </span>
-                          <span style={{ fontSize: 12, color: C.mid, marginLeft: 4 }}>+ Taxes</span>
+                          {PLAN_IMAGE_COUNT[plan.slug] && (
+                            <span style={{ fontSize: 12, color: C.mid, marginLeft: 4 }}>
+                              / {PLAN_IMAGE_COUNT[plan.slug]}
+                            </span>
+                          )}
                         </div>
-
-                        {/* Usage overview — 2K / 4K image counts */}
-                        {(() => {
-                          const cost2k = resolutions['2K']?.creditCost ?? 25;
-                          const cost4k = resolutions['4K']?.creditCost ?? 40;
-                          const count2k = Math.floor(plan.credits / cost2k);
-                          const count4k = Math.floor(plan.credits / cost4k);
-                          return (
-                            <div
-                              style={{
-                                display: 'flex',
-                                background: C.field,
-                                border: `1px solid ${C.border}`,
-                                borderRadius: 10,
-                                overflow: 'hidden',
-                                marginBottom: 16,
-                              }}
-                            >
-                              <div
-                                style={{
-                                  flex: 1,
-                                  display: 'flex',
-                                  flexDirection: 'column',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                  padding: '10px 8px',
-                                }}
-                              >
-                                {/* biome-ignore lint/performance/noImgElement: local SVG asset */}
-                                <img
-                                  src={meta.icon2k}
-                                  alt="2K"
-                                  width={20}
-                                  height={20}
-                                  style={
-                                    meta.invertUsage ? { filter: 'var(--icon-invert)' } : undefined
-                                  }
-                                />
-                                <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>
-                                  {count2k.toLocaleString('en-IN')} Images
-                                </span>
-                              </div>
-                              <div style={{ width: 1, background: C.border, margin: '10px 0' }} />
-                              <div
-                                style={{
-                                  flex: 1,
-                                  display: 'flex',
-                                  flexDirection: 'column',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                  padding: '10px 8px',
-                                }}
-                              >
-                                {/* biome-ignore lint/performance/noImgElement: local SVG asset */}
-                                <img
-                                  src={meta.icon4k}
-                                  alt="4K"
-                                  width={20}
-                                  height={20}
-                                  style={
-                                    meta.invertUsage ? { filter: 'var(--icon-invert)' } : undefined
-                                  }
-                                />
-                                <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>
-                                  {count4k.toLocaleString('en-IN')} Images
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        })()}
+                        {PER_PHOTO_PRICE[plan.slug] && (
+                          <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 16 }}>
+                            {PER_PHOTO_PRICE[plan.slug]}
+                          </div>
+                        )}
                       </div>
 
                       {/* Divider */}
@@ -593,34 +539,8 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
 
                       {/* Feature list */}
                       <div style={{ padding: '14px 16px', flex: 1 }}>
-                        {/* Dynamic credits line — same style as feature rows */}
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 8,
-                            marginBottom: 10,
-                          }}
-                        >
-                          <span
-                            style={{
-                              width: 18,
-                              height: 18,
-                              borderRadius: '50%',
-                              background: meta.checkGrad
-                                ? grad
-                                : `color-mix(in srgb, ${accent} 16%, transparent)`,
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              flexShrink: 0,
-                            }}
-                          >
-                            <CheckIcon size={10} color={meta.checkGrad ? '#fff' : accent} />
-                          </span>
-                          <span style={{ fontSize: 12, color: C.text, fontWeight: 500 }}>
-                            {plan.credits.toLocaleString('en-IN')} Credits included
-                          </span>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 10 }}>
+                          Included Features
                         </div>
 
                         {firstPurchaseBonusPercent ? (
@@ -766,31 +686,6 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                     </div>
                   );
                 })}
-          </div>
-        )}
-
-        {/* Footer info bar — catalogue tab only */}
-        {activeTab === 'catalogue' && (
-          <div
-            style={{
-              maxWidth: 1080,
-              margin: '32px auto 0',
-              borderTop: `1px solid ${C.border}`,
-              padding: '16px 16px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 6,
-              flexWrap: 'wrap',
-              fontSize: 12,
-              color: C.mid,
-            }}
-          >
-            <Info size={14} color={C.mid} />
-            <span>
-              All plans include both <span style={{ color: C.pink, fontWeight: 600 }}>2K</span> &{' '}
-              <span style={{ color: C.amber, fontWeight: 600 }}>4K</span> downloads.
-            </span>
           </div>
         )}
 
