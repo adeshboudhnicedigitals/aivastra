@@ -45,16 +45,6 @@ export type PaymentResult =
       onRetry: () => void;
     };
 
-interface ResolutionConfig {
-  enabled: boolean;
-  creditCost: number;
-}
-export interface ResolutionConfigs {
-  // HD?: ResolutionConfig;
-  // '2K'?: ResolutionConfig;
-  // '4K'?: ResolutionConfig;
-}
-
 const CURRENCY: Record<string, { code: string; locale: string }> = {
   IN: { code: 'INR', locale: 'en-IN' },
   US: { code: 'USD', locale: 'en-US' },
@@ -263,18 +253,6 @@ export function usePricingData() {
   });
   const visiblePlans = plans.filter((plan) => plan.slug !== 'free');
   const hasPriorPurchase = paymentHistory?.payments?.some((p) => p.status === 'paid') ?? false;
-
-  const { data: resolutionData } = useQuery<{ resolutions: ResolutionConfigs }>({
-    queryKey: ['resolution-configs'],
-    queryFn: () => api.get('/v1/config/resolutions'),
-    staleTime: 10 * 60 * 1000,
-  });
-
-  const resolutions: ResolutionConfigs = resolutionData?.resolutions ?? {
-    HD: { enabled: false, creditCost: 10 },
-    '2K': { enabled: true, creditCost: 25 },
-    '4K': { enabled: true, creditCost: 40 },
-  };
 
   useEffect(() => {
     setCountry(detectCountry());
@@ -513,7 +491,6 @@ export function usePricingData() {
     visiblePlans,
     plansLoading,
     firstPurchaseBonusPercent,
-    resolutions,
     displayBase,
     displayTotal,
     displayTax,

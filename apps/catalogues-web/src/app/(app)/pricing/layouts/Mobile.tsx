@@ -33,7 +33,6 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
     visiblePlans,
     plansLoading,
     firstPurchaseBonusPercent,
-    resolutions,
     displayBase,
     displayTax,
     displayTotal,
@@ -528,7 +527,14 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                           )}
                         </div>
                         {PER_PHOTO_PRICE[plan.slug] && (
-                          <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 16 }}>
+                          <div
+                            style={{
+                              fontSize: 13,
+                              fontWeight: 700,
+                              color: C.text,
+                              marginBottom: 16,
+                            }}
+                          >
                             {PER_PHOTO_PRICE[plan.slug]}
                           </div>
                         )}
@@ -539,7 +545,9 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
 
                       {/* Feature list */}
                       <div style={{ padding: '14px 16px', flex: 1 }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 10 }}>
+                        <div
+                          style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 10 }}
+                        >
                           Included Features
                         </div>
 

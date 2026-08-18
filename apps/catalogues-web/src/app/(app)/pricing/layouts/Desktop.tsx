@@ -37,7 +37,6 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
     visiblePlans,
     plansLoading,
     firstPurchaseBonusPercent,
-    resolutions,
     displayBase,
     displayTax,
     displayTotal,
@@ -1092,7 +1091,14 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
                           )}
                         </div>
                         {PER_PHOTO_PRICE[plan.slug] && (
-                          <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginBottom: 20 }}>
+                          <div
+                            style={{
+                              fontSize: 14,
+                              fontWeight: 700,
+                              color: C.text,
+                              marginBottom: 20,
+                            }}
+                          >
                             {PER_PHOTO_PRICE[plan.slug]}
                           </div>
                         )}
@@ -1103,7 +1109,9 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
 
                       {/* Feature list */}
                       <div style={{ padding: '16px 24px', flex: 1 }}>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginBottom: 12 }}>
+                        <div
+                          style={{ fontSize: 14, fontWeight: 700, color: C.text, marginBottom: 12 }}
+                        >
                           Included Features
                         </div>
 
