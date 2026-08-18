@@ -51,7 +51,7 @@ describe('admin app-video config + public read', () => {
     expect(confirmRes.statusCode).toBe(200);
     const confirmed = confirmRes.json();
     expect(confirmed.videoUrl).toContain('config/app-video.mp4');
-    expect(confirmed.videoUrl).toContain('?v=');
+    expect(confirmed.videoUrl).toContain('&v=');
     expect(confirmed.updatedAt).toBeTruthy();
 
     const adminGetRes = await app.inject({
