@@ -36,7 +36,7 @@ describe('admin merchant logo upload', () => {
     expect(body.logoKey).toBe(`merchant-logo/${merchantId}/logo.jpg`);
   });
 
-  it('changes the returned logoUrl after the logo is replaced, even though logoKey stays fixed', async () => {
+  it('re-signs the returned logoUrl on each read, even though logoKey stays fixed', async () => {
     const { merchantId, userId } = await createTestMerchant(app);
 
     const firstSet = await app.inject({
@@ -55,8 +55,9 @@ describe('admin merchant logo upload', () => {
     const firstLogoUrl = (firstDetail.json() as { merchant: { logoUrl: string } }).merchant.logoUrl;
     expect(firstLogoUrl).toContain(`merchant-logo/${merchantId}/logo.jpg`);
 
-    // Re-upload: same logoKey, but the PATCH bumps updatedAt.
-    await new Promise((r) => setTimeout(r, 5));
+    // SigV4's X-Amz-Date has 1-second granularity, so two presigns within the same
+    // second are byte-identical — cross a full second boundary to reliably re-sign.
+    await new Promise((r) => setTimeout(r, 1100));
     const secondSet = await app.inject({
       method: 'PATCH',
       url: `/admin/merchants/${merchantId}`,
