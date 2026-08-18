@@ -211,7 +211,7 @@ async function resolveMerchantLogoUrl(
   // Cache-bust: logoKey is a fixed path that never changes across re-uploads (see the
   // matching comment in admin/users.routes.ts), so append updatedAt to force a fresh fetch.
   return row?.logoKey
-    ? `${(await app.storage.presignGet(row.logoKey, 3600)).url}?v=${row.updatedAt.getTime()}`
+    ? `${(await app.storage.presignGet(row.logoKey, 3600)).url}&v=${row.updatedAt.getTime()}`
     : null;
 }
 
