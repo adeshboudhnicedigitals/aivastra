@@ -56,39 +56,7 @@ No changes to `requireDeviceUser`, `createSessionTokens`, or any existing route.
 
 ## Web changes
 
-### New BFF route: `apps/catalogues-web/src/app/api/catalog-app/device-exchange/route.ts`
-
-Mirrors `apps/catalogues-web/src/app/api/catalog-app/login/route.ts`, but forwards the `Authorization` header instead of posting credentials in the body:
-
-```ts
-import { type NextRequest, NextResponse } from 'next/server';
-import { safeJson } from '@/lib/bff';
-import { setCatalogAppCookies } from '@/lib/catalog-app-cookies';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
-
-export async function POST(req: NextRequest) {
-  const auth = req.headers.get('authorization');
-  if (!auth) return NextResponse.json({ error: { message: 'missing bearer' } }, { status: 401 });
-
-  const res = await fetch(`${API_URL}/v1/auth/catalog-app-device-exchange`, {
-    method: 'POST',
-    headers: { authorization: auth },
-  });
-
-  const [data, ok] = await safeJson(res);
-  if (!ok) return NextResponse.json(data, { status: res.status });
-
-  const typed = data as { accessToken?: string };
-  const response = NextResponse.json({ ok: true, accessToken: typed.accessToken });
-  const h = res.headers as Headers & { getSetCookie?: () => string[] };
-  const setCookieStr = h.getSetCookie
-    ? h.getSetCookie().join(', ') || null
-    : res.headers.get('set-cookie');
-  setCatalogAppCookies(response, setCookieStr);
-  return response;
-}
-```
+No new BFF route is needed here, unlike the password-login and refresh flows. Those go through `api/catalog-app/login` and `api/catalog-app/refresh` because they're initiated by client-side JS in `AuthGate.tsx`, which can't reach the Fastify API cross-origin without a same-origin proxy. This flow is different: the exchange is driven entirely by the middleware itself (server-side, on the Edge), which can call the Fastify API directly — a same-origin BFF hop in between would add nothing. The only new web-side change is to `middleware.ts`.
 
 ### `middleware.ts` change
 
@@ -109,9 +77,9 @@ if (path === '/tryon-library-app' || path.startsWith('/tryon-library-app/')) {
         const setCookieStr = h.getSetCookie
           ? h.getSetCookie().join(', ') || null
           : res.headers.get('set-cookie');
-        const response = next();
+        const response = NextResponse.next({ request: { headers: requestHeaders } });
         setCatalogAppCookies(response, setCookieStr);
-        return response;
+        return withCsp(response);
       }
     } catch {
       // fall through — page's own client-side login form is the fallback
