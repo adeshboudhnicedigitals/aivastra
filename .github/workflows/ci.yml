@@ -193,7 +193,7 @@ jobs:
   test-integration:
     name: Integration tests (api)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     needs: [detect]
     # Only apps/api has a test:integration script — skip when it isn't among the
     # affected packages (test_targets is the JSON array string emitted by
