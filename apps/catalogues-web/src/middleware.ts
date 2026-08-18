@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { setAuthCookies } from '@/lib/auth-cookies';
+import { setCatalogAppCookies } from '@/lib/catalog-app-cookies';
 import { buildCsp } from '@/lib/csp';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
@@ -58,6 +59,39 @@ export async function middleware(request: NextRequest) {
     BASE_PATH && pathname.startsWith(BASE_PATH)
       ? pathname.slice(BASE_PATH.length) || '/'
       : pathname;
+
+  // Android app WebView SSO bypass
+  // (docs/superpowers/specs/2026-08-18-android-tryon-library-app-sso-design.md):
+  // the native app sends its device access token as a header on the WebView's
+  // first navigation only. Exchange it for a catalog_app_refresh cookie before
+  // AuthGate's own client-side check ever runs, so an already-signed-in
+  // merchant never sees this PWA's separate login form. No-op for every other
+  // visitor (no header, or the cookie is already set).
+  if (path === '/tryon-library-app' || path.startsWith('/tryon-library-app/')) {
+    const deviceToken = request.headers.get('x-aivastra-device-token');
+    const hasCatalogCookie = request.cookies.get('catalog_app_refresh');
+    if (deviceToken && !hasCatalogCookie) {
+      try {
+        const res = await fetch(`${API_URL}/v1/auth/catalog-app-device-exchange`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${deviceToken}` },
+        });
+        if (res.ok) {
+          const h = res.headers as Headers & { getSetCookie?: () => string[] };
+          const setCookieStr = h.getSetCookie
+            ? h.getSetCookie().join(', ') || null
+            : res.headers.get('set-cookie');
+          const response = NextResponse.next({ request: { headers: requestHeaders } });
+          setCatalogAppCookies(response, setCookieStr);
+          return withCsp(response);
+        }
+      } catch {
+        // Exchange failed (expired token, not a merchant, network error) — fall
+        // through to the page's own client-side login form, same as today.
+      }
+    }
+    return next();
+  }
 
   if (path.startsWith('/api/auth')) return next();
   if (path.startsWith('/api/catalog-app')) return next();
