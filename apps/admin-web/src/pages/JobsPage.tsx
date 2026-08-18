@@ -160,6 +160,7 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
   const [jobTypeOptions, setJobTypeOptions] = useState<string[]>([]);
   const [workerOptions, setWorkerOptions] = useState<{ id: string; label: string }[]>([]);
   const [page, setPage] = useState(0);
+  const [jumpToPage, setJumpToPage] = useState('');
   const [sortKey, setSortKey] = useState<keyof Job>('createdAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -346,6 +347,14 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
   });
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
+
+  const handleJumpToPage = () => {
+    const n = Number.parseInt(jumpToPage, 10);
+    if (!Number.isNaN(n) && n >= 1 && n <= Math.max(1, totalPages)) {
+      setPage(n - 1);
+    }
+    setJumpToPage('');
+  };
 
   const handleSort = (k: keyof Job) => {
     if (k === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -1805,6 +1814,43 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
             totalItems={total}
             pageSize={PAGE_SIZE}
           />
+
+          {totalPages > 1 && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                marginTop: 12,
+              }}
+            >
+              <span style={{ fontSize: 13, color: 'var(--muted)' }}>Jump to page:</span>
+              <input
+                type="number"
+                min={1}
+                max={totalPages}
+                placeholder={`1-${totalPages}`}
+                value={jumpToPage}
+                onChange={(e) => setJumpToPage(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleJumpToPage();
+                }}
+                style={{
+                  width: 70,
+                  padding: '5px 8px',
+                  borderRadius: 6,
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface)',
+                  color: 'var(--ink)',
+                  fontSize: 13,
+                }}
+              />
+              <button className="btn sm ghost" onClick={handleJumpToPage}>
+                Go
+              </button>
+            </div>
+          )}
         </>
       )}
 
