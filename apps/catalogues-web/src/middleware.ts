@@ -130,7 +130,10 @@ export async function middleware(request: NextRequest) {
 
   // Use absolute URL to avoid Next.js basePath double-prefix issues
   const loginUrl = new URL(`${BASE_PATH}/login`, request.url);
-  loginUrl.searchParams.set('next', path); // path without basePath; router.push handles it
+  // Preserve the query string too (e.g. ?plan=<slug> for the pricing
+  // deep-link) so it survives the login round trip — path without basePath;
+  // router.push handles it.
+  loginUrl.searchParams.set('next', `${path}${request.nextUrl.search}`);
   return redirect(loginUrl);
 }
 

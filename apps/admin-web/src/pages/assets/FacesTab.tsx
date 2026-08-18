@@ -61,6 +61,7 @@ export function FacesTab() {
   const [editingFace, setEditingFace] = useState<ModelFace | null>(null);
   const [confirmDeleteFace, setConfirmDeleteFace] = useState<ModelFace | null>(null);
   const [facesPage, setFacesPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useState('');
   const [bulkSortStart, setBulkSortStart] = useState(0);
   const [bulkSortSaving, setBulkSortSaving] = useState(false);
   const [continentFilter, setContinentFilter] = useState<ContinentFilter>('all');
@@ -217,6 +218,18 @@ export function FacesTab() {
       if (continentFilter === 'unassigned') return !f.continent;
       return f.continent === continentFilter;
     })
+    .filter((f) => {
+      const q = searchQuery.trim().toLowerCase();
+      if (!q) return true;
+      const continentTxt = f.continent ? `${f.continent} ${continentLabel(f.continent)}` : '';
+      return (
+        f.label?.toLowerCase().includes(q) ||
+        f.id?.toLowerCase().includes(q) ||
+        f.publicApiSlug?.toLowerCase().includes(q) ||
+        continentTxt?.toLowerCase().includes(q) ||
+        f.tags?.some((t) => t.toLowerCase().includes(q))
+      );
+    })
     .sort((a, b) => a.sortOrder - b.sortOrder);
   const facesTotalPages = Math.max(1, Math.ceil(filteredFaces.length / FACES_PAGE_SIZE));
   const facesClampedPage = Math.min(facesPage, facesTotalPages);
@@ -233,6 +246,17 @@ export function FacesTab() {
           <p className="lede">Model face images — select gender to filter.</p>
         </div>
         <div className="head-tools">
+          <div className="search">
+            <Icon.Search />
+            <input
+              placeholder="Search faces…"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setFacesPage(1);
+              }}
+            />
+          </div>
           <button className="btn" onClick={() => setShowFaceUpload(true)}>
             <Icon.Add /> Add face
           </button>
@@ -244,7 +268,10 @@ export function FacesTab() {
           <button
             key={t.k}
             className={`tab ${genderFilter === t.k ? 'active' : ''}`}
-            onClick={() => setGenderFilter(t.k)}
+            onClick={() => {
+              setGenderFilter(t.k);
+              setFacesPage(1);
+            }}
           >
             {t.l}
           </button>
@@ -256,7 +283,10 @@ export function FacesTab() {
           <button
             key={t.k}
             className={`tab ${continentFilter === t.k ? 'active' : ''}`}
-            onClick={() => setContinentFilter(t.k)}
+            onClick={() => {
+              setContinentFilter(t.k);
+              setFacesPage(1);
+            }}
           >
             {t.l}
           </button>
@@ -277,7 +307,19 @@ export function FacesTab() {
           >
             <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
               {filteredFaces.length} face{filteredFaces.length !== 1 ? 's' : ''}
+              {searchQuery.trim() && ` matching "${searchQuery.trim()}"`}
             </p>
+            {searchQuery.trim() && (
+              <button
+                className="btn sm ghost"
+                onClick={() => {
+                  setSearchQuery('');
+                  setFacesPage(1);
+                }}
+              >
+                Clear search
+              </button>
+            )}
             {filteredFaces.length > 0 && (
               <button
                 className="btn sm ghost"
@@ -437,7 +479,9 @@ export function FacesTab() {
                   padding: '2rem',
                 }}
               >
-                No faces found.
+                {searchQuery.trim()
+                  ? `No faces matching "${searchQuery.trim()}".`
+                  : 'No faces found.'}
               </div>
             )}
           </div>
