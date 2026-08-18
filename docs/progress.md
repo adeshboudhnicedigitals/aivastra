@@ -1,3 +1,47 @@
+## 2026-08-18 — Pricing plan deep-link for WordPress Buy Now buttons
+
+**Done**
+- Middleware (`apps/catalogues-web/src/middleware.ts`) now preserves the full
+  path+query string (not just the bare path) in the `next` redirect param
+  when bouncing an unauthenticated visitor to `/login` — needed so
+  `/pricing?plan=<slug>` survives the login/Google-OAuth round trip.
+- Pricing page (`apps/catalogues-web/src/app/(app)/pricing/use-pricing-data.ts`)
+  reads a `plan` query param once its plan/credits/payment-history queries
+  have all resolved, and auto-calls the existing `startBuy(plan)` — the same
+  function the on-page "Buy Now" buttons call — reusing all existing
+  purchase gating unchanged.
+- WordPress buttons on aivastra.com can now link to
+  `https://app.aivastra.com/pricing?plan=<slug>` (slug = the
+  `credit_plans.slug` value, visible in admin → Settings → Plans) for a
+  one-click checkout experience, working whether the visitor is already
+  logged in or has to log in first.
+- Fixed during final review: a `${BASE}`-prefix bug in the URL-cleanup step
+  that would have double-prefixed `NEXT_PUBLIC_BASE_PATH` deployments (latent
+  in current prod/staging since both currently deploy with an empty base
+  path), and switched from stripping the entire query string to stripping
+  only the `plan` param (so campaign tracking params like `utm_source`
+  survive).
+
+**Failed / Not Done**
+- No Docker daemon available in this session — the plan's manual
+  browser-verification steps (logged-in auto-open, the full logged-out login
+  round trip, unknown-slug fallback) were never run live; only typecheck, a
+  production build, and two independent hand-traces of the effect's logic
+  were done. **Run these before pointing any real WordPress button at this**,
+  especially confirming the checkout modal survives the `router.replace`
+  call that immediately follows `startBuy(plan)` (same-route soft
+  navigation — expected to preserve component state per Next.js App Router
+  behavior, but unobserved in a live browser).
+
+**Open Questions / Decisions**
+- Enterprise plan intentionally out of scope — no `credit_plans` row exists
+  for it yet; this feature works unchanged once one is added (just another
+  slug).
+- New email/password signups (which require `/verify-email`, a separate page
+  load) do not get the auto-popup — only already-logged-in visitors and the
+  login/Google-OAuth round trip are covered. Documented as a deliberate scope
+  boundary in the design spec, not a gap.
+
 ## 2026-08-17 — Removed the orphaned kiosk_devices pairing feature
 
 **Done**

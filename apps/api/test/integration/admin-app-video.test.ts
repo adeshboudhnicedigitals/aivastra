@@ -43,6 +43,13 @@ describe('admin app-video config + public read', () => {
     expect(presign.uploadUrl).toBeTruthy();
     expect(presign.key).toBe('config/app-video.mp4');
 
+    const uploadRes = await fetch(presign.uploadUrl, {
+      method: 'PUT',
+      headers: { 'content-type': 'video/mp4' },
+      body: Buffer.from('fake mp4 bytes'),
+    });
+    expect(uploadRes.ok).toBe(true);
+
     const confirmRes = await app.inject({
       method: 'POST',
       url: '/admin/config/app-video/confirm',
@@ -51,8 +58,14 @@ describe('admin app-video config + public read', () => {
     expect(confirmRes.statusCode).toBe(200);
     const confirmed = confirmRes.json();
     expect(confirmed.videoUrl).toContain('config/app-video.mp4');
-    expect(confirmed.videoUrl).toContain('?v=');
     expect(confirmed.updatedAt).toBeTruthy();
+
+    // Regression guard for the SigV4 break: any extra query param appended to a
+    // presigned URL (even a well-formed "&v=...") invalidates its signature and
+    // 403s, so this must fetch the actual bytes rather than just check the URL shape.
+    const servedVideo = await fetch(confirmed.videoUrl);
+    expect(servedVideo.ok).toBe(true);
+    expect(Buffer.from(await servedVideo.arrayBuffer()).toString()).toBe('fake mp4 bytes');
 
     const adminGetRes = await app.inject({
       method: 'GET',
@@ -67,7 +80,7 @@ describe('admin app-video config + public read', () => {
     expect(publicRes.json().videoUrl).toBe(confirmed.videoUrl);
   });
 
-  it('re-uploading changes the cache-busting query param without changing the key', async () => {
+  it('re-confirming re-signs the URL without changing the key', async () => {
     const firstConfirm = await app.inject({
       method: 'POST',
       url: '/admin/config/app-video/confirm',
@@ -75,7 +88,9 @@ describe('admin app-video config + public read', () => {
     });
     const firstUrl = firstConfirm.json().videoUrl as string;
 
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    // SigV4's X-Amz-Date has 1-second granularity, so two presigns within the same
+    // second are byte-identical — cross a full second boundary to reliably re-sign.
+    await new Promise((resolve) => setTimeout(resolve, 1100));
 
     const secondConfirm = await app.inject({
       method: 'POST',

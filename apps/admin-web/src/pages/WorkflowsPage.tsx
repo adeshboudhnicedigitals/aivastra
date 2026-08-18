@@ -36,6 +36,7 @@ interface Props {
 export default function WorkflowsPage({ toast }: Props) {
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
   const [query, setQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
   const [expandedWorkflowId, setExpandedWorkflowId] = useState<string | null>(null);
@@ -242,9 +243,9 @@ export default function WorkflowsPage({ toast }: Props) {
   const deletingWorkflow = deleting ? workflows.find((w) => w.id === deleting) : null;
 
   const q = query.trim().toLowerCase();
-  const filteredWorkflows = q
-    ? workflows.filter((w) => w.label.toLowerCase().includes(q) || w.slug.toLowerCase().includes(q))
-    : workflows;
+  const filteredWorkflows = workflows
+    .filter((w) => !q || w.label.toLowerCase().includes(q) || w.slug.toLowerCase().includes(q))
+    .filter((w) => !typeFilter || w.workflowType === typeFilter);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -258,14 +259,36 @@ export default function WorkflowsPage({ toast }: Props) {
         </div>
         <div className="head-tools">
           {workflows.length > 0 && (
-            <div className="search">
-              <Icon.Search />
-              <input
-                placeholder="Search workflows…"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-            </div>
+            <>
+              <div className="search">
+                <Icon.Search />
+                <input
+                  placeholder="Search workflows…"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+              </div>
+              <select
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 6,
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface)',
+                  color: 'var(--ink)',
+                  fontSize: 13,
+                  cursor: 'pointer',
+                  outline: 'none',
+                }}
+              >
+                <option value="">All Types</option>
+                <option value="regular">Catalogue workflows</option>
+                <option value="tryon">Tryon</option>
+                <option value="saree_step1">Saree Step 1</option>
+                <option value="saree_step1_two_input">Saree Step 1 (2-input)</option>
+              </select>
+            </>
           )}
           <button className="btn primary" onClick={() => setShowUpload(true)}>
             <Icon.Plus />
@@ -315,7 +338,11 @@ export default function WorkflowsPage({ toast }: Props) {
             fontSize: 13,
           }}
         >
-          No workflows match &ldquo;{query}&rdquo;.
+          {query ? (
+            <>No workflows match &ldquo;{query}&rdquo;.</>
+          ) : (
+            'No workflows match the selected type.'
+          )}
         </div>
       ) : (
         <>

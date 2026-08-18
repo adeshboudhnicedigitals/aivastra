@@ -326,6 +326,9 @@ export interface CreditPlan {
   sortOrder: number;
   queueStream: 'priority' | 'normal' | 'low';
   watermark: boolean;
+  planType: 'catalogue' | 'tryon';
+  perUnitPriceLabel: string | null;
+  unitCountLabel: string | null;
   createdAt: string;
   updatedAt: string;
 }
