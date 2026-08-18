@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BarChart2, Building2, Rocket } from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import React, { useEffect, useRef, useState } from 'react';
 import { FlagAE, FlagGB, FlagIN, FlagUS } from '@/components/icons';
 import { C } from '@/components/tokens';
@@ -193,6 +194,8 @@ function loadRazorpay(): Promise<boolean> {
 
 export function usePricingData() {
   const qc = useQueryClient();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [paymentResult, setPaymentResult] = useState<PaymentResult | null>(null);
   const [buying, setBuying] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'catalogue' | 'tryon'>('catalogue');
@@ -210,8 +213,9 @@ export function usePricingData() {
   const [rates, setRates] = useState<Record<string, number>>(FALLBACK_RATES);
   const [ratesLoading, setRatesLoading] = useState(true);
   const countryRef = useRef<HTMLDivElement>(null);
+  const autoOpenedRef = useRef(false);
 
-  const { data: credits } = useQuery<{
+  const { data: credits, isLoading: creditsLoading } = useQuery<{
     balance: number;
     firstPurchaseBonusPercent: number | null;
     recent: { delta: number; reason: string; createdAt: string }[];
@@ -228,7 +232,7 @@ export function usePricingData() {
     staleTime: 60_000,
   });
 
-  const { data: paymentHistory } = useQuery<{
+  const { data: paymentHistory, isLoading: paymentHistoryLoading } = useQuery<{
     payments: {
       planId: string;
       planName: string | null;
@@ -288,6 +292,33 @@ export function usePricingData() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
+
+  // WordPress "Buy Now" buttons deep-link to /pricing?plan=<slug> and expect
+  // checkout to open automatically — no extra click. Waits for plans,
+  // credits, and payment history to finish loading so startBuy's
+  // first-time-buyer gating (coupon modal vs. straight to GSTIN/Razorpay)
+  // sees real data instead of pre-load defaults. Fires at most once per page
+  // load (autoOpenedRef), then strips `plan` from the URL either way so a
+  // refresh or back-navigation doesn't reopen the modal or re-check a
+  // now-stale slug.
+  useEffect(() => {
+    if (autoOpenedRef.current) return;
+    if (plansLoading || creditsLoading || paymentHistoryLoading) return;
+    const planSlug = searchParams.get('plan');
+    if (!planSlug) return;
+    autoOpenedRef.current = true;
+    const plan = visiblePlans.find((p) => p.slug === planSlug);
+    if (plan) startBuy(plan);
+    router.replace(`${BASE}/pricing`, { scroll: false });
+  }, [
+    plansLoading,
+    creditsLoading,
+    paymentHistoryLoading,
+    visiblePlans,
+    searchParams,
+    router,
+    startBuy,
+  ]);
 
   const isNonIn = country !== 'IN';
 
