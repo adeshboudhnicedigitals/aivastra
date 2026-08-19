@@ -38,10 +38,20 @@ export const DEFAULT_PIXVERSE_CONFIG: { creditCost: number } = { creditCost: PIX
 
 export const DEFAULT_SHOPIFY_TRIAL_CONFIG: { trialCredits: number } = { trialCredits: 25 };
 
-export const DEFAULT_SELLER_CONFIG: { gstin: string; legalName: string; address: string } = {
+export const DEFAULT_SELLER_CONFIG: {
+  gstin: string;
+  legalName: string;
+  address: string;
+  pan: string;
+  tan: string;
+  udyamRegNo: string;
+} = {
   gstin: '',
   legalName: '',
   address: '',
+  pan: '',
+  tan: '',
+  udyamRegNo: '',
 };
 
 /**

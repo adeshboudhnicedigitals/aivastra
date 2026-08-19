@@ -22,13 +22,26 @@ describe('renderInvoicePdf', () => {
         gstin: '27AAPFU0939F1ZV',
         legalName: 'Aivastra Technologies Pvt Ltd',
         address: '123 Example St',
+        pan: 'AAPFU0939F',
+        tan: 'MUMA12345B',
+        udyamRegNo: 'UDYAM-MH-01-0000001',
       },
-      customer: { email: 'buyer@example.com', gstin: '29AAAAA0000A1Z5' },
+      customer: {
+        email: 'buyer@example.com',
+        gstin: '29AAAAA0000A1Z5',
+        displayName: 'Jane Buyer',
+        companyName: null,
+        phone: null,
+      },
+      orderId: 'order_abc123',
       planName: 'Growth',
       credits: 5000,
       basePaise: 100000,
       gstPaise: 18000,
       totalPaise: 118000,
+      paymentStatus: 'paid',
+      razorpayPaymentId: 'pay_abc123',
+      paidAt: new Date('2026-08-12T00:05:00Z'),
     });
     expect(buf.length).toBeGreaterThan(100);
     expect(buf.subarray(0, 5).toString('ascii')).toBe('%PDF-');
@@ -38,13 +51,23 @@ describe('renderInvoicePdf', () => {
     const buf = await renderInvoicePdf({
       invoiceNumber: 'INV-2026-27-000002',
       issuedAt: new Date('2026-08-12T00:00:00Z'),
-      seller: { gstin: '', legalName: '', address: '' },
-      customer: { email: 'buyer2@example.com', gstin: null },
+      seller: { gstin: '', legalName: '', address: '', pan: '', tan: '', udyamRegNo: '' },
+      customer: {
+        email: 'buyer2@example.com',
+        gstin: null,
+        displayName: null,
+        companyName: null,
+        phone: null,
+      },
+      orderId: 'order_def456',
       planName: 'Starter',
       credits: 1000,
       basePaise: 20000,
       gstPaise: 3600,
       totalPaise: 23600,
+      paymentStatus: 'paid',
+      razorpayPaymentId: null,
+      paidAt: null,
     });
     expect(buf.subarray(0, 5).toString('ascii')).toBe('%PDF-');
   });
