@@ -46,12 +46,12 @@ export const DEFAULT_SELLER_CONFIG: {
   tan: string;
   udyamRegNo: string;
 } = {
-  gstin: '',
-  legalName: '',
-  address: '',
-  pan: '',
-  tan: '',
-  udyamRegNo: '',
+  gstin: '37AALFN2227K1Z1',
+  legalName: 'NICE INTERACTIVE',
+  address: '36-13-3, Kalimireddyvari Street, Innespet,\nRajahmundry, Andhra Pradesh - 533101',
+  pan: 'AALFN2227K',
+  tan: 'VPNN01018D',
+  udyamRegNo: 'UDYAM-AP-03-0005441',
 };
 
 /**

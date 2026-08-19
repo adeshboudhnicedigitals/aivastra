@@ -340,6 +340,20 @@ export function renderInvoicePdf(data: InvoiceData): Promise<Buffer> {
       totalsY += 16;
     }
 
+    if (!interState) {
+      doc
+        .fillColor(LIGHT_GRAY)
+        .font('Helvetica-Oblique')
+        .fontSize(7.5)
+        .text(
+          `(If inter-state supply: IGST @ 18% = ${fmtRupees(data.gstPaise)} instead of CGST+SGST)`,
+          totalsLabelX,
+          totalsY,
+          { width: right - totalsLabelX, align: 'right' },
+        );
+      totalsY = doc.y + 4;
+    }
+
     totalsY += 4;
     doc.rect(totalsLabelX, totalsY - 2, right - totalsLabelX, 20).fill('#EFEFEF');
     doc
@@ -392,7 +406,7 @@ export function renderInvoicePdf(data: InvoiceData): Promise<Buffer> {
     const terms = [
       'This invoice confirms payment received in full via online checkout on aivastra.com.',
       'This package covers AI Vastra catalogue creation / virtual try-on services as agreed with the customer.',
-      `GST charged as applicable under law; CGST+SGST for intra-state customers, IGST for other states.`,
+      `GST charged as applicable under law; CGST+SGST for intra-${stateNameForGstin(data.seller.gstin) ?? 'state'} customers, IGST for other states.`,
       'For refund or cancellation queries, contact support@aivastra.com.',
       'This is a computer-generated invoice and does not require a physical signature.',
     ];
