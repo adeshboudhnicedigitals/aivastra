@@ -8,15 +8,9 @@ import { apiFetch } from '../lib/api';
  * credit pack (the `confirmationUrl` returned from `POST
  * /v1/shopify/billing/purchase`). Confirming is what actually grants the
  * credits they just paid for, so this page is the one place in the app
- * where a silent failure is least acceptable.
- *
- * It used to swallow the error and navigate to the dashboard regardless,
- * reasoning that billing-scheduler.ts would reconcile on its next tick. That
- * tick is hourly: a merchant who had just been charged saw no credits, no
- * error, and no reason to think anything had gone wrong, for up to an hour. The
- * scheduler is the right safety net for renewals and cancellations that happen
- * while nobody is looking — it is not a substitute for telling someone standing
- * right here that their purchase did not land.
+ * where a silent failure is least acceptable — there is no background
+ * scheduler reconciling purchases, so a swallowed error here means the
+ * merchant was charged and never finds out the credits didn't land.
  */
 
 // A confirm is one Admin API round-trip behind Shopify's own redirect, so a

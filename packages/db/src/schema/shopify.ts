@@ -107,41 +107,6 @@ export const shopifyStores = pgTable('shopify_stores', {
   uninstalledAt: timestamp('uninstalled_at', { withTimezone: true }),
   settings: jsonb('settings').$type<ShopifyStoreSettings>().notNull().default({}),
   syncCursor: text('sync_cursor'),
-  // Shopify App Pricing state — populated by billing.ts's syncStoreSubscription,
-  // never written from a client-trusted value. Holds the normalized (trimmed +
-  // lowercased) AppSubscription.name, since the Admin API exposes no plan
-  // handle. null means "no plan selected yet" (distinct from "was on a plan,
-  // now cancelled", which is subscriptionStatus === 'cancelled' with
-  // planHandle still set to the last plan).
-  planHandle: text('plan_handle'),
-  // Lowercased AppSubscriptionStatus: 'active' | 'cancelled' | 'declined' |
-  // 'expired' | 'frozen' | 'pending' | null.
-  subscriptionStatus: text('subscription_status'),
-  // The pair that identifies the billing cycle credits were last granted for:
-  // the Admin API's AppSubscription.id and its currentPeriodEnd. When a poll
-  // observes *either* change, a new cycle started — that's the renewal signal,
-  // since Shopify App Pricing sends no renewal webhook. Both are needed because
-  // a plan change may either advance the period end on the same subscription or
-  // replace the subscription with a new id.
-  currentSubscriptionId: text('current_subscription_id'),
-  currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
-  lastBillingSyncAt: timestamp('last_billing_sync_at', { withTimezone: true }),
-  // PAYG billing. 'prepaid' (default) is every existing store — deducts from
-  // shopify_store_credits as today. 'usage' means this store is on the
-  // Pay-as-you-go plan: no credits ledger involvement at all, billed in USD
-  // through Shopify's App Events API instead. Set by syncStoreSubscription
-  // from the synced plan handle, never client-trusted.
-  billingMode: text('billing_mode').notNull().default('prepaid'),
-  // Merchant-set monthly spend ceiling for billingMode='usage' stores, in USD
-  // cents. Enforced entirely app-side — Shopify usage meters have no cap
-  // support. Null until the store first becomes 'usage', at which point
-  // syncStoreSubscription seeds a default.
-  paygSpendCapUsdCents: integer('payg_spend_cap_usd_cents'),
-  // Persists AppSubscription.test, which syncStoreSubscription already reads
-  // but previously discarded. Gates PAYG usage reporting the same way
-  // SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS already gates credit grants — a dev
-  // store's test charges must never be reported as real usage in production.
-  subscriptionIsTest: boolean('subscription_is_test').notNull().default(false),
   // Auto-refill (phase 3). Written in phase 1's migration so a later phase
   // doesn't have to ALTER a table that already carries rows. Null pack id
   // means auto-refill is off, which is every store today.
@@ -222,36 +187,6 @@ export const shopifyCreditPurchases = pgTable(
   },
   (table) => ({
     storeIdx: index('shopify_credit_purchases_store_idx').on(table.storeId),
-  }),
-);
-
-// One row per successfully COMPLETED job for a billingMode='usage' store.
-// A job that fails is never inserted here — for a postpaid model, "don't
-// report" achieves the same effect as a prepaid refund, with no separate
-// mechanism needed. Written by the dispatcher (job/processor.ts) on the
-// same COMPLETED transition every other job type already goes through;
-// reported to Shopify's App Events API asynchronously by usage-scheduler.ts.
-export const shopifyUsageEvents = pgTable(
-  'shopify_usage_events',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    storeId: uuid('store_id')
-      .notNull()
-      .references(() => shopifyStores.id, { onDelete: 'cascade' }),
-    jobId: uuid('job_id').notNull().unique(),
-    // Snapshotted from PAYG_PRICE_PER_TRYON_USD at insert time — never
-    // re-derived later, same "the row is the record of what was promised"
-    // reasoning the superseded top-up spec used for its credits column.
-    priceUsdCents: integer('price_usd_cents').notNull(),
-    status: text('status').notNull().default('PENDING'), // 'PENDING' | 'REPORTED'
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    reportedAt: timestamp('reported_at', { withTimezone: true }),
-  },
-  (table) => ({
-    storeCreatedIdx: index('shopify_usage_events_store_created_idx').on(
-      table.storeId,
-      table.createdAt,
-    ),
   }),
 );
 

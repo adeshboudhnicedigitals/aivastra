@@ -87,21 +87,31 @@ describe('admin config', () => {
     expect(getRes2.json().shopify.trialCredits).toBe(50);
   });
 
-  it('GET /admin/config default-fills shopify plan credits, and a partial PATCH keeps other plans at default', async () => {
+  it('GET /admin/config default-fills shopify pack credits, and a partial PATCH keeps other packs/fields at default', async () => {
     const getRes = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
     expect(getRes.statusCode).toBe(200);
-    expect(getRes.json().shopify.planCredits).toEqual({ starter: 1925, growth: 5000, pro: 22000 });
+    expect(getRes.json().shopify.packCredits).toEqual({
+      pack_10: { credits: 800, autorefillCredits: 880 },
+      pack_25: { credits: 2250, autorefillCredits: 2475 },
+      pack_50: { credits: 4800, autorefillCredits: 5280 },
+      pack_100: { credits: 10000, autorefillCredits: 11000 },
+    });
 
     const patchRes = await app.inject({
       method: 'PATCH',
       url: '/admin/config',
       headers: { ...adminAuth, 'content-type': 'application/json' },
-      payload: JSON.stringify({ shopify: { planCredits: { starter: 3000 } } }),
+      payload: JSON.stringify({ shopify: { packCredits: { pack_10: { credits: 3000 } } } }),
     });
     expect(patchRes.statusCode).toBe(200);
 
     const getRes2 = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
-    expect(getRes2.json().shopify.planCredits).toEqual({ starter: 3000, growth: 5000, pro: 22000 });
+    expect(getRes2.json().shopify.packCredits).toEqual({
+      pack_10: { credits: 3000, autorefillCredits: 880 },
+      pack_25: { credits: 2250, autorefillCredits: 2475 },
+      pack_50: { credits: 4800, autorefillCredits: 5280 },
+      pack_100: { credits: 10000, autorefillCredits: 11000 },
+    });
   });
 
   it('GET /admin/config default-fills maxBatchJobs, and PATCH persists an override', async () => {

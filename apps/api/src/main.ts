@@ -2,10 +2,8 @@ import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { loadEnv } from './env.js';
 import { hashPassword } from './modules/auth/service.js';
-import { startBillingScheduler } from './modules/shopify/billing-scheduler.js';
 import { startCollectionResyncScheduler } from './modules/shopify/collections-resync-scheduler.js';
 import { startSyncConsumer } from './modules/shopify/sync-consumer.js';
-import { startUsageScheduler } from './modules/shopify/usage-scheduler.js';
 import { startUploadSweeper } from './modules/uploads/sweeper.js';
 import { buildServer } from './server.js';
 
@@ -15,8 +13,6 @@ await app.listen({ port: env.API_PORT, host: '0.0.0.0' });
 
 startSyncConsumer(app);
 startCollectionResyncScheduler(app);
-startBillingScheduler(app);
-startUsageScheduler(app);
 startUploadSweeper(app);
 
 if (env.ADMIN_BOOTSTRAP_EMAIL && env.ADMIN_BOOTSTRAP_PASSWORD) {
