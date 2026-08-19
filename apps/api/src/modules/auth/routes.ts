@@ -38,6 +38,15 @@ const DeviceRefreshBody = z.object({
   platform: z.enum(['mobile', 'kiosk']).default('mobile'),
 });
 
+const CatalogAppCodeExchangeBody = z.object({
+  code: z.string().min(20).max(64),
+});
+
+/** Handoff-code lifetime for the WebView code-exchange SSO entry point — long
+ * enough to cover the app-to-WebView navigation, short enough that a leaked
+ * code (WebView history, a proxy log) is worthless within a minute. */
+const CATALOG_APP_CODE_TTL_SEC = 60;
+
 const DeviceLogoutBody = z.object({ refreshToken: z.string().min(1) });
 
 const DeviceGoogleLoginBody = z.object({
@@ -776,11 +785,32 @@ export async function authRoutes(app: FastifyInstance) {
     };
   });
 
+  // Shared by both catalog-app device entry points below. requireDeviceUser only
+  // checks the user exists and is email-verified — it does NOT check isBanned
+  // (unlike the password-based portal: 'catalog-app' branch of /v1/auth/login,
+  // which both routes mirror). Left the shared guard unmodified since
+  // /v1/merchant/onboarding also relies on it, so the ban check has to live here.
+  async function assertCatalogAppEligible(userId: string): Promise<void> {
+    const [userRow] = await app.db
+      .select({ isBanned: schema.users.isBanned })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId));
+    if (userRow?.isBanned) {
+      throw new AppError('BANNED', 403, 'account banned');
+    }
+    const [merchantRow] = await app.db
+      .select({ isActive: schema.merchants.isActive })
+      .from(schema.merchants)
+      .where(eq(schema.merchants.userId, userId));
+    if (!merchantRow?.isActive) {
+      throw new AppError('NOT_A_MERCHANT', 403, 'This account has no Try On Library access.');
+    }
+  }
+
   // Lets the Android app's WebView (already signed into the native device
   // session) pick up a catalog-app cookie session without showing the Try On
   // Library's own login form. requireDeviceUser proves this is a live
-  // 'device'-audience session; the merchant-active gate matches the
-  // password-based portal: 'catalog-app' branch of /v1/auth/login above.
+  // 'device'-audience session.
   app.post(
     '/v1/auth/catalog-app-device-exchange',
     {
@@ -788,26 +818,57 @@ export async function authRoutes(app: FastifyInstance) {
       config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
     },
     async (req, reply) => {
-      // requireDeviceUser only checks the user exists and is email-verified —
-      // it does NOT check isBanned (unlike the password-based portal:
-      // 'catalog-app' branch of /v1/auth/login above, which this route
-      // mirrors). Left the shared guard unmodified since /v1/merchant/onboarding
-      // also relies on it, so the ban check has to live here instead.
-      const [userRow] = await app.db
-        .select({ isBanned: schema.users.isBanned })
-        .from(schema.users)
-        .where(eq(schema.users.id, req.userId));
-      if (userRow?.isBanned) {
-        throw new AppError('BANNED', 403, 'account banned');
-      }
-      const [merchantRow] = await app.db
-        .select({ isActive: schema.merchants.isActive })
-        .from(schema.merchants)
-        .where(eq(schema.merchants.userId, req.userId));
-      if (!merchantRow?.isActive) {
-        throw new AppError('NOT_A_MERCHANT', 403, 'This account has no Try On Library access.');
-      }
+      await assertCatalogAppEligible(req.userId);
       return createSessionTokens(app, req.userId, reply, 200, 'catalog-app');
+    },
+  );
+
+  // Second entry point into the same catalog-app session, for WebView wrappers
+  // that can't set a custom header on the initial navigation (unlike loadUrl's
+  // extraHeaders overload above). The app calls this route directly (bearer
+  // device token, never in a URL) to mint a short-lived, single-use handoff
+  // code, then opens the WebView at /tryon-library-app?code=<code>. Putting
+  // only this code — not the device access token itself — in the URL keeps the
+  // blast radius small if it ends up in WebView history or a proxy log: it's
+  // worthless after one use or 60 seconds, whichever comes first.
+  app.post(
+    '/v1/auth/catalog-app-device-code',
+    {
+      preHandler: app.requireDeviceUser,
+      config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+    },
+    async (req) => {
+      await assertCatalogAppEligible(req.userId);
+      const code = randomBytes(24).toString('base64url');
+      await app.redis.set(
+        `catalog-app-handoff:${code}`,
+        req.userId,
+        'EX',
+        CATALOG_APP_CODE_TTL_SEC,
+      );
+      return { code, expiresInSeconds: CATALOG_APP_CODE_TTL_SEC };
+    },
+  );
+
+  // Public by necessity — the code itself is the credential (192 bits of
+  // randomness, single-use via GETDEL, 60s TTL), same trust model as e.g. a
+  // password-reset token. No re-check of ban/merchant status here: the code's
+  // existence already proves assertCatalogAppEligible passed within the last
+  // 60 seconds, and every other device-session route in this file trusts a
+  // token for its full lifetime the same way.
+  app.post(
+    '/v1/auth/catalog-app-code-exchange',
+    {
+      schema: { body: CatalogAppCodeExchangeBody },
+      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+    },
+    async (req, reply) => {
+      const { code } = req.body as z.infer<typeof CatalogAppCodeExchangeBody>;
+      const userId = await app.redis.getdel(`catalog-app-handoff:${code}`);
+      if (!userId) {
+        throw new AppError('INVALID_CODE', 401, 'code invalid, expired, or already used');
+      }
+      return createSessionTokens(app, userId, reply, 200, 'catalog-app');
     },
   );
 
