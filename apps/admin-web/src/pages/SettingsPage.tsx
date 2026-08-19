@@ -249,6 +249,9 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   const [sellerGstin, setSellerGstin] = useState('');
   const [sellerLegalName, setSellerLegalName] = useState('');
   const [sellerAddress, setSellerAddress] = useState('');
+  const [sellerPan, setSellerPan] = useState('');
+  const [sellerTan, setSellerTan] = useState('');
+  const [sellerUdyamRegNo, setSellerUdyamRegNo] = useState('');
   const [merchantCatalogDefaults, setMerchantCatalogDefaults] = useState<
     Record<
       string,
@@ -297,7 +300,14 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
       maxOutputPx?: number;
       maxBatchJobs?: number;
       maxQueueDepth?: number;
-      seller?: { gstin?: string; legalName?: string; address?: string };
+      seller?: {
+        gstin?: string;
+        legalName?: string;
+        address?: string;
+        pan?: string;
+        tan?: string;
+        udyamRegNo?: string;
+      };
       merchantCatalogDefaults?: Record<
         string,
         { faceId: string; backgroundId: string; lowerCatalogId?: string; shoeCatalogId?: string }
@@ -313,6 +323,9 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
           setSellerGstin(cfg.seller.gstin ?? '');
           setSellerLegalName(cfg.seller.legalName ?? '');
           setSellerAddress(cfg.seller.address ?? '');
+          setSellerPan(cfg.seller.pan ?? '');
+          setSellerTan(cfg.seller.tan ?? '');
+          setSellerUdyamRegNo(cfg.seller.udyamRegNo ?? '');
         }
         if (cfg.merchantCatalogDefaults) setMerchantCatalogDefaults(cfg.merchantCatalogDefaults);
         if (cfg.merchantCatalogAspectRatio)
@@ -429,6 +442,9 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
             gstin: sellerGstin.trim(),
             legalName: sellerLegalName.trim(),
             address: sellerAddress.trim(),
+            pan: sellerPan.trim(),
+            tan: sellerTan.trim(),
+            udyamRegNo: sellerUdyamRegNo.trim(),
           },
           merchantCatalogDefaults: sanitizedMerchantCatalogDefaults,
           merchantCatalogAspectRatio,
@@ -929,6 +945,27 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                       disabled={sysSaving}
                       rows={3}
                       onChange={(e) => setSellerAddress(e.target.value)}
+                    />
+                    <input
+                      className="input"
+                      placeholder="PAN"
+                      value={sellerPan}
+                      disabled={sysSaving}
+                      onChange={(e) => setSellerPan(e.target.value)}
+                    />
+                    <input
+                      className="input"
+                      placeholder="TAN"
+                      value={sellerTan}
+                      disabled={sysSaving}
+                      onChange={(e) => setSellerTan(e.target.value)}
+                    />
+                    <input
+                      className="input"
+                      placeholder="Udyam Registration No."
+                      value={sellerUdyamRegNo}
+                      disabled={sysSaving}
+                      onChange={(e) => setSellerUdyamRegNo(e.target.value)}
                     />
                   </div>
                 </div>
