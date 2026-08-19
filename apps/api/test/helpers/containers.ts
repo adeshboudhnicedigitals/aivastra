@@ -53,10 +53,11 @@ export async function startContainers(): Promise<Containers> {
     // Dedicated DB index, never 0 (dev/prod default) — tests do destructive
     // redis.del('jobs:normal'/'jobs:priority') as setup, which previously wiped
     // out a live dev dispatcher's consumer group running against the same Redis.
-    // ponytail: still a single shared DB across parallel test files (unlike the
-    // per-file Postgres DB / MinIO bucket), so cross-file key races are possible;
-    // fix if a test starts flaking on shared queue-length assertions.
-    redisUrl: 'redis://127.0.0.1:6379/15',
+    // One index per Vitest worker (VITEST_POOL_ID, 1-indexed) rather than a single
+    // shared index — files running concurrently in different workers would otherwise
+    // race on the same jobs:*/config:system keys. Files within one worker still run
+    // sequentially, so reusing an index across a worker's files is safe.
+    redisUrl: `redis://127.0.0.1:6379/${1 + ((Number(process.env.VITEST_POOL_ID ?? '1') - 1) % 14)}`,
     r2Endpoint,
     r2Key: 'minioadmin',
     r2Secret: 'minioadmin_dev_pw',

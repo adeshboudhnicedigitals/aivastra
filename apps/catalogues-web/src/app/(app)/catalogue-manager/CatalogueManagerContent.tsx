@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react';
 import { ArrowLeft, GarmentIcon, PlusIcon, TrashIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
+import { DemoVideoSection, GetAppButton } from '@/components/try-on-promo';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { api } from '@/lib/api';
@@ -201,10 +202,7 @@ export function CatalogueManagerContent() {
   if (merchantGated) {
     return (
       <>
-        <TopBar
-          title="Try On Library"
-          subtitle="Organize your products by category and garment type."
-        />
+        <TopBar title="Try-On" subtitle="Organize your products by category and garment type." />
         <div
           style={{
             flex: 1,
@@ -674,7 +672,7 @@ export function CatalogueManagerContent() {
       {!selectedSub ? (
         <>
           <TopBar
-            title="Try On Library"
+            title="Try-On"
             subtitle="Organize your products by category and garment type."
             right={
               <GradBtn onClick={openAddSubcategory}>
@@ -685,8 +683,12 @@ export function CatalogueManagerContent() {
             }
           />
           <div style={{ flex: 1, overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '24px 28px 0' }}>
+              <GetAppButton />
+            </div>
             {renderCategoryTabs()}
             {renderSubcategoryGrid()}
+            <DemoVideoSection />
           </div>
         </>
       ) : (

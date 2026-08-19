@@ -71,6 +71,50 @@ export async function middleware(request: NextRequest) {
   // independent of the server-side session it points at (native logout, family-
   // reuse revocation), so a present-but-stale cookie must not skip the exchange.
   if (path === '/tryon-library-app' || path.startsWith('/tryon-library-app/')) {
+    // Second entry point, for WebView wrappers that can't set a custom header
+    // on the initial load: the app calls POST /v1/auth/catalog-app-device-code
+    // itself (bearer device token, never in a URL) to get a short-lived
+    // single-use code, then opens this page at ?code=<code>. Checked first —
+    // if present it's the explicit signal the app just minted, whereas the
+    // header below is opportunistic on every load.
+    const code = request.nextUrl.searchParams.get('code');
+    if (code) {
+      try {
+        const res = await fetch(`${API_URL}/v1/auth/catalog-app-code-exchange`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ code }),
+          signal: AbortSignal.timeout(3000),
+        });
+        if (res.ok) {
+          const h = res.headers as Headers & { getSetCookie?: () => string[] };
+          const setCookieStr = h.getSetCookie
+            ? h.getSetCookie().join(', ') || null
+            : res.headers.get('set-cookie');
+          // Strip the (already single-use, now-consumed) code from the URL so
+          // it doesn't linger in WebView history or get resent on a refresh.
+          const cleanUrl = new URL(request.url);
+          cleanUrl.searchParams.delete('code');
+          const response = NextResponse.redirect(cleanUrl);
+          setCatalogAppCookies(response, setCookieStr);
+          return withCsp(response);
+        }
+      } catch {
+        // Code invalid/expired/already used/network error — fall through to
+        // the header check below, then the page's own login form.
+      }
+    }
+
+    // Android app WebView SSO bypass
+    // (docs/superpowers/specs/2026-08-18-android-tryon-library-app-sso-design.md):
+    // the native app sends its device access token as a header on the WebView's
+    // first navigation only. Exchange it for a catalog_app_refresh cookie before
+    // AuthGate's own client-side check ever runs, so an already-signed-in
+    // merchant never sees this PWA's separate login form. No-op for every other
+    // visitor (no header). Always attempted when the header is present, even if a
+    // catalog_app_refresh cookie already exists — that cookie's 7-day lifetime is
+    // independent of the server-side session it points at (native logout, family-
+    // reuse revocation), so a present-but-stale cookie must not skip the exchange.
     const deviceToken = request.headers.get('x-aivastra-device-token');
     if (deviceToken) {
       try {

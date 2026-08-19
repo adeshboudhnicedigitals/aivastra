@@ -1,4 +1,4 @@
-import { getApiUrl, getToken, initToken } from './api';
+import { getApiUrl, getToken, tryRefresh } from './api';
 import { responseError } from './errors';
 
 /**
@@ -8,8 +8,6 @@ import { responseError } from './errors';
  * so we use fetch + ReadableStream instead. This gives us full control
  * over auth, reconnect logic, and parsing.
  */
-
-const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
 const INITIAL_DELAY_MS = 1_000;
 const MAX_DELAY_MS = 30_000;
@@ -26,21 +24,6 @@ export interface SSEConnection {
 }
 
 export type SSEState = 'connecting' | 'connected' | 'reconnecting';
-
-async function tryRefreshToken(): Promise<string | null> {
-  try {
-    const res = await fetch(`${BASE}/api/auth/refresh`, { method: 'POST' });
-    if (!res.ok) return null;
-    const { accessToken } = (await res.json()) as { accessToken: string };
-    if (accessToken) {
-      initToken(accessToken);
-      return accessToken;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
 
 function parseSSEBlocks<T>(text: string, onEvent: (e: SSEEvent<T>) => void): void {
   for (const block of text.split('\n\n')) {
@@ -80,7 +63,7 @@ export function createSSEConnection<T = unknown>(
     try {
       let token = getToken();
       if (!token) {
-        token = await tryRefreshToken();
+        token = await tryRefresh();
       }
       const headers: Record<string, string> = {};
       if (token) headers.Authorization = `Bearer ${token}`;
@@ -92,7 +75,7 @@ export function createSSEConnection<T = unknown>(
       });
 
       if (res.status === 401) {
-        token = await tryRefreshToken();
+        token = await tryRefresh();
         if (!token) {
           // Session expired — stop reconnecting, redirect handled by app
           closed = true;
