@@ -404,7 +404,11 @@ export default function TutorialsPage() {
                     <iframe
                       width="100%"
                       height="100%"
-                      src={`https://www.youtube.com/embed/${videoId}?autoplay=1`}
+                      // origin is required by some videos' embed player to validate the
+                      // requesting site — omitting it is a common cause of YouTube's
+                      // "Error 153: video player configuration error" even when
+                      // embedding is allowed for the video.
+                      src={`https://www.youtube.com/embed/${videoId}?autoplay=1&origin=${encodeURIComponent(window.location.origin)}`}
                       title={tutorial.title}
                       frameBorder="0"
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"

@@ -82,7 +82,7 @@ export function DemoVideoSection({ youtubeUrl = DEMO_VIDEO_URL }: { youtubeUrl?:
       <div
         style={{
           position: 'relative',
-          width: 320,
+          width: 560,
           maxWidth: '100%',
           aspectRatio: '16 / 9',
           borderRadius: 12,
@@ -98,7 +98,12 @@ export function DemoVideoSection({ youtubeUrl = DEMO_VIDEO_URL }: { youtubeUrl?:
           <iframe
             width="100%"
             height="100%"
-            src={`https://www.youtube.com/embed/${videoId}?autoplay=1`}
+            // origin is required by some videos' embed player to validate the
+            // requesting site — omitting it is a common cause of YouTube's
+            // "Error 153: video player configuration error" even when
+            // embedding is allowed for the video. Only reachable after a
+            // client-side click, so window is always defined here.
+            src={`https://www.youtube.com/embed/${videoId}?autoplay=1&origin=${encodeURIComponent(window.location.origin)}`}
             title="See how Try On works"
             frameBorder="0"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
@@ -126,8 +131,8 @@ export function DemoVideoSection({ youtubeUrl = DEMO_VIDEO_URL }: { youtubeUrl?:
             >
               <div
                 style={{
-                  width: 48,
-                  height: 48,
+                  width: 64,
+                  height: 64,
                   borderRadius: '50%',
                   background: grad,
                   display: 'flex',
@@ -136,7 +141,7 @@ export function DemoVideoSection({ youtubeUrl = DEMO_VIDEO_URL }: { youtubeUrl?:
                   boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
                 }}
               >
-                <Play size={20} color="#fff" fill="#fff" />
+                <Play size={26} color="#fff" fill="#fff" />
               </div>
             </div>
           </>
