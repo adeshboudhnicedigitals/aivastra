@@ -16,6 +16,18 @@ export const creditPlans = pgTable('credit_plans', {
   queueStream: text('queue_stream').notNull().default('normal'),
   // watermark: true → jobs created under this plan are watermarked (default true for free plan)
   watermark: boolean('watermark').notNull().default(false),
+  // 'catalogue' | 'tryon' — which pricing tab this plan is sold under. Each is a
+  // fully independent purchasable SKU (own slug/price/credits); a plan never
+  // appears on both tabs. The free plan is 'catalogue' by convention but is
+  // filtered out of both tabs by slug ('free') regardless.
+  planType: text('plan_type').notNull().default('catalogue'),
+  // Freeform marketing price label shown on the public pricing card (e.g.
+  // "₹12.50 per Catalogue photo" or "₹6.25 per Try-on photo") — admin-editable,
+  // optional, null means the row isn't rendered.
+  perUnitPriceLabel: text('per_unit_price_label'),
+  // Freeform "included units" label shown next to the price (e.g. "80 Images"
+  // or "160 Try-Ons") — same optional/admin-editable convention.
+  unitCountLabel: text('unit_count_label'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

@@ -68,9 +68,31 @@ export function startComfyMock(): Promise<ComfyMock> {
       }
 
       if (req.method === 'GET' && url.pathname.startsWith('/history/')) {
-        const filename = opts.outputFilename ?? 'result.png';
         const promptId = url.pathname.split('/').pop() ?? '';
         res.writeHead(200, { 'Content-Type': 'application/json' });
+        if (opts.fail) {
+          // waitForCompletion (src/comfyui/progress.ts) polls this endpoint and
+          // fails a job only on status.status_str === 'error' — it does not
+          // consult the /prompt websocket event above, so that's the shape
+          // ComfyMockOptions.fail must produce here to actually force a failure.
+          res.end(
+            JSON.stringify({
+              [promptId]: {
+                status: {
+                  status_str: 'error',
+                  messages: [
+                    [
+                      'execution_error',
+                      { node_type: 'MockNode', node_id: '1', exception_message: 'mock error' },
+                    ],
+                  ],
+                },
+              },
+            }),
+          );
+          return;
+        }
+        const filename = opts.outputFilename ?? 'result.png';
         res.end(
           JSON.stringify({
             [promptId]: {

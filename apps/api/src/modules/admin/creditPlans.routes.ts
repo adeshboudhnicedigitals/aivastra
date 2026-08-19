@@ -23,6 +23,13 @@ const PlanBody = z.object({
   sortOrder: z.number().int().default(0),
   queueStream: z.enum(['priority', 'normal', 'low']).default('normal'),
   watermark: z.boolean().default(false),
+  // Which pricing tab this plan is sold under — each type is a fully
+  // independent SKU (own slug/price/credits), never shared across tabs.
+  planType: z.enum(['catalogue', 'tryon']).default('catalogue'),
+  // Freeform marketing labels shown on the public pricing card — optional,
+  // null clears the row entirely rather than hiding an empty string.
+  perUnitPriceLabel: z.string().max(100).nullable().default(null),
+  unitCountLabel: z.string().max(50).nullable().default(null),
 });
 
 export async function adminCreditPlansRoutes(app: FastifyInstance) {

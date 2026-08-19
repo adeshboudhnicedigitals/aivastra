@@ -27,6 +27,7 @@ ARG VITE_API_BASE_URL
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 ARG VITE_SHOPIFY_APP_HANDLE
 ENV VITE_SHOPIFY_APP_HANDLE=$VITE_SHOPIFY_APP_HANDLE
+RUN pnpm --filter @aivastra/types build
 RUN NODE_ENV=production pnpm --filter @aivastra/shopify-admin build
 
 FROM nginx:alpine AS runtime

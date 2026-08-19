@@ -9,6 +9,7 @@ import { shopifyCatalogOptionsRoutes } from './catalog-options.routes.js';
 import { shopifyEventsRoutes } from './events.routes.js';
 import { shopifyMeRoutes } from './me.routes.js';
 import { shopifyOnboardingRoutes } from './onboarding.routes.js';
+import { shopifyPaygRoutes } from './payg.routes.js';
 import { shopifyProductsRoutes } from './products.routes.js';
 import { enqueueSync } from './service.js';
 import { shopifySettingsRoutes } from './settings.routes.js';
@@ -26,6 +27,7 @@ export async function shopifyRoutes(app: FastifyInstance) {
   await app.register(shopifyAuthRoutes);
   await app.register(shopifyMeRoutes);
   await app.register(shopifyBillingRoutes);
+  await app.register(shopifyPaygRoutes);
   await app.register(shopifyProductsRoutes);
   await app.register(shopifyCatalogOptionsRoutes);
   await app.register(shopifyCatalogRoutes);

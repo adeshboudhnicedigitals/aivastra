@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { setAuthCookies } from '@/lib/auth-cookies';
+import { setCatalogAppCookies } from '@/lib/catalog-app-cookies';
 import { buildCsp } from '@/lib/csp';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
@@ -58,6 +59,46 @@ export async function middleware(request: NextRequest) {
     BASE_PATH && pathname.startsWith(BASE_PATH)
       ? pathname.slice(BASE_PATH.length) || '/'
       : pathname;
+
+  // Android app WebView SSO bypass
+  // (docs/superpowers/specs/2026-08-18-android-tryon-library-app-sso-design.md):
+  // the native app sends its device access token as a header on the WebView's
+  // first navigation only. Exchange it for a catalog_app_refresh cookie before
+  // AuthGate's own client-side check ever runs, so an already-signed-in
+  // merchant never sees this PWA's separate login form. No-op for every other
+  // visitor (no header). Always attempted when the header is present, even if a
+  // catalog_app_refresh cookie already exists — that cookie's 7-day lifetime is
+  // independent of the server-side session it points at (native logout, family-
+  // reuse revocation), so a present-but-stale cookie must not skip the exchange.
+  if (path === '/tryon-library-app' || path.startsWith('/tryon-library-app/')) {
+    const deviceToken = request.headers.get('x-aivastra-device-token');
+    if (deviceToken) {
+      try {
+        const cfIp = request.headers.get('cf-connecting-ip');
+        const res = await fetch(`${API_URL}/v1/auth/catalog-app-device-exchange`, {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${deviceToken}`,
+            ...(cfIp ? { 'cf-connecting-ip': cfIp } : {}),
+          },
+          signal: AbortSignal.timeout(3000),
+        });
+        if (res.ok) {
+          const h = res.headers as Headers & { getSetCookie?: () => string[] };
+          const setCookieStr = h.getSetCookie
+            ? h.getSetCookie().join(', ') || null
+            : res.headers.get('set-cookie');
+          const response = NextResponse.next({ request: { headers: requestHeaders } });
+          setCatalogAppCookies(response, setCookieStr);
+          return withCsp(response);
+        }
+      } catch {
+        // Exchange failed (expired token, not a merchant, network error) — fall
+        // through to the page's own client-side login form, same as today.
+      }
+    }
+    return next();
+  }
 
   if (path.startsWith('/api/auth')) return next();
   if (path.startsWith('/api/catalog-app')) return next();
