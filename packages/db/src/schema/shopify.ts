@@ -113,6 +113,12 @@ export const shopifyStores = pgTable('shopify_stores', {
   autorefillPackId: text('autorefill_pack_id'),
   autorefillTriggerCredits: integer('autorefill_trigger_credits'),
   autorefillSubscriptionId: text('autorefill_subscription_id'),
+  // The AppSubscriptionLineItem GID inside autorefillSubscriptionId. Distinct
+  // from the subscription id and NOT derivable from it: appUsageRecordCreate
+  // addresses the line item, not the subscription. Captured from the
+  // appSubscriptionCreate response so a refill never needs an extra round trip
+  // to re-resolve it.
+  autorefillLineItemId: text('autorefill_line_item_id'),
   autorefillCappedAmountCents: integer('autorefill_capped_amount_cents'),
   // 'PENDING' | 'ACTIVE' | 'CANCELLED' | 'DECLINED' | 'CAP_REACHED'.
   // CAP_REACHED is ours, not Shopify's: it records that a refill was refused
