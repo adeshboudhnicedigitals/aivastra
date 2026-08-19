@@ -119,6 +119,18 @@ export const shopifyStores = pgTable('shopify_stores', {
   // because the cycle's capped amount was exhausted, so the UI can say
   // something specific instead of silently falling back to manual.
   autorefillStatus: text('autorefill_status'),
+  // The shop owner's contact email, from shop.email at install. Already
+  // fetched by SHOP_DETAILS and previously discarded. This is the only address
+  // we can reach a merchant on: owner_user_id is nullable and ON DELETE SET
+  // NULL, so it cannot be the basis for a billing notification.
+  shopEmail: text('shop_email'),
+  // The worst alert level we have already emailed this store about. The
+  // scheduler emails only when the current level ranks worse than this, so a
+  // merchant sitting at 'warning' for a week gets one email rather than 168.
+  // Rewritten every tick regardless, so a store that recovers (bought credits)
+  // is automatically eligible to be alerted again later.
+  lastAlertLevel: text('last_alert_level'),
+  lastAlertAt: timestamp('last_alert_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

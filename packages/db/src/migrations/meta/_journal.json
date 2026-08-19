@@ -1128,6 +1128,13 @@
       "when": 1787061600000,
       "tag": "0160_drop_shopify_app_pricing",
       "breakpoints": true
+    },
+    {
+      "idx": 161,
+      "version": "7",
+      "when": 1787065200000,
+      "tag": "0161_shopify_alerting",
+      "breakpoints": true
     }
   ]
 }

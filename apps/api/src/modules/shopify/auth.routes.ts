@@ -61,6 +61,7 @@ export async function upsertShopifyStore(
           ...refreshCols,
           scope,
           ianaTimezone: shop.ianaTimezone ?? null,
+          shopEmail: shop.email,
           allowedOrigins: origins,
           uninstalledAt: null,
           updatedAt: new Date(),
@@ -79,6 +80,7 @@ export async function upsertShopifyStore(
         ...refreshCols,
         scope,
         ianaTimezone: shop.ianaTimezone ?? null,
+        shopEmail: shop.email,
         allowedOrigins: origins,
       })
       .returning();
