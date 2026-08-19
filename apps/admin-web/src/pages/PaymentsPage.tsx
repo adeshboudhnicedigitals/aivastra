@@ -19,6 +19,7 @@ interface PaymentRow {
   userId: string;
   userEmail: string | null;
   userDisplayName: string | null;
+  userTier: string;
   planId: string;
   planName: string | null;
   credits: number;
@@ -174,6 +175,7 @@ export default function PaymentsPage({ toast }: Props) {
                   <th style={{ textAlign: 'left' }}>Date</th>
                   <th style={{ textAlign: 'left' }}>User</th>
                   <th style={{ textAlign: 'left' }}>Plan</th>
+                  <th style={{ textAlign: 'left' }}>Access</th>
                   <th style={{ textAlign: 'right' }}>Credits</th>
                   <th style={{ textAlign: 'right' }}>Amount</th>
                   <th style={{ textAlign: 'left' }}>Razorpay Payment ID</th>
@@ -198,6 +200,9 @@ export default function PaymentsPage({ toast }: Props) {
                         </span>
                       </td>
                       <td style={{ textAlign: 'left' }}>{p.planName ?? p.planId}</td>
+                      <td style={{ textAlign: 'left', textTransform: 'capitalize' }}>
+                        {p.userTier}
+                      </td>
                       <td style={{ textAlign: 'right' }}>
                         <span className="mono">{p.credits.toLocaleString('en-IN')}</span>
                       </td>
@@ -235,7 +240,7 @@ export default function PaymentsPage({ toast }: Props) {
                 {rows.length === 0 && (
                   <tr>
                     <td
-                      colSpan={8}
+                      colSpan={9}
                       style={{
                         padding: 20,
                         color: 'var(--muted)',
@@ -289,6 +294,10 @@ export default function PaymentsPage({ toast }: Props) {
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
                     <span style={{ color: 'var(--muted)' }}>{p.planName ?? p.planId}</span>
                     <span className="mono">{fmtRupees(p.totalPaise)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                    <span style={{ color: 'var(--muted)' }}>Access</span>
+                    <span style={{ textTransform: 'capitalize' }}>{p.userTier}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
                     <span style={{ color: 'var(--muted)' }}>

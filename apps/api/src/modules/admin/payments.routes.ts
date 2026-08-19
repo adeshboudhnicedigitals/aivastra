@@ -56,6 +56,7 @@ export async function adminPaymentsRoutes(app: FastifyInstance) {
           userId: schema.payments.userId,
           userEmail: schema.users.email,
           userDisplayName: schema.users.displayName,
+          userTier: schema.users.tier,
           planId: schema.payments.planId,
           planName: schema.creditPlans.name,
           credits: schema.payments.credits,
