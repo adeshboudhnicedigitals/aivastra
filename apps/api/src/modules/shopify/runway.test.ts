@@ -67,4 +67,33 @@ describe('deriveLevel', () => {
     expect(ALERT_LEVEL_RANK.warning).toBeLessThan(ALERT_LEVEL_RANK.critical);
     expect(ALERT_LEVEL_RANK.critical).toBeLessThan(ALERT_LEVEL_RANK.empty);
   });
+
+  // 'empty' tracks "can no longer afford a try-on" (matching the storefront's
+  // own balance < jobCost gate), not "balance is exactly zero" — a store can
+  // have a few leftover credits that are worth nothing once they're below the
+  // live job cost.
+  describe('tryonCost threshold', () => {
+    it('defaults to SIMPLE_TRYON_COST when no tryonCost is given', () => {
+      // 4 credits, no explicit tryonCost — falls back to the compile-time
+      // SIMPLE_TRYON_COST (5), so 4 < 5 is empty.
+      expect(deriveLevel({ balance: 4, dailyBurnCredits: 0, lifetimeJobs: 10 }).level).toBe(
+        'empty',
+      );
+    });
+
+    it('is empty once balance drops below the live job cost, even above zero', () => {
+      // 8 credits against a retuned 10-credit job cost: can't afford one more
+      // try-on, so this must read 'empty' — not 'critical' with a misleading
+      // "about N days left".
+      expect(
+        deriveLevel({ balance: 8, dailyBurnCredits: 50, lifetimeJobs: 10, tryonCost: 10 }).level,
+      ).toBe('empty');
+    });
+
+    it('is not empty once balance can afford at least one try-on at the live cost', () => {
+      expect(
+        deriveLevel({ balance: 10, dailyBurnCredits: 0, lifetimeJobs: 10, tryonCost: 10 }).level,
+      ).not.toBe('empty');
+    });
+  });
 });

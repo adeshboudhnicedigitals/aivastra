@@ -1,3 +1,68 @@
+## 2026-08-19 — Shopify low-credit alerting: whole-branch review fixes
+
+Final whole-branch review of `feature/shopify-credit-wallet` phase 2 (burn-rate
+runway + alert-level computation, hourly alert scheduler with escalation-only
+low-credit email, Polaris low-credit banners in the embedded admin) caught bugs
+that only showed up considering the phase end to end, even though each of the
+5 tasks had passed its own review individually.
+
+**Done**
+- **The whole feature was a no-op for every pre-existing install.**
+  `shop_email` (this phase's new column) is only written by
+  `upsertShopifyStore` on install/reinstall, so every store installed before
+  this migration had it `NULL` and stayed `NULL` forever. Worse,
+  `runAlertTick` (`apps/api/src/modules/shopify/alert-scheduler.ts`) was
+  stamping `lastAlertLevel` unconditionally even when nothing could be sent —
+  so the first tick after deploy would have silently walked the entire
+  existing install base, sent zero emails, and permanently suppressed every
+  low-balance alert (escalation-only logic never re-fires unless the level
+  gets strictly worse or first recovers to `'ok'`). Fixed both halves:
+  `lastAlertLevel` now only advances past its previous value when a
+  notification was actually deliverable, and a store missing `shop_email` is
+  now backfilled in-tick via the same token + GraphQL machinery
+  `provisionShopifyStore` used at install (`getValidAccessToken` +
+  `shopifyGraphQL('shop { email }')`), persisted once so it isn't refetched on
+  later ticks. A backfill failure (dead token, needs reauth, Shopify
+  unreachable) is caught locally, logged, and that store is skipped without
+  blocking the rest of the tick.
+- **GDPR gap:** the `shop_redact` webhook handler purged shopper rows and job
+  objects but left `shopify_stores.shop_email` (the shop owner's own PII,
+  introduced this phase) untouched. Now clears `shopEmail`, `lastAlertLevel`,
+  and `lastAlertAt` on the store row too (`webhook.routes.ts`).
+- **Wrong credit-cost source:** `computeRunway` was dividing by the
+  compile-time `SIMPLE_TRYON_COST` instead of the live, admin-tunable
+  `getTryonCreditCost(app)` the storefront actually charges — so retuning
+  `tryon.creditCost` in the admin panel would silently desync every banner and
+  email's try-on count from what shoppers actually pay. `deriveLevel`'s
+  `'empty'` boundary also only checked `balance <= 0`, one credit lower than
+  where the storefront itself already refuses a try-on (`balance < jobCost`);
+  it now takes an optional `tryonCost` (defaulting to `SIMPLE_TRYON_COST` so
+  existing pure-function tests are unaffected) and `computeRunway` threads the
+  live cost through. Frontend `tryOnsFromCredits` (`apps/shopify/src/lib/packs.ts`)
+  still has its own hardcoded divisor for the one spot with no live number to
+  read (documented in place), but `PricingPage` now prefers
+  `me.runway.tryOnsRemaining` (the live-corrected value already on the `/me`
+  response) wherever `me` is loaded.
+- Removed a duplicate `COUNT(*) FROM jobs WHERE shopify_store_id = ?` in
+  `/v1/shopify/me` — `computeRunway` already computes the identical number as
+  `lifetimeJobs`; the route now reuses it instead of a second round trip.
+- `(store.lastAlertLevel ?? 'ok') as AlertLevel` was an unchecked cast on a
+  plain `text` column; a corrupt/unexpected value would silently make
+  `ALERT_LEVEL_RANK` lookups `undefined` and permanently silence that store.
+  Added a runtime guard that falls back to `'ok'` for anything outside the
+  four known levels.
+- Added integration test coverage for `defaultSendEmail`'s real argument
+  mapping into `sendLowCreditsEmail` (previously only exercised through the
+  `deps.sendEmail` test seam, so the mapping itself had zero test coverage —
+  protected by TypeScript only) and for the shop-email backfill's two paths
+  (succeeds → persists + sends; fails → skips without blocking other stores).
+- One-character optional-chaining hardening (`me?.runway?.` vs `me?.runway.`)
+  in `apps/shopify/src/pages/PricingPage.tsx` and `DashboardPage.tsx` — not
+  currently reachable since the SPA and API deploy together, but cheap.
+
+**Open Questions / Decisions**
+- Not yet committed — a controller reviews the diff before it lands.
+
 ## 2026-08-19 — Shopify billing: App Pricing → Manual Pricing (prepaid credit packs)
 
 **Out-of-repo state changed (Partner Dashboard) — do before deploying:**

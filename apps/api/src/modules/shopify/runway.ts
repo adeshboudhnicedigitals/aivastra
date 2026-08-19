@@ -2,6 +2,7 @@ import { schema } from '@aivastra/db';
 import { SIMPLE_TRYON_COST } from '@aivastra/types';
 import { and, count, eq, gte, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { getTryonCreditCost } from '../../lib/resolution-config.js';
 
 /**
  * How close a store is to running out. Ordered — see ALERT_LEVEL_RANK — so the
@@ -53,15 +54,27 @@ export interface Runway {
  * A flat credit threshold was rejected: 50 credits is 10 try-ons, which against
  * a 10,000-credit balance is no warning at all, and against an 800-credit one
  * is constant noise.
+ *
+ * `tryonCost` defaults to the compile-time SIMPLE_TRYON_COST so existing
+ * callers/tests that don't pass one keep the historical boundary. Real callers
+ * should pass the live, admin-tunable cost (`getTryonCreditCost`) — see
+ * `computeRunway` below.
  */
 export function deriveLevel(input: {
   balance: number;
   dailyBurnCredits: number;
   lifetimeJobs: number;
+  tryonCost?: number;
 }): { level: AlertLevel; daysRemaining: number | null } {
-  const { balance, dailyBurnCredits, lifetimeJobs } = input;
+  const { balance, dailyBurnCredits, lifetimeJobs, tryonCost = SIMPLE_TRYON_COST } = input;
 
-  if (balance <= 0) return { level: 'empty', daysRemaining: 0 };
+  // 'empty' means "can no longer afford a try-on", not "balance is exactly
+  // zero" — the storefront (customer.routes.ts's requireStoreHasCredits)
+  // already blocks a shopper once balance < jobCost, which is a higher bar
+  // than <= 0. A store with, say, 3 credits and a 5-credit job cost is fully
+  // blocked but would otherwise still show as 'critical' with a misleading
+  // "about 1 day left".
+  if (balance < tryonCost) return { level: 'empty', daysRemaining: 0 };
 
   // A store that has never run a job is mid-onboarding. Its balance is the
   // free-tier grant and it has no spend history to judge against, so any alert
@@ -125,11 +138,23 @@ export async function computeRunway(app: FastifyInstance, storeId: string): Prom
 
   const dailyBurnCredits = (spendRow?.spent ?? 0) / BURN_WINDOW_DAYS;
   const lifetimeJobs = lifetimeRow?.n ?? 0;
-  const { level, daysRemaining } = deriveLevel({ balance, dailyBurnCredits, lifetimeJobs });
+  // Live, admin-tunable value — the same one the storefront actually charges
+  // per try-on (customer.routes.ts). SIMPLE_TRYON_COST is only the fallback
+  // getTryonCreditCost uses when nothing has been configured; using the
+  // compile-time constant directly here would drift from that fallback the
+  // moment an admin retunes tryon.creditCost, quoting a wrong try-on count in
+  // every banner and email by the ratio between the two values.
+  const tryonCost = await getTryonCreditCost(app);
+  const { level, daysRemaining } = deriveLevel({
+    balance,
+    dailyBurnCredits,
+    lifetimeJobs,
+    tryonCost,
+  });
 
   return {
     balance,
-    tryOnsRemaining: Math.floor(balance / SIMPLE_TRYON_COST),
+    tryOnsRemaining: Math.floor(balance / tryonCost),
     dailyBurnCredits,
     daysRemaining,
     level,

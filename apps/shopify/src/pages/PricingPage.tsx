@@ -65,7 +65,7 @@ export default function PricingPage() {
       <BlockStack gap="400">
         {error && <Banner tone="critical">{error}</Banner>}
 
-        {me && <LowCreditsBanner runway={me.runway} />}
+        {me?.runway && <LowCreditsBanner runway={me.runway} />}
 
         <Card>
           <BlockStack gap="200">
@@ -76,8 +76,9 @@ export default function PricingPage() {
               {balance.toLocaleString()} credits
             </Text>
             <Text as="p" tone="subdued">
-              About {tryOnsFromCredits(balance).toLocaleString()} try-ons remaining
-              {me?.runway.daysRemaining != null
+              About {(me?.runway?.tryOnsRemaining ?? tryOnsFromCredits(balance)).toLocaleString()}{' '}
+              try-ons remaining
+              {me?.runway?.daysRemaining != null
                 ? ` — roughly ${Math.max(1, Math.round(me.runway.daysRemaining))} days at your current rate`
                 : ''}
             </Text>

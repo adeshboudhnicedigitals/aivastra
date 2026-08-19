@@ -64,11 +64,10 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
     // "low" shared with the scheduler instead of duplicating thresholds in the
     // frontend where they would drift.
     const runway = await computeRunway(app, store.id);
-
-    const [{ totalTryOns }] = await app.db
-      .select({ totalTryOns: count() })
-      .from(schema.jobs)
-      .where(eq(schema.jobs.shopifyStoreId, store.id));
+    // computeRunway already ran a byte-identical COUNT(*) over jobs WHERE
+    // shopify_store_id = ? for `lifetimeJobs` — reuse it instead of a second
+    // round trip for the same number.
+    const totalTryOns = runway.lifetimeJobs;
 
     const [{ syncedProductCount }] = await app.db
       .select({ syncedProductCount: count() })

@@ -127,8 +127,12 @@ export const shopifyStores = pgTable('shopify_stores', {
   // The worst alert level we have already emailed this store about. The
   // scheduler emails only when the current level ranks worse than this, so a
   // merchant sitting at 'warning' for a week gets one email rather than 168.
-  // Rewritten every tick regardless, so a store that recovers (bought credits)
-  // is automatically eligible to be alerted again later.
+  // Rewritten on recovery (down to 'ok') unconditionally, so a store that
+  // tops up is automatically eligible to be alerted again later — but NOT
+  // advanced past a worse level unless a notification was actually sent
+  // (e.g. no shop_email on record yet): see runAlertTick in
+  // alert-scheduler.ts for why stamping this on a send that never happened
+  // would permanently suppress that level for the store.
   lastAlertLevel: text('last_alert_level'),
   lastAlertAt: timestamp('last_alert_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

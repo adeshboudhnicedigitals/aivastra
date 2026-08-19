@@ -136,6 +136,15 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
           case 'shop_redact': {
             if (store) {
               const result = await redactShopperData(app, store.id, { matchAll: true });
+              // Shoppers and job objects are only half of what this webhook is
+              // supposed to purge — shop_email is the shop owner's own PII,
+              // introduced this phase, and was left untouched here. Clear it
+              // along with the alert state that was derived from it, so a
+              // redacted store carries no residual contact info.
+              await app.db
+                .update(schema.shopifyStores)
+                .set({ shopEmail: null, lastAlertLevel: null, lastAlertAt: null })
+                .where(eq(schema.shopifyStores.id, store.id));
               logRedactResult(req, topic, shopDomain, store.id, result, 'store data purged');
             }
             break;

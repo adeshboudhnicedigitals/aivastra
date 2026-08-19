@@ -205,7 +205,7 @@ export default function DashboardPage() {
       <BlockStack gap="400">
         {error && <Banner tone="critical">{error}</Banner>}
 
-        {me && <LowCreditsBanner runway={me.runway} />}
+        {me?.runway && <LowCreditsBanner runway={me.runway} />}
 
         <Card>
           <BlockStack gap="200">

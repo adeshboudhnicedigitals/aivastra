@@ -4,6 +4,25 @@ import type { FastifyInstance } from 'fastify';
 import { sendLowCreditsEmail } from '../../lib/mailer.js';
 import { buildPostInstallRedirect } from './auth.routes.js';
 import { ALERT_LEVEL_RANK, type AlertLevel, computeRunway } from './runway.js';
+import { shopifyGraphQL } from './service.js';
+import { getValidAccessToken } from './token.js';
+
+/** Every value `AlertLevel` can legitimately hold, for runtime validation. */
+const KNOWN_ALERT_LEVELS: ReadonlySet<AlertLevel> = new Set(['ok', 'warning', 'critical', 'empty']);
+
+/**
+ * `last_alert_level` is a plain `text` column with no DB-level enum, so a
+ * corrupt or pre-migration value is possible in principle. Trusting it
+ * unchecked (`as AlertLevel`) would make `ALERT_LEVEL_RANK[previous]`
+ * `undefined`, which makes `worsened` compare `number > undefined` — always
+ * `false` — and permanently silences alerts for that store. Falling back to
+ * 'ok' keeps the store eligible instead.
+ */
+function normalizeAlertLevel(value: string | null): AlertLevel {
+  return value !== null && KNOWN_ALERT_LEVELS.has(value as AlertLevel)
+    ? (value as AlertLevel)
+    : 'ok';
+}
 
 /**
  * Deep link to the embedded app, for the email's "Add credits" button.
@@ -46,16 +65,69 @@ interface TickDeps {
   sendEmail?: (app: FastifyInstance, args: SendEmailArgs) => Promise<void>;
 }
 
+const SHOP_EMAIL_QUERY = `
+  query ShopEmailForAlerting {
+    shop {
+      email
+    }
+  }
+`;
+
+interface ShopEmailData {
+  shop: { email: string };
+}
+
+/**
+ * Backfills `shop_email` for stores provisioned before this column existed.
+ *
+ * `upsertShopifyStore` only writes `shop_email` on install/reinstall
+ * (`auth.routes.ts`), so every store that was already installed when this
+ * column was added has it `NULL` and would otherwise never become alertable —
+ * an active merchant essentially never reinstalls. This reuses the same
+ * token + GraphQL machinery the original install-time fetch used
+ * (`getValidAccessToken`, `shopifyGraphQL`, the `shop { email }` field already
+ * covered by existing scopes), and persists the result so it only runs once
+ * per store, not on every tick thereafter.
+ *
+ * Left to the caller to catch: a dead/expired token surfaces as
+ * SHOPIFY_REAUTH_REQUIRED here, same as everywhere else `getValidAccessToken`
+ * is used, and that store simply stays without an email until it reauthorizes.
+ */
+async function backfillShopEmail(
+  app: FastifyInstance,
+  store: typeof schema.shopifyStores.$inferSelect,
+): Promise<string> {
+  const accessToken = await getValidAccessToken(app, store);
+  const { shop } = await shopifyGraphQL<ShopEmailData>(
+    store.shopDomain,
+    accessToken,
+    SHOP_EMAIL_QUERY,
+  );
+  await app.db
+    .update(schema.shopifyStores)
+    .set({ shopEmail: shop.email })
+    .where(eq(schema.shopifyStores.id, store.id));
+  return shop.email;
+}
+
 /**
  * Evaluates every installed store's runway and emails the ones that have got
  * worse since we last told them.
  *
  * Escalation, not state: the email fires only when the current level ranks
  * strictly worse than `last_alert_level`. `last_alert_level` is then rewritten
- * unconditionally — including down to 'ok' — so a merchant who tops up is
+ * — including down to 'ok' on recovery — so a merchant who tops up is
  * automatically re-armed and will be warned again the next time they decline.
  * Storing "have we ever warned this store" instead would alert once per install
  * and then go quiet forever.
+ *
+ * Critically, `last_alert_level` is only advanced to a level the merchant
+ * could actually have been told about. A store with no reachable email that
+ * gets skipped must NOT be stamped as alerted — doing so would permanently
+ * suppress that level (escalation-only means it never re-fires unless the
+ * level gets strictly worse, or recovers to 'ok' and declines again), which is
+ * exactly what happened to the entire pre-existing install base the first
+ * tick after `shop_email` was introduced.
  *
  * One pass, continue past a single failure, never throw — mirrors the shape of
  * the billing sync tick this replaces.
@@ -71,21 +143,43 @@ export async function runAlertTick(app: FastifyInstance, deps: TickDeps = {}): P
   for (const store of stores) {
     try {
       const runway = await computeRunway(app, store.id);
-      const previous = (store.lastAlertLevel ?? 'ok') as AlertLevel;
+      const previous = normalizeAlertLevel(store.lastAlertLevel);
       const worsened = ALERT_LEVEL_RANK[runway.level] > ALERT_LEVEL_RANK[previous];
+      // Re-checked (not just `needsNotification`) at the send call below so
+      // TypeScript can narrow `runway.level` away from 'ok' — SendEmailArgs
+      // deliberately excludes 'ok' as a level, since 'ok' never sends.
+      const needsNotification = worsened && runway.level !== 'ok';
 
-      if (worsened && runway.level !== 'ok') {
-        if (!store.shopEmail) {
-          // Nothing we can do about it here — the address is captured at
-          // install and refreshed on reinstall. Logged rather than silent so a
+      let shopEmail = store.shopEmail;
+      let notified = false;
+
+      if (needsNotification) {
+        if (!shopEmail) {
+          try {
+            shopEmail = await backfillShopEmail(app, store);
+          } catch (err) {
+            // Token dead, needs reauth, or Shopify unreachable — this store
+            // stays without an email for this tick. Caught locally (rather
+            // than relying solely on the outer catch) so a backfill failure
+            // does not also swallow this store's recovery-to-'ok' handling.
+            app.log.warn(
+              { err, storeId: store.id, shopDomain: store.shopDomain },
+              'shop email backfill failed — store needs reauth or is unreachable',
+            );
+          }
+        }
+
+        if (!shopEmail) {
+          // Nothing we can do about it here — install-time capture and the
+          // backfill above both came up empty. Logged rather than silent so a
           // store that can never be reached is visible to an operator.
           app.log.warn(
             { storeId: store.id, shopDomain: store.shopDomain, level: runway.level },
             'low-credit alert not sent — store has no shop email on record',
           );
-        } else {
+        } else if (runway.level !== 'ok') {
           await sendEmail(app, {
-            to: store.shopEmail,
+            to: shopEmail,
             shopDomain: store.shopDomain,
             appUrl: appLinkFor(app, store.shopDomain),
             level: runway.level,
@@ -93,11 +187,19 @@ export async function runAlertTick(app: FastifyInstance, deps: TickDeps = {}): P
             tryOnsRemaining: runway.tryOnsRemaining,
             daysRemaining: runway.daysRemaining,
           });
+          notified = true;
           app.log.info(
             { storeId: store.id, level: runway.level, balance: runway.balance },
             'low-credit alert sent',
           );
         }
+      }
+
+      if (needsNotification && !notified) {
+        // Nothing was actually communicated — leave last_alert_level where it
+        // was so this level is still eligible to fire once the store does get
+        // an email (a future backfill success, or a reauth).
+        continue;
       }
 
       await app.db
@@ -107,9 +209,7 @@ export async function runAlertTick(app: FastifyInstance, deps: TickDeps = {}): P
           // Only stamped when something was actually sent, so this stays a
           // record of "when we last contacted them" rather than "when the
           // scheduler last ran", which the logs already tell us.
-          ...(worsened && runway.level !== 'ok' && store.shopEmail
-            ? { lastAlertAt: new Date() }
-            : {}),
+          ...(notified ? { lastAlertAt: new Date() } : {}),
         })
         .where(eq(schema.shopifyStores.id, store.id));
     } catch (err) {
