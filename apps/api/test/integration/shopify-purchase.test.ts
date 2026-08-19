@@ -1,6 +1,8 @@
+import { createHmac } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { upsertShopifyStore } from '../../src/modules/shopify/auth.routes.js';
 import {
   confirmPurchase,
   createPurchase,
@@ -12,6 +14,12 @@ import { type Containers, startContainers } from '../helpers/containers.js';
 let ctx: Containers;
 let app: Awaited<ReturnType<typeof buildTestApp>>;
 let store: typeof schema.shopifyStores.$inferSelect;
+
+// Fixed 32-byte key so upsertShopifyStore's encryptToken round-trips through
+// getValidAccessToken in the webhook-route test below — see
+// shopify-widget-config.test.ts for the same convention.
+const TOKEN_ENC_KEY = Buffer.alloc(32, 11).toString('base64');
+const WEBHOOK_SECRET = 'webhook-test-secret';
 
 const fakeCharge = (overrides: Partial<{ id: string; status: string; test: boolean }> = {}) => ({
   id: 'gid://shopify/AppPurchaseOneTime/1',
@@ -25,7 +33,15 @@ beforeAll(async () => {
   // createPurchase (purchase.ts, Task 3) requires SHOPIFY_APP_URL to build the
   // Shopify return URL — buildTestApp does not set it by default, so it must be
   // supplied here or every createPurchase call in this file throws CONFIG 500.
-  app = await buildTestApp(ctx, { SHOPIFY_APP_URL: 'https://app.aivastra.test' });
+  // SHOPIFY_API_SECRET/SHOPIFY_TOKEN_ENC_KEY are only exercised by the HTTP-layer
+  // webhook test below (real HMAC verification + real token decryption) — every
+  // other test in this file goes through dependency-injected fakes and never
+  // touches either.
+  app = await buildTestApp(ctx, {
+    SHOPIFY_APP_URL: 'https://app.aivastra.test',
+    SHOPIFY_API_SECRET: WEBHOOK_SECRET,
+    SHOPIFY_TOKEN_ENC_KEY: TOKEN_ENC_KEY,
+  });
   [store] = await app.db
     .insert(schema.shopifyStores)
     .values({
@@ -40,6 +56,10 @@ beforeAll(async () => {
 afterAll(async () => {
   await app.close();
   await ctx.stop();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe('credit pack purchase', () => {
@@ -203,5 +223,94 @@ describe('one-time purchase webhook', () => {
       fetchPurchase: async () => fakeCharge({ id: chargeId }),
     });
     expect(confirmResult.creditsGranted).toBe(0);
+  });
+});
+
+describe('app_purchases_one_time_update webhook — HTTP layer', () => {
+  // Everything above this block exercises grantForPurchase/confirmPurchase
+  // directly, hand-constructing the {id, status, test} shape the route is
+  // actually responsible for producing — it never proves the route parses a
+  // real Shopify delivery correctly. This is the test that would have caught
+  // C1 (payload nested under app_purchase_one_time, not at the root) and C2
+  // (no `test` field on the payload at all — reading one off it silently
+  // defeats the dev-store abuse gate). It POSTs an HMAC-signed, correctly
+  // shaped body straight at the registered route.
+  it("grants credits for a real, HMAC-signed webhook delivery shaped like Shopify's documented sample payload", async () => {
+    const webhookStore = await upsertShopifyStore(
+      app,
+      {
+        shopifyShopId: 555111222,
+        shopDomain: 'webhook-http-test.myshopify.com',
+        myshopifyDomain: 'webhook-http-test.myshopify.com',
+        name: 'Webhook HTTP Test',
+        email: 'webhook-http-test@example.com',
+      },
+      'real-offline-token',
+      'read_products',
+    );
+
+    const chargeId = 'gid://shopify/AppPurchaseOneTime/http-webhook';
+    const { purchaseId } = await createPurchase(app, webhookStore, 'pack_50', {
+      createCharge: async () => ({
+        confirmationUrl: 'https://shopify.test/c',
+        purchase: fakeCharge({ id: chargeId, status: 'PENDING' }),
+      }),
+    });
+
+    // The webhook handler re-fetches the charge's real state from Shopify via
+    // node(id:) (purchase.ts's defaultFetchPurchase) rather than trusting
+    // anything in the delivered payload except the charge id — this stubs
+    // that GraphQL call. Never inspects the webhook body itself.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            data: { node: { id: chargeId, status: 'ACTIVE', test: false } },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      ),
+    );
+
+    // Shopify's documented sample shape for app_purchases_one_time/update —
+    // the whole resource nested under app_purchase_one_time, not at the
+    // payload root, and with no `test` field at all.
+    const body = JSON.stringify({
+      app_purchase_one_time: {
+        admin_graphql_api_id: chargeId,
+        name: 'Webhook Test',
+        status: 'ACTIVE',
+        admin_graphql_api_shop_id: 'gid://shopify/Shop/555111222',
+        created_at: '2026-08-19T00:00:00-04:00',
+        updated_at: '2026-08-19T00:00:01-04:00',
+      },
+    });
+    const hmac = createHmac('sha256', WEBHOOK_SECRET).update(body).digest('base64');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/webhooks/app_purchases_one_time_update',
+      headers: {
+        'content-type': 'application/json',
+        'x-shopify-hmac-sha256': hmac,
+        'x-shopify-shop-domain': webhookStore.shopDomain,
+      },
+      payload: body,
+    });
+
+    expect(res.statusCode).toBe(200);
+
+    const [purchaseRow] = await app.db
+      .select()
+      .from(schema.shopifyCreditPurchases)
+      .where(eq(schema.shopifyCreditPurchases.id, purchaseId));
+    expect(purchaseRow.status).toBe('ACTIVE');
+
+    const [creditRow] = await app.db
+      .select()
+      .from(schema.shopifyStoreCredits)
+      .where(eq(schema.shopifyStoreCredits.storeId, webhookStore.id));
+    expect(creditRow.balance).toBe(4800);
   });
 });

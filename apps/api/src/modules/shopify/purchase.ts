@@ -1,9 +1,12 @@
 import { schema } from '@aivastra/db';
-import { SIMPLE_TRYON_COST } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
-import { getShopifyPackCredits, getShopifyTrialCredits } from '../../lib/resolution-config.js';
+import {
+  getShopifyPackCredits,
+  getShopifyTrialCredits,
+  getTryonCreditCost,
+} from '../../lib/resolution-config.js';
 import { grantStore } from '../credits/shopify-ledger.js';
 import { getPack } from './packs.js';
 import { shopifyGraphQL } from './service.js';
@@ -139,7 +142,7 @@ export async function createPurchase(
   // what 2,250 credits buys, and this string is what Shopify prints on the
   // approval page and the invoice. Derived from the live cost rather than
   // hardcoded so it stays honest if an admin retunes tryon.creditCost.
-  const tryOns = Math.floor(credits / SIMPLE_TRYON_COST);
+  const tryOns = Math.floor(credits / (await getTryonCreditCost(app)));
   const returnUrl = `${app.env.SHOPIFY_APP_URL}/shopify-admin/billing/callback?purchase=${row.id}`;
 
   try {
@@ -171,7 +174,13 @@ interface ConfirmDeps {
   ) => Promise<OneTimePurchaseState | null>;
 }
 
-async function defaultFetchPurchase(app: FastifyInstance, store: Store, chargeId: string) {
+/**
+ * Re-fetches a charge's real current state from Shopify via node(id:) —
+ * shared by confirmPurchase (below) and the app_purchases_one_time/update
+ * webhook handler (webhook.routes.ts), so both paths trust the same live
+ * read rather than a raw webhook payload field or a locally-remembered status.
+ */
+export async function defaultFetchPurchase(app: FastifyInstance, store: Store, chargeId: string) {
   const accessToken = await getValidAccessToken(app, store);
   const data = await shopifyGraphQL<{ node: OneTimePurchaseState | null }>(
     store.shopDomain,

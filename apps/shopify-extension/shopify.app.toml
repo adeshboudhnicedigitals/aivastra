@@ -45,3 +45,12 @@ api_version = "2026-07"
   customer_deletion_url = "https://app.aivastra.com/v1/shopify/webhooks/customers_redact"
   customer_data_request_url = "https://app.aivastra.com/v1/shopify/webhooks/customers_data_request"
   shop_deletion_url = "https://app.aivastra.com/v1/shopify/webhooks/shop_redact"
+
+  # Declared here (app-wide), not only via the per-shop registerWebhooksDecorator
+  # call in auth.routes.ts (provisionShopifyStore) — that call only fires at
+  # first install or reauth, so a store installed before this topic existed
+  # would otherwise never get subscribed. A `make shopify-deploy` publishes
+  # this subscription for every install, existing and new.
+  [[webhooks.subscriptions]]
+  topics = [ "app_purchases_one_time/update" ]
+  uri = "https://app.aivastra.com/v1/shopify/webhooks/app_purchases_one_time_update"

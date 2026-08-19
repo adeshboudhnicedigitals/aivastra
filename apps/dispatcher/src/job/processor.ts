@@ -2429,28 +2429,37 @@ async function markShopifyFailed(
 ): Promise<void> {
   const { db, redis, pub } = cfg;
 
-  await db.transaction(async (tx) => {
-    const existing = await tx
-      .select()
-      .from(schema.shopifyCreditLedger)
-      .where(
-        and(
-          eq(schema.shopifyCreditLedger.jobId, jobId),
-          eq(schema.shopifyCreditLedger.reason, 'JOB_FAIL_REFUND'),
-        ),
-      );
-    if (existing.length) return;
-    await tx
-      .update(schema.shopifyStoreCredits)
-      .set({ balance: sql`${schema.shopifyStoreCredits.balance} + ${creditsCharged}` })
-      .where(eq(schema.shopifyStoreCredits.storeId, shopifyStoreId));
-    await tx.insert(schema.shopifyCreditLedger).values({
-      storeId: shopifyStoreId,
-      delta: creditsCharged,
-      reason: 'JOB_FAIL_REFUND',
-      jobId,
+  // tryon.creditCost is admin-tunable and can legitimately be 0 — skipping the
+  // ledger write entirely (not just writing a zero-delta row) keeps the
+  // ledger free of phantom JOB_FAIL_REFUND rows with a zero delta, which
+  // would otherwise pollute the admin ledger view on every failed job billed
+  // at zero cost. The status transition below still runs unconditionally
+  // regardless. Mirrors the equivalent guard on the non-Shopify refund path
+  // (terminateJob, below).
+  if (creditsCharged > 0) {
+    await db.transaction(async (tx) => {
+      const existing = await tx
+        .select()
+        .from(schema.shopifyCreditLedger)
+        .where(
+          and(
+            eq(schema.shopifyCreditLedger.jobId, jobId),
+            eq(schema.shopifyCreditLedger.reason, 'JOB_FAIL_REFUND'),
+          ),
+        );
+      if (existing.length) return;
+      await tx
+        .update(schema.shopifyStoreCredits)
+        .set({ balance: sql`${schema.shopifyStoreCredits.balance} + ${creditsCharged}` })
+        .where(eq(schema.shopifyStoreCredits.storeId, shopifyStoreId));
+      await tx.insert(schema.shopifyCreditLedger).values({
+        storeId: shopifyStoreId,
+        delta: creditsCharged,
+        reason: 'JOB_FAIL_REFUND',
+        jobId,
+      });
     });
-  });
+  }
 
   await transitionJob(db, pub, jobId, '', 'FAILED', { errorCode, shopifyStoreId }, log);
   await redis.xack(stream, 'dispatcher-cg', messageId);

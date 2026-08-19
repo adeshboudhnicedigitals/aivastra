@@ -32,7 +32,15 @@ export const SHARED_FEATURE_BULLETS = [
   'Mobile & Desktop Support',
 ];
 
-/** Credits never expire, so this is the merchant's whole runway, not a monthly allowance. */
+/**
+ * Credits never expire, so this is the merchant's whole runway, not a monthly
+ * allowance. The divisor is the compile-time default try-on cost, not the
+ * live admin-tunable value (tryon.creditCost) — this SPA has no endpoint that
+ * exposes that live number today, so this figure can drift from the API's
+ * if an admin retunes the cost. The API-side charge name shown to the
+ * merchant at purchase time (apps/api/src/modules/shopify/purchase.ts) does
+ * use the live value and is the one that's actually money-relevant.
+ */
 export function tryOnsFromCredits(credits: number): number {
   return Math.floor(credits / 5);
 }
