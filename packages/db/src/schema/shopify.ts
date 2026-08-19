@@ -142,6 +142,18 @@ export const shopifyStores = pgTable('shopify_stores', {
   // SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS already gates credit grants — a dev
   // store's test charges must never be reported as real usage in production.
   subscriptionIsTest: boolean('subscription_is_test').notNull().default(false),
+  // Auto-refill (phase 3). Written in phase 1's migration so a later phase
+  // doesn't have to ALTER a table that already carries rows. Null pack id
+  // means auto-refill is off, which is every store today.
+  autorefillPackId: text('autorefill_pack_id'),
+  autorefillTriggerCredits: integer('autorefill_trigger_credits'),
+  autorefillSubscriptionId: text('autorefill_subscription_id'),
+  autorefillCappedAmountCents: integer('autorefill_capped_amount_cents'),
+  // 'PENDING' | 'ACTIVE' | 'CANCELLED' | 'DECLINED' | 'CAP_REACHED'.
+  // CAP_REACHED is ours, not Shopify's: it records that a refill was refused
+  // because the cycle's capped amount was exhausted, so the UI can say
+  // something specific instead of silently falling back to manual.
+  autorefillStatus: text('autorefill_status'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -170,6 +182,48 @@ export const shopifyCreditLedger = pgTable('shopify_credit_ledger', {
   externalRef: text('external_ref'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * One row per purchase attempt, on either purchase path. Separate from
+ * shopify_credit_ledger because a purchase has state *before* any credits
+ * exist — the ledger only ever records grants that already happened.
+ *
+ * `credits` is snapshotted at INSERT and the grant reads THAT column, never
+ * config and never Shopify's response (Shopify knows the price, not the
+ * credits). This is load-bearing: pack credits are admin-editable while a
+ * purchase can sit unconfirmed indefinitely, so re-reading config at confirm
+ * time would let an admin edit silently change what an already-paying merchant
+ * receives, with no record of the number they agreed to pay for. The row is
+ * that record.
+ */
+export const shopifyCreditPurchases = pgTable(
+  'shopify_credit_purchases',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    storeId: uuid('store_id')
+      .notNull()
+      .references(() => shopifyStores.id, { onDelete: 'cascade' }),
+    // The AppPurchaseOneTime GID. Null between our INSERT and the mutation
+    // returning — a window in which the row exists but no charge does.
+    shopifyChargeId: text('shopify_charge_id'),
+    // 'manual' | 'autorefill'. Also decides which credit figure applied.
+    source: text('source').notNull().default('manual'),
+    packId: text('pack_id').notNull(),
+    credits: integer('credits').notNull(),
+    priceUsdCents: integer('price_usd_cents').notNull(),
+    // 'PENDING' | 'ACTIVE' | 'DECLINED' | 'EXPIRED' | 'FAILED'.
+    // FAILED is ours and means the charge was never created at Shopify.
+    // Deliberately distinct from DECLINED, which means the merchant saw the
+    // charge and said no — conflating them makes the two indistinguishable
+    // when reconciling against Shopify payouts later.
+    status: text('status').notNull().default('PENDING'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    storeIdx: index('shopify_credit_purchases_store_idx').on(table.storeId),
+  }),
+);
 
 // One row per successfully COMPLETED job for a billingMode='usage' store.
 // A job that fails is never inserted here — for a postpaid model, "don't
