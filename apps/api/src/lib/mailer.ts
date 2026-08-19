@@ -145,3 +145,75 @@ export async function sendPasswordResetEmail(
   const link = `${webUrl}/reset-password?token=${token}`;
   await send(apiKey, { from, to, subject: 'Reset your Aivastra password', html: resetHtml(link) });
 }
+
+function lowCreditsHtml(p: {
+  appUrl: string;
+  level: 'warning' | 'critical' | 'empty';
+  balance: number;
+  tryOnsRemaining: number;
+  daysRemaining: number | null;
+}): string {
+  const accent = p.level === 'warning' ? '#b26a00' : '#b42318';
+  const heading =
+    p.level === 'empty'
+      ? "You're out of try-on credits"
+      : p.level === 'critical'
+        ? 'Your try-on credits run out in about a day'
+        : 'Your try-on credits are running low';
+
+  // Only stated when there is a real burn rate behind it. Saying "about 0 days"
+  // because nothing has been generated recently would be wrong and alarming.
+  const runwayLine =
+    p.daysRemaining != null && p.level !== 'empty'
+      ? `<p style="font-size:14px;color:#555;margin:0 0 8px;">At your current rate that's about <strong>${Math.max(1, Math.round(p.daysRemaining))} more day${Math.round(p.daysRemaining) === 1 ? '' : 's'}</strong>.</p>`
+      : '';
+
+  const body =
+    p.level === 'empty'
+      ? 'Try-on has stopped for shoppers on your store. Adding credits turns it straight back on — nothing else needs reconfiguring.'
+      : 'When your balance reaches zero, the try-on button stops working for shoppers on your store. Topping up now avoids that.';
+
+  return `<!DOCTYPE html>
+<html>
+<body style="font-family:sans-serif;background:#f6f6f6;margin:0;padding:40px 0;">
+  <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;">
+    <div style="background:${accent};padding:20px 32px;">
+      <h1 style="color:#fff;font-size:18px;font-weight:700;margin:0;">${heading}</h1>
+    </div>
+    <div style="padding:32px;">
+      <p style="font-size:14px;color:#555;margin:0 0 8px;">
+        Your store has <strong style="color:#1a1a1a;">${p.balance.toLocaleString()} credits</strong> left —
+        about <strong style="color:#1a1a1a;">${p.tryOnsRemaining.toLocaleString()} try-ons</strong>.
+      </p>
+      ${runwayLine}
+      <p style="font-size:14px;color:#555;margin:16px 0 28px;">${body}</p>
+      <a href="${p.appUrl}" style="display:inline-block;background:#1a1a1a;color:#fff;font-size:14px;font-weight:600;padding:12px 28px;border-radius:8px;text-decoration:none;">Add credits</a>
+      <p style="font-size:12px;color:#999;margin:32px 0 0;">Credits never expire — anything you buy stays on your account until you use it.</p>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+export async function sendLowCreditsEmail(
+  apiKey: string,
+  from: string,
+  to: string,
+  params: {
+    shopDomain: string;
+    appUrl: string;
+    level: 'warning' | 'critical' | 'empty';
+    balance: number;
+    tryOnsRemaining: number;
+    daysRemaining: number | null;
+  },
+): Promise<void> {
+  const subject =
+    params.level === 'empty'
+      ? `${params.shopDomain} is out of try-on credits`
+      : params.level === 'critical'
+        ? `${params.shopDomain}: try-on credits run out in about a day`
+        : `${params.shopDomain}: try-on credits running low`;
+
+  await send(apiKey, { from, to, subject, html: lowCreditsHtml(params) });
+}
