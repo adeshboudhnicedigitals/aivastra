@@ -69,7 +69,9 @@ purchase paths feed one non-expiring credit balance.
 |---|---|---|
 | Billing system | Manual Pricing (Billing API) | The only system that supports one-time purchases at all. Cost of switching is near zero right now. |
 | Credit expiry | Never | The defining property of the model. Removes every cycle window from the codebase. |
-| Auto-refill trigger | Balance threshold, not calendar | A monthly subscription would reintroduce exactly the monthly cadence this model exists to avoid. |
+| Auto-refill trigger | Balance threshold, merchant-set, freely disableable | A monthly subscription would reintroduce exactly the monthly cadence this model exists to avoid. The merchant owns both the threshold and the on/off switch — this is a standing authorization to charge them, so it must be as easy to revoke as it was to grant. |
+| Billable unit | Try-ons only, 5 credits | One unit, one price. See the catalogue-path conflict below. |
+| Free tier | 25 credits (5 try-ons), once per store | Already implemented and already set to 25 — no change. |
 | Auto-refill incentive | **Bonus credits, +10%** | Auto-refill must be strictly better than repeat manual buying or nobody hands over a standing authorization. Bonus credits read as a reward; a lower price would anchor merchants to a cheaper headline number for the manual packs too. |
 | Pack prices | Code only, never admin-tunable | The price is the number sent to Shopify in the charge mutation. Config that changes what a merchant is *charged* is a different risk class from config that changes what they *receive*. Carried over from the superseded spec. |
 | Pack credits | Admin-tunable, snapshotted at purchase | Lets generosity be tuned against real GPU cost without a deploy, while the purchase row records what the merchant was actually promised. Carried over. |
@@ -77,63 +79,76 @@ purchase paths feed one non-expiring credit balance.
 
 ## Pricing
 
-### Job costs as they exist in code today — verified, and they do not match the pricing table
+### Billable unit
 
-Two different Shopify job paths charge two different ways:
+**Try-ons only, 5 credits each.** That is the single unit the Shopify packs are
+sold in — `getTryonCreditCost`, defaulting to `SIMPLE_TRYON_COST = 5`
+(`packages/types/src/jobs.ts:112`), admin-tunable via `tryon.creditCost`.
 
-| Job | Path | Cost today | Source |
-|---|---|---|---|
-| **Storefront widget try-on** (shopper) | `customer.routes.ts:306` → `getTryonCreditCost` | **5 credits**, admin-tunable via `tryon.creditCost` | `SIMPLE_TRYON_COST`, `packages/types/src/jobs.ts:112` |
-| **Merchant catalogue generation** | `catalog-job.ts` → `resolveTryonPlan` → `plan.cost` | **25 / 35 / 40 credits** for HD / 2K / 4K, derived server-side from actual output dimensions | `RESOLUTION_COSTS`, `packages/types/src/jobs.ts:3` |
+### Free tier
 
-The intended pricing table assumes a catalogue image costs **10** credits —
-exactly 2× a try-on — because it prices a $10 / 800-credit pack at 80 catalogue
-images. The code charges **2.5× to 4× that**. At today's real costs, that pack
-buys 32 catalogue images at HD, not 80.
-
-**This is a blocking product decision, not an implementation detail** — it
-changes either the shelf copy or the unit economics. See Open Question 1. The
-tables below are written against the *intended* 5 / 10 costs; if the decision
-goes the other way, the catalogue column changes and the credit totals may too.
+**25 credits, once per store** — 5 try-ons. Already implemented and already set
+to exactly this: `DEFAULT_SHOPIFY_TRIAL_CONFIG = { trialCredits: 25 }`
+(`resolution-config.ts:39`), granted by `grantShopifyTrialCredits` at install,
+idempotent on `shopify_trial:<storeId>` so unlinking and relinking a store does
+not re-grant. No work required; recorded here so it is not rediscovered as a
+gap.
 
 ### Manual packs
 
-Every pack is a multiple of 10 credits so neither job type leaves an
-unspendable remainder.
+Every pack is a multiple of 5 credits, so a pack never leaves an unspendable
+remainder.
 
-| Pack id | Price | Credits | Try-on images | Catalogue images¹ | ¢/credit | $/try-on |
-|---|---|---|---|---|---|---|
-| `pack_10` | $10 | 800 | 160 | 80 | 1.25 | $0.0625 |
-| `pack_25` | $25 | 2,250 | 450 | 225 | 1.11 | $0.0556 |
-| `pack_50` | $50 | 4,800 | 960 | 480 | 1.04 | $0.0521 |
-| `pack_100` | $100 | 10,000 | 2,000 | 1,000 | 1.00 | $0.0500 |
+| Pack id | Price | Credits | Try-ons | ¢/credit | $/try-on |
+|---|---|---|---|---|---|
+| `pack_10` | $10 | 800 | 160 | 1.25 | $0.0625 |
+| `pack_25` | $25 | 2,250 | 450 | 1.11 | $0.0556 |
+| `pack_50` | $50 | 4,800 | 960 | 1.04 | $0.0521 |
+| `pack_100` | $100 | 10,000 | 2,000 | 1.00 | $0.0500 |
 
-¹ Assumes the catalogue cost is brought to 10 credits. At today's `RESOLUTION_COSTS`
-the same packs buy 32 / 90 / 192 / 400 catalogue images at HD, and 20 / 56 /
-120 / 250 at 4K.
-
-Monotonic volume discount, no tier undercutting another. These are the USD
-prices directly — not converted from the ₹1,000 / ₹2,500 / ₹5,000 / ₹10,000
-table they derive from. Rounding $10.45 → $10 while keeping 800 credits is a
-~4.3% discount across the ladder, taken deliberately in exchange for clean
-shelf prices.
+Monotonic volume discount, no tier undercutting another. These are USD prices
+directly — not converted from the ₹1,000 / ₹2,500 / ₹5,000 / ₹10,000 table they
+derive from. Rounding $10.45 → $10 while keeping 800 credits is a ~4.3%
+discount across the ladder, taken deliberately in exchange for clean shelf
+prices.
 
 Shopify rejects an application charge under $0.50 USD. No pack is close; worth
 a code comment rather than a runtime check, since prices are static.
 
-### Auto-refill packs (+10%, rounded up to the nearest 10 credits)
+**Shopify takes no revenue share below $1M annual app revenue**, so these are
+gross margins against GPU cost, not net of a platform cut.
 
-| Pack id | Price | Credits | Try-on images | Bonus vs manual |
+### The catalogue-generation path contradicts "try-ons only"
+
+`POST /v1/shopify/catalog/generate` is live and registered
+(`catalog.routes.ts:89`, wired in `routes.ts:7`). It calls
+`createShopifyStoreCatalogJob`, which deducts `plan.cost` from
+`resolveTryonPlan` — **25 / 35 / 40 credits** for HD / 2K / 4K
+(`RESOLUTION_COSTS`, `packages/types/src/jobs.ts:3`), not 5.
+
+A merchant sold "160 try-ons for $10" who opens the catalogue tab and hits
+Generate exhausts the pack in 20–32 images. The pricing page would be
+truthful about try-ons and silently wrong about everything else the app can
+spend credits on.
+
+This has to be resolved before phase 1 ships — see Open Question 1. It is a
+product decision, not an implementation detail, and the failure mode is a
+merchant's balance vanishing without explanation.
+
+### Auto-refill packs (+10%)
+
+| Pack id | Price | Credits | Try-ons | Bonus vs manual |
 |---|---|---|---|---|
 | `pack_10` | $10 | 880 | 176 | +80 |
-| `pack_25` | $25 | 2,480 | 496 | +230 |
+| `pack_25` | $25 | 2,475 | 495 | +225 |
 | `pack_50` | $50 | 5,280 | 1,056 | +480 |
 | `pack_100` | $100 | 11,000 | 2,200 | +1,000 |
 
-The bonus is a property of the *purchase path*, not a separate pack catalogue —
-same ids, same prices, a `source` column decides which credit figure applies.
-Rounding up to the nearest 10 keeps the "no unspendable remainder" rule intact
-for catalogue jobs.
+An exact +10% lands on a multiple of 5 for every pack, so no rounding rule is
+needed and the "no unspendable remainder" property holds unchanged.
+
+The bonus is a property of the *purchase path*, not a second pack catalogue —
+same ids, same prices, the `source` column decides which credit figure applies.
 
 ## Data model
 
@@ -326,7 +341,7 @@ sufficient after someone moves this code.
 | `modules/shopify/packs.ts` | **new** — `CREDIT_PACKS` (id → price, credits, autorefillCredits, label), lookup returning null for unknown ids. Mirrors `billing-plans.ts` but pack ids are ours end to end, so no case-insensitive matching and no Partner Dashboard coordination. |
 | `modules/shopify/purchase.ts` | **new** — `createPurchase`, `confirmPurchase`, `deps`-injectable like `syncStoreSubscription`. |
 | `modules/shopify/autorefill.ts` | **new** — enrolment, trigger evaluation, `appUsageRecordCreate`. |
-| `modules/shopify/purchase.routes.ts` | **new** — `POST /v1/shopify/billing/purchase`, `GET /v1/shopify/billing/purchase/confirm`, `POST/PATCH/DELETE /v1/shopify/billing/autorefill`. |
+| `modules/shopify/purchase.routes.ts` | **new** — `POST /v1/shopify/billing/purchase`, `GET /v1/shopify/billing/purchase/confirm`, and for auto-refill `POST` (enrol), `PATCH` (change pack or threshold), `DELETE` (disable) `/v1/shopify/billing/autorefill`. `DELETE` cancels the Shopify subscription via `appSubscriptionCancel` **and** clears the local `autorefill_*` columns — a merchant who turns it off must not keep an approved charge authorization sitting live at Shopify. |
 | `modules/shopify/webhook.routes.ts` | extend — `APP_PURCHASES_ONE_TIME_UPDATE`, `APP_SUBSCRIPTIONS_UPDATE`, `APP_SUBSCRIPTIONS_APPROACHING_CAPPED_AMOUNT`. |
 | `lib/resolution-config.ts` | `getShopifyPackCredits(app, packId, source)` replacing `getShopifyPlanCredits`. |
 
@@ -457,7 +472,7 @@ carrying an unused one for two phases.
 
 **Unit**
 - `packs.test.ts` — lookup, unknown id → null, every pack above the $0.50
-  floor, every pack's credits a multiple of 10 (so neither try-on nor catalogue
+  floor, every pack's credits a multiple of `SIMPLE_TRYON_COST` (so no pack
   leaves a remainder), auto-refill credits strictly greater than manual for
   every pack, and a monotonically improving ¢/credit ladder. That last one is a
   regression test on pricing *intent*: it catches someone later editing a
@@ -500,32 +515,33 @@ carrying an unused one for two phases.
 
 ## Open questions
 
-1. **Catalogue image cost: 10 credits, or today's 25–40?** *Blocking — it
-   decides whether the pricing table above is honest.* Three ways out:
-   - **Lower the catalogue cost to 10** for the Shopify path. Makes the table
-     true as written. Needs a check that a catalogue generation really is only
-     ~2× a widget try-on in GPU terms — `RESOLUTION_COSTS` charges by output
-     resolution for a reason, and 4K is not twice a 2048px try-on.
-   - **Restate the catalogue counts** as 32 / 90 / 192 / 400 (HD). Honest, no
-     code change, but a much less attractive pricing page and a merchant-facing
-     number that moves with the resolution they pick.
-   - **Advertise catalogue images at HD only** and charge a flat 10, treating
-     2K/4K as a separate, more expensive product. Keeps a clean headline number
-     and keeps the resolution ceiling meaningful.
+1. **What happens to `/v1/shopify/catalog/generate`?** *Blocking phase 1.* The
+   product is priced as try-ons only at 5 credits, but this live route charges
+   25–40. Three ways out:
+   - **Remove the catalogue feature from the Shopify app.** Cleanest if it is
+     genuinely not part of the offering — one billable unit, one price, nothing
+     to explain. Deletes `catalog.routes.ts`'s generate path,
+     `catalog-job.ts`, and the catalogue tab in the SPA.
+   - **Keep it and price it explicitly** on the pricing page, as a second unit
+     at its real cost. Honest, but it makes the pack copy two-dimensional again
+     and reintroduces the resolution-dependent number.
+   - **Keep it and charge a flat 5** like a try-on. Simplest merchant story,
+     but prices a 4K catalogue generation identically to a widget try-on, which
+     `RESOLUTION_COSTS` exists specifically to avoid.
 
-   My recommendation is the third: it preserves the table, keeps a
-   resolution-priced product for the merchants who want 4K, and avoids pricing
-   a 4K generation as if it cost the same as an HD one.
+   My recommendation is the first, given "there is no catalog jobs only tryon
+   jobs" — but it is a deletion of a shipped feature, so it needs an explicit
+   yes rather than an inference from a pricing conversation.
 2. **Does Shopify permit a $0 recurring line with a usage line attached?**
-   Blocking for auto-refill; must be confirmed in Partner Dashboard before
+   Blocking for phase 3 only; must be confirmed in Partner Dashboard before
    implementation, not assumed. Fallback is a nominal base fee folded into the
    first refill, which changes the pricing table.
-3. **Shopify revenue share** against these margins has not been checked, and
-   the packs were priced against each other rather than against GPU cost. GPU
-   cost per try-on is not recorded anywhere in this repo. If a try-on costs
-   more than roughly $0.03, the $10 pack is where the margin is and the
-   discount curve should flatten.
+3. **GPU cost per try-on is not recorded anywhere in this repo**, so the packs
+   are priced against each other rather than against cost. Shopify takes no cut
+   below $1M annual revenue, so the full $0.05–$0.0625 per try-on is gross
+   margin — but if a try-on costs more than roughly $0.03 to serve, the $10
+   pack is where the margin actually is and the discount curve should flatten.
 4. **Does auto-refill need a cooldown?** A merchant with a low trigger and a
    high cap could refill several times in a day. Probably correct behaviour —
    they are using the product — but it is worth a deliberate answer rather than
-   discovering it in a support ticket.
+   discovering it in a support ticket. Phase 3.
