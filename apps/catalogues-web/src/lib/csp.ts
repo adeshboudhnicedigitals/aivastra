@@ -48,6 +48,7 @@ export function buildCsp(nonce: string): string {
       'https://*.r2.cloudflarestorage.com',
       'https://app.aivastra.com',
       'https://*.razorpay.com',
+      'https://img.youtube.com', // Tutorials + Try-On demo video thumbnails
       ...(apiOrigin ? [apiOrigin] : []),
     ],
     'font-src': ["'self'", 'data:'],
@@ -62,7 +63,13 @@ export function buildCsp(nonce: string): string {
       ...(sentryOrigin ? [sentryOrigin] : []),
       ...(isDev ? ['ws://127.0.0.1:*', 'ws://localhost:*'] : []), // Next dev HMR websocket
     ],
-    'frame-src': ['https://api.razorpay.com', 'https://checkout.razorpay.com'],
+    // youtube.com (not youtube-nocookie.com) — matches the embed URL host used
+    // by both the Tutorials page and the Try-On demo video.
+    'frame-src': [
+      'https://api.razorpay.com',
+      'https://checkout.razorpay.com',
+      'https://www.youtube.com',
+    ],
     'object-src': ["'none'"],
     'base-uri': ["'self'"],
     'form-action': ["'self'"],
