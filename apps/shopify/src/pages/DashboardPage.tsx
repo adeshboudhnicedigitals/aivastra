@@ -167,7 +167,7 @@ export default function DashboardPage() {
             <Text as="p" variant="heading2xl">
               {(me?.creditBalance ?? 0).toLocaleString()}
             </Text>
-            <Button url="/pricing">Buy credits</Button>
+            <Button onClick={() => navigate('/pricing')}>Buy credits</Button>
           </BlockStack>
         </Card>
 
