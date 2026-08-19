@@ -61,7 +61,10 @@ that only showed up considering the phase end to end, even though each of the
   currently reachable since the SPA and API deploy together, but cheap.
 
 **Open Questions / Decisions**
-- Not yet committed — a controller reviews the diff before it lands.
+- A store whose token needs reauth will retry the `shop_email` backfill on
+  every hourly tick indefinitely (no backoff/negative-caching) — an accepted
+  tradeoff of not wanting to silently give up on a store forever; revisit if
+  the install base grows large enough for this to matter.
 
 ## 2026-08-19 — Shopify billing: App Pricing → Manual Pricing (prepaid credit packs)
 
