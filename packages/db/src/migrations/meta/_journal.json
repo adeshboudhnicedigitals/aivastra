@@ -1121,6 +1121,13 @@
       "when": 1787058000000,
       "tag": "0159_shopify_credit_purchases",
       "breakpoints": true
+    },
+    {
+      "idx": 160,
+      "version": "7",
+      "when": 1787061600000,
+      "tag": "0160_drop_shopify_app_pricing",
+      "breakpoints": true
     }
   ]
 }

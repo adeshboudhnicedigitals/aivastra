@@ -1,3 +1,32 @@
+## 2026-08-19 — Shopify billing: App Pricing → Manual Pricing (prepaid credit packs)
+
+**Out-of-repo state changed (Partner Dashboard) — do before deploying:**
+- Switched the app from Shopify App Pricing to Manual Pricing in Partner
+  Dashboard settings. Per Shopify staff this needs no app re-review.
+- Removed the starter / growth / pro / Pay-as-you-go App Pricing plans and the
+  `tryon_generated` usage meter.
+- Registered `app_purchases_one_time/update`. The other topics are registered
+  per-shop by registerWebhooksDecorator at install.
+- Removed `SHOPIFY_APP_EVENTS_CLIENT_ID` / `_SECRET` and
+  `SHOPIFY_APP_HANDLE` / `VITE_SHOPIFY_APP_HANDLE` from every `.env` on the VPS
+  and from the compose `args:` blocks.
+
+**Note:** `VITE_*` vars are baked in at build time — removing the app-handle arg
+requires a rebuild, and a cached layer can silently keep the old value. Confirm
+the output asset hash changed.
+
+**Migration 0160 deviation — `shopify_catalog_jobs` deliberately NOT dropped.**
+Task 10's brief required confirming `SELECT count(*) FROM shopify_catalog_jobs`
+is `0` in production before dropping that table. This session had no
+configured access to the production VPS database, so per explicit human
+instruction the check was skipped rather than guessed at, and the migration
+ships without the `DROP TABLE "shopify_catalog_jobs"` statement — the table is
+left in place, orphaned from the Drizzle schema (matching the brief's own
+documented fallback for an unconfirmed-empty table). **Manual follow-up still
+needed:** run that count against production, and if it's `0`, ship a small
+follow-up migration dropping `shopify_catalog_jobs`; if nonzero, raise the data
+decision described in the Task 10 brief before dropping it.
+
 ## 2026-08-19 — Second SSO entry point for tryon-library-app: code-based handoff
 
 **Done**
