@@ -7,7 +7,7 @@ import { C, grad } from './tokens';
 
 const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=aivastra.nice.interactive';
 
-const DEMO_VIDEO_URL = 'https://youtu.be/bEfqH2V2FDs';
+const DEMO_VIDEO_URL = 'https://youtu.be/bEfqH2V2FDs?si=4UlcPKa87JpdIudW';
 
 /** Top-right link to the Android app — shown below the navbar on the Try-On page.
  * Styled like GradBtn (components/ui/grad-btn.tsx), the app's standard primary
