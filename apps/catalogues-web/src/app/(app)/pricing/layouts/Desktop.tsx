@@ -1,5 +1,5 @@
 import { ArrowRight } from 'lucide-react';
-import { CheckIcon, ChevronDown, ChevronRight } from '@/components/icons';
+import { CheckIcon, ChevronDown } from '@/components/icons';
 import { SupportModal } from '@/components/SupportModal';
 import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
@@ -26,6 +26,7 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
     countryRef,
     ratesLoading,
     isNonIn,
+    currentPlanSlug,
     cataloguePlans,
     tryonPlans,
     plansLoading,
@@ -212,28 +213,6 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
                   </div>
                 )}
               </div>
-              <button
-                type="button"
-                onClick={() => setActiveTab('catalogue')}
-                style={{
-                  marginTop: 20,
-                  alignSelf: 'flex-start',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '10px 20px',
-                  borderRadius: 10,
-                  border: 'none',
-                  background: '#ffffff',
-                  color: '#141414',
-                  fontFamily: 'inherit',
-                  fontWeight: 700,
-                  fontSize: 14,
-                  cursor: 'pointer',
-                }}
-              >
-                Upgrade Plan <ChevronRight />
-              </button>
             </div>
 
             {/* Divider */}
@@ -438,6 +417,7 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
                   const features = PLAN_FEATURES[idx] ?? PLAN_FEATURES[0];
                   const accent = meta.accent;
                   const highlighted = plan.isHighlighted;
+                  const isCurrentPlan = plan.slug === currentPlanSlug;
 
                   const cardContent = (
                     // biome-ignore lint/correctness/useJsxKeyInIterable: cardContent is wrapped by keyed parent in the map return below
@@ -625,11 +605,14 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
                       <div style={{ padding: '4px 24px 24px' }}>
                         <Tooltip
                           tip={
-                            buying && buying !== plan.slug
-                              ? 'Another payment is in progress'
-                              : undefined
+                            isCurrentPlan
+                              ? "You're already on this plan"
+                              : buying && buying !== plan.slug
+                                ? 'Another payment is in progress'
+                                : undefined
                           }
                           position="bottom"
+                          containerStyle={{ width: '100%' }}
                         >
                           <button
                             type="button"
@@ -637,7 +620,7 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
                               highlighted ? 'upgrade-plan-btn highlighted' : 'upgrade-plan-btn'
                             }
                             onClick={() => startBuy(plan)}
-                            disabled={!!buying}
+                            disabled={!!buying || isCurrentPlan}
                             style={{
                               width: '100%',
                               padding: '13px 20px',
@@ -648,16 +631,24 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
                               fontFamily: 'inherit',
                               fontWeight: 700,
                               fontSize: 15,
-                              cursor: buying ? 'not-allowed' : 'pointer',
+                              cursor: isCurrentPlan || buying ? 'not-allowed' : 'pointer',
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'center',
                               gap: 8,
-                              opacity: buying && buying !== plan.slug ? 0.45 : 1,
+                              opacity: isCurrentPlan
+                                ? 0.5
+                                : buying && buying !== plan.slug
+                                  ? 0.45
+                                  : 1,
                             }}
                           >
-                            {buying === plan.slug ? 'Processing…' : 'Buy Now'}
-                            {buying !== plan.slug && <ArrowRight size={18} />}
+                            {isCurrentPlan
+                              ? 'Current Plan'
+                              : buying === plan.slug
+                                ? 'Processing…'
+                                : 'Upgrade'}
+                            {!isCurrentPlan && buying !== plan.slug && <ArrowRight size={18} />}
                           </button>
                         </Tooltip>
                       </div>
@@ -747,6 +738,7 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
                   const features = TRYON_FEATURES;
                   const accent = meta.accent;
                   const highlighted = plan.isHighlighted;
+                  const isCurrentPlan = plan.slug === currentPlanSlug;
 
                   const cardContent = (
                     // biome-ignore lint/correctness/useJsxKeyInIterable: cardContent is wrapped by keyed parent in the map return below
@@ -934,11 +926,14 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
                       <div style={{ padding: '4px 24px 24px' }}>
                         <Tooltip
                           tip={
-                            buying && buying !== plan.slug
-                              ? 'Another payment is in progress'
-                              : undefined
+                            isCurrentPlan
+                              ? "You're already on this plan"
+                              : buying && buying !== plan.slug
+                                ? 'Another payment is in progress'
+                                : undefined
                           }
                           position="bottom"
+                          containerStyle={{ width: '100%' }}
                         >
                           <button
                             type="button"
@@ -946,7 +941,7 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
                               highlighted ? 'upgrade-plan-btn highlighted' : 'upgrade-plan-btn'
                             }
                             onClick={() => startBuy(plan)}
-                            disabled={!!buying}
+                            disabled={!!buying || isCurrentPlan}
                             style={{
                               width: '100%',
                               padding: '13px 20px',
@@ -957,16 +952,24 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
                               fontFamily: 'inherit',
                               fontWeight: 700,
                               fontSize: 15,
-                              cursor: buying ? 'not-allowed' : 'pointer',
+                              cursor: isCurrentPlan || buying ? 'not-allowed' : 'pointer',
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'center',
                               gap: 8,
-                              opacity: buying && buying !== plan.slug ? 0.45 : 1,
+                              opacity: isCurrentPlan
+                                ? 0.5
+                                : buying && buying !== plan.slug
+                                  ? 0.45
+                                  : 1,
                             }}
                           >
-                            {buying === plan.slug ? 'Processing…' : 'Buy Now'}
-                            {buying !== plan.slug && <ArrowRight size={18} />}
+                            {isCurrentPlan
+                              ? 'Current Plan'
+                              : buying === plan.slug
+                                ? 'Processing…'
+                                : 'Upgrade'}
+                            {!isCurrentPlan && buying !== plan.slug && <ArrowRight size={18} />}
                           </button>
                         </Tooltip>
                       </div>

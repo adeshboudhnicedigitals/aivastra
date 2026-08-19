@@ -536,6 +536,7 @@ export function usePricingData() {
     countryRef,
     ratesLoading,
     isNonIn,
+    currentPlanSlug: currentTier,
     cataloguePlans,
     tryonPlans,
     plansLoading,
