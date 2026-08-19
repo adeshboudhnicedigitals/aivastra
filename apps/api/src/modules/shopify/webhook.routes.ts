@@ -4,6 +4,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 import { AppError } from '../../lib/errors.js';
 import { collectShopperData, type RedactResult, redactShopperData } from './gdpr.js';
+import { grantForPurchase } from './purchase.js';
 import { enqueueSync, shopifyAdminFetch, verifyWebhookHmac } from './service.js';
 
 // NOTE: `shopifyRegisterWebhooks` on FastifyInstance is declared once in
@@ -56,6 +57,7 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
     'customers_data_request',
     'customers_redact',
     'shop_redact',
+    'app_purchases_one_time_update',
   ] as const;
 
   for (const topic of topics) {
@@ -69,6 +71,9 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
       const payload = JSON.parse(raw.toString() || '{}') as {
         id?: number;
         customer?: { id?: number; email?: string };
+        admin_graphql_api_id?: string;
+        status?: string;
+        test?: boolean;
       };
 
       // Post-processing here is fast local work (a 1-2 row Postgres UPDATE or a
@@ -150,6 +155,39 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
             }
             break;
           }
+          case 'app_purchases_one_time_update': {
+            // The payload's charge id is the only field we trust — everything
+            // else (status especially) is re-read from our own row, and the
+            // grant is idempotent on the charge id, so a replayed or spoofed
+            // duplicate cannot double-grant. HMAC has already been verified
+            // above, but defence in depth is cheap here.
+            const chargeGid = (payload as { admin_graphql_api_id?: string }).admin_graphql_api_id;
+            const status = (payload as { status?: string }).status;
+            if (!store || !chargeGid || !status) break;
+
+            const [purchaseRow] = await app.db
+              .select()
+              .from(schema.shopifyCreditPurchases)
+              .where(eq(schema.shopifyCreditPurchases.shopifyChargeId, chargeGid))
+              .limit(1);
+            if (!purchaseRow || purchaseRow.storeId !== store.id) break;
+
+            const granted = await grantForPurchase(app, purchaseRow, {
+              id: chargeGid,
+              status: status.toUpperCase(),
+              // Shopify sends this as a boolean on the one-time purchase payload.
+              test: Boolean((payload as { test?: boolean }).test),
+            });
+            await app.db
+              .update(schema.shopifyCreditPurchases)
+              .set({ status: status.toUpperCase(), updatedAt: new Date() })
+              .where(eq(schema.shopifyCreditPurchases.id, purchaseRow.id));
+            req.log.info(
+              { topic, storeId: store.id, purchaseId: purchaseRow.id, granted },
+              'one-time purchase webhook processed',
+            );
+            break;
+          }
         }
       } catch (err) {
         req.log.error({ err, topic }, 'webhook post-processing failed');
@@ -184,6 +222,7 @@ export const registerWebhooksDecorator = fp(async (app: FastifyInstance) => {
       'app/uninstalled': `${base}/app_uninstalled`,
       'products/update': `${base}/products_update`,
       'products/delete': `${base}/products_delete`,
+      'app_purchases_one_time/update': `${base}/app_purchases_one_time_update`,
     };
     for (const [topic, address] of Object.entries(map)) {
       try {

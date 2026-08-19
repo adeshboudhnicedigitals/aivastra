@@ -1,7 +1,11 @@
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { confirmPurchase, createPurchase } from '../../src/modules/shopify/purchase.js';
+import {
+  confirmPurchase,
+  createPurchase,
+  grantForPurchase,
+} from '../../src/modules/shopify/purchase.js';
 import { buildTestApp } from '../helpers/api.js';
 import { type Containers, startContainers } from '../helpers/containers.js';
 
@@ -169,5 +173,35 @@ describe('credit pack purchase', () => {
     expect(result.creditsGranted).toBe(800);
 
     await app.redis.del('config:system');
+  });
+});
+
+describe('one-time purchase webhook', () => {
+  it('grants credits for a merchant who never returned to the confirm route', async () => {
+    const chargeId = 'gid://shopify/AppPurchaseOneTime/webhook';
+    const { purchaseId } = await createPurchase(app, store, 'pack_50', {
+      createCharge: async () => ({
+        confirmationUrl: 'https://shopify.test/c',
+        purchase: fakeCharge({ id: chargeId }),
+      }),
+    });
+
+    const [row] = await app.db
+      .select()
+      .from(schema.shopifyCreditPurchases)
+      .where(eq(schema.shopifyCreditPurchases.id, purchaseId));
+
+    const granted = await grantForPurchase(app, row, {
+      id: chargeId,
+      status: 'ACTIVE',
+      test: false,
+    });
+    expect(granted).toBe(4800);
+
+    // The merchant later opens the app and hits confirm — must not double-grant.
+    const confirmResult = await confirmPurchase(app, store, purchaseId, {
+      fetchPurchase: async () => fakeCharge({ id: chargeId }),
+    });
+    expect(confirmResult.creditsGranted).toBe(0);
   });
 });
