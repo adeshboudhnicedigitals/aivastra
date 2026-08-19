@@ -1,3 +1,62 @@
+## 2026-08-19 — Second SSO entry point for tryon-library-app: code-based handoff
+
+**Done**
+- Added a second way for the Android app to reach the same `catalog-app`
+  cookie session as the 2026-08-18 header-based exchange, for WebView
+  wrappers that can't set a custom header on the initial `loadUrl` — a
+  short-lived, single-use handoff code passed as a URL query param instead.
+  Both entry points mint the identical session type via the same
+  `createSessionTokens(..., 'catalog-app')`; deliberately kept the header
+  flow rather than replacing it (explicit product decision).
+- New `POST /v1/auth/catalog-app-device-code` (`apps/api/src/modules/auth/routes.ts`,
+  `app.requireDeviceUser`-guarded, same as the header exchange): mints a
+  192-bit random code (`randomBytes(24).base64url`), stores it in Redis as
+  `catalog-app-handoff:{code}` → userId with a 60s TTL, returns
+  `{ code, expiresInSeconds: 60 }`. Extracted the shared ban/merchant-active
+  check (`assertCatalogAppEligible`) out of the original device-exchange
+  route so both entry points use it identically.
+- New `POST /v1/auth/catalog-app-code-exchange` (public — the code itself is
+  the credential, same trust model as a password-reset token): looks the
+  code up via Redis `GETDEL` (atomic single-use, no reuse race), 401
+  `INVALID_CODE` if missing/expired/already consumed, otherwise mints the
+  catalog-app session. No re-check of ban/merchant status at exchange time —
+  the code's existence already proves `assertCatalogAppEligible` passed
+  within the last 60 seconds, matching how every other device-session route
+  in this file trusts a token for its full lifetime.
+- `apps/catalogues-web/src/middleware.ts`: `/tryon-library-app` now also
+  checks `?code=` (before the existing header check). On success, redirects
+  to the same path with `code` stripped from the URL so it doesn't linger in
+  WebView history or get resent on refresh — the code is already consumed by
+  that point regardless.
+- 12 new integration tests (`apps/api/test/integration/catalog-app-device-code.test.ts`):
+  issuance guard checks (mirrors the 6 device-exchange tests), single-use
+  enforcement (second exchange attempt on the same code → 401), unknown
+  code, expired code (synthetic 1s TTL to keep the test fast rather than
+  waiting the real 60s), malformed/too-short code → 400. All 12 pass; the
+  original 8 device-exchange tests re-verified passing after the shared-
+  helper refactor.
+
+**Android integration contract (for the native app, separate repo, not
+implemented here) — code-flow variant:**
+- Call `POST /v1/auth/catalog-app-device-code` with the existing device
+  access token as a normal `Authorization: Bearer` header (never in a URL).
+- Open the WebView at `https://app.aivastra.com/tryon-library-app?code=<code>`
+  within 60 seconds — the code is single-use and expires either way.
+- No header needed for this variant. The `X-Aivastra-Device-Token` header
+  approach from 2026-08-18 is still supported and unchanged, for apps that
+  can set custom headers on `loadUrl`.
+
+**Open Questions / Decisions**
+- Not yet committed/pushed — implemented directly in this session, awaiting
+  go-ahead to commit/branch-push/PR (branch `feature/tryon-library-app-code-sso`
+  created off `dev`, uncommitted at time of writing).
+- Same two open items carried over from 2026-08-18 apply here too: the
+  Cloudflare cache-rule check for `/tryon-library-app` (now varies on two
+  signals — a header and a query param — either can carry `Set-Cookie`), and
+  the pre-existing `isBanned` gap in `requireDeviceUser` itself (both new
+  routes work around it locally via `assertCatalogAppEligible`, same as
+  before).
+
 ## 2026-08-18 — Android tryon-library-app SSO bypass (backend + web)
 
 **Done**

@@ -20,6 +20,16 @@ export async function merchantMeRoutes(app: FastifyInstance) {
       .where(eq(schema.merchants.id, merchantId));
     if (!row) throw new AppError('NOT_FOUND', 404, 'merchant not found');
 
-    return row;
+    // Lifetime spend, not a rolling window — matches the "available vs used"
+    // framing the merchant portal shows credits with.
+    const [usage] = await app.db
+      .select({
+        used: sql<number>`COALESCE(SUM(CASE WHEN ${schema.creditLedger.delta} < 0 THEN -${schema.creditLedger.delta} ELSE 0 END), 0)::int`,
+      })
+      .from(schema.creditLedger)
+      .innerJoin(schema.merchants, eq(schema.merchants.userId, schema.creditLedger.userId))
+      .where(eq(schema.merchants.id, merchantId));
+
+    return { ...row, used: usage?.used ?? 0 };
   });
 }
