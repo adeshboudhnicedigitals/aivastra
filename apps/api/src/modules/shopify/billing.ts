@@ -1,9 +1,10 @@
 import { schema } from '@aivastra/db';
-import { eq } from 'drizzle-orm';
+import { and, eq, gte, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { getShopifyPlanCredits, getShopifyTrialCredits } from '../../lib/resolution-config.js';
 import { grantStore } from '../credits/shopify-ledger.js';
 import { normalizePlanName } from './billing-plans.js';
+import { DEFAULT_PAYG_SPEND_CAP_USD_CENTS } from './payg.js';
 import {
   type ActiveSubscription,
   getActiveSubscription as defaultGetActiveSubscription,
@@ -11,10 +12,46 @@ import {
 
 type Store = typeof schema.shopifyStores.$inferSelect;
 
+const PAYG_PLAN_NAME = 'pay as you go'; // normalizePlanName'd match against Partner Dashboard's plan display name
+
 export interface SyncResult {
   planHandle: string | null;
   subscriptionStatus: string | null;
   creditsGranted: number;
+  billingMode: 'prepaid' | 'usage';
+}
+
+/**
+ * Sum of this-cycle shopify_usage_events for one store, in USD cents,
+ * restricted to rows already REPORTED to Shopify's App Events API — used
+ * only by the reconciliation check below, which compares against what
+ * Shopify says it has billed. This intentionally differs from
+ * payg.ts's getPaygSpendThisCycleCents (which also counts PENDING rows
+ * for cap enforcement): a row Shopify hasn't been told about yet cannot
+ * possibly be reflected in its balance, so including it here would make
+ * every cycle look like a false-positive mismatch.
+ */
+async function getPaygSpendThisCycleCentsForReconciliation(
+  app: FastifyInstance,
+  storeId: string,
+  periodEnd: Date | null,
+): Promise<number> {
+  const windowStart = periodEnd
+    ? new Date(periodEnd.getTime() - 30 * 24 * 60 * 60 * 1000)
+    : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const [row] = await app.db
+    .select({
+      total: sql<number>`COALESCE(SUM(${schema.shopifyUsageEvents.priceUsdCents}), 0)::int`,
+    })
+    .from(schema.shopifyUsageEvents)
+    .where(
+      and(
+        eq(schema.shopifyUsageEvents.storeId, storeId),
+        eq(schema.shopifyUsageEvents.status, 'REPORTED'),
+        gte(schema.shopifyUsageEvents.createdAt, windowStart),
+      ),
+    );
+  return row?.total ?? 0;
 }
 
 interface SyncDeps {
@@ -54,17 +91,24 @@ export async function syncStoreSubscription(
       .update(schema.shopifyStores)
       .set({
         subscriptionStatus: 'cancelled',
+        billingMode: 'prepaid', // a store with no subscription can't be billed by usage
         lastBillingSyncAt: new Date(),
         updatedAt: new Date(),
       })
       .where(eq(schema.shopifyStores.id, store.id));
-    return { planHandle: null, subscriptionStatus: 'cancelled', creditsGranted: 0 };
+    return {
+      planHandle: null,
+      subscriptionStatus: 'cancelled',
+      creditsGranted: 0,
+      billingMode: 'prepaid',
+    };
   }
 
   // The Admin API has no plan handle — `name` is the display name configured in
   // Partner Dashboard. Normalized so the persisted value (and the frontend's
   // PLAN_LABELS lookup) is stable regardless of how it was capitalized there.
   const planHandle = normalizePlanName(subscription.name) || null;
+  const billingMode: 'prepaid' | 'usage' = planHandle === PAYG_PLAN_NAME ? 'usage' : 'prepaid';
   const subscriptionStatus = subscription.status.toLowerCase();
   const periodEnd = subscription.currentPeriodEnd ? new Date(subscription.currentPeriodEnd) : null;
 
@@ -80,10 +124,16 @@ export async function syncStoreSubscription(
 
   const amount = planHandle ? await getShopifyPlanCredits(app, planHandle) : null;
 
-  if (amount === null) {
+  if (amount === null && billingMode !== 'usage') {
     // Operator-visible rather than silent: a plan renamed in Partner Dashboard
     // without the matching change to billing-plans.ts stops all credit grants
     // for every merchant on that plan, and nothing else would surface it.
+    // Excludes 'usage' (PAYG) stores: amount === null is the expected,
+    // intentional path there (PAYG is deliberately absent from
+    // SHOPIFY_PLAN_HANDLES — it gets zero prepaid credits by design, not by
+    // misconfiguration), so logging it as "unrecognized" here would fire on
+    // every sync for every PAYG store forever and bury genuine mismatches
+    // under per-store, per-hour noise.
     app.log.error(
       { storeId: store.id, planName: subscription.name },
       'unrecognized Shopify plan name — no credits granted',
@@ -151,25 +201,86 @@ export async function syncStoreSubscription(
   // fixed / the subscription goes live, still sees isNewCycle === true for the
   // same cycle and grants it. Advancing unconditionally would silently mark an
   // unbilled cycle as "seen" and the merchant would never get those credits.
-  const marker = grantable
+  //
+  // PAYG stores are the one exception: `amount` is always null for them
+  // (PAYG is deliberately absent from SHOPIFY_PLAN_HANDLES), so `grantable`
+  // is always false and the marker above would never advance — leaving
+  // currentPeriodEnd permanently null. There's no "unbilled cycle" risk to
+  // protect against here (no credit grant to lose), so advance it whenever
+  // the subscription is actually ACTIVE. This is what lets cycleWindowStart
+  // (payg.ts) align the spend-cap window to the real Shopify billing cycle
+  // instead of falling back to a rolling 30 days forever.
+  const advanceMarker = grantable || (billingMode === 'usage' && subscription.status === 'ACTIVE');
+  const marker = advanceMarker
     ? { currentSubscriptionId: subscription.id, currentPeriodEnd: periodEnd }
     : {
         currentSubscriptionId: store.currentSubscriptionId,
         currentPeriodEnd: store.currentPeriodEnd,
       };
 
+  // Seed a default spend cap the first time a store becomes 'usage' — never
+  // overwrite an existing value, which could be a merchant's own edit made
+  // between syncs.
+  const spendCapPatch =
+    billingMode === 'usage' && store.paygSpendCapUsdCents === null
+      ? { paygSpendCapUsdCents: DEFAULT_PAYG_SPEND_CAP_USD_CENTS }
+      : {};
+
   await app.db
     .update(schema.shopifyStores)
     .set({
       planHandle,
       subscriptionStatus,
+      billingMode,
+      subscriptionIsTest: subscription.test,
+      ...spendCapPatch,
       ...marker,
       lastBillingSyncAt: new Date(),
       updatedAt: new Date(),
     })
     .where(eq(schema.shopifyStores.id, store.id));
 
-  return { planHandle, subscriptionStatus, creditsGranted };
+  // Reconciliation: the App Events API always returns 202 even when billing
+  // validation fails server-side, with no webhook for that failure — this is
+  // the only machine-readable signal that closes the gap between "we sent
+  // it" and "Shopify actually billed it". A mismatch here means something is
+  // silently wrong (a misconfigured meter handle, an unmetered plan) and is
+  // otherwise invisible.
+  if (billingMode === 'usage') {
+    const reportedLineItem = subscription.lineItems.find((li) => li.usageBalanceUsdCents != null);
+    if (reportedLineItem?.usageBalanceUsdCents != null) {
+      const ourTotal = await getPaygSpendThisCycleCentsForReconciliation(app, store.id, periodEnd);
+      const mismatch = Math.abs(reportedLineItem.usageBalanceUsdCents - ourTotal);
+      if (mismatch > 50) {
+        // > 50 cents tolerance absorbs ordinary async-processing lag between
+        // an event being reported and Shopify's balance reflecting it.
+        app.log.error(
+          {
+            storeId: store.id,
+            shopifyBalanceCents: reportedLineItem.usageBalanceUsdCents,
+            ourTotalCents: ourTotal,
+          },
+          'PAYG usage reconciliation mismatch — check Partner Dashboard meter configuration',
+        );
+      }
+    } else {
+      // No AppUsagePricing line item at all — every line item on this
+      // subscription priced out as AppRecurringPricing, meaning the Partner
+      // Dashboard meter was never attached (or was removed) for this plan.
+      // Only worth surfacing if this store has actually reported usage this
+      // cycle: a brand-new PAYG store with zero try-ons yet would otherwise
+      // trip this on every sync before it ever generates anything.
+      const ourTotal = await getPaygSpendThisCycleCentsForReconciliation(app, store.id, periodEnd);
+      if (ourTotal > 0) {
+        app.log.error(
+          { storeId: store.id, subscriptionId: subscription.id },
+          'PAYG store has reported usage but its subscription exposes no AppUsagePricing line item — meter not configured in Partner Dashboard',
+        );
+      }
+    }
+  }
+
+  return { planHandle, subscriptionStatus, creditsGranted, billingMode };
 }
 
 /**

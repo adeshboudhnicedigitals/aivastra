@@ -1,6 +1,7 @@
 import { schema } from '@aivastra/db';
 import { and, count, eq, gte, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { getPaygSpendThisCycleCents } from './payg.js';
 import { windowStart } from './store-day.js';
 
 /**
@@ -65,6 +66,9 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
       .limit(1);
     const creditBalance = creditRow?.balance ?? 0;
 
+    const paygSpendThisCycleUsdCents =
+      store.billingMode === 'usage' ? await getPaygSpendThisCycleCents(app, store) : 0;
+
     const [{ totalTryOns }] = await app.db
       .select({ totalTryOns: count() })
       .from(schema.jobs)
@@ -117,8 +121,11 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
         connectedSince: store.installedAt.toISOString(),
         planHandle: store.planHandle,
         subscriptionStatus: store.subscriptionStatus,
+        billingMode: store.billingMode,
+        paygSpendCapUsdCents: store.paygSpendCapUsdCents,
       },
       creditBalance,
+      paygSpendThisCycleUsdCents,
       stats: {
         totalTryOns,
         syncedProductCount,
