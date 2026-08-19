@@ -161,7 +161,6 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           demoData: schema.merchants.demoData,
           jobRateLimitPerMin: schema.merchants.jobRateLimitPerMin,
           logoKey: schema.merchants.logoKey,
-          logoUpdatedAt: schema.merchants.updatedAt,
         })
         .from(schema.merchants)
         .where(eq(schema.merchants.userId, id));
@@ -191,11 +190,13 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         merchant: merchantRow
           ? {
               ...merchantRow,
-              // Cache-bust: logoKey is a fixed path (merchant-logo/{id}/logo.jpg) that never
-              // changes across re-uploads, so without a query param keyed to updatedAt the
-              // browser/CDN keeps serving the previous image after the admin replaces it.
+              // No manual cache-bust needed: presignGet() embeds a fresh X-Amz-Date/
+              // X-Amz-Signature on every call, so the URL (and thus any URL-keyed cache)
+              // already changes on every re-fetch. Appending an extra query param here
+              // previously broke SigV4 validation (403 SignatureDoesNotMatch) — the
+              // signature only covers the exact query string present when it was signed.
               logoUrl: merchantRow.logoKey
-                ? `${(await app.storage.presignGet(merchantRow.logoKey, 3600)).url}&v=${merchantRow.logoUpdatedAt.getTime()}`
+                ? (await app.storage.presignGet(merchantRow.logoKey, 3600)).url
                 : null,
             }
           : null,

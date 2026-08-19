@@ -1,3 +1,4 @@
+import { DEFAULT_PAYG_SPEND_CAP_USD_CENTS } from '@aivastra/types';
 import {
   Badge,
   Banner,
@@ -12,12 +13,18 @@ import {
   SkeletonBodyText,
   SkeletonPage,
   Text,
+  TextField,
 } from '@shopify/polaris';
 import { CheckIcon } from '@shopify/polaris-icons';
 import { useEffect, useState } from 'react';
 import { apiFetch, navigateTopLevel } from '../lib/api';
 import { resolvePlanSelectionUrl } from '../lib/billing';
-import { PLAN_FEATURE_SETS, SHARED_FEATURE_BULLETS } from '../lib/planFeatures';
+import {
+  PAYG_MIN_SPEND_CAP_USD,
+  PAYG_PRICE_PER_TRYON_USD,
+  PLAN_FEATURE_SETS,
+  SHARED_FEATURE_BULLETS,
+} from '../lib/planFeatures';
 import type { ShopifyMe } from '../types';
 
 // Set at build time from Partner Dashboard's app handle — see
@@ -47,6 +54,9 @@ export default function PricingPage() {
   const [me, setMe] = useState<ShopifyMe | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [capInput, setCapInput] = useState('');
+  const [capSaving, setCapSaving] = useState(false);
+  const [capError, setCapError] = useState<string | null>(null);
 
   useEffect(() => {
     apiFetch<ShopifyMe>('/v1/shopify/me')
@@ -54,6 +64,28 @@ export default function PricingPage() {
       .catch((err) => setError((err as Error).message))
       .finally(() => setLoading(false));
   }, []);
+
+  async function saveSpendCap() {
+    const dollars = Number.parseFloat(capInput);
+    if (Number.isNaN(dollars) || dollars < PAYG_MIN_SPEND_CAP_USD) {
+      setCapError(`Minimum is $${PAYG_MIN_SPEND_CAP_USD}`);
+      return;
+    }
+    setCapSaving(true);
+    setCapError(null);
+    try {
+      await apiFetch('/v1/shopify/billing/payg-cap', {
+        method: 'PATCH',
+        body: JSON.stringify({ spendCapUsdCents: Math.round(dollars * 100) }),
+      });
+      const refreshed = await apiFetch<ShopifyMe>('/v1/shopify/me');
+      setMe(refreshed);
+    } catch (err) {
+      setCapError((err as Error).message);
+    } finally {
+      setCapSaving(false);
+    }
+  }
 
   function choosePlan() {
     if (!me) return;
@@ -140,6 +172,59 @@ export default function PricingPage() {
             );
           })}
         </InlineGrid>
+
+        <Card>
+          <BlockStack gap="300">
+            <InlineStack gap="200" blockAlign="center">
+              <Text as="h2" variant="headingLg">
+                Pay as you go
+              </Text>
+              {me?.store.billingMode === 'usage' && <Badge>Your current plan</Badge>}
+            </InlineStack>
+            <Text as="p" tone="subdued">
+              No monthly commitment — ${PAYG_PRICE_PER_TRYON_USD.toFixed(2)} per try-on, billed
+              through your Shopify invoice.
+            </Text>
+            {me?.store.billingMode !== 'usage' && (
+              <Box>
+                <Button variant="primary" onClick={choosePlan}>
+                  Choose Pay as you go
+                </Button>
+              </Box>
+            )}
+            {me?.store.billingMode === 'usage' && (
+              <BlockStack gap="200">
+                <Text as="p">
+                  ${((me.paygSpendThisCycleUsdCents ?? 0) / 100).toFixed(2)} spent this cycle of $
+                  {(
+                    (me.store.paygSpendCapUsdCents ?? DEFAULT_PAYG_SPEND_CAP_USD_CENTS) / 100
+                  ).toFixed(2)}{' '}
+                  cap
+                </Text>
+                <InlineStack gap="200" blockAlign="end">
+                  <TextField
+                    label="Monthly spend cap (USD)"
+                    type="number"
+                    autoComplete="off"
+                    value={capInput}
+                    onChange={setCapInput}
+                    placeholder={(
+                      (me.store.paygSpendCapUsdCents ?? DEFAULT_PAYG_SPEND_CAP_USD_CENTS) / 100
+                    ).toString()}
+                  />
+                  <Button onClick={saveSpendCap} disabled={capSaving} loading={capSaving}>
+                    Save
+                  </Button>
+                </InlineStack>
+                {capError && (
+                  <Text as="p" tone="critical">
+                    {capError}
+                  </Text>
+                )}
+              </BlockStack>
+            )}
+          </BlockStack>
+        </Card>
 
         <Text as="p" tone="subdued">
           You'll confirm your plan on Shopify's page next.

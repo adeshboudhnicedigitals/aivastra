@@ -56,17 +56,62 @@ describe('dispatcher happy path', () => {
       .values({ typeId: ct?.id, slug: 'c', label: 'C' })
       .returning();
 
-    const mkItem = (label: string, r2Key: string) =>
+    const [workflow] = await env.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `hp-wf-${Date.now()}`,
+        label: 'Happy path test workflow',
+        jsonContent: {
+          f: { class_type: 'LoadImage', inputs: { image: 'x.jpg' } },
+          p: { class_type: 'LoadImage', inputs: { image: 'x.jpg' } },
+          b: { class_type: 'LoadImage', inputs: { image: 'x.jpg' } },
+          g: { class_type: 'LoadImage', inputs: { image: 'x.jpg' } },
+          out: { class_type: 'SaveImage', inputs: { images: ['f', 0] } },
+        },
+        workflowType: 'regular',
+        faceNodeId: 'f',
+        poseNodeId: 'p',
+        bgNodeId: 'b',
+        upperNodeIds: ['g'],
+        facePhasePromptNode: 'f',
+        garmentPhasePromptNode: 'f',
+      })
+      .returning();
+
+    const [[face], [background], [pose], [l]] = await Promise.all([
+      env.db
+        .insert(schema.modelFaces)
+        .values({
+          gender: 'women',
+          label: 'Model',
+          r2Key: 'catalog/m/m.jpg',
+          thumbnailKey: 'catalog/m/m.jpg',
+          faceSideR2Key: 'catalog/m/m.jpg',
+        })
+        .returning(),
+      env.db
+        .insert(schema.modelBackgrounds)
+        .values({ label: 'Bg', r2Key: 'catalog/b/b.jpg', thumbnailKey: 'catalog/b/b.jpg' })
+        .returning(),
+      env.db
+        .insert(schema.modelPoseAssets)
+        .values({
+          label: 'Pose',
+          r2Key: 'catalog/p/p.jpg',
+          thumbnailKey: 'catalog/p/p.jpg',
+          workflowTemplateId: workflow?.id,
+        })
+        .returning(),
       env.db
         .insert(schema.catalogItems)
-        .values({ categoryId: cc?.id, label, r2Key, thumbnailKey: r2Key })
-        .returning();
-
-    const [[m], [p], [b], [l]] = await Promise.all([
-      mkItem('Model', 'catalog/m/m.jpg'),
-      mkItem('Pose', 'catalog/p/p.jpg'),
-      mkItem('Bg', 'catalog/b/b.jpg'),
-      mkItem('Lower', 'catalog/l/l.jpg'),
+        .values({
+          categoryId: cc?.id,
+          type: 'lower',
+          label: 'Lower',
+          r2Key: 'catalog/l/l.jpg',
+          thumbnailKey: 'catalog/l/l.jpg',
+        })
+        .returning(),
     ]);
 
     const [job] = await env.db
@@ -77,9 +122,9 @@ describe('dispatcher happy path', () => {
     await env.db.insert(schema.jobInputs).values({
       jobId: job?.id,
       upperGarmentKey: `inputs/${job?.id}/garment.jpg`,
-      modelCatalogId: m?.id,
-      poseCatalogId: p?.id,
-      backgroundCatalogId: b?.id,
+      faceId: face?.id,
+      poseId: pose?.id,
+      backgroundId: background?.id,
       lowerCatalogId: l?.id,
     });
 
