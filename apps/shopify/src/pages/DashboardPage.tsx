@@ -19,6 +19,52 @@ import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../lib/api';
 import type { ShopifyMe, ShopifyOnboardingConfirmResponse, ShopifyStats } from '../types';
 
+// Uses useNavigate() directly rather than accepting navigate as a prop: both
+// call sites (Dashboard, Pricing) render this from within the SPA's router
+// tree, so the hook always resolves, and it keeps callers from having to
+// thread a navigate function through just to render a banner.
+//
+// Renders `null` at 'ok' — this is deliberately not a blocking modal, and the
+// app is not disabled at zero: a merchant at zero can still manage products,
+// read analytics and edit the widget, and the actual breakage is on the
+// storefront, not in here.
+export function LowCreditsBanner({ runway }: { runway: ShopifyMe['runway'] }) {
+  const navigate = useNavigate();
+
+  if (runway.level === 'ok') return null;
+
+  const days = runway.daysRemaining != null ? Math.max(1, Math.round(runway.daysRemaining)) : null;
+
+  return (
+    <Banner
+      tone={runway.level === 'warning' ? 'warning' : 'critical'}
+      title={
+        runway.level === 'empty'
+          ? 'You’re out of credits — try-on is paused for shoppers'
+          : days != null
+            ? `Low credits — about ${days} day${days === 1 ? '' : 's'} left`
+            : 'Low credits'
+      }
+      // Not `url: '/pricing'` — Polaris's `Banner` action `url` renders a
+      // plain `<a href>`, which is only safe under this app's `AppProvider`
+      // (no `linkComponent` configured) when the router basename and Vite
+      // base both happen to be `/`, i.e. in dev only. In production both are
+      // `/shopify-admin`, so an href navigates the embedded iframe to the
+      // wrong app entirely. `onAction` + `navigate()` goes through the router
+      // instead, same fix as the Dashboard's own Buy-credits button.
+      action={{ content: 'Buy credits', onAction: () => navigate('/pricing') }}
+    >
+      <Text as="p">
+        {runway.balance.toLocaleString()} credits ({runway.tryOnsRemaining.toLocaleString()}{' '}
+        try-ons)
+        {runway.dailyBurnCredits > 0
+          ? ` at about ${Math.round(runway.dailyBurnCredits)} credits/day.`
+          : '.'}
+      </Text>
+    </Banner>
+  );
+}
+
 type StatusKey = keyof ShopifyStats['statusCounts'];
 
 const STATUS_TONE: Record<StatusKey, 'success' | 'attention' | 'critical' | 'info'> = {
@@ -158,6 +204,8 @@ export default function DashboardPage() {
     <Page title="Dashboard" subtitle="Here's how virtual try-on is performing on your store.">
       <BlockStack gap="400">
         {error && <Banner tone="critical">{error}</Banner>}
+
+        {me && <LowCreditsBanner runway={me.runway} />}
 
         <Card>
           <BlockStack gap="200">

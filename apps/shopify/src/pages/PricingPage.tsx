@@ -18,6 +18,7 @@ import { useEffect, useState } from 'react';
 import { apiFetch, navigateTopLevel } from '../lib/api';
 import { PACK_DISPLAY, SHARED_FEATURE_BULLETS, tryOnsFromCredits } from '../lib/packs';
 import type { ShopifyMe } from '../types';
+import { LowCreditsBanner } from './DashboardPage';
 
 export default function PricingPage() {
   const [me, setMe] = useState<ShopifyMe | null>(null);
@@ -64,6 +65,8 @@ export default function PricingPage() {
       <BlockStack gap="400">
         {error && <Banner tone="critical">{error}</Banner>}
 
+        {me && <LowCreditsBanner runway={me.runway} />}
+
         <Card>
           <BlockStack gap="200">
             <Text as="p" tone="subdued">
@@ -74,6 +77,9 @@ export default function PricingPage() {
             </Text>
             <Text as="p" tone="subdued">
               About {tryOnsFromCredits(balance).toLocaleString()} try-ons remaining
+              {me?.runway.daysRemaining != null
+                ? ` — roughly ${Math.max(1, Math.round(me.runway.daysRemaining))} days at your current rate`
+                : ''}
             </Text>
           </BlockStack>
         </Card>

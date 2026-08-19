@@ -80,6 +80,13 @@ export interface ShopifyMe {
     connectedSince: string;
   };
   creditBalance: number;
+  runway: {
+    balance: number;
+    tryOnsRemaining: number;
+    dailyBurnCredits: number;
+    daysRemaining: number | null;
+    level: 'ok' | 'warning' | 'critical' | 'empty';
+  };
   stats: ShopifyStats;
 }
 

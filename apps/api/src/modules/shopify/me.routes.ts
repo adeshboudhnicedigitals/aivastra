@@ -1,6 +1,7 @@
 import { schema } from '@aivastra/db';
 import { and, count, eq, gte, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { computeRunway } from './runway.js';
 import { windowStart } from './store-day.js';
 
 /**
@@ -58,12 +59,11 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
   app.get('/v1/shopify/me', { preHandler: app.requireShopifySession }, async (req) => {
     const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
 
-    const [creditRow] = await app.db
-      .select({ balance: schema.shopifyStoreCredits.balance })
-      .from(schema.shopifyStoreCredits)
-      .where(eq(schema.shopifyStoreCredits.storeId, store.id))
-      .limit(1);
-    const creditBalance = creditRow?.balance ?? 0;
+    // Supersedes the bare balance lookup: the SPA needs the level and the
+    // runway to render a banner, and computing it here keeps one definition of
+    // "low" shared with the scheduler instead of duplicating thresholds in the
+    // frontend where they would drift.
+    const runway = await computeRunway(app, store.id);
 
     const [{ totalTryOns }] = await app.db
       .select({ totalTryOns: count() })
@@ -116,7 +116,14 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
         settings: store.settings,
         connectedSince: store.installedAt.toISOString(),
       },
-      creditBalance,
+      creditBalance: runway.balance,
+      runway: {
+        balance: runway.balance,
+        tryOnsRemaining: runway.tryOnsRemaining,
+        dailyBurnCredits: runway.dailyBurnCredits,
+        daysRemaining: runway.daysRemaining,
+        level: runway.level,
+      },
       stats: {
         totalTryOns,
         syncedProductCount,
