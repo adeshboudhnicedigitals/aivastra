@@ -21,12 +21,6 @@ import type { ShopifyMe, ShopifyOnboardingConfirmResponse, ShopifyStats } from '
 
 type StatusKey = keyof ShopifyStats['statusCounts'];
 
-const PLAN_LABELS: Record<string, string> = {
-  starter: 'Starter',
-  growth: 'Growth',
-  pro: 'Pro',
-};
-
 const STATUS_TONE: Record<StatusKey, 'success' | 'attention' | 'critical' | 'info'> = {
   active: 'success',
   processing: 'attention',
@@ -166,29 +160,15 @@ export default function DashboardPage() {
         {error && <Banner tone="critical">{error}</Banner>}
 
         <Card>
-          <InlineStack align="space-between" blockAlign="center">
-            <InlineStack gap="300" blockAlign="center">
-              <Badge
-                tone={me?.store.subscriptionStatus === 'active' ? 'success' : 'attention'}
-                size="large"
-              >
-                {me?.store.planHandle
-                  ? `${PLAN_LABELS[me.store.planHandle] ?? me.store.planHandle} plan`
-                  : 'No plan selected'}
-              </Badge>
-              {me?.store.planHandle && me.store.subscriptionStatus !== 'active' && (
-                <Text as="span" tone="subdued">
-                  {me.store.subscriptionStatus}
-                </Text>
-              )}
-              <Text as="span" variant="headingLg">
-                {me?.creditBalance ?? 0} credits
-              </Text>
-            </InlineStack>
-            <Button onClick={() => navigate('/pricing')}>
-              {me?.store.planHandle ? 'Manage plan' : 'Choose a plan'}
-            </Button>
-          </InlineStack>
+          <BlockStack gap="200">
+            <Text as="p" tone="subdued">
+              Credit balance
+            </Text>
+            <Text as="p" variant="heading2xl">
+              {(me?.creditBalance ?? 0).toLocaleString()}
+            </Text>
+            <Button url="/pricing">Buy credits</Button>
+          </BlockStack>
         </Card>
 
         <Card>
