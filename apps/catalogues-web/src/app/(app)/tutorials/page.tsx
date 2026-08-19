@@ -3,26 +3,7 @@ import { useState } from 'react';
 import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { BREAKPOINTS } from '@/lib/breakpoints';
-
-// Accepts a full YouTube URL (youtu.be/<id>, youtube.com/watch?v=<id>,
-// youtube.com/embed/<id>, with or without extra query params) or a bare
-// video ID, and returns just the video ID for embedding/thumbnails.
-function extractYoutubeId(input: string): string {
-  const trimmed = input.trim();
-  try {
-    const url = new URL(trimmed);
-    if (url.hostname === 'youtu.be') return url.pathname.slice(1);
-    if (url.hostname.includes('youtube.com')) {
-      const v = url.searchParams.get('v');
-      if (v) return v;
-      const embedMatch = url.pathname.match(/\/embed\/([^/?]+)/);
-      if (embedMatch?.[1]) return embedMatch[1];
-    }
-  } catch {
-    // Not a URL — assume it's already a bare video ID.
-  }
-  return trimmed;
-}
+import { extractYoutubeId } from '@/lib/youtube';
 
 // `category` must match one of the CATEGORY values below (or 'All Tutorials',
 // which every tutorial matches) — it drives the top filter tabs. `tag` is the
@@ -423,7 +404,11 @@ export default function TutorialsPage() {
                     <iframe
                       width="100%"
                       height="100%"
-                      src={`https://www.youtube.com/embed/${videoId}?autoplay=1`}
+                      // origin is required by some videos' embed player to validate the
+                      // requesting site — omitting it is a common cause of YouTube's
+                      // "Error 153: video player configuration error" even when
+                      // embedding is allowed for the video.
+                      src={`https://www.youtube.com/embed/${videoId}?autoplay=1&origin=${encodeURIComponent(window.location.origin)}`}
                       title={tutorial.title}
                       frameBorder="0"
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
