@@ -47,7 +47,10 @@ export function getToken(): string | null {
 // the rest hit a revoked token and force a logout. Dedup avoids that race.
 let refreshInFlight: Promise<string | null> | null = null;
 
-function tryRefresh(): Promise<string | null> {
+// Exported so other independent fetch clients (e.g. the SSE connection in
+// sse.ts) share this single flight instead of racing their own refresh call
+// against this one — see the comment above.
+export function tryRefresh(): Promise<string | null> {
   if (!refreshInFlight) {
     refreshInFlight = (async () => {
       try {
