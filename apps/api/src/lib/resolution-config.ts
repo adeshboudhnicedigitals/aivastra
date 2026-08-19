@@ -6,12 +6,7 @@ import {
   SIMPLE_TRYON_COST,
 } from '@aivastra/types';
 import type { FastifyInstance } from 'fastify';
-import {
-  DEFAULT_CREDITS_BY_PLAN_HANDLE,
-  normalizePlanName,
-  SHOPIFY_PLAN_HANDLES,
-  type ShopifyPlanHandle,
-} from '../modules/shopify/billing-plans.js';
+import { CREDIT_PACKS, getPack } from '../modules/shopify/packs.js';
 
 const CONFIG_KEY = 'config:system';
 
@@ -148,26 +143,33 @@ export async function getShopifyTrialCredits(app: FastifyInstance): Promise<numb
 }
 
 /**
- * Reads the admin-configured credit grant for one Shopify Managed Pricing
- * plan (starter/growth/pro) from the same `config:system` Redis key the
- * admin panel edits. Returns null for a plan name that doesn't match one of
- * SHOPIFY_PLAN_HANDLES — same "unrecognized plan grants nothing" behavior
- * creditsForPlanName had. Falls back to DEFAULT_CREDITS_BY_PLAN_HANDLE for a
- * known handle if nothing is stored yet, or the entry is missing/malformed.
+ * Reads the admin-configured credit grant for one credit pack from the same
+ * `config:system` Redis key the admin panel edits. Returns null for an id we
+ * don't sell — same "unrecognized means grant nothing" behaviour the plan
+ * lookup this replaces had, rather than guessing.
+ *
+ * Falls back to the code default when nothing is stored or the entry is
+ * malformed, matching getResolutionCreditCost's try/catch behaviour.
+ *
+ * Note this is only consulted when a purchase row is INSERTed. The grant itself
+ * reads the snapshotted `credits` column on that row, never this — see the
+ * "credits are snapshotted" reasoning in purchase.ts.
  */
-export async function getShopifyPlanCredits(
+export async function getShopifyPackCredits(
   app: FastifyInstance,
-  planName: string,
+  packId: string,
+  source: 'manual' | 'autorefill',
 ): Promise<number | null> {
-  const handle = normalizePlanName(planName);
-  if (!(SHOPIFY_PLAN_HANDLES as readonly string[]).includes(handle)) return null;
-  const knownHandle = handle as ShopifyPlanHandle;
+  const pack = getPack(packId);
+  if (!pack) return null;
+  const field = source === 'autorefill' ? 'autorefillCredits' : 'credits';
+  const fallback = CREDIT_PACKS[pack.id][field];
   try {
     const raw = await app.redis.get(CONFIG_KEY);
     const cfg = raw ? JSON.parse(raw) : {};
-    const credits = cfg.shopify?.planCredits?.[knownHandle];
-    return typeof credits === 'number' ? credits : DEFAULT_CREDITS_BY_PLAN_HANDLE[knownHandle];
+    const credits = cfg.shopify?.packCredits?.[pack.id]?.[field];
+    return typeof credits === 'number' ? credits : fallback;
   } catch {
-    return DEFAULT_CREDITS_BY_PLAN_HANDLE[knownHandle];
+    return fallback;
   }
 }
