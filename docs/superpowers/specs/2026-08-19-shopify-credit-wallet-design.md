@@ -489,8 +489,10 @@ caching, threshold-crossing emails. Highest value *before* auto-refill exists,
 because in phase 1 running out is a hard stop with no automatic recovery.
 
 **Phase 3 — auto-refill.** Enrolment, capped-amount subscription, usage
-records, the trigger path and its two concurrency guards, plus the
-`CAP_REACHED` handling and the inverted alerting copy. Gated on Open Question 2.
+records, the trigger path and its concurrency guards, plus the `CAP_REACHED`
+handling and the inverted alerting copy. **No longer gated** — Open Question 2
+resolved on 2026-08-19. Plan:
+`docs/superpowers/plans/2026-08-19-shopify-credit-wallet-phase3.md`.
 
 The `source` column on `shopify_credit_purchases` and the auto-refill credit
 figures land in phase 1 even though nothing writes them until phase 3 — adding
@@ -548,10 +550,27 @@ carrying an unused one for two phases.
    question on the catalogue removal, and the only one that could turn a code
    deletion into a data decision. Read-only check, permitted against prod. If
    rows exist, stop and raise it.
-2. **Does Shopify permit a $0 recurring line with a usage line attached?**
-   Blocking for phase 3 only; must be confirmed in Partner Dashboard before
-   implementation, not assumed. Fallback is a nominal base fee folded into the
-   first refill, which changes the pricing table.
+2. ~~**Does Shopify permit a $0 recurring line with a usage line attached?**~~
+   **RESOLVED 2026-08-19, and the question turned out to be moot.** Verified on
+   shopify.dev: *"You can create usage-only subscriptions by including just
+   `appUsagePricingDetails` in your `lineItems` without
+   `appRecurringPricingDetails`."* No recurring line is needed at all, not even
+   a $0 one, so the nominal-base-fee fallback is not required and the pricing
+   table is unchanged. Three further facts from the same pass, now folded into
+   the phase 3 plan:
+   - `appUsageRecordCreate` accepts a native `idempotencyKey` (max 255 chars).
+     This is a stronger double-charge guard than the two app-side ones this
+     design specified, and it is the only one that survives a timeout on a
+     charge Shopify actually accepted. All three are kept — they guard
+     different failures.
+   - Cap exhaustion returns a `userErrors` entry, not an exception, so it must
+     be detected by inspecting the payload rather than by catching.
+   - Raising the cap uses `appSubscriptionLineItemUpdate` and **requires fresh
+     merchant approval** via a returned `confirmationUrl`. `CAP_REACHED` is
+     therefore not self-healing; recovery is a merchant-facing flow.
+   - One schema gap this surfaced: `appUsageRecordCreate` addresses the
+     **line item**, not the subscription. `autorefill_line_item_id` is added in
+     phase 3's own migration.
 3. **GPU cost per try-on is not recorded anywhere in this repo**, so the packs
    are priced against each other rather than against cost. Shopify takes no cut
    below $1M annual revenue, so the full $0.05–$0.0625 per try-on is gross
