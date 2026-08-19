@@ -313,4 +313,132 @@ describe('app_purchases_one_time_update webhook — HTTP layer', () => {
       .where(eq(schema.shopifyStoreCredits.storeId, webhookStore.id));
     expect(creditRow.balance).toBe(4800);
   });
+
+  // The finding this test guards: the webhook's own try/catch used to swallow
+  // *every* post-processing failure into a 200, including this one — so a
+  // transient Shopify outage on the re-fetch meant Shopify saw success, never
+  // retried (it only retries non-2xx), and the merchant's credits were lost
+  // for good if their own confirm-route visit also failed. The fix scopes a
+  // WebhookOutboundFetchFailure to just this call so it escapes as a non-2xx,
+  // which is safe because grantForPurchase is idempotent on external_ref —
+  // Shopify redelivering this webhook any number of times cannot double-grant.
+  it('returns a non-2xx (not a swallowed 200) when the outbound Shopify re-fetch fails, so Shopify retries', async () => {
+    const webhookStore = await upsertShopifyStore(
+      app,
+      {
+        shopifyShopId: 555111223,
+        shopDomain: 'webhook-fetch-fail-test.myshopify.com',
+        myshopifyDomain: 'webhook-fetch-fail-test.myshopify.com',
+        name: 'Webhook Fetch Fail Test',
+        email: 'webhook-fetch-fail-test@example.com',
+      },
+      'real-offline-token',
+      'read_products',
+    );
+
+    const chargeId = 'gid://shopify/AppPurchaseOneTime/http-webhook-fail';
+    const { purchaseId } = await createPurchase(app, webhookStore, 'pack_50', {
+      createCharge: async () => ({
+        confirmationUrl: 'https://shopify.test/c',
+        purchase: fakeCharge({ id: chargeId, status: 'PENDING' }),
+      }),
+    });
+
+    // Simulate a transient outbound failure (network blip / 5xx) on the
+    // node(id:) re-fetch — same injection point (global fetch) the passing
+    // HTTP-layer test above uses to stub a successful re-fetch.
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('simulated network failure')));
+
+    const body = JSON.stringify({
+      app_purchase_one_time: {
+        admin_graphql_api_id: chargeId,
+        name: 'Webhook Fetch Fail Test',
+        status: 'ACTIVE',
+        admin_graphql_api_shop_id: 'gid://shopify/Shop/555111223',
+        created_at: '2026-08-19T00:00:00-04:00',
+        updated_at: '2026-08-19T00:00:01-04:00',
+      },
+    });
+    const hmac = createHmac('sha256', WEBHOOK_SECRET).update(body).digest('base64');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/webhooks/app_purchases_one_time_update',
+      headers: {
+        'content-type': 'application/json',
+        'x-shopify-hmac-sha256': hmac,
+        'x-shopify-shop-domain': webhookStore.shopDomain,
+      },
+      payload: body,
+    });
+
+    expect(res.statusCode).not.toBe(200);
+    expect(res.statusCode).toBeGreaterThanOrEqual(500);
+
+    // No grant happened and the row was never advanced past PENDING — proof
+    // the failure short-circuited before grantForPurchase, not just that the
+    // HTTP response happened to be non-200.
+    const [purchaseRow] = await app.db
+      .select()
+      .from(schema.shopifyCreditPurchases)
+      .where(eq(schema.shopifyCreditPurchases.id, purchaseId));
+    expect(purchaseRow.status).toBe('PENDING');
+
+    const [creditRow] = await app.db
+      .select()
+      .from(schema.shopifyStoreCredits)
+      .where(eq(schema.shopifyStoreCredits.storeId, webhookStore.id));
+    expect(creditRow?.balance ?? 0).toBe(0);
+  });
+
+  // The distinguishing half of the same finding: a webhook for a charge id
+  // this store has no purchase row for (stray delivery, unrelated charge) is
+  // genuinely nothing to do — it must stay a normal 200 no-op, not be swept
+  // into the same retry-triggering error path as an actual outbound failure.
+  it('is a no-op 200 (not an error) when the charge id matches no purchase row', async () => {
+    const webhookStore = await upsertShopifyStore(
+      app,
+      {
+        shopifyShopId: 555111224,
+        shopDomain: 'webhook-no-match-test.myshopify.com',
+        myshopifyDomain: 'webhook-no-match-test.myshopify.com',
+        name: 'Webhook No Match Test',
+        email: 'webhook-no-match-test@example.com',
+      },
+      'real-offline-token',
+      'read_products',
+    );
+
+    // Prove the outbound Shopify call is never reached for this case: if it
+    // were, this stub would make the test fail loudly instead of silently
+    // passing for the wrong reason.
+    const fetchStub = vi.fn().mockRejectedValue(new Error('should not be called'));
+    vi.stubGlobal('fetch', fetchStub);
+
+    const body = JSON.stringify({
+      app_purchase_one_time: {
+        admin_graphql_api_id: 'gid://shopify/AppPurchaseOneTime/no-such-row',
+        name: 'Webhook No Match Test',
+        status: 'ACTIVE',
+        admin_graphql_api_shop_id: 'gid://shopify/Shop/555111224',
+        created_at: '2026-08-19T00:00:00-04:00',
+        updated_at: '2026-08-19T00:00:01-04:00',
+      },
+    });
+    const hmac = createHmac('sha256', WEBHOOK_SECRET).update(body).digest('base64');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/webhooks/app_purchases_one_time_update',
+      headers: {
+        'content-type': 'application/json',
+        'x-shopify-hmac-sha256': hmac,
+        'x-shopify-shop-domain': webhookStore.shopDomain,
+      },
+      payload: body,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(fetchStub).not.toHaveBeenCalled();
+  });
 });

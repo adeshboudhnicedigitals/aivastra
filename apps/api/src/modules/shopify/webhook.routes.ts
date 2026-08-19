@@ -4,7 +4,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 import { AppError } from '../../lib/errors.js';
 import { collectShopperData, type RedactResult, redactShopperData } from './gdpr.js';
-import { defaultFetchPurchase, grantForPurchase } from './purchase.js';
+import { defaultFetchPurchase, grantForPurchase, type OneTimePurchaseState } from './purchase.js';
 import { enqueueSync, shopifyAdminFetch, verifyWebhookHmac } from './service.js';
 
 // NOTE: `shopifyRegisterWebhooks` on FastifyInstance is declared once in
@@ -12,6 +12,23 @@ import { enqueueSync, shopifyAdminFetch, verifyWebhookHmac } from './service.js'
 // Do not re-declare it here — TypeScript module augmentation is global, so a
 // second declaration site is unnecessary and risks drifting out of sync with
 // the original (e.g. differing parameter names/optionality).
+
+/**
+ * Marks "the outbound Shopify re-fetch for app_purchases_one_time_update
+ * broke" as distinct from every other failure this route's outer try/catch
+ * swallows into a 200. Only the case below throws this — every other topic,
+ * and every other failure inside this same case (a missing store or purchase
+ * row is a legitimate no-op, not this), keeps swallowing exactly as before.
+ *
+ * It has to be distinct from a bare AppError: getValidAccessToken/
+ * shopifyGraphQL already throw AppError for token and GraphQL failures, and a
+ * raw fetch() network error throws a plain Error, so re-throwing "any
+ * AppError" or "any Error" from the switch would either miss the network case
+ * or risk sweeping in an unrelated AppError some other topic starts throwing
+ * later. Catching narrowly around the one risky call and wrapping it in this
+ * type is what keeps the fix scoped to this one case.
+ */
+class WebhookOutboundFetchFailure extends Error {}
 
 /**
  * A GDPR redaction that only half-completed must not look like a success.
@@ -180,10 +197,38 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
               .from(schema.shopifyCreditPurchases)
               .where(eq(schema.shopifyCreditPurchases.shopifyChargeId, chargeGid))
               .limit(1);
+            // No row for this charge id is a genuine no-op (stray/unrelated
+            // delivery, or one that raced ahead of createPurchase's own
+            // UPDATE) — nothing a retry could fix, so this stays a break, not
+            // an error.
             if (!purchaseRow || purchaseRow.storeId !== store.id) break;
 
-            const observed = await defaultFetchPurchase(app, store, chargeGid);
-            if (!observed) break;
+            // Unlike the lookups above, a failure here is NOT "nothing to
+            // do": Shopify itself just told us this exact charge changed, so
+            // we already know the row exists on both sides — we simply
+            // couldn't confirm its new state. That can be a transient
+            // 429/5xx, a network blip, or a SHOPIFY_REAUTH_REQUIRED throw
+            // from token refresh. node(id:) coming back null for a charge
+            // Shopify just told us about is the same kind of anomaly (wrong
+            // store token, propagation delay), not a legitimate miss —
+            // confirmPurchase (purchase.ts) already treats that identically,
+            // throwing SHOPIFY 502 rather than treating it as a no-op.
+            let observed: OneTimePurchaseState | null;
+            try {
+              observed = await defaultFetchPurchase(app, store, chargeGid);
+            } catch (err) {
+              throw new WebhookOutboundFetchFailure(
+                `defaultFetchPurchase threw for charge ${chargeGid}: ${
+                  err instanceof Error ? err.message : String(err)
+                }`,
+                { cause: err },
+              );
+            }
+            if (!observed) {
+              throw new WebhookOutboundFetchFailure(
+                `defaultFetchPurchase returned no purchase for charge ${chargeGid}`,
+              );
+            }
 
             const granted = await grantForPurchase(app, purchaseRow, observed);
             await app.db
@@ -198,12 +243,29 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
           }
         }
       } catch (err) {
+        if (err instanceof WebhookOutboundFetchFailure) {
+          // The one case in this switch where swallowing into a 200 would be
+          // wrong: Shopify never retries a 2xx delivery, and nothing else
+          // reconciles a purchase whose webhook landed during a Shopify-side
+          // outage. Re-throwing here (past this catch, to Fastify's
+          // setErrorHandler) answers with a 5xx so Shopify's own webhook
+          // retry re-delivers later. Safe to retry any number of times —
+          // grantForPurchase is idempotent on external_ref, and can also race
+          // the merchant's own confirm-route visit without double-granting.
+          req.log.error(
+            { err, topic },
+            'webhook post-processing failed — outbound Shopify call broke, returning non-2xx so Shopify retries',
+          );
+          throw new AppError('SHOPIFY', 502, 'temporary failure verifying Shopify purchase state');
+        }
         req.log.error({ err, topic }, 'webhook post-processing failed');
       }
 
       // Shopify shouldn't get a 4xx/5xx for a webhook it delivered correctly
       // just because our internal post-processing had a hiccup — the catch
-      // above already logs the error and swallows it, so we always reach here.
+      // above already logs the error and swallows it, so we always reach here
+      // (except for WebhookOutboundFetchFailure above, which rethrows before
+      // this point precisely so Shopify's retry mechanism kicks in).
       reply.code(200).send({ ok: true });
     });
   }
