@@ -205,14 +205,10 @@ async function resolveMerchantLogoUrl(
   userId: string,
 ): Promise<string | null> {
   const [row] = await app.db
-    .select({ logoKey: schema.merchants.logoKey, updatedAt: schema.merchants.updatedAt })
+    .select({ logoKey: schema.merchants.logoKey })
     .from(schema.merchants)
     .where(eq(schema.merchants.userId, userId));
-  // Cache-bust: logoKey is a fixed path that never changes across re-uploads (see the
-  // matching comment in admin/users.routes.ts), so append updatedAt to force a fresh fetch.
-  return row?.logoKey
-    ? `${(await app.storage.presignGet(row.logoKey, 3600)).url}?v=${row.updatedAt.getTime()}`
-    : null;
+  return row?.logoKey ? (await app.storage.presignGet(row.logoKey, 3600)).url : null;
 }
 
 async function issueDeviceSession(
@@ -780,6 +776,41 @@ export async function authRoutes(app: FastifyInstance) {
     };
   });
 
+  // Lets the Android app's WebView (already signed into the native device
+  // session) pick up a catalog-app cookie session without showing the Try On
+  // Library's own login form. requireDeviceUser proves this is a live
+  // 'device'-audience session; the merchant-active gate matches the
+  // password-based portal: 'catalog-app' branch of /v1/auth/login above.
+  app.post(
+    '/v1/auth/catalog-app-device-exchange',
+    {
+      preHandler: app.requireDeviceUser,
+      config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+    },
+    async (req, reply) => {
+      // requireDeviceUser only checks the user exists and is email-verified —
+      // it does NOT check isBanned (unlike the password-based portal:
+      // 'catalog-app' branch of /v1/auth/login above, which this route
+      // mirrors). Left the shared guard unmodified since /v1/merchant/onboarding
+      // also relies on it, so the ban check has to live here instead.
+      const [userRow] = await app.db
+        .select({ isBanned: schema.users.isBanned })
+        .from(schema.users)
+        .where(eq(schema.users.id, req.userId));
+      if (userRow?.isBanned) {
+        throw new AppError('BANNED', 403, 'account banned');
+      }
+      const [merchantRow] = await app.db
+        .select({ isActive: schema.merchants.isActive })
+        .from(schema.merchants)
+        .where(eq(schema.merchants.userId, req.userId));
+      if (!merchantRow?.isActive) {
+        throw new AppError('NOT_A_MERCHANT', 403, 'This account has no Try On Library access.');
+      }
+      return createSessionTokens(app, req.userId, reply, 200, 'catalog-app');
+    },
+  );
+
   // ── Mobile auth (body-based tokens, no cookies) ──────────────────────────
 
   app.post(
@@ -1021,6 +1052,7 @@ export async function authRoutes(app: FastifyInstance) {
           result.ownerId,
           { kind: 'access' },
           app.env.JWT_EXPIRY,
+          'device',
         ),
         refreshToken: result.kind === 'rotated' ? result.refreshPlain : null,
       };

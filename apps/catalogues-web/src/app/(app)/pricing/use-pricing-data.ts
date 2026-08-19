@@ -17,6 +17,9 @@ export interface CreditPlan {
   isHighlighted: boolean;
   badge: string | null;
   sortOrder: number;
+  planType: 'catalogue' | 'tryon';
+  perUnitPriceLabel: string | null;
+  unitCountLabel: string | null;
 }
 
 export const FLAGS: Record<string, React.ReactElement> = {
@@ -102,35 +105,6 @@ export const PLAN_META = [
   },
 ] as const;
 
-// Fixed marketing per-photo price shown beneath each plan's price on the
-// pricing cards — not derived from credits/basePaise (those price 1:1 with
-// no volume discount today), so this is set per plan by slug instead.
-export const PER_PHOTO_PRICE: Record<string, string> = {
-  starter: '₹12.50 per Catalogue photo',
-  enterprise: '₹10.00 per Catalogue photo',
-  growth: '₹11.50 per Catalogue photo',
-  pro: '₹10.50 per Catalogue photo',
-};
-
-// Fixed marketing per-try-on price shown beneath the catalogue-photo price on
-// each plan's card — same basis as PER_PHOTO_PRICE above, set per plan by
-// slug rather than derived.
-export const PER_TRYON_PRICE: Record<string, string> = {
-  starter: '₹6.25 per Try-on photo',
-  enterprise: '₹5.00 per Try-on photo',
-  growth: '₹5.58 per Try-on photo',
-  pro: '₹5.25 per Try-on photo',
-};
-
-// Fixed marketing image count shown next to each plan's price — same basis as
-// PER_PHOTO_PRICE above, set per plan by slug rather than derived.
-export const PLAN_IMAGE_COUNT: Record<string, string> = {
-  starter: '80 Images',
-  growth: '225 Images',
-  pro: '480 Images',
-  enterprise: '1,000 Images',
-};
-
 export const PLAN_FEATURES = [
   [
     'Standard AI Models',
@@ -153,6 +127,25 @@ export const PLAN_FEATURES = [
     'Product Catalogue Templates',
     'Email Support',
   ],
+  [
+    'Standard AI Models',
+    'Standard Backgrounds',
+    'Bulk Catalogue photo Generation',
+    'Product Catalogue Templates',
+    'Email Support',
+  ],
+] as const;
+
+// Static feature list for the AI Virtual Try-On pricing tab — same across
+// every plan (unlike PLAN_FEATURES, which varies by plan). The per-plan
+// try-on price (plan.perUnitPriceLabel) is prepended to this in the layout,
+// not included here, since it's dynamic.
+export const TRYON_FEATURES = [
+  'Instant Priority Processing',
+  'Pay Only for Successful Try-Ons',
+  'White Label Integration',
+  'Website & Shopify Integration',
+  'Standard AI Quality',
 ] as const;
 
 export const COUNTRIES = [
@@ -267,7 +260,11 @@ export function usePricingData() {
     queryFn: () => api.get<CreditPlan[]>('/v1/payments/plans'),
     staleTime: 5 * 60 * 1000,
   });
-  const visiblePlans = plans.filter((plan) => plan.slug !== 'free');
+  const cataloguePlans = plans.filter(
+    (plan) => plan.slug !== 'free' && plan.planType === 'catalogue',
+  );
+  const tryonPlans = plans.filter((plan) => plan.planType === 'tryon');
+  const purchasablePlans = plans.filter((plan) => plan.slug !== 'free');
   const hasPriorPurchase = paymentHistory?.payments?.some((p) => p.status === 'paid') ?? false;
 
   useEffect(() => {
@@ -298,21 +295,26 @@ export function usePricingData() {
   }, []);
 
   // WordPress "Buy Now" buttons deep-link to /pricing?plan=<slug> and expect
-  // checkout to open automatically — no extra click. Waits for plans,
-  // credits, and payment history to finish loading so startBuy's
-  // first-time-buyer gating (coupon modal vs. straight to GSTIN/Razorpay)
-  // sees real data instead of pre-load defaults. Fires at most once per page
-  // load (autoOpenedRef), then strips `plan` from the URL either way so a
-  // refresh or back-navigation doesn't reopen the modal or re-check a
-  // now-stale slug.
+  // checkout to open automatically — no extra click. Works for both
+  // catalogue- and try-on-type plans (slug lookup spans both); switches
+  // activeTab to match the plan's type so the tab underneath the popup isn't
+  // left showing the wrong list. Waits for plans, credits, and payment
+  // history to finish loading so startBuy's first-time-buyer gating (coupon
+  // modal vs. straight to GSTIN/Razorpay) sees real data instead of pre-load
+  // defaults. Fires at most once per page load (autoOpenedRef), then strips
+  // `plan` from the URL either way so a refresh or back-navigation doesn't
+  // reopen the modal or re-check a now-stale slug.
   useEffect(() => {
     if (autoOpenedRef.current) return;
     if (plansLoading || creditsLoading || paymentHistoryLoading) return;
     const planSlug = searchParams.get('plan');
     if (!planSlug) return;
     autoOpenedRef.current = true;
-    const plan = visiblePlans.find((p) => p.slug === planSlug);
-    if (plan) startBuy(plan);
+    const plan = purchasablePlans.find((p) => p.slug === planSlug);
+    if (plan) {
+      setActiveTab(plan.planType);
+      startBuy(plan);
+    }
     const rest = new URLSearchParams(searchParams);
     rest.delete('plan');
     const qs = rest.toString();
@@ -321,7 +323,7 @@ export function usePricingData() {
     plansLoading,
     creditsLoading,
     paymentHistoryLoading,
-    visiblePlans,
+    purchasablePlans,
     searchParams,
     router,
     startBuy,
@@ -534,7 +536,9 @@ export function usePricingData() {
     countryRef,
     ratesLoading,
     isNonIn,
-    visiblePlans,
+    currentPlanSlug: currentTier,
+    cataloguePlans,
+    tryonPlans,
     plansLoading,
     firstPurchaseBonusPercent,
     displayBase,

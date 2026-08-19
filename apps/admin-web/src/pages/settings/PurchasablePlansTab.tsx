@@ -6,6 +6,7 @@ import { apiErrorMessage, apiFetch } from '../../lib/data';
 import type { CreditPlan } from '../../types';
 
 type ToastFn = (t: { kind?: 'error'; title: string; body?: string }) => void;
+type PlanType = 'catalogue' | 'tryon';
 
 const EMPTY_FORM = {
   slug: '',
@@ -19,15 +20,20 @@ const EMPTY_FORM = {
   sortOrder: 0,
   queueStream: 'normal' as 'priority' | 'normal' | 'low',
   watermark: false,
+  planType: 'catalogue' as PlanType,
+  perUnitPriceLabel: '',
+  unitCountLabel: '',
 };
 
 function PlanModal({
   plan,
+  initialType,
   onSaved,
   onClose,
   toast,
 }: {
   plan: CreditPlan | null;
+  initialType: PlanType;
   onSaved: (p: CreditPlan) => void;
   onClose: () => void;
   toast: ToastFn;
@@ -46,8 +52,11 @@ function PlanModal({
           sortOrder: plan.sortOrder,
           queueStream: plan.queueStream ?? ('normal' as 'priority' | 'normal' | 'low'),
           watermark: plan.watermark ?? false,
+          planType: plan.planType,
+          perUnitPriceLabel: plan.perUnitPriceLabel ?? '',
+          unitCountLabel: plan.unitCountLabel ?? '',
         }
-      : EMPTY_FORM,
+      : { ...EMPTY_FORM, planType: initialType },
   );
   const [saving, setSaving] = useState(false);
 
@@ -62,6 +71,8 @@ function PlanModal({
         ...rest,
         basePaise: Math.round(priceRupees * 100),
         badge: form.badge.trim() || null,
+        perUnitPriceLabel: form.perUnitPriceLabel.trim() || null,
+        unitCountLabel: form.unitCountLabel.trim() || null,
       };
       const saved = plan
         ? await apiFetch<CreditPlan>(`/admin/credit-plans/${plan.id}`, {
@@ -87,6 +98,7 @@ function PlanModal({
   };
 
   const isFreePlan = plan?.slug === 'free';
+  const isCatalogue = form.planType === 'catalogue';
   const valid =
     form.slug.trim() &&
     form.name.trim() &&
@@ -98,7 +110,7 @@ function PlanModal({
     <div className="modal-overlay" onClick={saving ? undefined : onClose}>
       <div className="drawer" onClick={(e) => e.stopPropagation()}>
         <div className="drawer-head">
-          <h2>{plan ? 'Edit plan' : 'Add plan'}</h2>
+          <h2>{plan ? 'Edit plan' : `Add ${isCatalogue ? 'Catalogue' : 'Try-On'} plan`}</h2>
           <button
             className="btn sm ghost"
             onClick={onClose}
@@ -111,6 +123,26 @@ function PlanModal({
 
         <div className="drawer-body" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           {/* Identity Group */}
+          {!isFreePlan && (
+            <div className="field">
+              <label>Plan Type</label>
+              <select
+                className="input"
+                value={form.planType}
+                disabled={saving || !!plan}
+                onChange={(e) => set('planType', e.target.value as PlanType)}
+              >
+                <option value="catalogue">AI Catalogue Generation</option>
+                <option value="tryon">AI Virtual Try-On</option>
+              </select>
+              {!plan && (
+                <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                  Which pricing tab this plan is sold under. Cannot change later.
+                </span>
+              )}
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 16 }}>
             <div className="field" style={{ flex: 1 }}>
               <label>Slug (Identifier)</label>
@@ -241,6 +273,41 @@ function PlanModal({
             </div>
           </div>
 
+          {!isFreePlan && (
+            <div style={{ display: 'flex', gap: 16 }}>
+              <div className="field" style={{ flex: 1 }}>
+                <label>
+                  {isCatalogue ? 'Per Catalogue Photo Price' : 'Per Try-on Photo Price'}
+                </label>
+                <input
+                  className="input"
+                  value={form.perUnitPriceLabel}
+                  disabled={saving}
+                  placeholder={
+                    isCatalogue ? 'e.g. ₹12.50 per Catalogue photo' : 'e.g. ₹6.25 per Try-on photo'
+                  }
+                  onChange={(e) => set('perUnitPriceLabel', e.target.value)}
+                />
+                <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                  Shown on the public pricing card. Leave blank to hide this row.
+                </span>
+              </div>
+              <div className="field" style={{ flex: 1 }}>
+                <label>{isCatalogue ? 'Images Included' : 'Try-Ons Included'}</label>
+                <input
+                  className="input"
+                  value={form.unitCountLabel}
+                  disabled={saving}
+                  placeholder={isCatalogue ? 'e.g. 80 Images' : 'e.g. 160 Try-Ons'}
+                  onChange={(e) => set('unitCountLabel', e.target.value)}
+                />
+                <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                  Shown next to the price on the pricing card. Leave blank to hide.
+                </span>
+              </div>
+            </div>
+          )}
+
           <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
 
           {/* Settings Group */}
@@ -336,6 +403,245 @@ function PlanModal({
   );
 }
 
+function PlanCard({
+  plan,
+  onEdit,
+  onDelete,
+}: {
+  plan: CreditPlan;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div
+      className="card"
+      style={{
+        flex: '1 1 300px',
+        maxWidth: 380,
+        padding: 24,
+        display: 'flex',
+        flexDirection: 'column',
+        position: 'relative',
+        overflow: 'hidden',
+        opacity: plan.isActive ? 1 : 0.6,
+        borderColor: plan.isHighlighted && plan.isActive ? 'var(--accent)' : 'var(--border)',
+      }}
+    >
+      {plan.isHighlighted && plan.isActive && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 4,
+            background: 'var(--accent)',
+          }}
+        />
+      )}
+
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          marginBottom: 16,
+        }}
+      >
+        <div style={{ minWidth: 0, flex: 1, paddingRight: 8 }}>
+          <div
+            style={{
+              fontSize: 16,
+              fontWeight: 600,
+              color: 'var(--ink)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {plan.name}
+          </div>
+          <div className="mono" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+            {plan.slug}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+          {plan.badge && <span className="badge warn">{plan.badge}</span>}
+          {!plan.isActive && <span className="badge dot">Inactive</span>}
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 24 }}>
+        <div
+          style={{
+            fontSize: 28,
+            fontWeight: 700,
+            letterSpacing: '-0.02em',
+            color: 'var(--ink)',
+          }}
+        >
+          ₹
+          {((plan.basePaise * 1.18) / 100).toLocaleString('en-IN', {
+            maximumFractionDigits: 2,
+          })}
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+          ₹{(plan.basePaise / 100).toLocaleString('en-IN')} + 18% GST
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+          marginBottom: 28,
+          flex: 1,
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            fontSize: 13.5,
+            color: 'var(--ink)',
+          }}
+        >
+          <Icon.Coin style={{ color: 'var(--accent)', width: 16, height: 16 }} />
+          <span>
+            <strong className="mono">{plan.credits.toLocaleString()}</strong> credits
+          </span>
+        </div>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            fontSize: 13.5,
+            color: 'var(--muted)',
+          }}
+        >
+          <Icon.Workflow style={{ width: 16, height: 16 }} />
+          <span>
+            {plan.queueStream === 'priority'
+              ? 'Priority'
+              : plan.queueStream === 'normal'
+                ? 'Normal'
+                : 'Low'}{' '}
+            queue processing
+          </span>
+        </div>
+        {plan.unitCountLabel && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              fontSize: 13.5,
+              color: 'var(--muted)',
+            }}
+          >
+            <Icon.Coin style={{ width: 16, height: 16 }} />
+            <span>{plan.unitCountLabel} included</span>
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
+        <button className="btn sm" style={{ flex: 1, justifyContent: 'center' }} onClick={onEdit}>
+          Edit Plan
+        </button>
+        <button
+          className="btn sm ghost"
+          style={{ color: 'var(--danger)', padding: '0 10px' }}
+          onClick={onDelete}
+          title="Delete Plan"
+        >
+          <Icon.Trash />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PlanTypeSection({
+  title,
+  addLabel,
+  emptyLabel,
+  plans,
+  loading,
+  onAdd,
+  onEdit,
+  onDelete,
+}: {
+  title: string;
+  addLabel: string;
+  emptyLabel: string;
+  plans: CreditPlan[];
+  loading: boolean;
+  onAdd: () => void;
+  onEdit: (p: CreditPlan) => void;
+  onDelete: (p: CreditPlan) => void;
+}) {
+  return (
+    <>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: 20,
+          marginTop: 32,
+        }}
+      >
+        <h3
+          style={{
+            margin: 0,
+            fontSize: 18,
+            fontWeight: 500,
+            color: 'var(--ink)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <Icon.Coin /> {title}
+        </h3>
+        <button className="btn sm primary" onClick={onAdd}>
+          <Icon.Add /> {addLabel}
+        </button>
+      </div>
+
+      {loading ? (
+        <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+      ) : (
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 24 }}>
+          {plans.map((p) => (
+            <PlanCard key={p.id} plan={p} onEdit={() => onEdit(p)} onDelete={() => onDelete(p)} />
+          ))}
+
+          {plans.length === 0 && (
+            <div
+              style={{
+                gridColumn: '1 / -1',
+                textAlign: 'center',
+                padding: '40px 20px',
+                color: 'var(--muted)',
+                background: 'var(--surface-2)',
+                borderRadius: 'var(--r-lg)',
+                border: '1px dashed var(--border)',
+              }}
+            >
+              {emptyLabel}
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 interface Props {
   toast: ToastFn;
 }
@@ -343,9 +649,14 @@ interface Props {
 export default function PurchasablePlansTab({ toast }: Props) {
   const [plans, setPlans] = useState<CreditPlan[]>([]);
   const [plansLoading, setPlansLoading] = useState(true);
-  const [planModal, setPlanModal] = useState<{ open: boolean; plan: CreditPlan | null }>({
+  const [planModal, setPlanModal] = useState<{
+    open: boolean;
+    plan: CreditPlan | null;
+    initialType: PlanType;
+  }>({
     open: false,
     plan: null,
+    initialType: 'catalogue',
   });
   const [confirmDelete, setConfirmDelete] = useState<CreditPlan | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -395,7 +706,10 @@ export default function PurchasablePlansTab({ toast }: Props) {
   };
 
   const freePlan = plans.find((plan) => plan.slug === 'free') ?? null;
-  const paidPlans = plans.filter((plan) => plan.slug !== 'free');
+  const cataloguePlans = plans.filter(
+    (plan) => plan.slug !== 'free' && plan.planType === 'catalogue',
+  );
+  const tryonPlans = plans.filter((plan) => plan.planType === 'tryon');
 
   return (
     <>
@@ -492,7 +806,12 @@ export default function PurchasablePlansTab({ toast }: Props) {
             </div>
 
             <div style={{ marginLeft: 16 }}>
-              <button className="btn" onClick={() => setPlanModal({ open: true, plan: freePlan })}>
+              <button
+                className="btn"
+                onClick={() =>
+                  setPlanModal({ open: true, plan: freePlan, initialType: 'catalogue' })
+                }
+              >
                 <Icon.Edit /> Edit
               </button>
             </div>
@@ -504,206 +823,34 @@ export default function PurchasablePlansTab({ toast }: Props) {
         )}
       </div>
 
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: 20,
-          marginTop: 32,
-        }}
-      >
-        <h3
-          style={{
-            margin: 0,
-            fontSize: 18,
-            fontWeight: 500,
-            color: 'var(--ink)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-          }}
-        >
-          <Icon.Coin /> Paid Credit Plans
-        </h3>
-        <button className="btn sm primary" onClick={() => setPlanModal({ open: true, plan: null })}>
-          <Icon.Add /> Add paid plan
-        </button>
-      </div>
+      <PlanTypeSection
+        title="AI Catalogue Generation Plans"
+        addLabel="Add Catalogue plan"
+        emptyLabel='No catalogue plans yet — click "Add Catalogue plan" to create one.'
+        plans={cataloguePlans}
+        loading={plansLoading}
+        onAdd={() => setPlanModal({ open: true, plan: null, initialType: 'catalogue' })}
+        onEdit={(p) => setPlanModal({ open: true, plan: p, initialType: 'catalogue' })}
+        onDelete={setConfirmDelete}
+      />
 
-      {plansLoading ? (
-        <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
-      ) : (
-        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 24 }}>
-          {paidPlans.map((p) => (
-            <div
-              key={p.id}
-              className="card"
-              style={{
-                flex: '1 1 300px',
-                maxWidth: 380,
-                padding: 24,
-                display: 'flex',
-                flexDirection: 'column',
-                position: 'relative',
-                overflow: 'hidden',
-                opacity: p.isActive ? 1 : 0.6,
-                borderColor: p.isHighlighted && p.isActive ? 'var(--accent)' : 'var(--border)',
-              }}
-            >
-              {p.isHighlighted && p.isActive && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height: 4,
-                    background: 'var(--accent)',
-                  }}
-                />
-              )}
-
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'flex-start',
-                  marginBottom: 16,
-                }}
-              >
-                <div style={{ minWidth: 0, flex: 1, paddingRight: 8 }}>
-                  <div
-                    style={{
-                      fontSize: 16,
-                      fontWeight: 600,
-                      color: 'var(--ink)',
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                    }}
-                  >
-                    {p.name}
-                  </div>
-                  <div
-                    className="mono"
-                    style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}
-                  >
-                    {p.slug}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
-                  {p.badge && <span className="badge warn">{p.badge}</span>}
-                  {!p.isActive && <span className="badge dot">Inactive</span>}
-                </div>
-              </div>
-
-              <div style={{ marginBottom: 24 }}>
-                <div
-                  style={{
-                    fontSize: 28,
-                    fontWeight: 700,
-                    letterSpacing: '-0.02em',
-                    color: 'var(--ink)',
-                  }}
-                >
-                  ₹
-                  {((p.basePaise * 1.18) / 100).toLocaleString('en-IN', {
-                    maximumFractionDigits: 2,
-                  })}
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-                  ₹{(p.basePaise / 100).toLocaleString('en-IN')} + 18% GST
-                </div>
-              </div>
-
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 12,
-                  marginBottom: 28,
-                  flex: 1,
-                }}
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    fontSize: 13.5,
-                    color: 'var(--ink)',
-                  }}
-                >
-                  <Icon.Coin style={{ color: 'var(--accent)', width: 16, height: 16 }} />
-                  <span>
-                    <strong className="mono">{p.credits.toLocaleString()}</strong> credits
-                  </span>
-                </div>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    fontSize: 13.5,
-                    color: 'var(--muted)',
-                  }}
-                >
-                  <Icon.Workflow style={{ width: 16, height: 16 }} />
-                  <span>
-                    {p.queueStream === 'priority'
-                      ? 'Priority'
-                      : p.queueStream === 'normal'
-                        ? 'Normal'
-                        : 'Low'}{' '}
-                    queue processing
-                  </span>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
-                <button
-                  className="btn sm"
-                  style={{ flex: 1, justifyContent: 'center' }}
-                  onClick={() => setPlanModal({ open: true, plan: p })}
-                >
-                  Edit Plan
-                </button>
-                <button
-                  className="btn sm ghost"
-                  style={{ color: 'var(--danger)', padding: '0 10px' }}
-                  onClick={() => setConfirmDelete(p)}
-                  title="Delete Plan"
-                >
-                  <Icon.Trash />
-                </button>
-              </div>
-            </div>
-          ))}
-
-          {paidPlans.length === 0 && (
-            <div
-              style={{
-                gridColumn: '1 / -1',
-                textAlign: 'center',
-                padding: '40px 20px',
-                color: 'var(--muted)',
-                background: 'var(--surface-2)',
-                borderRadius: 'var(--r-lg)',
-                border: '1px dashed var(--border)',
-              }}
-            >
-              No paid plans yet — click "Add paid plan" to create one.
-            </div>
-          )}
-        </div>
-      )}
+      <PlanTypeSection
+        title="AI Virtual Try-On Plans"
+        addLabel="Add Try-On plan"
+        emptyLabel='No try-on plans yet — click "Add Try-On plan" to create one.'
+        plans={tryonPlans}
+        loading={plansLoading}
+        onAdd={() => setPlanModal({ open: true, plan: null, initialType: 'tryon' })}
+        onEdit={(p) => setPlanModal({ open: true, plan: p, initialType: 'tryon' })}
+        onDelete={setConfirmDelete}
+      />
 
       {planModal.open && (
         <PlanModal
           plan={planModal.plan}
+          initialType={planModal.initialType}
           onSaved={handlePlanSaved}
-          onClose={() => setPlanModal({ open: false, plan: null })}
+          onClose={() => setPlanModal({ open: false, plan: null, initialType: 'catalogue' })}
           toast={toast}
         />
       )}

@@ -1,20 +1,12 @@
 import { ArrowRight } from 'lucide-react';
-import { CheckIcon, ChevronDown, ChevronRight } from '@/components/icons';
+import { CheckIcon, ChevronDown } from '@/components/icons';
 import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { Tooltip } from '@/components/ui/tooltip';
 import { CouponModal } from '../CouponModal';
 import { GstinConfirmModal } from '../GstinConfirmModal';
 import { PaymentResultModal } from '../PaymentResultModal';
-import {
-  COUNTRIES,
-  FLAGS,
-  PER_PHOTO_PRICE,
-  PER_TRYON_PRICE,
-  PLAN_FEATURES,
-  PLAN_IMAGE_COUNT,
-  PLAN_META,
-} from '../use-pricing-data';
+import { COUNTRIES, FLAGS, PLAN_FEATURES, PLAN_META, TRYON_FEATURES } from '../use-pricing-data';
 import type { PricingLayoutProps } from './types';
 
 export function Tablet(props: PricingLayoutProps): React.ReactElement {
@@ -31,7 +23,9 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
     countryRef,
     ratesLoading,
     isNonIn,
-    visiblePlans,
+    currentPlanSlug,
+    cataloguePlans,
+    tryonPlans,
     plansLoading,
     firstPurchaseBonusPercent,
     displayBase,
@@ -215,27 +209,6 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
                   </div>
                 )}
               </div>
-              <button
-                type="button"
-                onClick={() => setActiveTab('catalogue')}
-                style={{
-                  alignSelf: 'flex-start',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '10px 20px',
-                  borderRadius: 10,
-                  border: 'none',
-                  background: '#ffffff',
-                  color: '#141414',
-                  fontFamily: 'inherit',
-                  fontWeight: 700,
-                  fontSize: 14,
-                  cursor: 'pointer',
-                }}
-              >
-                Upgrade Plan <ChevronRight />
-              </button>
             </div>
 
             {/* Divider — horizontal, stacked layout */}
@@ -303,8 +276,7 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
         <div
           style={{
             display: 'grid',
-            // Single column while the Virtual Try-On tab below is commented out.
-            gridTemplateColumns: '1fr',
+            gridTemplateColumns: 'repeat(2, 1fr)',
             borderRadius: 14,
             border: `1px solid ${C.border}`,
             background: C.white,
@@ -347,6 +319,25 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
                       strokeWidth="1.5"
                       strokeLinecap="round"
                       strokeLinejoin="round"
+                    />
+                  </svg>
+                ),
+              },
+              {
+                key: 'tryon',
+                label: 'AI Virtual Try-On',
+                icon: (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                      d="M9.53589 3.90909C9.53589 2.85473 10.4868 2 11.6599 2C12.8329 2 13.7839 2.85473 13.7839 3.90909C13.7839 4.40532 13.6046 4.85733 13.2925 5.19682C12.6948 5.84706 11.8015 6.50197 11.8015 7.34545V7.6299M11.8015 7.6299C12.533 7.6214 13.2674 7.82458 13.8845 8.24056L21.317 13.2509C22.6234 14.1315 21.9305 16 20.2975 16H18M11.8015 7.6299C11.076 7.63834 10.3534 7.85497 9.751 8.27872L2.65531 13.27C1.38322 14.1648 2.08721 16 3.70254 16H6"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    />
+                    <path
+                      d="M6 18C6 16.1144 6 15.1716 6.58579 14.5858C7.17157 14 8.11438 14 10 14H14C15.8856 14 16.8284 14 17.4142 14.5858C18 15.1716 18 16.1144 18 18C18 19.8856 18 20.8284 17.4142 21.4142C16.8284 22 15.8856 22 14 22H10C8.11438 22 7.17157 22 6.58579 21.4142C6 20.8284 6 19.8856 6 18Z"
+                      stroke="currentColor"
+                      strokeWidth="2"
                     />
                   </svg>
                 ),
@@ -411,12 +402,13 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
                     }}
                   />
                 ))
-              : visiblePlans.map((plan, idx) => {
+              : cataloguePlans.map((plan, idx) => {
                   // biome-ignore lint/style/noNonNullAssertion: PLAN_META has entries for every plan index
                   const meta = PLAN_META[idx] ?? PLAN_META[0]!;
                   const features = PLAN_FEATURES[idx] ?? PLAN_FEATURES[0];
                   const accent = meta.accent;
                   const highlighted = plan.isHighlighted;
+                  const isCurrentPlan = plan.slug === currentPlanSlug;
 
                   const cardContent = (
                     // biome-ignore lint/correctness/useJsxKeyInIterable: cardContent is wrapped by keyed parent in the map return below
@@ -518,25 +510,13 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
                           >
                             {displayBase(plan.basePaise)}
                           </span>
-                          {PLAN_IMAGE_COUNT[plan.slug] && (
+                          {plan.unitCountLabel && (
                             <span style={{ fontSize: 14, color: C.mid, marginLeft: 4 }}>
-                              / {PLAN_IMAGE_COUNT[plan.slug]}
+                              / {plan.unitCountLabel}
                             </span>
                           )}
                         </div>
-                        {PER_PHOTO_PRICE[plan.slug] && (
-                          <div
-                            style={{
-                              fontSize: 14,
-                              fontWeight: 700,
-                              color: C.text,
-                              marginBottom: PER_TRYON_PRICE[plan.slug] ? 6 : 20,
-                            }}
-                          >
-                            {PER_PHOTO_PRICE[plan.slug]}
-                          </div>
-                        )}
-                        {PER_TRYON_PRICE[plan.slug] && (
+                        {plan.perUnitPriceLabel && (
                           <div
                             style={{
                               fontSize: 14,
@@ -545,7 +525,7 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
                               marginBottom: 20,
                             }}
                           >
-                            {PER_TRYON_PRICE[plan.slug]}
+                            {plan.perUnitPriceLabel}
                           </div>
                         )}
                       </div>
@@ -616,11 +596,14 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
                       <div style={{ padding: '4px 24px 24px' }}>
                         <Tooltip
                           tip={
-                            buying && buying !== plan.slug
-                              ? 'Another payment is in progress'
-                              : undefined
+                            isCurrentPlan
+                              ? "You're already on this plan"
+                              : buying && buying !== plan.slug
+                                ? 'Another payment is in progress'
+                                : undefined
                           }
                           position="bottom"
+                          containerStyle={{ width: '100%' }}
                         >
                           <button
                             type="button"
@@ -628,7 +611,7 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
                               highlighted ? 'upgrade-plan-btn highlighted' : 'upgrade-plan-btn'
                             }
                             onClick={() => startBuy(plan)}
-                            disabled={!!buying}
+                            disabled={!!buying || isCurrentPlan}
                             style={{
                               width: '100%',
                               padding: '13px 20px',
@@ -639,16 +622,343 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
                               fontFamily: 'inherit',
                               fontWeight: 700,
                               fontSize: 15,
-                              cursor: buying ? 'not-allowed' : 'pointer',
+                              cursor: isCurrentPlan || buying ? 'not-allowed' : 'pointer',
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'center',
                               gap: 8,
-                              opacity: buying && buying !== plan.slug ? 0.45 : 1,
+                              opacity: isCurrentPlan
+                                ? 0.5
+                                : buying && buying !== plan.slug
+                                  ? 0.45
+                                  : 1,
                             }}
                           >
-                            {buying === plan.slug ? 'Processing…' : 'Buy Now'}
-                            {buying !== plan.slug && <ArrowRight size={18} />}
+                            {isCurrentPlan
+                              ? 'Current Plan'
+                              : buying === plan.slug
+                                ? 'Processing…'
+                                : 'Upgrade'}
+                            {!isCurrentPlan && buying !== plan.slug && <ArrowRight size={18} />}
+                          </button>
+                        </Tooltip>
+                      </div>
+                    </div>
+                  );
+
+                  return highlighted ? (
+                    <div
+                      key={plan.slug}
+                      style={{
+                        width: '100%',
+                        paddingTop: 16,
+                        display: 'flex',
+                        flexDirection: 'column',
+                      }}
+                    >
+                      <div
+                        style={{
+                          padding: 2,
+                          borderRadius: 18,
+                          background: grad,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          flex: 1,
+                          boxShadow: '0 6px 28px rgba(245,92,122,0.22)',
+                        }}
+                      >
+                        {cardContent}
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      key={plan.slug}
+                      style={{
+                        width: '100%',
+                        paddingTop: 16,
+                        display: 'flex',
+                        flexDirection: 'column',
+                      }}
+                    >
+                      <div
+                        style={{
+                          flex: 1,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          borderRadius: 16,
+                          border: `1px solid ${C.border}`,
+                          boxShadow: '0 2px 10px rgba(0,0,0,0.05)',
+                        }}
+                      >
+                        {cardContent}
+                      </div>
+                    </div>
+                  );
+                })}
+          </div>
+        )}
+        {activeTab === 'tryon' && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+              gap: 20,
+              maxWidth: 1080,
+              margin: '0 auto',
+              padding: '0 24px',
+            }}
+          >
+            {plansLoading
+              ? [0, 1, 2].map((i) => (
+                  <div
+                    key={i}
+                    style={{
+                      width: '100%',
+                      minHeight: 560,
+                      background: C.card,
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 16,
+                    }}
+                  />
+                ))
+              : tryonPlans.map((plan, idx) => {
+                  // biome-ignore lint/style/noNonNullAssertion: PLAN_META has entries for every plan index
+                  const meta = PLAN_META[idx] ?? PLAN_META[0]!;
+                  const features = TRYON_FEATURES;
+                  const accent = meta.accent;
+                  const highlighted = plan.isHighlighted;
+                  const isCurrentPlan = plan.slug === currentPlanSlug;
+
+                  const cardContent = (
+                    // biome-ignore lint/correctness/useJsxKeyInIterable: cardContent is wrapped by keyed parent in the map return below
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        background: C.card,
+                        borderRadius: highlighted ? 14 : 16,
+                        flex: 1,
+                        position: 'relative',
+                      }}
+                    >
+                      {/* Card header */}
+                      <div style={{ padding: '24px 24px 0' }}>
+                        {/* Most Popular badge — absolutely positioned so it doesn't shift card height */}
+                        {highlighted && plan.badge && (
+                          <span
+                            style={{
+                              position: 'absolute',
+                              top: -14,
+                              left: '50%',
+                              transform: 'translateX(-50%)',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              padding: '5px 14px',
+                              borderRadius: 20,
+                              background: grad,
+                              color: C.white,
+                              fontSize: 11,
+                              fontWeight: 700,
+                              whiteSpace: 'nowrap',
+                              boxShadow: '0 2px 10px rgba(245,92,122,0.35)',
+                            }}
+                          >
+                            ⭐ {plan.badge}
+                          </span>
+                        )}
+
+                        {/* Plan name row */}
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 12,
+                            marginBottom: 22,
+                          }}
+                        >
+                          <span
+                            style={{
+                              width: 44,
+                              height: 44,
+                              borderRadius: 12,
+                              background: `color-mix(in srgb, ${meta.iconBg} 14%, transparent)`,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: 22,
+                              flexShrink: 0,
+                            }}
+                          >
+                            {meta.iconSrc ? (
+                              // biome-ignore lint/performance/noImgElement: local SVG asset
+                              <img
+                                src={meta.iconSrc}
+                                alt=""
+                                width={22}
+                                height={22}
+                                style={
+                                  meta.invertUsage ? { filter: 'var(--icon-invert)' } : undefined
+                                }
+                              />
+                            ) : (
+                              <meta.Icon size={22} color={meta.iconColor ?? accent} />
+                            )}
+                          </span>
+                          <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            <span style={{ fontSize: 22, fontWeight: 700, color: C.text }}>
+                              {plan.name}
+                            </span>
+                            <span style={{ fontSize: 11, fontWeight: 600, color: C.mid }}>
+                              {meta.subtext}
+                            </span>
+                          </span>
+                        </div>
+
+                        {/* Price */}
+                        <div style={{ marginBottom: 20 }}>
+                          <span
+                            style={{
+                              fontSize: 40,
+                              fontWeight: 800,
+                              color: C.text,
+                              letterSpacing: '-1.5px',
+                              opacity: ratesLoading && isNonIn ? 0.5 : 1,
+                              transition: 'opacity 0.2s',
+                            }}
+                          >
+                            {displayBase(plan.basePaise)}
+                          </span>
+                          {plan.unitCountLabel && (
+                            <span style={{ fontSize: 14, color: C.mid, marginLeft: 4 }}>
+                              / {plan.unitCountLabel}
+                            </span>
+                          )}
+                        </div>
+                        {plan.perUnitPriceLabel && (
+                          <div
+                            style={{
+                              fontSize: 14,
+                              fontWeight: 700,
+                              color: C.text,
+                              marginBottom: 20,
+                            }}
+                          >
+                            {plan.perUnitPriceLabel}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Divider */}
+                      <div style={{ height: 1, background: C.border, margin: '0 24px' }} />
+
+                      {/* Feature list */}
+                      <div style={{ padding: '16px 24px', flex: 1 }}>
+                        <div
+                          style={{ fontSize: 14, fontWeight: 700, color: C.text, marginBottom: 12 }}
+                        >
+                          Included Features
+                        </div>
+
+                        {firstPurchaseBonusPercent ? (
+                          <div
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              padding: '3px 10px',
+                              borderRadius: 999,
+                              background: grad,
+                              marginBottom: 12,
+                            }}
+                          >
+                            <span style={{ fontSize: 12, color: '#fff', fontWeight: 700 }}>
+                              +{firstPurchaseBonusPercent}% bonus credits on this purchase
+                            </span>
+                          </div>
+                        ) : null}
+
+                        {features.map((feat) => (
+                          <div
+                            key={feat}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 10,
+                              marginBottom: 12,
+                            }}
+                          >
+                            <span
+                              style={{
+                                width: 20,
+                                height: 20,
+                                borderRadius: '50%',
+                                background: meta.checkGrad
+                                  ? grad
+                                  : `color-mix(in srgb, ${accent} 16%, transparent)`,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                              }}
+                            >
+                              <CheckIcon size={11} color={meta.checkGrad ? '#fff' : accent} />
+                            </span>
+                            <span style={{ fontSize: 13, color: C.text, fontWeight: 500 }}>
+                              {feat}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* CTA button */}
+                      <div style={{ padding: '4px 24px 24px' }}>
+                        <Tooltip
+                          tip={
+                            isCurrentPlan
+                              ? "You're already on this plan"
+                              : buying && buying !== plan.slug
+                                ? 'Another payment is in progress'
+                                : undefined
+                          }
+                          position="bottom"
+                          containerStyle={{ width: '100%' }}
+                        >
+                          <button
+                            type="button"
+                            className={
+                              highlighted ? 'upgrade-plan-btn highlighted' : 'upgrade-plan-btn'
+                            }
+                            onClick={() => startBuy(plan)}
+                            disabled={!!buying || isCurrentPlan}
+                            style={{
+                              width: '100%',
+                              padding: '13px 20px',
+                              borderRadius: 10,
+                              border: 'none',
+                              background: highlighted ? grad : '#141414',
+                              color: '#fff',
+                              fontFamily: 'inherit',
+                              fontWeight: 700,
+                              fontSize: 15,
+                              cursor: isCurrentPlan || buying ? 'not-allowed' : 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: 8,
+                              opacity: isCurrentPlan
+                                ? 0.5
+                                : buying && buying !== plan.slug
+                                  ? 0.45
+                                  : 1,
+                            }}
+                          >
+                            {isCurrentPlan
+                              ? 'Current Plan'
+                              : buying === plan.slug
+                                ? 'Processing…'
+                                : 'Upgrade'}
+                            {!isCurrentPlan && buying !== plan.slug && <ArrowRight size={18} />}
                           </button>
                         </Tooltip>
                       </div>

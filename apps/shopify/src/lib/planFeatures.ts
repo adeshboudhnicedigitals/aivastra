@@ -1,3 +1,5 @@
+import { PAYG_PRICE_PER_TRYON_USD_CENTS } from '@aivastra/types';
+
 export interface PlanFeatureSet {
   handle: 'starter' | 'growth' | 'pro';
   label: string;
@@ -51,6 +53,12 @@ export const PLAN_FEATURE_SETS: PlanFeatureSet[] = [
     support: 'Dedicated Support',
   },
 ];
+
+// Derived from the shared constant (packages/types/src/payg-constants.ts) —
+// the same one apps/api's payg.ts and the dispatcher's usage-event writer
+// use, so this display value can't drift from what actually gets billed.
+export const PAYG_PRICE_PER_TRYON_USD = PAYG_PRICE_PER_TRYON_USD_CENTS / 100;
+export const PAYG_MIN_SPEND_CAP_USD = 5;
 
 // Identical across every tier per the pricing sheet — rendered once per
 // column rather than as a per-tier boolean.

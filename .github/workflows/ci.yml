@@ -191,32 +191,42 @@ jobs:
         run: pnpm --filter ${{ matrix.package }} test:unit
 
   test-integration:
-    name: Integration tests (api)
+    name: Integration tests (${{ matrix.package }})
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [detect]
-    # Only apps/api has a test:integration script — skip when it isn't among the
-    # affected packages (test_targets is the JSON array string emitted by
-    # ci:detect, e.g. ["@aivastra/api"]; force_all/schedule runs always include it).
-    # Also skip on push — see lint's comment.
-    if: contains(needs.detect.outputs.test_targets, '@aivastra/api') && github.event_name != 'push'
-
+    strategy:
+      fail-fast: false
+      matrix:
+        # Only apps/api and apps/dispatcher have a test:integration script.
+        package: ['@aivastra/api', '@aivastra/dispatcher']
+    # `matrix` isn't in the allowed-context list for a job-level `if:` (only
+    # github/inputs/needs/vars are — see actionlint's expression check), so the
+    # per-package skip has to live on every step instead of the job. A skipped
+    # step still reports job result 'success' (not 'skipped'), which ci-gate's
+    # success|skipped check already treats the same way, so gating behavior is
+    # unchanged — this only moves *where* the condition is evaluated.
     steps:
       - uses: actions/checkout@v4
+        if: contains(needs.detect.outputs.test_targets, matrix.package) && github.event_name != 'push'
 
       - uses: pnpm/action-setup@v4
+        if: contains(needs.detect.outputs.test_targets, matrix.package) && github.event_name != 'push'
         with:
           version: ${{ env.PNPM_VERSION }}
 
       - uses: actions/setup-node@v4
+        if: contains(needs.detect.outputs.test_targets, matrix.package) && github.event_name != 'push'
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
 
       - name: Install dependencies
+        if: contains(needs.detect.outputs.test_targets, matrix.package) && github.event_name != 'push'
         run: pnpm install --frozen-lockfile
 
       - name: Build shared packages
+        if: contains(needs.detect.outputs.test_targets, matrix.package) && github.event_name != 'push'
         run: |
           pnpm --filter @aivastra/db build
           pnpm --filter @aivastra/types build
@@ -226,10 +236,12 @@ jobs:
 
       # Same fresh-DB-per-file harness as the unit job (apps/api/test/helpers/containers.ts).
       - name: Start test infra (Postgres, Redis, MinIO)
+        if: contains(needs.detect.outputs.test_targets, matrix.package) && github.event_name != 'push'
         run: docker compose -f infra/docker-compose.yml up -d --wait postgres redis minio
 
       - name: Run integration tests
-        run: pnpm --filter @aivastra/api test:integration
+        if: contains(needs.detect.outputs.test_targets, matrix.package) && github.event_name != 'push'
+        run: pnpm --filter ${{ matrix.package }} test:integration
 
   ci-scripts:
     name: Detector tests
