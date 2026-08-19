@@ -118,22 +118,49 @@ a code comment rather than a runtime check, since prices are static.
 **Shopify takes no revenue share below $1M annual app revenue**, so these are
 gross margins against GPU cost, not net of a platform cut.
 
-### The catalogue-generation path contradicts "try-ons only"
+### The catalogue-generation feature is removed
 
-`POST /v1/shopify/catalog/generate` is live and registered
-(`catalog.routes.ts:89`, wired in `routes.ts:7`). It calls
-`createShopifyStoreCatalogJob`, which deducts `plan.cost` from
+Four routes exist today that spend credits at a rate the pack pricing does not
+describe: `POST /v1/shopify/catalog/generate` deducts `plan.cost` from
 `resolveTryonPlan` — **25 / 35 / 40 credits** for HD / 2K / 4K
-(`RESOLUTION_COSTS`, `packages/types/src/jobs.ts:3`), not 5.
+(`RESOLUTION_COSTS`, `packages/types/src/jobs.ts:3`), not 5. A merchant sold
+"160 try-ons for $10" could exhaust the pack in 20–32 images.
 
-A merchant sold "160 try-ons for $10" who opens the catalogue tab and hits
-Generate exhausts the pack in 20–32 images. The pricing page would be
-truthful about try-ons and silently wrong about everything else the app can
-spend credits on.
+**Decision: remove the feature.** Try-ons are the only billable unit, so the
+only other thing in the app that can spend credits has to go.
 
-This has to be resolved before phase 1 ships — see Open Question 1. It is a
-product decision, not an implementation detail, and the failure mode is a
-merchant's balance vanishing without explanation.
+This is cheaper than it looks, and the reason is worth recording: **the feature
+has no merchant-facing UI and is unreachable in practice.** The embedded SPA
+calls thirteen endpoints and none is `/v1/shopify/catalog/*`; the only match for
+"catalog" anywhere in `apps/shopify/src` is a description string on a dashboard
+onboarding card. Since all four routes sit behind `requireShopifySession` — and
+App Bridge session tokens only work inside the Shopify admin iframe — the SPA is
+the only caller that could exist, and it isn't one. This is dead code, not a
+product rollback.
+
+Removed:
+
+| Item | Note |
+|---|---|
+| `catalog.routes.ts` | `POST /catalog/generate`, `GET /catalog/jobs`, `POST /catalog/jobs/:id/publish` |
+| `catalog-options.routes.ts` | `GET /catalog/options` |
+| `catalog-job.ts` | `createShopifyStoreCatalogJob` |
+| `catalog-publish.ts` | `createProductMedia` |
+| `shopify_catalog_jobs` | table + schema export; referenced only by `catalog.routes.ts` |
+| `test/shopify-catalog-publish.test.ts` | |
+| Both registrations in `routes.ts` | |
+
+**Not touched:** `resolveTryonPlan` (`jobs/create.ts`) is shared with the main
+web app and stays exactly as it is — only the Shopify caller goes.
+`products.sync.ts`, `collections.sync.ts` and `/v1/shopify/products*` are the
+widget product-enablement surface, unrelated to catalogue generation, and are
+untouched.
+
+**Drop the table only after confirming it is empty in production.** A read-only
+`SELECT count(*) FROM shopify_catalog_jobs` against prod is permitted and
+required first. If rows exist, the jobs they track were real and billed, and
+the drop becomes a data decision rather than a cleanup — raise it rather than
+proceeding.
 
 ### Auto-refill packs (+10%)
 
@@ -355,7 +382,9 @@ sufficient after someone moves this code.
 `billing-scheduler.ts` exists only because App Pricing sends no webhooks.
 Manual Pricing does, so the hourly poller has nothing left to poll.
 
-`grantShopifyTrialCredits` **stays** unchanged.
+Plus the catalogue-generation feature listed above.
+
+`grantShopifyTrialCredits` **stays** unchanged — it is the 25-credit free tier.
 
 ### Dispatcher
 
@@ -451,9 +480,9 @@ phases 1 and 2 hostage to it would be wrong.
 
 **Phase 1 — switch and packs.** Partner Dashboard switch, migration, manual
 top-up purchase + confirm + webhook, pack config, SPA pricing page, admin
-credits tab, and every deletion listed above. Ships a complete working billing
+credits tab, and every deletion listed above — the App Pricing/PAYG billing
+code and the catalogue-generation feature. Ships a complete working billing
 system on its own: merchants buy packs manually and nothing else exists.
-Requires Open Question 1 answered first, since it decides the pricing table.
 
 **Phase 2 — alerting.** Burn-rate runway, banners, shop-email fetch and
 caching, threshold-crossing emails. Highest value *before* auto-refill exists,
@@ -515,23 +544,10 @@ carrying an unused one for two phases.
 
 ## Open questions
 
-1. **What happens to `/v1/shopify/catalog/generate`?** *Blocking phase 1.* The
-   product is priced as try-ons only at 5 credits, but this live route charges
-   25–40. Three ways out:
-   - **Remove the catalogue feature from the Shopify app.** Cleanest if it is
-     genuinely not part of the offering — one billable unit, one price, nothing
-     to explain. Deletes `catalog.routes.ts`'s generate path,
-     `catalog-job.ts`, and the catalogue tab in the SPA.
-   - **Keep it and price it explicitly** on the pricing page, as a second unit
-     at its real cost. Honest, but it makes the pack copy two-dimensional again
-     and reintroduces the resolution-dependent number.
-   - **Keep it and charge a flat 5** like a try-on. Simplest merchant story,
-     but prices a 4K catalogue generation identically to a widget try-on, which
-     `RESOLUTION_COSTS` exists specifically to avoid.
-
-   My recommendation is the first, given "there is no catalog jobs only tryon
-   jobs" — but it is a deletion of a shipped feature, so it needs an explicit
-   yes rather than an inference from a pricing conversation.
+1. **Is `shopify_catalog_jobs` empty in production?** The only remaining
+   question on the catalogue removal, and the only one that could turn a code
+   deletion into a data decision. Read-only check, permitted against prod. If
+   rows exist, stop and raise it.
 2. **Does Shopify permit a $0 recurring line with a usage line attached?**
    Blocking for phase 3 only; must be confirmed in Partner Dashboard before
    implementation, not assumed. Fallback is a nominal base fee folded into the
