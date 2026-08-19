@@ -142,7 +142,7 @@ describe('POST /v1/auth/catalog-app-device-exchange', () => {
     const email = `real-flow-${randomUUID()}@example.com`;
     await app.db
       .update(schema.users)
-      .set({ email, passwordHash: await hashPassword('Passw0rdTest123') })
+      .set({ email, passwordHash: await hashPassword('password123') })
       .where(eq(schema.users.id, merchant.userId));
 
     const loginRes = await app.inject({
@@ -150,7 +150,7 @@ describe('POST /v1/auth/catalog-app-device-exchange', () => {
       url: '/v1/auth/device-login',
       payload: {
         email,
-        password: 'Passw0rdTest123',
+        password: 'password123',
         deviceId: randomUUID(),
         platform: 'mobile',
       },
