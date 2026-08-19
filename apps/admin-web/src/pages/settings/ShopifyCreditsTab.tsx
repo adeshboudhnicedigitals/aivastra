@@ -39,17 +39,26 @@ export default function ShopifyCreditsTab({ toast }: Props) {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    type IncomingPackCredits = Partial<
+      Record<PackId, Partial<{ credits: number; autorefillCredits: number }>>
+    >;
     apiFetch<{
       shopify?: {
         trialCredits: number;
-        packCredits?: Partial<PackCredits>;
+        packCredits?: IncomingPackCredits;
       };
     }>('/admin/config')
       .then((cfg) => {
         if (cfg.shopify) {
           setShopifyTrialCredits(cfg.shopify.trialCredits);
           if (cfg.shopify.packCredits) {
-            setPackCredits((prev) => ({ ...prev, ...cfg.shopify?.packCredits }));
+            setPackCredits((prev) => {
+              const incoming = cfg.shopify?.packCredits;
+              if (!incoming) return prev;
+              return Object.fromEntries(
+                PACKS.map((p) => [p.id, { ...prev[p.id], ...incoming[p.id] }]),
+              ) as PackCredits;
+            });
           }
         }
       })
