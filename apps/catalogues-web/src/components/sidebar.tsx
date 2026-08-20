@@ -20,15 +20,6 @@ const NAV: {
   catalogVideoOnly?: boolean;
 }[] = [
   { id: 'studio', href: '/studio', label: 'Studio', icon: `${BASE}/assets/studio-icon.svg` },
-  // Hidden from the sidebar — Try On Library (renamed to "Try-On" below)
-  // covers this entry point now. Not removed, still fully functional.
-  // {
-  //   id: 'tryon',
-  //   href: '/tryon',
-  //   label: 'Try On',
-  //   icon: `${BASE}/assets/tryon-icon.svg`,
-  //   badge: 'Beta',
-  // },
   // Standalone saree feature — superseded by the flat-saree garment type in
   // Studio. Not removed (still fully functional, kept for historical-data
   // reasons), just hidden from the sidebar for now.
@@ -54,8 +45,8 @@ const NAV: {
   },
   { id: 'assets', href: '/assets', label: 'My Products', icon: `${BASE}/assets/asset-icon.svg` },
   {
-    id: 'catalogue-manager',
-    href: '/catalogue-manager',
+    id: 'tryon',
+    href: '/tryon',
     label: 'Try-On',
     icon: 'package',
     merchantOnly: true,
@@ -165,15 +156,7 @@ export function Sidebar({
     {
       title: 'CREATE',
       items: visibleNav.filter((item) =>
-        [
-          'studio',
-          'tryon',
-          'saree',
-          'catalogues',
-          'catalog-video',
-          'assets',
-          'catalogue-manager',
-        ].includes(item.id),
+        ['studio', 'tryon', 'saree', 'catalogues', 'catalog-video', 'assets'].includes(item.id),
       ),
     },
     {
