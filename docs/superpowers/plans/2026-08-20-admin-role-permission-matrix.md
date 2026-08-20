@@ -570,7 +570,7 @@ plan corrects that rather than preserving it.**
 | contacts | `contact.read` | |
 | chatbot-qna | `chatbot.manage` | |
 
-- [ ] **Step 1: Change `NavItem` to carry a permission key instead of a role array**
+- [x] **Step 1: Change `NavItem` to carry a permission key instead of a role array**
 
 ```ts
 interface NavItem {
@@ -584,7 +584,7 @@ interface NavItem {
 }
 ```
 
-- [ ] **Step 2: Replace every `roles: [...]` with `perm: '...'` per the table above**, e.g.:
+- [x] **Step 2: Replace every `roles: [...]` with `perm: '...'` per the table above**, e.g.:
 
 ```ts
 {
@@ -610,7 +610,7 @@ unchanged:
 },
 ```
 
-- [ ] **Step 3: Update the filter logic to check `hasPermission` for every item except
+- [x] **Step 3: Update the filter logic to check `hasPermission` for every item except
       the one `payments` holdout, which still needs the raw `role`**
 
 `payments` is the only item without a `perm` (see the table — no permission key exists
@@ -645,11 +645,11 @@ export function Sidebar({
   const showSettings = hasPermission('admin_users.manage');
 ```
 
-- [ ] **Step 4: No change needed in `App.tsx`** — `<Sidebar role={role ?? ''} ... />`
+- [x] **Step 4: No change needed in `App.tsx`** — `<Sidebar role={role ?? ''} ... />`
       (line 215) keeps working as-is; `role` is still a real prop, just no longer the
       primary gating mechanism for anything except `payments`.
 
-- [ ] **Step 5: Manual verification**
+- [x] **Step 5: Manual verification**
 
 Run: `pnpm --filter @aivastra/admin dev`. Using the new Roles & Permissions tab from Task
 2, revoke `jobs.write` from `SUPPORT`, log in as a `SUPPORT` test admin, confirm the Jobs
@@ -658,7 +658,7 @@ are fetched once at login via `/admin/me` — a logout/login is expected to pick
 document that as the known refresh model rather than building live permission push, which
 nothing in this codebase does for any other admin state today).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/admin-web/src/components/Sidebar.tsx
