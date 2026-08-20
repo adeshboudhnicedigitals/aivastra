@@ -1,9 +1,16 @@
+import { createHmac } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { runRefill } from '../../src/modules/shopify/autorefill.js';
 import { buildTestApp } from '../helpers/api.js';
 import { startContainers } from '../helpers/containers.js';
+
+// Only the app_subscriptions_update HTTP-layer test at the bottom of this file
+// exercises real HMAC verification — matches the convention already used in
+// shopify-purchase.test.ts for the same reason (that file's
+// app_purchases_one_time_update HTTP-layer test).
+const WEBHOOK_SECRET = 'autorefill-webhook-test-secret';
 
 let ctx: Awaited<ReturnType<typeof startContainers>>;
 let app: Awaited<ReturnType<typeof buildTestApp>>;
@@ -71,7 +78,7 @@ async function reset(
 
 beforeAll(async () => {
   ctx = await startContainers();
-  app = await buildTestApp(ctx);
+  app = await buildTestApp(ctx, { SHOPIFY_API_SECRET: WEBHOOK_SECRET });
   [store] = await app.db
     .insert(schema.shopifyStores)
     .values({
@@ -208,5 +215,84 @@ describe('auto-refill lifecycle', () => {
 
     await reset(100, { autorefillStatus: 'ACTIVE' });
     expect(await runRefill(app, store, okCharge())).toBe('refilled');
+  });
+});
+
+describe('app_subscriptions_update webhook — HTTP layer', () => {
+  // Everything above this block drives the CANCELLED/ACTIVE transition by
+  // seeding `autorefillStatus` straight into the DB via `reset()` — it proves
+  // runRefill respects whatever status is already on the row, but never
+  // proves the webhook route itself parses a real Shopify delivery, matches
+  // it to the right store's subscription, and maps status correctly. This
+  // POSTs an HMAC-signed body straight at the registered route, mirroring the
+  // convention in shopify-purchase.test.ts's "HTTP layer" block.
+  it('updates autorefillStatus from a real HMAC-signed subscription-cancelled delivery', async () => {
+    await reset(100, {
+      autorefillStatus: 'ACTIVE',
+      autorefillSubscriptionId: 'gid://shopify/AppSubscription/webhook-cancel',
+    });
+
+    const body = JSON.stringify({
+      admin_graphql_api_id: 'gid://shopify/AppSubscription/webhook-cancel',
+      name: 'AiVastra auto-refill',
+      status: 'CANCELLED',
+      admin_graphql_api_shop_id: `gid://shopify/Shop/${store.shopifyShopId}`,
+      created_at: '2026-08-19T00:00:00-04:00',
+      updated_at: '2026-08-19T00:00:01-04:00',
+    });
+    const hmac = createHmac('sha256', WEBHOOK_SECRET).update(body).digest('base64');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/webhooks/app_subscriptions_update',
+      headers: {
+        'content-type': 'application/json',
+        'x-shopify-hmac-sha256': hmac,
+        'x-shopify-shop-domain': store.shopDomain,
+      },
+      payload: body,
+    });
+
+    expect(res.statusCode).toBe(200);
+
+    const [refreshed] = await app.db
+      .select()
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, store.id));
+    expect(refreshed.autorefillStatus).toBe('CANCELLED');
+  });
+
+  it('is a no-op when the delivered subscription id does not match the one on the store', async () => {
+    await reset(100, {
+      autorefillStatus: 'ACTIVE',
+      autorefillSubscriptionId: 'gid://shopify/AppSubscription/webhook-mismatch',
+    });
+
+    const body = JSON.stringify({
+      admin_graphql_api_id: 'gid://shopify/AppSubscription/some-unrelated-subscription',
+      status: 'CANCELLED',
+    });
+    const hmac = createHmac('sha256', WEBHOOK_SECRET).update(body).digest('base64');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/webhooks/app_subscriptions_update',
+      headers: {
+        'content-type': 'application/json',
+        'x-shopify-hmac-sha256': hmac,
+        'x-shopify-shop-domain': store.shopDomain,
+      },
+      payload: body,
+    });
+
+    expect(res.statusCode).toBe(200);
+
+    const [refreshed] = await app.db
+      .select()
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, store.id));
+    // Wrong subscription id — the store's real ACTIVE authorization was
+    // never touched.
+    expect(refreshed.autorefillStatus).toBe('ACTIVE');
   });
 });

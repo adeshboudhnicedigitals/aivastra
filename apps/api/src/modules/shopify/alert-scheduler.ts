@@ -232,10 +232,25 @@ export async function runAlertTick(app: FastifyInstance, deps: TickDeps = {}): P
         }
       }
 
-      if (needsNotification && !notified) {
-        // Nothing was actually communicated — leave last_alert_level where it
-        // was so this level is still eligible to fire once the store does get
-        // an email (a future backfill success, or a reauth).
+      // Nothing was actually communicated — leave last_alert_level where it was
+      // so this level is still eligible to fire once the store does get an
+      // email (a future backfill success, or a reauth) OR once auto-refill
+      // stops covering it (CAP_REACHED, or the merchant cancels). Written as
+      // `worsened && runway.level !== 'ok' && !notified` rather than
+      // `needsNotification && !notified`, deliberately: `needsNotification`
+      // is already false in the autorefillHandlesIt-suppressed case, which
+      // would let a suppressed tick fall through to the unconditional write
+      // below and silently stamp last_alert_level forward — through
+      // warning/critical/empty — across every tick a failing-but-still-ACTIVE
+      // refill (e.g. an expired card, never reaching capReached) keeps
+      // draining the balance. Once stamped at 'empty' (the worst tier),
+      // `worsened` can never be true again, so a LATER genuine state change —
+      // a webhook cancellation, or finally hitting CAP_REACHED — would never
+      // re-fire, because nothing ranks worse than 'empty'. `notified` stays
+      // `false` in that suppressed branch (the `if (needsNotification)` block
+      // never runs), so this condition skips it exactly like the
+      // no-email-available case, without needing a second, separate check.
+      if (worsened && runway.level !== 'ok' && !notified) {
         continue;
       }
 
