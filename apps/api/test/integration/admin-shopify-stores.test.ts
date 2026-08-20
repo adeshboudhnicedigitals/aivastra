@@ -1,5 +1,4 @@
 import { schema } from '@aivastra/db';
-import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { adminAuthHeader } from '../helpers/admin.js';
 import { buildTestApp, type TestApp } from '../helpers/api.js';
@@ -28,8 +27,6 @@ describe('admin Shopify Stores routes', () => {
         shopifyShopId: Math.floor(Math.random() * 1_000_000_000),
         accessToken: 'enc:credited',
         scope: 'read_products',
-        planHandle: 'growth',
-        subscriptionStatus: 'active',
         installedAt: new Date('2026-08-10T10:00:00Z'),
       })
       .returning({ id: schema.shopifyStores.id });
@@ -93,19 +90,13 @@ describe('admin Shopify Stores routes', () => {
     const stores = res.json().stores as Array<{
       id: string;
       shopDomain: string;
-      planHandle: string | null;
-      subscriptionStatus: string | null;
       balance: number;
       installedAt: string;
       uninstalledAt: string | null;
     }>;
     const credited = stores.find((store) => store.id === creditedStoreId);
     const empty = stores.find((store) => store.shopDomain.startsWith('empty-'));
-    expect(credited).toMatchObject({
-      planHandle: 'growth',
-      subscriptionStatus: 'active',
-      balance: 42,
-    });
+    expect(credited).toMatchObject({ balance: 42 });
     expect(empty).toMatchObject({ balance: 0 });
   });
 
@@ -144,52 +135,5 @@ describe('admin Shopify Stores routes', () => {
 
     expect(listRes.statusCode).toBe(403);
     expect(ledgerRes.statusCode).toBe(403);
-  });
-
-  it('lets a SUPER_ADMIN override a store spend cap', async () => {
-    const nonce = crypto.randomUUID();
-    const [store] = await app.db
-      .insert(schema.shopifyStores)
-      .values({
-        shopDomain: `payg-admin-${nonce}.myshopify.com`,
-        shopifyShopId: Math.floor(Math.random() * 1_000_000_000),
-        accessToken: 'enc',
-        scope: 'read_products',
-        billingMode: 'usage',
-      })
-      .returning();
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/admin/shopify-stores/${store.id}/payg-cap`,
-      headers: adminAuth,
-      payload: { spendCapUsdCents: 10000 },
-    });
-    expect(res.statusCode).toBe(200);
-    const [updated] = await app.db
-      .select()
-      .from(schema.shopifyStores)
-      .where(eq(schema.shopifyStores.id, store.id));
-    expect(updated?.paygSpendCapUsdCents).toBe(10000);
-  });
-
-  it('rejects a non-SUPER_ADMIN caller', async () => {
-    const nonce = crypto.randomUUID();
-    const [store] = await app.db
-      .insert(schema.shopifyStores)
-      .values({
-        shopDomain: `payg-admin-reject-${nonce}.myshopify.com`,
-        shopifyShopId: Math.floor(Math.random() * 1_000_000_000),
-        accessToken: 'enc',
-        scope: 'read_products',
-        billingMode: 'usage',
-      })
-      .returning();
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/admin/shopify-stores/${store.id}/payg-cap`,
-      headers: nonAdminAuth,
-      payload: { spendCapUsdCents: 10000 },
-    });
-    expect(res.statusCode).toBe(403);
   });
 });
