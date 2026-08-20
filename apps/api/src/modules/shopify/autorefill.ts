@@ -8,6 +8,7 @@ import {
   cancelSubscription,
   createUsageRecord,
   createUsageSubscription,
+  fetchSubscriptionStatus,
   updateCappedAmount,
 } from './autorefill-client.js';
 import { getPack } from './packs.js';
@@ -360,9 +361,17 @@ export async function enrolAutorefill(
   // re-enrolment entirely over a cancel failure is worse for the merchant
   // than a possibly-orphaned old subscription logged for an operator to
   // notice.
+  //
+  // CAP_REACHED is included alongside PENDING/ACTIVE deliberately: it is this
+  // codebase's own status for "the subscription is still ACTIVE at Shopify's
+  // end, refills just hit the merchant's ceiling." Skipping the cancel for it
+  // would orphan a live standing charge authorization exactly as badly as
+  // skipping it for ACTIVE would.
   if (
     store.autorefillSubscriptionId &&
-    (store.autorefillStatus === 'PENDING' || store.autorefillStatus === 'ACTIVE')
+    (store.autorefillStatus === 'PENDING' ||
+      store.autorefillStatus === 'ACTIVE' ||
+      store.autorefillStatus === 'CAP_REACHED')
   ) {
     try {
       await cancelSubscription(app, store, store.autorefillSubscriptionId);
@@ -407,27 +416,64 @@ export async function enrolAutorefill(
   return { confirmationUrl };
 }
 
+interface ConfirmDeps {
+  fetchStatus?: typeof fetchSubscriptionStatus;
+}
+
 /**
- * Called when the merchant returns from Shopify's approval page. Trusts nothing
- * in the redirect — flips to ACTIVE only because our own row says a
- * subscription was created, and the merchant could only have arrived here by
- * completing that flow.
+ * Maps Shopify's raw AppSubscription status to this codebase's status
+ * vocabulary. Mirrors the equivalent switch in the app_subscriptions_update
+ * webhook handler (webhook.routes.ts) so the webhook and this route can never
+ * disagree about what the same raw status means. Anything other than
+ * ACTIVE/DECLINED (EXPIRED, FROZEN, an actual CANCELLED, ...) collapses to
+ * CANCELLED — none of those states can fund a further refill, and the only
+ * distinction this codebase acts on beyond "not active" is "the merchant
+ * explicitly declined."
+ */
+function mapSubscriptionStatus(rawStatus: string): 'ACTIVE' | 'DECLINED' | 'CANCELLED' {
+  const status = rawStatus.toUpperCase();
+  return status === 'ACTIVE' ? 'ACTIVE' : status === 'DECLINED' ? 'DECLINED' : 'CANCELLED';
+}
+
+/**
+ * Called when the merchant returns from Shopify's approval page. Shopify
+ * redirects here whether the merchant approved OR declined — the returnUrl is
+ * identical either way — so the row's non-null autorefillSubscriptionId alone
+ * cannot tell the two apart. This re-fetches the subscription's real status
+ * via node(id:) (fetchSubscriptionStatus, autorefill-client.ts) and writes
+ * whatever Shopify actually reports, the same pattern purchase.ts's
+ * confirmPurchase already uses for one-time charges.
  *
- * A later APP_SUBSCRIPTIONS_UPDATE webhook is what corrects this if they in
- * fact declined; see Task 5.
+ * The app_subscriptions_update webhook (webhook.routes.ts) is a second,
+ * independent path to the same correction — this route just means the
+ * merchant doesn't have to wait for it.
  */
 export async function confirmAutorefill(
   app: FastifyInstance,
   store: Store,
+  deps: ConfirmDeps = {},
 ): Promise<{ status: string }> {
+  const fetchStatus = deps.fetchStatus ?? fetchSubscriptionStatus;
+
   if (!store.autorefillSubscriptionId) {
     throw new AppError('BAD_STATE', 400, 'no auto-refill enrolment to confirm');
   }
+
+  const observed = await fetchStatus(app, store, store.autorefillSubscriptionId);
+  if (!observed) {
+    throw new AppError('SHOPIFY', 502, 'subscription not found at Shopify');
+  }
+
+  const status = mapSubscriptionStatus(observed.status);
   await app.db
     .update(schema.shopifyStores)
-    .set({ autorefillStatus: 'ACTIVE', updatedAt: new Date() })
+    .set({ autorefillStatus: status, updatedAt: new Date() })
     .where(eq(schema.shopifyStores.id, store.id));
-  return { status: 'ACTIVE' };
+  return { status };
+}
+
+interface DisableDeps {
+  cancelSubscription?: typeof cancelSubscription;
 }
 
 /**
@@ -440,10 +486,15 @@ export async function confirmAutorefill(
  * this to stop, and it stopping locally is the part we control. The orphaned
  * subscription is logged for an operator.
  */
-export async function disableAutorefill(app: FastifyInstance, store: Store): Promise<void> {
+export async function disableAutorefill(
+  app: FastifyInstance,
+  store: Store,
+  deps: DisableDeps = {},
+): Promise<void> {
+  const doCancel = deps.cancelSubscription ?? cancelSubscription;
   if (store.autorefillSubscriptionId) {
     try {
-      await cancelSubscription(app, store, store.autorefillSubscriptionId);
+      await doCancel(app, store, store.autorefillSubscriptionId);
     } catch (err) {
       app.log.error(
         { err, storeId: store.id, subscriptionId: store.autorefillSubscriptionId },

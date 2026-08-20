@@ -54,3 +54,13 @@ api_version = "2026-07"
   [[webhooks.subscriptions]]
   topics = [ "app_purchases_one_time/update" ]
   uri = "https://app.aivastra.com/v1/shopify/webhooks/app_purchases_one_time_update"
+
+  # Same reasoning as the app_purchases_one_time/update block above: the
+  # per-shop registerWebhooksDecorator call in auth.routes.ts only fires at
+  # first install or reauth, so a store that had auto-refill's subscription
+  # topic added after it already installed would never get subscribed via
+  # that path. Declaring it here makes `make shopify-deploy` apply it to
+  # every existing install, not just new ones.
+  [[webhooks.subscriptions]]
+  topics = [ "app_subscriptions/update" ]
+  uri = "https://app.aivastra.com/v1/shopify/webhooks/app_subscriptions_update"

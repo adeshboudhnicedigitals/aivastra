@@ -159,8 +159,16 @@ export async function runAlertTick(app: FastifyInstance, deps: TickDeps = {}): P
       // own stale read in the one tick where the store actually needs the
       // email most.
       let autorefillStatus = store.autorefillStatus;
+      // Hoisted out of the `if` below so the suppression check further down
+      // can see this tick's own refill outcome — not just the resulting
+      // status. A 'failed' outcome (expired card, declined payment method,
+      // any transient Shopify error) leaves autorefillStatus at 'ACTIVE'
+      // (only 'cap_reached' changes it), which would otherwise suppress the
+      // alert on the exact tick where the merchant most needs to hear about
+      // it — see C2.
+      let outcome: Awaited<ReturnType<typeof runRefill>> | undefined;
       if (autorefillStatus === 'ACTIVE') {
-        const outcome = await runRefill(app, store);
+        outcome = await runRefill(app, store);
         if (outcome === 'refilled') {
           // The balance just changed underneath us; alerting on the stale value
           // would email a merchant about a shortfall that no longer exists.
@@ -180,8 +188,12 @@ export async function runAlertTick(app: FastifyInstance, deps: TickDeps = {}): P
       // An ACTIVE auto-refill store is not "running low" in any sense the
       // merchant needs to act on — the refill fires before they run out. The
       // exception is CAP_REACHED, where auto-refill has stopped and they very
-      // much do need to know.
-      const autorefillHandlesIt = autorefillStatus === 'ACTIVE';
+      // much do need to know — and this tick's own 'failed' outcome, which
+      // means ACTIVE is not actually keeping this store topped up right now
+      // (stuck-PENDING purchase row, expired card, or any other charge()
+      // failure). Suppressing the alert in that case would go silent exactly
+      // when the merchant needs the warning most.
+      const autorefillHandlesIt = autorefillStatus === 'ACTIVE' && outcome !== 'failed';
       // Re-checked (not just `needsNotification`) at the send call below so
       // TypeScript can narrow `runway.level` away from 'ok' — SendEmailArgs
       // deliberately excludes 'ok' as a level, since 'ok' never sends.

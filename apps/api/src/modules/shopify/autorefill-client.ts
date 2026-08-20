@@ -95,6 +95,24 @@ const CANCEL_SUBSCRIPTION = `
   }
 `;
 
+/**
+ * node(id:) rather than currentAppInstallation.activeSubscriptions — the
+ * subscription may no longer be "active" (that's exactly the case this exists
+ * to distinguish), and a Node lookup by id costs one round trip regardless of
+ * how many subscriptions the shop has. Mirrors purchase.ts's
+ * PURCHASE_STATUS_QUERY pattern for the equivalent one-time-charge case.
+ */
+const SUBSCRIPTION_STATUS_QUERY = `
+  query AutorefillSubscriptionStatus($id: ID!) {
+    node(id: $id) {
+      ... on AppSubscription {
+        id
+        status
+      }
+    }
+  }
+`;
+
 function throwOnUserErrors(errors: UserError[] | undefined, context: string): void {
   if (errors?.length) {
     throw new AppError('SHOPIFY', 502, `${context}: ${errors.map((e) => e.message).join('; ')}`);
@@ -247,4 +265,27 @@ export async function cancelSubscription(
     };
   }>(store.shopDomain, accessToken, CANCEL_SUBSCRIPTION, { id: subscriptionId });
   throwOnUserErrors(data.appSubscriptionCancel.userErrors, 'auto-refill cancel');
+}
+
+/**
+ * Re-fetches a subscription's real current status from Shopify. Used by
+ * confirmAutorefill (autorefill.ts) because Shopify redirects the merchant
+ * back to the same returnUrl whether they approved or declined — trusting our
+ * own row's non-null subscription id would mark a declined subscription
+ * ACTIVE, same class of bug purchase.ts's confirmPurchase already avoids for
+ * one-time charges via defaultFetchPurchase.
+ */
+export async function fetchSubscriptionStatus(
+  app: FastifyInstance,
+  store: Store,
+  subscriptionId: string,
+): Promise<{ id: string; status: string } | null> {
+  const accessToken = await getValidAccessToken(app, store);
+  const data = await shopifyGraphQL<{ node: { id: string; status: string } | null }>(
+    store.shopDomain,
+    accessToken,
+    SUBSCRIPTION_STATUS_QUERY,
+    { id: subscriptionId },
+  );
+  return data.node;
 }

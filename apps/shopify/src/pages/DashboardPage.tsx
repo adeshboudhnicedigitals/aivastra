@@ -32,14 +32,27 @@ import type { ShopifyMe, ShopifyOnboardingConfirmResponse, ShopifyStats } from '
 // app is not disabled at zero: a merchant at zero can still manage products,
 // read analytics and edit the widget, and the actual breakage is on the
 // storefront, not in here.
-export function LowCreditsBanner({ me }: { me: ShopifyMe }) {
+//
+// `hideCapReached` lets PricingPage suppress the CAP_REACHED banner below:
+// that page already renders an equivalent "Auto-refill has stopped" banner
+// with a raise-cap control inline in its auto-refill card, so rendering both
+// would duplicate the same message. Suppressing it here still falls through
+// to the plain low-balance banner further down if the store's balance is
+// actually low — only the CAP_REACHED-specific banner is skipped.
+export function LowCreditsBanner({
+  me,
+  hideCapReached = false,
+}: {
+  me: ShopifyMe;
+  hideCapReached?: boolean;
+}) {
   const navigate = useNavigate();
   const { runway, autorefill } = me;
 
   // Auto-refill has stopped at a ceiling the merchant set. This is the one
   // auto-refill state that needs their attention, and it is more urgent than a
   // plain low balance because they believe it is handled.
-  if (autorefill.status === 'CAP_REACHED') {
+  if (autorefill.status === 'CAP_REACHED' && !hideCapReached) {
     return (
       <Banner
         tone="critical"
@@ -56,8 +69,14 @@ export function LowCreditsBanner({ me }: { me: ShopifyMe }) {
     );
   }
 
-  // A healthy enrolled store is never "low" — the refill fires first.
-  if (autorefill.status === 'ACTIVE') return null;
+  // A healthy enrolled store is never "low" — the refill fires first. But a
+  // store already at literal zero (`runway.level === 'empty'`) is proof that
+  // auto-refill is NOT actually keeping this store topped up right now,
+  // whatever its recorded status says (stuck-PENDING purchase row, expired
+  // card, missed webhook, or a declined subscription that was never really
+  // approved) — falls through to the low-balance banner below instead of
+  // going silent exactly when the merchant is most at risk.
+  if (autorefill.status === 'ACTIVE' && runway.level !== 'empty') return null;
 
   if (runway.level === 'ok') return null;
 

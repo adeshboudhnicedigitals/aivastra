@@ -2,7 +2,7 @@ import { createHmac } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { runRefill } from '../../src/modules/shopify/autorefill.js';
+import { disableAutorefill, runRefill } from '../../src/modules/shopify/autorefill.js';
 import { buildTestApp } from '../helpers/api.js';
 import { startContainers } from '../helpers/containers.js';
 
@@ -215,6 +215,58 @@ describe('auto-refill lifecycle', () => {
 
     await reset(100, { autorefillStatus: 'ACTIVE' });
     expect(await runRefill(app, store, okCharge())).toBe('refilled');
+  });
+});
+
+describe('disableAutorefill', () => {
+  // Guards against silently regressing to "just clear our columns" — a real
+  // incident risk, since a merchant who turns auto-refill off believes the
+  // charge authorization at Shopify is gone too. Mirrors runRefill's
+  // deps-injection pattern (okCharge/capCharge above) rather than mocking the
+  // module, since disableAutorefill now accepts the same shape of override.
+  it('calls Shopify to cancel the subscription, not just clear local columns', async () => {
+    await reset(100, {
+      autorefillStatus: 'ACTIVE',
+      autorefillSubscriptionId: 'gid://shopify/AppSubscription/disable-test',
+    });
+
+    const cancelled: Array<{ storeId: number; subscriptionId: string }> = [];
+    await disableAutorefill(app, store, {
+      cancelSubscription: async (_app, s, subscriptionId) => {
+        cancelled.push({ storeId: s.id, subscriptionId });
+      },
+    });
+
+    expect(cancelled).toEqual([
+      { storeId: store.id, subscriptionId: 'gid://shopify/AppSubscription/disable-test' },
+    ]);
+
+    const [refreshed] = await app.db
+      .select()
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, store.id));
+    expect(refreshed.autorefillStatus).toBeNull();
+    expect(refreshed.autorefillSubscriptionId).toBeNull();
+  });
+
+  it('still clears local columns even if the Shopify cancel call fails', async () => {
+    await reset(100, {
+      autorefillStatus: 'ACTIVE',
+      autorefillSubscriptionId: 'gid://shopify/AppSubscription/disable-fail-test',
+    });
+
+    await disableAutorefill(app, store, {
+      cancelSubscription: async () => {
+        throw new Error('simulated Shopify outage');
+      },
+    });
+
+    const [refreshed] = await app.db
+      .select()
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, store.id));
+    expect(refreshed.autorefillStatus).toBeNull();
+    expect(refreshed.autorefillSubscriptionId).toBeNull();
   });
 });
 

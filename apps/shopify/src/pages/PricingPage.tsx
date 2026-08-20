@@ -30,6 +30,8 @@ export default function PricingPage() {
   const [refillPack, setRefillPack] = useState('pack_25');
   const [refillCap, setRefillCap] = useState('100');
   const [enrolling, setEnrolling] = useState(false);
+  const [newCap, setNewCap] = useState('');
+  const [raisingCap, setRaisingCap] = useState(false);
 
   useEffect(() => {
     apiFetch<ShopifyMe>('/v1/shopify/me')
@@ -86,6 +88,23 @@ export default function PricingPage() {
     }
   }
 
+  async function raiseAutorefillCap() {
+    setRaisingCap(true);
+    setError(null);
+    try {
+      const { confirmationUrl } = await apiFetch<{ confirmationUrl: string }>(
+        '/v1/shopify/billing/autorefill/raise-cap',
+        { method: 'POST', body: JSON.stringify({ cappedAmountUsd: Number.parseFloat(newCap) }) },
+      );
+      // Same top-level-navigation requirement as buyPack/enableAutorefill —
+      // Shopify's approval page is outside the embedded app's origin.
+      navigateTopLevel(confirmationUrl);
+    } catch (err) {
+      setError((err as Error).message);
+      setRaisingCap(false);
+    }
+  }
+
   if (loading) {
     return (
       <SkeletonPage primaryAction>
@@ -95,13 +114,26 @@ export default function PricingPage() {
   }
 
   const balance = me?.creditBalance ?? 0;
+  const autorefillStatus = me?.autorefill.status ?? null;
+  // A CANCELLED or DECLINED subscription is dead at Shopify's end — nothing
+  // further happens to it, so the merchant needs the enrolment form back, not
+  // a dead-end screen that only shows a "Turn off" button for a subscription
+  // that's already off. `me.autorefill.enabled` (server-side) stays true for
+  // these two statuses on purpose — it means "there's a status to show", not
+  // "there's a live subscription" — so this page derives its own narrower
+  // "still live at Shopify" flag instead of reusing that field.
+  const isLive =
+    autorefillStatus === 'PENDING' ||
+    autorefillStatus === 'ACTIVE' ||
+    autorefillStatus === 'CAP_REACHED';
+  const canEnrol = !isLive;
 
   return (
     <Page title="Credits" subtitle="Buy credits once. They never expire.">
       <BlockStack gap="400">
         {error && <Banner tone="critical">{error}</Banner>}
 
-        {me && <LowCreditsBanner me={me} />}
+        {me && <LowCreditsBanner me={me} hideCapReached />}
 
         <Card>
           <BlockStack gap="200">
@@ -162,13 +194,11 @@ export default function PricingPage() {
               <Text as="h2" variant="headingMd">
                 Auto-refill
               </Text>
-              {me?.autorefill.status === 'ACTIVE' && <Badge tone="success">On</Badge>}
-              {me?.autorefill.status === 'PENDING' && (
-                <Badge tone="attention">Awaiting approval</Badge>
-              )}
-              {me?.autorefill.status === 'CAP_REACHED' && (
-                <Badge tone="critical">Limit reached</Badge>
-              )}
+              {autorefillStatus === 'ACTIVE' && <Badge tone="success">On</Badge>}
+              {autorefillStatus === 'PENDING' && <Badge tone="attention">Awaiting approval</Badge>}
+              {autorefillStatus === 'CAP_REACHED' && <Badge tone="critical">Limit reached</Badge>}
+              {autorefillStatus === 'CANCELLED' && <Badge>Cancelled</Badge>}
+              {autorefillStatus === 'DECLINED' && <Badge tone="attention">Declined</Badge>}
             </InlineStack>
 
             <Text as="p" tone="subdued">
@@ -176,7 +206,25 @@ export default function PricingPage() {
               automatically — and auto-refill packs include 10% extra credits.
             </Text>
 
-            {!me?.autorefill.enabled && (
+            {autorefillStatus === 'CANCELLED' && (
+              <Banner tone="warning" title="Auto-refill was cancelled">
+                <Text as="p">
+                  It was cancelled from Shopify's billing screen or is no longer active. Turn it
+                  back on below whenever you're ready.
+                </Text>
+              </Banner>
+            )}
+
+            {autorefillStatus === 'DECLINED' && (
+              <Banner tone="warning" title="Auto-refill authorization was declined">
+                <Text as="p">
+                  You didn't approve the charge authorization, so auto-refill was never turned on.
+                  You can try again below.
+                </Text>
+              </Banner>
+            )}
+
+            {canEnrol && (
               <BlockStack gap="200">
                 <Select
                   label="Refill with"
@@ -202,18 +250,35 @@ export default function PricingPage() {
               </BlockStack>
             )}
 
-            {me?.autorefill.status === 'CAP_REACHED' && (
+            {autorefillStatus === 'CAP_REACHED' && me && (
               <Banner tone="critical" title="Auto-refill has stopped">
-                <Text as="p">
-                  You've reached your $
-                  {((me.autorefill.cappedAmountUsdCents ?? 0) / 100).toFixed(2)} monthly limit.
-                  Raise it to resume automatic refills — Shopify will ask you to approve the new
-                  limit.
-                </Text>
+                <BlockStack gap="200">
+                  <Text as="p">
+                    You've reached your $
+                    {((me.autorefill.cappedAmountUsdCents ?? 0) / 100).toFixed(2)} monthly limit.
+                    Raise it to resume automatic refills — Shopify will ask you to approve the new
+                    limit.
+                  </Text>
+                  <InlineStack gap="200" blockAlign="end">
+                    <TextField
+                      label="New monthly limit"
+                      labelHidden
+                      type="number"
+                      prefix="$"
+                      value={newCap}
+                      onChange={setNewCap}
+                      placeholder={((me.autorefill.cappedAmountUsdCents ?? 0) / 100).toFixed(0)}
+                      autoComplete="off"
+                    />
+                    <Button loading={raisingCap} disabled={!newCap} onClick={raiseAutorefillCap}>
+                      Raise limit
+                    </Button>
+                  </InlineStack>
+                </BlockStack>
               </Banner>
             )}
 
-            {me?.autorefill.enabled && (
+            {isLive && (
               <Button tone="critical" variant="plain" onClick={turnOffAutorefill}>
                 Turn off auto-refill
               </Button>

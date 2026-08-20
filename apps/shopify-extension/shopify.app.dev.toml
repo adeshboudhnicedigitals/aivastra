@@ -43,3 +43,10 @@ api_version = "2026-07"
   [[webhooks.subscriptions]]
   topics = [ "app_purchases_one_time/update" ]
   uri = "https://wispy-plaza-mullets.ngrok-free.dev/v1/shopify/webhooks/app_purchases_one_time_update"
+
+  # Mirrors shopify.app.toml — see that file for why this is declared here
+  # rather than relying solely on the per-shop registration call. Update
+  # alongside the ngrok host above whenever the tunnel rotates.
+  [[webhooks.subscriptions]]
+  topics = [ "app_subscriptions/update" ]
+  uri = "https://wispy-plaza-mullets.ngrok-free.dev/v1/shopify/webhooks/app_subscriptions_update"
