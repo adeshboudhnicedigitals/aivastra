@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { DEFAULT_SELLER_CONFIG } from '../../src/lib/resolution-config.js';
 import { adminAuthHeader } from '../helpers/admin.js';
 import { buildTestApp, type TestApp } from '../helpers/api.js';
 import { type Containers, startContainers } from '../helpers/containers.js';
@@ -161,7 +162,7 @@ describe('admin config', () => {
   it('GET /admin/config default-fills seller details, and PATCH persists an override', async () => {
     const getRes = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
     expect(getRes.statusCode).toBe(200);
-    expect(getRes.json().seller).toEqual({ gstin: '', legalName: '', address: '' });
+    expect(getRes.json().seller).toEqual(DEFAULT_SELLER_CONFIG);
 
     const patchRes = await app.inject({
       method: 'PATCH',
@@ -177,8 +178,12 @@ describe('admin config', () => {
     });
     expect(patchRes.statusCode).toBe(200);
 
+    // PATCH stores exactly the fields sent, and GET re-default-fills
+    // whatever it didn't override (pan/tan/udyamRegNo here) from the same
+    // DEFAULT_SELLER_CONFIG — a partial override isn't a full replacement.
     const getRes2 = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
     expect(getRes2.json().seller).toEqual({
+      ...DEFAULT_SELLER_CONFIG,
       gstin: '27AAPFU0939F1ZV',
       legalName: 'Aivastra Technologies Pvt Ltd',
       address: '123 Example St, Mumbai',

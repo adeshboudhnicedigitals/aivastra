@@ -27,8 +27,8 @@ fun AppHeaderLogo(
     // phone up to tablet/kiosk, and this logo is used on nearly every screen — sizing it off
     // the real screen width here fixes it everywhere at once instead of per-screen.
     val isMobile = LocalConfiguration.current.screenWidthDp.dp < 500.dp
-    val logoWidth = if (isMobile) sdp(R.dimen._162sdp) else sdp(R.dimen._220sdp)
-    val logoHeight = if (isMobile) sdp(R.dimen._45sdp) else sdp(R.dimen._64sdp)
+    val logoWidth = if (isMobile) sdp(R.dimen._170sdp) else sdp(R.dimen._220sdp)
+    val logoHeight = if (isMobile) sdp(R.dimen._80sdp) else sdp(R.dimen._92sdp)
 
     val targetLogo = logoUrl?.takeIf { it.isNotBlank() } ?: SessionManager.logoUrl?.takeIf { it.isNotBlank() }
     if (targetLogo != null) {

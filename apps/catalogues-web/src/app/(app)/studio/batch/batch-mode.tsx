@@ -2,14 +2,22 @@
 import { DEFAULT_MAX_BATCH_JOBS } from '@aivastra/types';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { C } from '@/components/tokens';
 import { api } from '@/lib/api';
 import { ApiError } from '@/lib/errors';
 import { BatchGrid } from './batch-grid';
 import type { PickerItem } from './batch-row';
+import { ConfigureModalShell } from './configure-modal-shell';
+import { GarmentTray } from './garment-tray';
 import { SummaryBar } from './summary-bar';
 import type { PoseOption, TrayGarment } from './types';
+import {
+  BULK_UPLOAD_CONCURRENCY,
+  MAX_FILE_BYTES,
+  runWithConcurrencyLimit,
+  uploadTrayFile,
+} from './upload-garment';
 import { batchIssues, useBatchState } from './use-batch-state';
 
 // Local copy of the studio page's catalog-tree shape. /v1/catalog/:type
@@ -80,6 +88,8 @@ export function BatchMode({
   const [garments, setGarments] = useState<TrayGarment[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  /** Rows only render inside the Configure popup — this is its open/closed state. */
+  const [configureOpen, setConfigureOpen] = useState(false);
   /** Row the server named via error.rowIndex on the last failed submit. */
   const [rejectedRowId, setRejectedRowId] = useState<string | null>(null);
   const {
@@ -91,6 +101,9 @@ export function BatchMode({
     setPoses,
     clearGarmentFromRows,
     resetRows,
+    addRowsForGarments,
+    applyToAllRows,
+    applyPosesToAllRows,
   } = useBatchState();
 
   // /v1/models/faces only accepts `gender` (see apps/api/src/modules/models/routes.ts) —
@@ -170,13 +183,69 @@ export function BatchMode({
   const onPatchGarment = useCallback((id: string, patch: Partial<TrayGarment>) => {
     setGarments((prev) => prev.map((g) => (g.id === id ? { ...g, ...patch } : g)));
   }, []);
+  // Kept so a failed upload can be retried without asking the user to
+  // re-pick the file — browsers give no way to read a File back from a
+  // previewUrl alone.
+  const fileByGarmentId = useRef(new Map<string, File>());
   const onRemoveGarment = useCallback(
     (id: string) => {
       setGarments((prev) => prev.filter((g) => g.id !== id));
+      fileByGarmentId.current.delete(id);
       // Rows still pointing at the removed tile would otherwise stay "complete".
       clearGarmentFromRows(id);
     },
     [clearGarmentFromRows],
+  );
+
+  const uploadOneGarment = useCallback(
+    (file: File, garmentId: string) =>
+      uploadTrayFile(file, (pct) => onPatchGarment(garmentId, { progress: pct }))
+        .then((r2Key) => onPatchGarment(garmentId, { r2Key, progress: 100, error: null }))
+        .catch((err: Error) =>
+          onPatchGarment(garmentId, { error: err.message || 'Upload failed' }),
+        ),
+    [onPatchGarment],
+  );
+
+  /**
+   * Bulk upload: one file becomes one tray garment plus one row (see
+   * addRowsForGarments). Uploads run with bounded concurrency rather than all
+   * at once — firing every file's PUT simultaneously is what produced the
+   * "unable to upload" failures across the whole tray.
+   */
+  const onBulkUploadGarments = useCallback(
+    (files: File[]) => {
+      const added: Array<{ file: File; garment: TrayGarment }> = files.map((file) => ({
+        file,
+        garment: {
+          id: crypto.randomUUID(),
+          r2Key: null,
+          previewUrl: URL.createObjectURL(file),
+          fileName: file.name,
+          progress: 0,
+          error: file.size > MAX_FILE_BYTES ? 'Over 10 MB' : null,
+        },
+      }));
+      setGarments((prev) => [...prev, ...added.map((a) => a.garment)]);
+      addRowsForGarments(added.map((a) => a.garment.id));
+      for (const { file, garment } of added) fileByGarmentId.current.set(garment.id, file);
+      void runWithConcurrencyLimit(
+        added.filter((a) => !a.garment.error),
+        BULK_UPLOAD_CONCURRENCY,
+        ({ file, garment }) => uploadOneGarment(file, garment.id),
+      );
+    },
+    [addRowsForGarments, uploadOneGarment],
+  );
+
+  const onRetryGarment = useCallback(
+    (garmentId: string) => {
+      const file = fileByGarmentId.current.get(garmentId);
+      if (!file) return;
+      onPatchGarment(garmentId, { error: null, progress: 0 });
+      void uploadOneGarment(file, garmentId);
+    },
+    [onPatchGarment, uploadOneGarment],
   );
 
   // Pose availability is scoped to the garment type — /v1/models/poses?garmentTypeId=
@@ -279,46 +348,66 @@ export function BatchMode({
         </div>
       )}
 
-      <BatchGrid
-        rows={rows}
-        invalidRowIds={
-          rejectedRowId && !invalidRowIds.includes(rejectedRowId)
-            ? [...invalidRowIds, rejectedRowId]
-            : invalidRowIds
-        }
+      <GarmentTray
         garments={garments}
-        faces={faces.data ?? []}
-        backgrounds={backgrounds.data ?? []}
-        poses={poseOptions}
-        lowerItems={lowerItems.data ?? []}
-        shoeItems={shoeItems.data ?? []}
-        onPatchRow={patchRow}
-        onSetPoses={(rowId, poseIds) => setPoses(rowId, poseIds, poseOptions)}
-        onDuplicateRow={duplicateRow}
-        onRemoveRow={removeRow}
-        onAddRow={addRow}
-        onAddGarment={onAddGarment}
-        onPatchGarment={onPatchGarment}
-        onRemoveGarment={onRemoveGarment}
-      />
-
-      {error && (
-        <p role="alert" style={{ color: C.danger, fontSize: 13, margin: '12px 0 0' }}>
-          {error}
-        </p>
-      )}
-
-      <SummaryBar
         rowCount={rows.length}
-        totalJobs={totalJobs}
-        creditCost={totalJobs * creditCostPerImage}
-        balance={balance}
-        maxBatchJobs={DEFAULT_MAX_BATCH_JOBS}
-        invalidRowCount={invalidRowIds.length}
-        aspectSupported={BATCH_ASPECTS.includes(aspectRatio)}
-        submitting={submitting}
-        onSubmit={handleSubmit}
+        onFilesSelected={onBulkUploadGarments}
+        onRemoveGarment={onRemoveGarment}
+        onRetryGarment={onRetryGarment}
+        onOpenConfigure={() => setConfigureOpen(true)}
       />
+
+      {configureOpen && (
+        <ConfigureModalShell
+          title="Configure batch"
+          onClose={() => setConfigureOpen(false)}
+          footer={
+            <>
+              {error && (
+                <p role="alert" style={{ color: C.danger, fontSize: 13, margin: '0 0 12px' }}>
+                  {error}
+                </p>
+              )}
+              <SummaryBar
+                rowCount={rows.length}
+                totalJobs={totalJobs}
+                creditCost={totalJobs * creditCostPerImage}
+                balance={balance}
+                maxBatchJobs={DEFAULT_MAX_BATCH_JOBS}
+                invalidRowCount={invalidRowIds.length}
+                aspectSupported={BATCH_ASPECTS.includes(aspectRatio)}
+                submitting={submitting}
+                onSubmit={handleSubmit}
+              />
+            </>
+          }
+        >
+          <BatchGrid
+            rows={rows}
+            invalidRowIds={
+              rejectedRowId && !invalidRowIds.includes(rejectedRowId)
+                ? [...invalidRowIds, rejectedRowId]
+                : invalidRowIds
+            }
+            garments={garments}
+            faces={faces.data ?? []}
+            backgrounds={backgrounds.data ?? []}
+            poses={poseOptions}
+            lowerItems={lowerItems.data ?? []}
+            shoeItems={shoeItems.data ?? []}
+            onPatchRow={patchRow}
+            onSetPoses={(rowId, poseIds) => setPoses(rowId, poseIds, poseOptions)}
+            onDuplicateRow={duplicateRow}
+            onRemoveRow={removeRow}
+            onAddRow={addRow}
+            onAddGarment={onAddGarment}
+            onPatchGarment={onPatchGarment}
+            onRemoveGarment={onRemoveGarment}
+            onApplyToAll={applyToAllRows}
+            onApplyPosesToAll={(poseIds) => applyPosesToAllRows(poseIds, poseOptions)}
+          />
+        </ConfigureModalShell>
+      )}
     </div>
   );
 }

@@ -1,10 +1,7 @@
 'use client';
 import { useRef, useState } from 'react';
 import { ArrowLeft, PlusIcon } from '@/components/icons';
-import { Logo } from '@/components/logo';
 import { C } from '@/components/tokens';
-import { LibraryUserMenu } from '../LibraryUserMenu';
-import { useLoggedOut } from '../logged-out-context';
 
 // Same stops as the shared `grad` token, different angle — kept local to this
 // app section so it doesn't shift the gradient on other pages that use `grad`.
@@ -157,33 +154,8 @@ function HeaderActions({ actions }: { actions: HeaderAction[] }) {
 }
 
 export function ScreenHeader(props: ScreenHeaderProps) {
-  const onLoggedOut = useLoggedOut();
   return (
     <>
-      <div
-        style={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 10,
-          background: C.white,
-          borderBottom: `1px solid ${C.border}`,
-          paddingTop: 'env(safe-area-inset-top)',
-        }}
-      >
-        <div
-          style={{
-            height: 56,
-            padding: '0 16px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <Logo small />
-          <LibraryUserMenu onLoggedOut={onLoggedOut} compact />
-        </div>
-      </div>
-
       {props.variant === 'back' && (
         <div style={{ padding: '12px 16px 0', display: 'flex', alignItems: 'center', gap: 12 }}>
           <button

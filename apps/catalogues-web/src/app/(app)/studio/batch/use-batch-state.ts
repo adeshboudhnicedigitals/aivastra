@@ -60,6 +60,50 @@ export function useBatchState() {
     });
   }, []);
 
+  /**
+   * Bulk upload creates one row per garment. A lone untouched starter row
+   * (the grid's initial empty row, or what's left after clearing) is reused
+   * for the first garment instead of left behind as a stray empty row.
+   */
+  const addRowsForGarments = useCallback((garmentIds: string[]) => {
+    if (garmentIds.length === 0) return;
+    setRows((prev) => {
+      const isBlank = (r: BatchRowState) =>
+        !r.garmentId &&
+        !r.faceId &&
+        !r.backgroundId &&
+        r.poseIds.length === 0 &&
+        !r.lowerCatalogId &&
+        !r.shoeCatalogId;
+      const starter = prev[0];
+      const reuseStarter = prev.length === 1 && starter !== undefined && isBlank(starter);
+      const base = reuseStarter ? [{ ...starter, garmentId: garmentIds[0] ?? null }] : prev;
+      const remaining = reuseStarter ? garmentIds.slice(1) : garmentIds;
+      return [...base, ...remaining.map((gid) => ({ ...newRow(), garmentId: gid }))];
+    });
+  }, []);
+
+  /** Overwrites one field on every row — the row-level "Apply to all" action. */
+  const applyToAllRows = useCallback((patch: Partial<BatchRowState>) => {
+    setRows((prev) => prev.map((r) => ({ ...r, ...patch })));
+  }, []);
+
+  /** Same as setPoses, but broadcast to every row instead of one. */
+  const applyPosesToAllRows = useCallback((poseIds: string[], poses: PoseOption[]) => {
+    setRows((prev) =>
+      prev.map((r) => {
+        const selected = poses.filter((p) => poseIds.includes(p.id));
+        const { needsLower, needsShoes } = requiredInputsForPoses(selected);
+        return {
+          ...r,
+          poseIds,
+          lowerCatalogId: needsLower ? r.lowerCatalogId : '',
+          shoeCatalogId: needsShoes ? r.shoeCatalogId : '',
+        };
+      }),
+    );
+  }, []);
+
   // The grid must never reach zero rows — an empty grid has no affordance to add
   // one back that is discoverable mid-task.
   const removeRow = useCallback((rowId: string) => {
@@ -116,5 +160,8 @@ export function useBatchState() {
     setPoses,
     clearGarmentFromRows,
     resetRows,
+    addRowsForGarments,
+    applyToAllRows,
+    applyPosesToAllRows,
   };
 }

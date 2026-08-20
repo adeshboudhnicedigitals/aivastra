@@ -48,6 +48,7 @@ export function buildCsp(nonce: string): string {
       'https://*.r2.cloudflarestorage.com',
       'https://app.aivastra.com',
       'https://*.razorpay.com',
+      'https://img.youtube.com', // Tutorials + Try-On demo video thumbnails
       ...(apiOrigin ? [apiOrigin] : []),
     ],
     'font-src': ["'self'", 'data:'],
@@ -56,13 +57,27 @@ export function buildCsp(nonce: string): string {
       'https://api.razorpay.com',
       'https://lumberjack.razorpay.com',
       'https://api.frankfurter.app', // pricing page currency conversion
+      // Garment/asset uploads PUT directly from the browser to a presigned
+      // storage URL (bypassing the API — see CLAUDE.md's web/architecture
+      // notes), so the storage origin needs connect-src too, not just
+      // img-src (which only covers displaying the result afterward). Mirrors
+      // img-src's storage origins exactly.
+      'http://127.0.0.1:*', // local MinIO in dev — loopback-only, harmless outside a dev machine
+      'https://*.r2.cloudflarestorage.com',
+      'https://app.aivastra.com',
       ...(apiOrigin ? [apiOrigin] : []),
       ...(chatbotOrigin ? [chatbotOrigin] : []),
       ...(chatbotWsOrigin ? [chatbotWsOrigin] : []),
       ...(sentryOrigin ? [sentryOrigin] : []),
       ...(isDev ? ['ws://127.0.0.1:*', 'ws://localhost:*'] : []), // Next dev HMR websocket
     ],
-    'frame-src': ['https://api.razorpay.com', 'https://checkout.razorpay.com'],
+    // youtube.com (not youtube-nocookie.com) — matches the embed URL host used
+    // by both the Tutorials page and the Try-On demo video.
+    'frame-src': [
+      'https://api.razorpay.com',
+      'https://checkout.razorpay.com',
+      'https://www.youtube.com',
+    ],
     'object-src': ["'none'"],
     'base-uri': ["'self'"],
     'form-action': ["'self'"],

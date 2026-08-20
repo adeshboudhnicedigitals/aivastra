@@ -205,6 +205,9 @@ export const SystemConfigBody = z.object({
       gstin: z.string().max(15).optional(),
       legalName: z.string().max(200).optional(),
       address: z.string().max(500).optional(),
+      pan: z.string().max(15).optional(),
+      tan: z.string().max(15).optional(),
+      udyamRegNo: z.string().max(30).optional(),
     })
     .optional(),
 });

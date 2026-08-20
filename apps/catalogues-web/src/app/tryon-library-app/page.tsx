@@ -21,6 +21,8 @@ function isMerchantGateError(err: unknown): boolean {
   return err instanceof Error && /merchant account/i.test(err.message);
 }
 
+const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+
 const GENDER_OPTIONS: { id: Category; label: string }[] = [
   { id: 'women', label: 'Women' },
   { id: 'men', label: 'Men' },
@@ -35,9 +37,9 @@ function GenderPicker({ onSelect }: { onSelect: (category: Category) => void }) 
         flex: 1,
         display: 'flex',
         flexDirection: 'column',
-        justifyContent: 'center',
+        justifyContent: 'flex-start',
         gap: 20,
-        padding: '16px',
+        padding: '40px 16px 16px',
         maxWidth: 420,
         width: '100%',
         margin: '0 auto',
@@ -69,6 +71,59 @@ function GenderPicker({ onSelect }: { onSelect: (category: Category) => void }) 
           </div>
         </button>
       ))}
+    </div>
+  );
+}
+
+// Docked at the bottom of the starting screen only — once the user drills
+// into a category the credit breakdown isn't relevant, so this unmounts along
+// with GenderPicker rather than living in ScreenHeader (empty on that screen).
+function CreditSummaryBar() {
+  const { data: me } = useQuery<{ balance: number; used: number }>({
+    queryKey: ['catalog-app-me'],
+    queryFn: () => api.get('/v1/merchant/me'),
+    retry: false,
+  });
+
+  const available = me?.balance ?? 0;
+  const used = me?.used ?? 0;
+
+  return (
+    <div
+      style={{
+        position: 'sticky',
+        bottom: 0,
+        background: C.white,
+        borderTop: `1px solid ${C.border}`,
+        padding: '14px 20px calc(14px + env(safe-area-inset-bottom))',
+        display: 'flex',
+        alignItems: 'stretch',
+        gap: 16,
+      }}
+    >
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ display: 'flex', flexShrink: 0 }}>
+          {/* biome-ignore lint/performance/noImgElement: credit icon, standalone page not using next/image */}
+          <img src={`${BASE}/assets/credit.png`} alt="" width={20} height={20} />
+        </span>
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: C.text, lineHeight: 1.2 }}>
+            {available}
+          </div>
+          <div style={{ fontSize: 11, color: C.mid }}>Credits Available</div>
+        </div>
+      </div>
+
+      <div style={{ width: 1, background: C.border }} />
+
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: C.text, lineHeight: 1.2 }}>
+            {used}
+          </div>
+          <div style={{ fontSize: 11, color: C.mid }}>Credits Used</div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -174,6 +229,7 @@ function SubcategoriesScreenInner() {
       <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
         <ScreenHeader variant="root" />
         <GenderPicker onSelect={selectGender} />
+        <CreditSummaryBar />
       </div>
     );
   }

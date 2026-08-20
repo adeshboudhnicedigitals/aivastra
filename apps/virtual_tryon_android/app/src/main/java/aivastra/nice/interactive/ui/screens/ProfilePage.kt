@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -27,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Person
@@ -44,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -73,6 +76,7 @@ import kotlinx.coroutines.launch
 fun ProfilePage(
     onBack: () -> Unit,
     onLogoutSuccess: () -> Unit,
+    onOpenTryOnLibrary: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     BackHandler(onBack = onBack)
@@ -219,7 +223,7 @@ fun ProfilePage(
                     leadingIcon = Icons.Default.Email
                 )
 
-                Spacer(Modifier.height(sdp(R.dimen._36sdp)))
+                Spacer(Modifier.height(sdp(R.dimen._20sdp)))
 
                 // ── Action Button: LOG OUT ────────────────────────────────────
                 Box(
@@ -252,7 +256,7 @@ fun ProfilePage(
                             )
                             Spacer(Modifier.width(sdp(R.dimen._10sdp)))
                             Text(
-                                text = "LOG OUT",
+                                text = "Log Out",
                                 color = Color.White,
                                 fontFamily = PoppinsFamily,
                                 fontWeight = FontWeight.Bold,
@@ -262,8 +266,57 @@ fun ProfilePage(
                     }
                 }
 
-                Spacer(Modifier.height(sdp(R.dimen._32sdp)))
+                // Reserves space so the fixed bottom bar never overlaps the last
+                // scrollable field/button.
+                Spacer(Modifier.height(sdp(R.dimen._100sdp)))
             }
+        }
+
+        // ── Fixed Footer: UPLOAD OUTFIT DATA (opens webview) ─────────────────
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .widthIn(max = sdp(R.dimen._screen_container_width))
+                .fillMaxWidth()
+                .padding(horizontal = sdp(R.dimen._20sdp))
+                .padding(bottom = sdp(R.dimen._20sdp) + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding())
+                .shadow(
+                    elevation = sdp(R.dimen._10sdp),
+                    shape = RoundedCornerShape(percent = 50),
+                    ambientColor = Color(0xFFE7A52C),
+                    spotColor = Color(0xFFE7A52C)
+                )
+                .clip(RoundedCornerShape(percent = 50))
+                .background(
+                    Brush.linearGradient(
+                        listOf(Color(0xFFE7A52C), Color(0xFF9B5100))
+                    )
+                )
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onOpenTryOnLibrary
+                )
+                .height(sdp(R.dimen._55sdp)),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+
+
+            Text(
+                text = "Upload Outfit Data",
+                color = Color.White,
+                fontFamily = PoppinsFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = ssp(R.dimen._16ssp)
+            )
+            Spacer(Modifier.width(sdp(R.dimen._10sdp)))
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = "Upload Outfit Data",
+                tint = Color.White,
+                modifier = Modifier.size(sdp(R.dimen._20sdp))
+            )
         }
 
         // ── Logout Confirmation Dialog ──────────────────────────────────────
