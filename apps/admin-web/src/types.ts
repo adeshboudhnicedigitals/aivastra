@@ -417,6 +417,7 @@ export interface ContactRequest {
   source: string | null;
   message: string | null;
   attachmentKey: string | null;
+  attachmentUrl: string | null;
   status: 'new' | 'read' | 'done';
   createdAt: string;
 }

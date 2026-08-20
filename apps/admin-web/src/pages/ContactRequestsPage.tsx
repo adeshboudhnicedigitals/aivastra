@@ -258,6 +258,48 @@ export default function ContactRequestsPage({ toast }: Props) {
         </div>
       </div>
 
+      {r.attachmentUrl && (
+        <div>
+          <div
+            style={{
+              fontSize: 11,
+              color: 'var(--muted)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              marginBottom: 6,
+            }}
+          >
+            Attachment
+          </div>
+          {r.attachmentKey && /\.(jpe?g|png|webp)$/i.test(r.attachmentKey) ? (
+            <a href={r.attachmentUrl} target="_blank" rel="noreferrer">
+              {/* biome-ignore lint/performance/noImgElement: presigned R2 attachment preview */}
+              <img
+                src={r.attachmentUrl}
+                alt="Support attachment"
+                style={{
+                  maxWidth: 240,
+                  maxHeight: 240,
+                  borderRadius: 8,
+                  border: '1px solid var(--border)',
+                  display: 'block',
+                }}
+              />
+            </a>
+          ) : (
+            <a
+              href={r.attachmentUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="btn"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, width: 'fit-content' }}
+            >
+              <Icon.Download /> View attachment
+            </a>
+          )}
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
         {r.status === 'new' && (
           <button
