@@ -1,3 +1,15 @@
+## 2026-08-20 — Merchant Catalog Two-Input (Body + Pallu) Direct Try-On
+
+**Done**
+- **Task 1 (DB Migration)**: Added `second_r2_key` and `second_thumbnail_key` columns to `merchant_catalog_items` table, and `two_input_tryon_workflow_template_id` (foreign key to `workflow_templates.id` ON DELETE SET NULL) to `garment_subcategories` table in migration `0159_merchant_catalog_two_input_tryon.sql`. Updated Drizzle schema definitions in `merchant.ts` and `models.ts`.
+- **Task 2 (Types)**: Extended `MerchantCatalogCreateBody`, `MerchantCatalogItem`, and `MerchantCatalogSubcategory` (adding `supportsTwoInputDirectTryon: z.boolean()`) in `@aivastra/types` `widget.ts`. Added `twoInputTryonWorkflowTemplateId` to `PatchGarmentTypeBody` in `admin.ts`.
+- **Task 3 (API Catalog Routes)**: Updated `serializeCatalogItem` to presign `secondImageUrl`, `serializeSubcategory` to return `supportsTwoInputDirectTryon`, `POST /v1/merchant/catalog` to validate upload ownership and insert `secondR2Key`/`secondThumbnailKey`, and `DELETE /v1/merchant/catalog/:id` to clean up the second image and thumbnail from storage. Verified with integration tests in `merchant-catalog.test.ts`.
+- **Task 4 (Admin Web UI)**: Added "Two-Input Direct Try-On Workflow" dropdown to `EditGarmentTypeModal.tsx` and updated `GarmentType` interface in `apps/admin-web/src/types.ts`. Verified typecheck via `npx tsc -b --force`.
+- **Task 5 (Tryon Garment Resolution)**: Updated `resolveTryonGarment` in `resolve-tryon-garment.ts` to detect `secondR2Key` on merchant catalog items and route to the active `twoInputTryonWorkflowTemplateId` configured on the garment subcategory instead of requiring a `tryonCategoryId`.
+- **Task 6 (Tryon Job Creation)**: Updated `createMerchantTryonJob` (`create-tryon-job.ts`) and `POST /v1/merchant/tryon/jobs` (`tryon.routes.ts`) to accept `secondGarmentKey` and persist it into `job_inputs.third_garment_key`.
+- **Task 7 (Dispatcher)**: Updated `processWidgetJob` in `apps/dispatcher/src/job/processor.ts` to query `tryonGarmentNodeId2`, validate that two-input templates match jobs with `thirdGarmentKey`, upload the second garment image as `merchant_garment2`, and patch `workflow[garmentNodeId2].inputs.image`.
+- **Task 8 (Catalogues Web UI)**: Fixed saree modal display by committing Flat Image hide logic for two-input saree types. Added Pallu upload box to `ProductModal.tsx` in Catalogue Image mode when `supportsTwoInputDirectTryon` is true, validated image presence in `missingImage`, and uploaded both primary and secondary images to R2 on form submit. Passed `supportsTwoInputDirectTryon` from `CatalogueManagerContent.tsx`.
+
 ## 2026-08-20 — Merchant Catalog Saree Two-Input (Body & Pallu)
 
 **Done**
