@@ -351,7 +351,7 @@ git commit -m "feat(admin): add role-permissions matrix API"
 - Create: `apps/admin-web/src/pages/settings/RolesPermissionsTab.tsx`
 - Modify: `apps/admin-web/src/pages/SettingsPage.tsx` — add the tab
 
-- [ ] **Step 1: Write the tab component**
+- [x] **Step 1: Write the tab component**
 
 ```tsx
 // apps/admin-web/src/pages/settings/RolesPermissionsTab.tsx
@@ -477,7 +477,7 @@ export default function RolesPermissionsTab({ toast }: Props) {
 }
 ```
 
-- [ ] **Step 2: Wire it into `SettingsPage.tsx`**
+- [x] **Step 2: Wire it into `SettingsPage.tsx`**
 
 Add the import near the other tab imports:
 
@@ -515,7 +515,7 @@ Find where the active section switches to a tab component's JSX (look for
 {section === 'roles-permissions' && <RolesPermissionsTab toast={toast} />}
 ```
 
-- [ ] **Step 3: Manual verification (no admin-web unit test harness exists for pages —
+- [x] **Step 3: Manual verification (no admin-web unit test harness exists for pages —
       match existing convention)**
 
 Run: `pnpm --filter @aivastra/admin dev`, log in as a `SUPER_ADMIN` test admin, open
@@ -523,7 +523,7 @@ Settings → Roles & Permissions, toggle `jobs.write` off for `SUPPORT` and back
 the checkbox reflects the change immediately and `GET /admin/role-permissions` (Network
 tab) shows the row round-tripping.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/admin-web/src/pages/settings/RolesPermissionsTab.tsx apps/admin-web/src/pages/SettingsPage.tsx
