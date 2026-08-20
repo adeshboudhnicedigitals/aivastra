@@ -123,6 +123,13 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
         daysRemaining: runway.daysRemaining,
         level: runway.level,
       },
+      autorefill: {
+        enabled: store.autorefillStatus != null,
+        status: store.autorefillStatus,
+        packId: store.autorefillPackId,
+        triggerCredits: store.autorefillTriggerCredits,
+        cappedAmountUsdCents: store.autorefillCappedAmountCents,
+      },
       stats: {
         totalTryOns,
         syncedProductCount,

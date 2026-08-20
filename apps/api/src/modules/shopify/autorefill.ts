@@ -2,8 +2,14 @@ import { schema } from '@aivastra/db';
 import { SIMPLE_TRYON_COST } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { AppError } from '../../lib/errors.js';
 import { grantStore } from '../credits/shopify-ledger.js';
-import { createUsageRecord } from './autorefill-client.js';
+import {
+  cancelSubscription,
+  createUsageRecord,
+  createUsageSubscription,
+  updateCappedAmount,
+} from './autorefill-client.js';
 import { getPack } from './packs.js';
 
 type Store = typeof schema.shopifyStores.$inferSelect;
@@ -293,4 +299,159 @@ export async function runRefill(
   // that's the same "someone else is already handling this" case every other
   // early-return in this function already treats as 'skipped'.
   return outcome ?? 'skipped';
+}
+
+/**
+ * Starts enrolment. The merchant approves a monthly ceiling once on Shopify's
+ * own page; every refill after that is silent.
+ *
+ * The cap may not be lower than one refill — a ceiling that cannot fund a
+ * single pack would enrol the merchant into something that can never fire, and
+ * they would discover it only by running out.
+ */
+export async function enrolAutorefill(
+  app: FastifyInstance,
+  store: Store,
+  args: { packId: string; triggerCredits?: number; cappedAmountUsd: number },
+): Promise<{ confirmationUrl: string }> {
+  const pack = getPack(args.packId);
+  if (!pack) throw new AppError('BAD_REQUEST', 400, 'unknown pack');
+
+  if (args.cappedAmountUsd < pack.priceUsd) {
+    throw new AppError(
+      'BAD_REQUEST',
+      400,
+      `Monthly limit must be at least $${pack.priceUsd}, the price of one refill`,
+    );
+  }
+  if (!app.env.SHOPIFY_APP_URL) {
+    throw new AppError('CONFIG', 500, 'SHOPIFY_APP_URL is not configured');
+  }
+
+  const trigger = args.triggerCredits ?? defaultTriggerCredits(pack.id);
+  const tryOns = Math.floor(pack.autorefillCredits / SIMPLE_TRYON_COST);
+
+  const { confirmationUrl, subscriptionId, lineItemId } = await createUsageSubscription(
+    app,
+    store,
+    {
+      name: 'AiVastra auto-refill',
+      terms: `$${pack.priceUsd} per ${tryOns} try-ons, charged automatically when your balance runs low`,
+      cappedAmountUsd: args.cappedAmountUsd,
+      returnUrl: `${app.env.SHOPIFY_APP_URL}/shopify-admin/billing/autorefill-callback`,
+      test: app.env.SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS === true,
+    },
+  );
+
+  // PENDING until the merchant approves. shouldRefill refuses to charge against
+  // anything but ACTIVE, so nothing can fire in this window.
+  await app.db
+    .update(schema.shopifyStores)
+    .set({
+      autorefillPackId: pack.id,
+      autorefillTriggerCredits: trigger,
+      autorefillSubscriptionId: subscriptionId,
+      autorefillLineItemId: lineItemId,
+      autorefillCappedAmountCents: Math.round(args.cappedAmountUsd * 100),
+      autorefillStatus: 'PENDING',
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.shopifyStores.id, store.id));
+
+  return { confirmationUrl };
+}
+
+/**
+ * Called when the merchant returns from Shopify's approval page. Trusts nothing
+ * in the redirect — flips to ACTIVE only because our own row says a
+ * subscription was created, and the merchant could only have arrived here by
+ * completing that flow.
+ *
+ * A later APP_SUBSCRIPTIONS_UPDATE webhook is what corrects this if they in
+ * fact declined; see Task 5.
+ */
+export async function confirmAutorefill(
+  app: FastifyInstance,
+  store: Store,
+): Promise<{ status: string }> {
+  if (!store.autorefillSubscriptionId) {
+    throw new AppError('BAD_STATE', 400, 'no auto-refill enrolment to confirm');
+  }
+  await app.db
+    .update(schema.shopifyStores)
+    .set({ autorefillStatus: 'ACTIVE', updatedAt: new Date() })
+    .where(eq(schema.shopifyStores.id, store.id));
+  return { status: 'ACTIVE' };
+}
+
+/**
+ * Turning auto-refill off must cancel the Shopify subscription, not merely
+ * clear our columns. Leaving an approved charge authorization live at Shopify
+ * for a merchant who believes they revoked it is the kind of thing that ends up
+ * in a review.
+ *
+ * Our columns are cleared even if the cancel call fails: the merchant asked for
+ * this to stop, and it stopping locally is the part we control. The orphaned
+ * subscription is logged for an operator.
+ */
+export async function disableAutorefill(app: FastifyInstance, store: Store): Promise<void> {
+  if (store.autorefillSubscriptionId) {
+    try {
+      await cancelSubscription(app, store, store.autorefillSubscriptionId);
+    } catch (err) {
+      app.log.error(
+        { err, storeId: store.id, subscriptionId: store.autorefillSubscriptionId },
+        'failed to cancel auto-refill subscription at Shopify — clearing locally anyway, subscription may be orphaned',
+      );
+    }
+  }
+  await app.db
+    .update(schema.shopifyStores)
+    .set({
+      autorefillPackId: null,
+      autorefillTriggerCredits: null,
+      autorefillSubscriptionId: null,
+      autorefillLineItemId: null,
+      autorefillCappedAmountCents: null,
+      autorefillStatus: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.shopifyStores.id, store.id));
+}
+
+/**
+ * First half of CAP_REACHED recovery. Shopify requires fresh merchant approval
+ * for a higher ceiling and refuses usage records until it is granted, so this
+ * returns a confirmation URL rather than fixing anything on its own.
+ */
+export async function raiseCap(
+  app: FastifyInstance,
+  store: Store,
+  cappedAmountUsd: number,
+): Promise<{ confirmationUrl: string }> {
+  if (!store.autorefillLineItemId) {
+    throw new AppError('BAD_STATE', 400, 'auto-refill is not enabled');
+  }
+  const current = (store.autorefillCappedAmountCents ?? 0) / 100;
+  if (cappedAmountUsd <= current) {
+    throw new AppError('BAD_REQUEST', 400, 'new monthly limit must be higher than the current one');
+  }
+
+  const { confirmationUrl } = await updateCappedAmount(app, store, {
+    lineItemId: store.autorefillLineItemId,
+    cappedAmountUsd,
+  });
+
+  // Not applied until approval lands — recorded as pending so the UI can say
+  // "waiting for your approval" rather than showing a ceiling that isn't real.
+  await app.db
+    .update(schema.shopifyStores)
+    .set({
+      autorefillCappedAmountCents: Math.round(cappedAmountUsd * 100),
+      autorefillStatus: 'PENDING',
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.shopifyStores.id, store.id));
+
+  return { confirmationUrl };
 }
