@@ -111,6 +111,12 @@ export const merchantCatalogItems = pgTable(
     offerPricePaise: integer('offer_price_paise').notNull(),
     r2Key: text('r2_key').notNull(),
     thumbnailKey: text('thumbnail_key').notNull(),
+    // Second garment image (pallu) for a two-input (body+pallu) saree product uploaded
+    // directly via "Catalogue Image" mode — nullable because most catalog items are
+    // single-image. Both r2Key (body) and secondR2Key (pallu) are patched directly into
+    // ComfyUI at try-on time; see garmentSubcategories.twoInputTryonWorkflowTemplateId.
+    secondR2Key: text('second_r2_key'),
+    secondThumbnailKey: text('second_thumbnail_key'),
     sourceJobId: uuid('source_job_id').references(() => jobs.id, { onDelete: 'set null' }),
     sourceKind: text('source_kind').notNull().default('uploaded'), // 'uploaded' | 'generated' | 'imported'
     flatSourceKey: text('flat_source_key'), // provenance only for sourceKind='generated' — never sent to ComfyUI

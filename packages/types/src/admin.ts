@@ -628,6 +628,7 @@ export const PatchGarmentTypeBody = z.object({
   mannequinWorkflowTemplateId: z.string().uuid().nullable().optional(),
   sareeStep2WorkflowTemplateId: z.string().uuid().nullable().optional(),
   mannequinTwoInputWorkflowTemplateId: z.string().uuid().nullable().optional(),
+  twoInputTryonWorkflowTemplateId: z.string().uuid().nullable().optional(),
   publicApiSlug: PublicApiSlugField,
 });
 export const PresignGarmentTypeBody = z.object({

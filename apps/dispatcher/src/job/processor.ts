@@ -1839,6 +1839,7 @@ async function processWidgetJob(
     .select({
       jsonContent: schema.workflowTemplates.jsonContent,
       tryonGarmentNodeId: schema.workflowTemplates.tryonGarmentNodeId,
+      tryonGarmentNodeId2: schema.workflowTemplates.tryonGarmentNodeId2,
       tryonPersonNodeId: schema.workflowTemplates.tryonPersonNodeId,
       tryonOutputNodeId: schema.workflowTemplates.tryonOutputNodeId,
     })
@@ -1868,6 +1869,7 @@ async function processWidgetJob(
   }
 
   const garmentNodeId = templateRow.tryonGarmentNodeId;
+  const garmentNodeId2 = templateRow.tryonGarmentNodeId2;
   const customerPhotoNodeId = templateRow.tryonPersonNodeId;
   const outputNodeId = templateRow.tryonOutputNodeId;
 
@@ -1876,6 +1878,27 @@ async function processWidgetJob(
       { workflowTemplateId },
       'resolved tryon workflow template is missing node ID mappings',
     );
+    await markWidgetFailed(
+      cfg,
+      jobId,
+      merchantId,
+      creditsCharged,
+      stream,
+      messageId,
+      'TRYON_NODES_NOT_CONFIGURED',
+      jobLog,
+      startedAt,
+      job.source,
+    );
+    return;
+  }
+
+  // A template with a second garment node requires a second garment key on the job, and
+  // vice versa — a mismatch means resolveTryonGarment and this template disagree about
+  // whether this is a two-input job, which should never happen if Task 5's config
+  // validation ran correctly. Fail loud rather than silently dropping the pallu image.
+  if (garmentNodeId2 && !inputs.thirdGarmentKey) {
+    jobLog.error({ workflowTemplateId }, 'two-input template but job has no thirdGarmentKey');
     await markWidgetFailed(
       cfg,
       jobId,
@@ -1951,11 +1974,18 @@ async function processWidgetJob(
     }
 
     jobLog.info('uploading merchant widget inputs to ComfyUI');
-    const [garmentFilename, customerPhotoFilename] = await Promise.all([
+    const uploads = await Promise.all([
       uploadToComfy(upperGarmentKey, 'merchant_garment'),
       uploadToComfy(customerPhotoKey, 'merchant_customer'),
+      ...(garmentNodeId2 && inputs.thirdGarmentKey
+        ? [uploadToComfy(inputs.thirdGarmentKey, 'merchant_garment2')]
+        : []),
     ]);
-    jobLog.info({ garmentFilename, customerPhotoFilename }, 'merchant widget inputs uploaded');
+    const [garmentFilename, customerPhotoFilename, secondGarmentFilename] = uploads;
+    jobLog.info(
+      { garmentFilename, customerPhotoFilename, secondGarmentFilename },
+      'merchant widget inputs uploaded',
+    );
 
     // Clone and patch workflow using node IDs from DB
     const workflow = structuredClone(templateRow.jsonContent) as Record<
@@ -1967,6 +1997,9 @@ async function processWidgetJob(
     if (workflow[customerPhotoNodeId]?.inputs)
       // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
       workflow[customerPhotoNodeId].inputs!.image = customerPhotoFilename;
+    if (garmentNodeId2 && secondGarmentFilename && workflow[garmentNodeId2]?.inputs)
+      // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
+      workflow[garmentNodeId2].inputs!.image = secondGarmentFilename;
 
     await transitionJob(db, pub, jobId, '', 'GENERATING', { workerId: w.id }, jobLog);
     const clientUuid = randomUUID();
@@ -1982,7 +2015,14 @@ async function processWidgetJob(
         workerId: w.id,
         workerUrl: w.url,
         workflowTemplateId,
-        inputs: { customerPhotoKey, upperGarmentKey, customerPhotoFilename, garmentFilename },
+        inputs: {
+          customerPhotoKey,
+          upperGarmentKey,
+          thirdGarmentKey: inputs.thirdGarmentKey ?? null,
+          customerPhotoFilename,
+          garmentFilename,
+          secondGarmentFilename: secondGarmentFilename ?? null,
+        },
       },
     });
 

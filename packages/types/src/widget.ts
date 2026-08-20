@@ -74,6 +74,10 @@ export const MerchantCatalogCreateBody = z.object({
   offerPrice: z.number().int().min(0), // rupees — converted to paise at the route layer
   r2Key: z.string().min(1),
   thumbnailKey: z.string().min(1),
+  // Pallu image for a two-input saree product uploaded directly — both optional and
+  // present together, or both absent. Route-layer validates that pairing.
+  secondR2Key: z.string().min(1).optional(),
+  secondThumbnailKey: z.string().min(1).optional(),
 });
 export type MerchantCatalogCreateBody = z.infer<typeof MerchantCatalogCreateBody>;
 
@@ -121,6 +125,9 @@ export const MerchantCatalogItem = z.object({
   thumbnailKey: z.string(),
   imageUrl: z.string().url().nullable(),
   thumbnailUrl: z.string().url().nullable(),
+  secondR2Key: z.string().nullable(),
+  secondThumbnailKey: z.string().nullable(),
+  secondImageUrl: z.string().url().nullable(),
   sourceJobId: z.string().uuid().nullable(),
   sourceKind: MerchantCatalogSourceKind,
   flatSourceKey: z.string().nullable(),
@@ -177,6 +184,17 @@ export const MerchantCatalogSubcategory = z.object({
   category: MerchantCatalogCategory,
   name: z.string(),
   garmentSubcategoryId: z.string().uuid(),
+  // True only when the linked garment type both requires the mannequin step AND has a
+  // two-input (body + pallu) step-1 workflow configured. Drives whether ProductModal
+  // shows a second "Pallu" upload box for this subcategory — see docs/superpowers/plans/
+  // 2026-08-20-merchant-catalog-saree-two-input.md.
+  supportsTwoInputMannequin: z.boolean(),
+  // True only when garmentSubcategories.twoInputTryonWorkflowTemplateId is set — gates
+  // whether ProductModal's "Catalogue Image" (direct upload) mode shows a second Pallu
+  // upload box. Independent of supportsTwoInputMannequin (that one gates the "Flat Image"
+  // AI-generate mode's Pallu box instead) — a garment type can have either, both, or
+  // neither configured.
+  supportsTwoInputDirectTryon: z.boolean(),
   sortOrder: z.number().int(),
   productCount: z.number().int(),
   createdAt: z.string(),

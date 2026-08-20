@@ -147,6 +147,16 @@ export const garmentSubcategories = pgTable('garment_subcategories', {
     () => workflowTemplates.id,
     { onDelete: 'set null' },
   ),
+  // Independent of mannequinTwoInputWorkflowTemplateId above (that one drives catalogue-
+  // image GENERATION from a model-gallery face; this one drives DIRECT customer try-on
+  // from a merchant catalog item that has a second/pallu image, patching the real
+  // customer photo — not a model face — into the same person-node role). See
+  // resolveTryonGarment.ts and docs/superpowers/plans/
+  // 2026-08-20-merchant-catalog-two-input-direct-tryon.md.
+  twoInputTryonWorkflowTemplateId: uuid('two_input_tryon_workflow_template_id').references(
+    () => workflowTemplates.id,
+    { onDelete: 'set null' },
+  ),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
