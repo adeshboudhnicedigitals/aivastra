@@ -9,6 +9,7 @@ interface CreateMerchantTryonJobInput {
   merchantId: string;
   merchantUserId: string;
   upperGarmentKey: string;
+  secondGarmentKey?: string;
   customerPhotoKey: string;
   workflowTemplateId: string;
 }
@@ -36,6 +37,7 @@ export async function createMerchantTryonJob(
     await (tx.insert(schema.jobInputs).values as any)({
       jobId,
       upperGarmentKey: input.upperGarmentKey,
+      thirdGarmentKey: input.secondGarmentKey ?? null,
       faceId: null,
       backgroundId: null,
       poseId: null,
