@@ -13,6 +13,7 @@ interface ProductModalProps {
   onSaved: () => void;
   subcategoryId: string | null;
   supportsTwoInputMannequin: boolean;
+  supportsTwoInputDirectTryon: boolean;
   initialData?: MerchantCatalogItem;
 }
 
@@ -22,6 +23,7 @@ export function ProductModal({
   onSaved,
   subcategoryId,
   supportsTwoInputMannequin,
+  supportsTwoInputDirectTryon,
   initialData,
 }: ProductModalProps) {
   const [label, setLabel] = useState('');
@@ -156,6 +158,7 @@ export function ProductModal({
   };
 
   const requiresPallu = imageMode === 'flat' && supportsTwoInputMannequin;
+  const requiresCataloguePallu = imageMode === 'catalogue' && supportsTwoInputDirectTryon;
 
   const handleGenerate = async () => {
     if (!selectedFile || !subcategoryId) return;
@@ -198,7 +201,7 @@ export function ProductModal({
   const hasPriceError = offerPriceNum > actualPriceNum;
   const missingImage =
     !isEditing &&
-    ((imageMode === 'catalogue' && !selectedFile) ||
+    ((imageMode === 'catalogue' && (!selectedFile || (requiresCataloguePallu && !palluFile))) ||
       (imageMode === 'flat' && !generatedItem && (!selectedFile || (requiresPallu && !palluFile))));
   const isSaveDisabled = hasPriceError || isGenerating || isSaving || missingImage;
 
@@ -224,14 +227,27 @@ export function ProductModal({
         await api.patch(`/v1/merchant/catalog/${generatedItem.id}`, priceFields);
       } else {
         if (!selectedFile) throw new Error('Upload a product image first.');
+        if (requiresCataloguePallu && !palluFile) throw new Error('Upload the pallu photo first.');
         const [{ r2Key }, { r2Key: thumbnailKey }] = await Promise.all([
           presignAndUpload(selectedFile, 'image'),
           presignAndUpload(selectedFile, 'thumbnail'),
         ]);
+        let secondR2Key: string | undefined;
+        let secondThumbnailKey: string | undefined;
+        if (requiresCataloguePallu) {
+          const [secondUpload, secondThumbUpload] = await Promise.all([
+            presignAndUpload(palluFile as File, 'image'),
+            presignAndUpload(palluFile as File, 'thumbnail'),
+          ]);
+          secondR2Key = secondUpload.r2Key;
+          secondThumbnailKey = secondThumbUpload.r2Key;
+        }
         await api.post('/v1/merchant/catalog', {
           subcategoryId,
           r2Key,
           thumbnailKey,
+          ...(secondR2Key ? { secondR2Key } : {}),
+          ...(secondThumbnailKey ? { secondThumbnailKey } : {}),
           ...priceFields,
         });
       }
@@ -365,60 +381,104 @@ export function ProductModal({
               )}
 
               {imageMode === 'catalogue' ? (
-                <div
-                  // biome-ignore lint/a11y/useKeyWithClickEvents: simple click trigger
-                  onClick={() => !busy && fileInputRef.current?.click()}
-                  style={{
-                    height: 140,
-                    borderRadius: 8,
-                    border: `1px dashed ${C.border2}`,
-                    background: 'transparent',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: busy ? 'not-allowed' : 'pointer',
-                    overflow: 'hidden',
-                    position: 'relative',
-                    gap: 8,
-                  }}
-                  className="hover-surface"
-                >
-                  {previewUrl ? (
-                    <>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      {/* biome-ignore lint/performance/noImgElement: local preview */}
-                      <img
-                        src={previewUrl}
-                        alt="Preview"
-                        style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                      />
-                      <div
-                        style={{
-                          position: 'absolute',
-                          bottom: 0,
-                          left: 0,
-                          right: 0,
-                          background: 'rgba(0,0,0,0.6)',
-                          color: '#fff',
-                          fontSize: 12,
-                          textAlign: 'center',
-                          padding: '6px 0',
-                          fontWeight: 500,
-                        }}
-                      >
-                        Click to change image
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div style={{ color: C.mid }}>
-                        <UploadIcon size={28} />
-                      </div>
-                      <div style={{ fontSize: 13, color: C.mid, fontWeight: 500 }}>
-                        Click to upload product image
-                      </div>
-                    </>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div
+                    // biome-ignore lint/a11y/useKeyWithClickEvents: simple click trigger
+                    onClick={() => !busy && fileInputRef.current?.click()}
+                    style={{
+                      height: 140,
+                      borderRadius: 8,
+                      border: `1px dashed ${C.border2}`,
+                      background: 'transparent',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: busy ? 'not-allowed' : 'pointer',
+                      overflow: 'hidden',
+                      position: 'relative',
+                      gap: 8,
+                    }}
+                    className="hover-surface"
+                  >
+                    {previewUrl ? (
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        {/* biome-ignore lint/performance/noImgElement: local preview */}
+                        <img
+                          src={previewUrl}
+                          alt="Preview"
+                          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                        />
+                        <div
+                          style={{
+                            position: 'absolute',
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            background: 'rgba(0,0,0,0.6)',
+                            color: '#fff',
+                            fontSize: 12,
+                            textAlign: 'center',
+                            padding: '6px 0',
+                            fontWeight: 500,
+                          }}
+                        >
+                          Click to change image
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ color: C.mid }}>
+                          <UploadIcon size={28} />
+                        </div>
+                        <div style={{ fontSize: 13, color: C.mid, fontWeight: 500 }}>
+                          {requiresCataloguePallu
+                            ? 'Click to upload the body (front) photo'
+                            : 'Click to upload product image'}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  {requiresCataloguePallu && (
+                    <div
+                      // biome-ignore lint/a11y/useKeyWithClickEvents: simple click trigger
+                      onClick={() => !busy && palluInputRef.current?.click()}
+                      style={{
+                        height: 140,
+                        borderRadius: 8,
+                        border: `1px dashed ${C.border2}`,
+                        background: palluPreviewUrl ? C.field : 'transparent',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: busy ? 'not-allowed' : 'pointer',
+                        overflow: 'hidden',
+                        position: 'relative',
+                        gap: 8,
+                      }}
+                      className="hover-surface"
+                    >
+                      {palluPreviewUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        // biome-ignore lint/performance/noImgElement: local preview
+                        <img
+                          src={palluPreviewUrl}
+                          alt="Pallu Preview"
+                          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                        />
+                      ) : (
+                        <>
+                          <div style={{ color: C.mid }}>
+                            <UploadIcon size={28} />
+                          </div>
+                          <div style={{ fontSize: 13, color: C.mid, fontWeight: 500 }}>
+                            Click to upload the pallu photo
+                          </div>
+                        </>
+                      )}
+                    </div>
                   )}
                 </div>
               ) : (
