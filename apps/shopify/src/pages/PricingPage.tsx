@@ -1,4 +1,3 @@
-import { DEFAULT_PAYG_SPEND_CAP_USD_CENTS } from '@aivastra/types';
 import {
   Badge,
   Banner,
@@ -10,6 +9,7 @@ import {
   InlineGrid,
   InlineStack,
   Page,
+  Select,
   SkeletonBodyText,
   SkeletonPage,
   Text,
@@ -18,45 +18,25 @@ import {
 import { CheckIcon } from '@shopify/polaris-icons';
 import { useEffect, useState } from 'react';
 import { apiFetch, navigateTopLevel } from '../lib/api';
-import { resolvePlanSelectionUrl } from '../lib/billing';
-import {
-  PAYG_MIN_SPEND_CAP_USD,
-  PAYG_PRICE_PER_TRYON_USD,
-  PLAN_FEATURE_SETS,
-  SHARED_FEATURE_BULLETS,
-} from '../lib/planFeatures';
+import { PACK_DISPLAY, SHARED_FEATURE_BULLETS, tryOnsFromCredits } from '../lib/packs';
 import type { ShopifyMe } from '../types';
-
-// Set at build time from Partner Dashboard's app handle — see
-// .env.production.example for VITE_SHOPIFY_APP_HANDLE.
-const APP_HANDLE = import.meta.env.VITE_SHOPIFY_APP_HANDLE ?? '';
-
-function FeatureRow({ label, included }: { label: string; included: boolean }) {
-  return (
-    <InlineStack gap="200" blockAlign="center" wrap={false}>
-      <Box width="20px">
-        {included ? (
-          <Icon source={CheckIcon} tone="success" />
-        ) : (
-          <Text as="span" tone="subdued">
-            —
-          </Text>
-        )}
-      </Box>
-      <Text as="span" tone={included ? undefined : 'subdued'}>
-        {label}
-      </Text>
-    </InlineStack>
-  );
-}
+import { LowCreditsBanner } from './DashboardPage';
 
 export default function PricingPage() {
   const [me, setMe] = useState<ShopifyMe | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [capInput, setCapInput] = useState('');
-  const [capSaving, setCapSaving] = useState(false);
-  const [capError, setCapError] = useState<string | null>(null);
+  const [buying, setBuying] = useState<string | null>(null);
+  const [refillPack, setRefillPack] = useState('pack_25');
+  const [refillCap, setRefillCap] = useState('100');
+  // Percent of the selected pack's credits, not a raw credit count — matches
+  // the server's own default (defaultTriggerCredits, autorefill.ts: 20% of
+  // pack.credits) so leaving this untouched reproduces exactly what enrolling
+  // with no triggerCredits at all already did.
+  const [refillThresholdPct, setRefillThresholdPct] = useState('20');
+  const [enrolling, setEnrolling] = useState(false);
+  const [newCap, setNewCap] = useState('');
+  const [raisingCap, setRaisingCap] = useState(false);
 
   useEffect(() => {
     apiFetch<ShopifyMe>('/v1/shopify/me')
@@ -65,37 +45,74 @@ export default function PricingPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  async function saveSpendCap() {
-    const dollars = Number.parseFloat(capInput);
-    if (Number.isNaN(dollars) || dollars < PAYG_MIN_SPEND_CAP_USD) {
-      setCapError(`Minimum is $${PAYG_MIN_SPEND_CAP_USD}`);
-      return;
-    }
-    setCapSaving(true);
-    setCapError(null);
+  async function buyPack(packId: string) {
+    setBuying(packId);
+    setError(null);
     try {
-      await apiFetch('/v1/shopify/billing/payg-cap', {
-        method: 'PATCH',
-        body: JSON.stringify({ spendCapUsdCents: Math.round(dollars * 100) }),
-      });
-      const refreshed = await apiFetch<ShopifyMe>('/v1/shopify/me');
-      setMe(refreshed);
+      const { confirmationUrl } = await apiFetch<{ purchaseId: string; confirmationUrl: string }>(
+        '/v1/shopify/billing/purchase',
+        { method: 'POST', body: JSON.stringify({ packId }) },
+      );
+      // Shopify's approval page is outside the embedded app's origin, so this
+      // must be a top-level navigation — an iframe navigation is blocked.
+      navigateTopLevel(confirmationUrl);
     } catch (err) {
-      setCapError((err as Error).message);
-    } finally {
-      setCapSaving(false);
+      setError((err as Error).message);
+      setBuying(null);
     }
   }
 
-  function choosePlan() {
-    if (!me) return;
-    const result = resolvePlanSelectionUrl(me.store.shopDomain, APP_HANDLE);
-    if ('error' in result) {
-      setError(result.error);
-      return;
-    }
+  async function enableAutorefill() {
+    setEnrolling(true);
     setError(null);
-    navigateTopLevel(result.url);
+    try {
+      const selectedPack = PACK_DISPLAY.find((p) => p.id === refillPack);
+      const triggerCredits = selectedPack
+        ? Math.round((selectedPack.credits * Number.parseInt(refillThresholdPct, 10)) / 100)
+        : undefined;
+      const { confirmationUrl } = await apiFetch<{ confirmationUrl: string }>(
+        '/v1/shopify/billing/autorefill',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            packId: refillPack,
+            cappedAmountUsd: Number.parseFloat(refillCap),
+            ...(triggerCredits ? { triggerCredits } : {}),
+          }),
+        },
+      );
+      navigateTopLevel(confirmationUrl);
+    } catch (err) {
+      setError((err as Error).message);
+      setEnrolling(false);
+    }
+  }
+
+  async function turnOffAutorefill() {
+    setError(null);
+    try {
+      await apiFetch('/v1/shopify/billing/autorefill', { method: 'DELETE' });
+      setMe(await apiFetch<ShopifyMe>('/v1/shopify/me'));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  async function raiseAutorefillCap() {
+    setRaisingCap(true);
+    setError(null);
+    try {
+      const { confirmationUrl } = await apiFetch<{ confirmationUrl: string }>(
+        '/v1/shopify/billing/autorefill/raise-cap',
+        { method: 'POST', body: JSON.stringify({ cappedAmountUsd: Number.parseFloat(newCap) }) },
+      );
+      // Same top-level-navigation requirement as buyPack/enableAutorefill —
+      // Shopify's approval page is outside the embedded app's origin.
+      navigateTopLevel(confirmationUrl);
+    } catch (err) {
+      setError((err as Error).message);
+      setRaisingCap(false);
+    }
   }
 
   if (loading) {
@@ -106,129 +123,255 @@ export default function PricingPage() {
     );
   }
 
+  const balance = me?.creditBalance ?? 0;
+  const autorefillStatus = me?.autorefill.status ?? null;
+  // A CANCELLED or DECLINED subscription is dead at Shopify's end — nothing
+  // further happens to it, so the merchant needs the enrolment form back, not
+  // a dead-end screen that only shows a "Turn off" button for a subscription
+  // that's already off. `me.autorefill.enabled` (server-side) stays true for
+  // these two statuses on purpose — it means "there's a status to show", not
+  // "there's a live subscription" — so this page derives its own narrower
+  // "still live at Shopify" flag instead of reusing that field.
+  const isLive =
+    autorefillStatus === 'PENDING' ||
+    autorefillStatus === 'ACTIVE' ||
+    autorefillStatus === 'CAP_REACHED';
+  const canEnrol = !isLive;
+
   return (
-    <Page title="Billing" subtitle="Choose the plan that fits your store.">
+    <Page title="Credits" subtitle="Buy credits once. They never expire.">
       <BlockStack gap="400">
         {error && <Banner tone="critical">{error}</Banner>}
 
+        {me && <LowCreditsBanner me={me} hideCapReached />}
+
         <Card>
           <BlockStack gap="200">
-            <Text as="h2" variant="headingSm">
-              All plans include
+            <Text as="p" tone="subdued">
+              Current balance
             </Text>
-            <InlineGrid columns={{ xs: 1, sm: 2, md: 5 }} gap="200">
-              {SHARED_FEATURE_BULLETS.map((label) => (
-                <FeatureRow key={label} label={label} included />
-              ))}
-            </InlineGrid>
+            <Text as="p" variant="heading2xl">
+              {balance.toLocaleString()} credits
+            </Text>
+            <Text as="p" tone="subdued">
+              About {(me?.runway?.tryOnsRemaining ?? tryOnsFromCredits(balance)).toLocaleString()}{' '}
+              try-ons remaining
+              {me?.runway?.daysRemaining != null
+                ? ` — roughly ${Math.max(1, Math.round(me.runway.daysRemaining))} days at your current rate`
+                : ''}
+            </Text>
           </BlockStack>
         </Card>
 
-        <InlineGrid columns={{ xs: 1, md: 3 }} gap="400">
-          {PLAN_FEATURE_SETS.map((plan) => {
-            const isCurrent = me?.store.planHandle === plan.handle;
-            return (
-              <Card key={plan.handle}>
-                <BlockStack gap="400">
-                  <BlockStack gap="100">
-                    <InlineStack gap="200" blockAlign="center">
-                      <Text as="h2" variant="headingLg">
-                        {plan.label}
-                      </Text>
-                      {plan.bestValue && <Badge tone="success">Best value</Badge>}
-                      {isCurrent && <Badge>Current plan</Badge>}
-                    </InlineStack>
-                    <Text as="p" variant="heading2xl">
-                      ${plan.priceUsd}
-                      <Text as="span" tone="subdued" variant="bodyMd">
-                        {' '}
-                        / month
-                      </Text>
-                    </Text>
-                    <Text as="p" tone="subdued">
-                      {plan.credits.toLocaleString()} credits ·{' '}
-                      {plan.virtualTryOns.toLocaleString()} virtual try-ons
-                    </Text>
-                  </BlockStack>
+        <InlineGrid columns={{ xs: 1, sm: 2, lg: 4 }} gap="400">
+          {PACK_DISPLAY.map((pack) => (
+            <Card key={pack.id}>
+              <BlockStack gap="300">
+                <InlineStack align="space-between" blockAlign="center">
+                  <Text as="h2" variant="headingMd">
+                    {pack.label}
+                  </Text>
+                  {pack.bestValue && <Badge tone="success">Best value</Badge>}
+                </InlineStack>
 
-                  <Box>
-                    {isCurrent ? (
-                      <Badge tone="info">Your current plan</Badge>
-                    ) : (
-                      <Button variant="primary" onClick={choosePlan}>
-                        Choose {plan.label}
-                      </Button>
-                    )}
-                  </Box>
+                <Text as="p" variant="heading2xl">
+                  ${pack.priceUsd}
+                </Text>
 
-                  <BlockStack gap="150">
-                    <FeatureRow label={`${plan.analyticsTier} try-on analytics`} included />
-                    <FeatureRow label="Custom branding" included={plan.customBranding} />
-                    <FeatureRow label="White-label experience" included={plan.whiteLabel} />
-                    <FeatureRow label={`${plan.support} support`} included />
-                  </BlockStack>
+                <BlockStack gap="100">
+                  <Text as="p">{pack.tryOns.toLocaleString()} try-ons</Text>
+                  <Text as="p" tone="subdued">
+                    {pack.credits.toLocaleString()} credits · never expire
+                  </Text>
                 </BlockStack>
-              </Card>
-            );
-          })}
+
+                <Button
+                  variant="primary"
+                  loading={buying === pack.id}
+                  disabled={buying !== null}
+                  onClick={() => buyPack(pack.id)}
+                >
+                  Buy credits
+                </Button>
+              </BlockStack>
+            </Card>
+          ))}
         </InlineGrid>
 
         <Card>
           <BlockStack gap="300">
-            <InlineStack gap="200" blockAlign="center">
-              <Text as="h2" variant="headingLg">
-                Pay as you go
+            <InlineStack align="space-between" blockAlign="center">
+              <Text as="h2" variant="headingMd">
+                Auto-refill
               </Text>
-              {me?.store.billingMode === 'usage' && <Badge>Your current plan</Badge>}
+              {autorefillStatus === 'ACTIVE' && <Badge tone="success">On</Badge>}
+              {autorefillStatus === 'PENDING' && <Badge tone="attention">Awaiting approval</Badge>}
+              {autorefillStatus === 'CAP_REACHED' && <Badge tone="critical">Limit reached</Badge>}
+              {autorefillStatus === 'CANCELLED' && <Badge>Cancelled</Badge>}
+              {autorefillStatus === 'DECLINED' && <Badge tone="attention">Declined</Badge>}
             </InlineStack>
+
             <Text as="p" tone="subdued">
-              No monthly commitment — ${PAYG_PRICE_PER_TRYON_USD.toFixed(2)} per try-on, billed
-              through your Shopify invoice.
+              Never run out. When your balance drops below your chosen threshold we buy your chosen
+              pack automatically — and auto-refill packs include 10% extra credits.
             </Text>
-            {me?.store.billingMode !== 'usage' && (
-              <Box>
-                <Button variant="primary" onClick={choosePlan}>
-                  Choose Pay as you go
-                </Button>
+
+            {/* Called out in its own block, not folded into the paragraph above —
+                these are the exact numbers governing when and how much the
+                merchant gets charged, so they should be scannable at a glance
+                rather than read out of a sentence. */}
+            {isLive && me && (
+              <Box background="bg-surface-secondary" padding="300" borderRadius="200">
+                <BlockStack gap="150">
+                  <InlineStack align="space-between">
+                    <Text as="span" tone="subdued">
+                      Refill pack
+                    </Text>
+                    <Text as="span" fontWeight="semibold">
+                      {PACK_DISPLAY.find((p) => p.id === me.autorefill.packId)?.label ??
+                        me.autorefill.packId}
+                    </Text>
+                  </InlineStack>
+                  <InlineStack align="space-between">
+                    <Text as="span" tone="subdued">
+                      Refills when balance drops below
+                    </Text>
+                    <Text as="span" fontWeight="semibold">
+                      {me.autorefill.triggerCredits != null
+                        ? `${me.autorefill.triggerCredits.toLocaleString()} credits`
+                        : '—'}
+                    </Text>
+                  </InlineStack>
+                  <InlineStack align="space-between">
+                    <Text as="span" tone="subdued">
+                      This cycle
+                    </Text>
+                    {/* Both figures come from Shopify, which is authoritative
+                        for the ceiling — a merchant can change it from the
+                        Shopify admin without this app ever seeing the click.
+                        Showing spend against it beats showing the ceiling
+                        alone: the limit only matters relative to how close
+                        they are to it. */}
+                    <Text as="span" fontWeight="semibold">
+                      {me.autorefill.cappedAmountUsdCents != null
+                        ? me.autorefill.balanceUsedUsdCents != null
+                          ? `$${(me.autorefill.balanceUsedUsdCents / 100).toFixed(2)} of $${(me.autorefill.cappedAmountUsdCents / 100).toFixed(2)} limit`
+                          : `$${(me.autorefill.cappedAmountUsdCents / 100).toFixed(2)} limit`
+                        : '—'}
+                    </Text>
+                  </InlineStack>
+                </BlockStack>
               </Box>
             )}
-            {me?.store.billingMode === 'usage' && (
-              <BlockStack gap="200">
+
+            {autorefillStatus === 'CANCELLED' && (
+              <Banner tone="warning" title="Auto-refill was cancelled">
                 <Text as="p">
-                  ${((me.paygSpendThisCycleUsdCents ?? 0) / 100).toFixed(2)} spent this cycle of $
-                  {(
-                    (me.store.paygSpendCapUsdCents ?? DEFAULT_PAYG_SPEND_CAP_USD_CENTS) / 100
-                  ).toFixed(2)}{' '}
-                  cap
+                  It was cancelled from Shopify's billing screen or is no longer active. Turn it
+                  back on below whenever you're ready.
                 </Text>
-                <InlineStack gap="200" blockAlign="end">
-                  <TextField
-                    label="Monthly spend cap (USD)"
-                    type="number"
-                    autoComplete="off"
-                    value={capInput}
-                    onChange={setCapInput}
-                    placeholder={(
-                      (me.store.paygSpendCapUsdCents ?? DEFAULT_PAYG_SPEND_CAP_USD_CENTS) / 100
-                    ).toString()}
-                  />
-                  <Button onClick={saveSpendCap} disabled={capSaving} loading={capSaving}>
-                    Save
-                  </Button>
-                </InlineStack>
-                {capError && (
-                  <Text as="p" tone="critical">
-                    {capError}
-                  </Text>
-                )}
+              </Banner>
+            )}
+
+            {autorefillStatus === 'DECLINED' && (
+              <Banner tone="warning" title="Auto-refill authorization was declined">
+                <Text as="p">
+                  You didn't approve the charge authorization, so auto-refill was never turned on.
+                  You can try again below.
+                </Text>
+              </Banner>
+            )}
+
+            {canEnrol && (
+              <BlockStack gap="200">
+                <Select
+                  label="Refill with"
+                  options={PACK_DISPLAY.map((p) => ({
+                    label: `${p.label} — $${p.priceUsd} (${tryOnsFromCredits(p.autorefillCredits).toLocaleString()} try-ons)`,
+                    value: p.id,
+                  }))}
+                  value={refillPack}
+                  onChange={setRefillPack}
+                />
+                <Select
+                  label="Refill when balance drops below"
+                  options={['10', '20', '30'].map((pct) => {
+                    const pack = PACK_DISPLAY.find((p) => p.id === refillPack);
+                    const credits = pack ? Math.round((pack.credits * Number(pct)) / 100) : 0;
+                    return { label: `${pct}% (${credits.toLocaleString()} credits)`, value: pct };
+                  })}
+                  value={refillThresholdPct}
+                  onChange={setRefillThresholdPct}
+                  helpText="20% is the default we use if you don't change this — lower means fewer, bigger refills; higher means smaller top-ups more often."
+                />
+                <TextField
+                  label="Monthly limit"
+                  type="number"
+                  prefix="$"
+                  value={refillCap}
+                  onChange={setRefillCap}
+                  helpText="The most we can charge you in a 30-day period. You approve this once; refills after that are automatic. You can change or cancel it any time."
+                  autoComplete="off"
+                />
+                <Button variant="primary" loading={enrolling} onClick={enableAutorefill}>
+                  Turn on auto-refill
+                </Button>
               </BlockStack>
+            )}
+
+            {autorefillStatus === 'CAP_REACHED' && me && (
+              <Banner tone="critical" title="Auto-refill has stopped">
+                <BlockStack gap="200">
+                  <Text as="p">
+                    You've reached your $
+                    {((me.autorefill.cappedAmountUsdCents ?? 0) / 100).toFixed(2)} monthly limit.
+                    Raise it to resume automatic refills — Shopify will ask you to approve the new
+                    limit.
+                  </Text>
+                  <InlineStack gap="200" blockAlign="end">
+                    <TextField
+                      label="New monthly limit"
+                      labelHidden
+                      type="number"
+                      prefix="$"
+                      value={newCap}
+                      onChange={setNewCap}
+                      placeholder={((me.autorefill.cappedAmountUsdCents ?? 0) / 100).toFixed(0)}
+                      autoComplete="off"
+                    />
+                    <Button loading={raisingCap} disabled={!newCap} onClick={raiseAutorefillCap}>
+                      Raise limit
+                    </Button>
+                  </InlineStack>
+                </BlockStack>
+              </Banner>
+            )}
+
+            {isLive && (
+              <Button tone="critical" variant="plain" onClick={turnOffAutorefill}>
+                Turn off auto-refill
+              </Button>
             )}
           </BlockStack>
         </Card>
 
-        <Text as="p" tone="subdued">
-          You'll confirm your plan on Shopify's page next.
-        </Text>
+        <Card>
+          <BlockStack gap="300">
+            <Text as="h2" variant="headingMd">
+              Included with every pack
+            </Text>
+            <InlineGrid columns={{ xs: 1, sm: 2 }} gap="200">
+              {SHARED_FEATURE_BULLETS.map((label) => (
+                <InlineStack key={label} gap="200" blockAlign="center" wrap={false}>
+                  <Box width="20px">
+                    <Icon source={CheckIcon} tone="success" />
+                  </Box>
+                  <Text as="span">{label}</Text>
+                </InlineStack>
+              ))}
+            </InlineGrid>
+          </BlockStack>
+        </Card>
       </BlockStack>
     </Page>
   );

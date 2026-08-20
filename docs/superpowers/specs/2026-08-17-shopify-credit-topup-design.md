@@ -1,8 +1,26 @@
 # Shopify credit top-up (one-time purchase) — design
 
 **Date:** 2026-08-17
-**Status:** SUPERSEDED — see "Why this was abandoned" below
+**Status:** SUPERSEDED — but the underlying idea was revived on 2026-08-19; see
+`2026-08-19-shopify-credit-wallet-design.md`
 **Branch:** `feature/shopify-credit-topup`
+
+## Correction (2026-08-19)
+
+Two claims below are wrong and were re-verified against shopify.dev:
+
+1. **"Shopify sends no webhook for a one-time purchase"** (under "Approach").
+   False. `APP_PURCHASES_ONE_TIME_UPDATE` is a documented webhook topic. The
+   merchant-facing confirm route does not have to be the only grant path.
+2. **The implied cost of leaving App Pricing.** Switching to Manual Pricing is
+   supported from Partner Dashboard settings and, per Shopify staff, requires
+   **no app re-review**. The blocker below is real — Shopify staff confirmed
+   the App Pricing restriction covers one-time charges, not just recurring ones
+   — but the price of removing it was overestimated here.
+
+The reasoning that survived intact: snapshot config at purchase time, price is
+code and credits are admin-tunable, and the cannibalization constraint on pack
+pricing. All three carry forward into the wallet design.
 
 ## Why this was abandoned
 

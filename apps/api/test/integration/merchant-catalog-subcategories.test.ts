@@ -66,6 +66,33 @@ async function seedSareeGarmentType(app: TestApp, genderSlug: string) {
   return row;
 }
 
+async function seedTwoInputWorkflowTemplate(app: TestApp) {
+  const [wf] = await app.db
+    .insert(schema.workflowTemplates)
+    .values({
+      slug: `saree-step1-two-input-${randomUUID()}`,
+      label: 'Saree Step1 Two Input',
+      jsonContent: {
+        '1': { class_type: 'LoadImage', inputs: { image: 'placeholder.jpg' } },
+        '2': { class_type: 'LoadImage', inputs: { image: 'placeholder.jpg' } },
+        '3': { class_type: 'LoadImage', inputs: { image: 'placeholder.jpg' } },
+      },
+      workflowType: 'saree_step1_two_input',
+      faceNodeId: '',
+      poseNodeId: '',
+      bgNodeId: '',
+      upperNodeIds: [],
+      facePhasePromptNode: '',
+      garmentPhasePromptNode: '',
+      tryonPersonNodeId: '1',
+      tryonGarmentNodeId: '2',
+      tryonGarmentNodeId2: '3',
+      tryonOutputNodeId: '10',
+    })
+    .returning();
+  return wf;
+}
+
 describe('merchant catalog subcategories', () => {
   let c: Containers;
   let app: TestApp;
@@ -247,5 +274,62 @@ describe('merchant catalog subcategories', () => {
       expect(sareeOnlyBody.items).toHaveLength(1);
       expect(sareeOnlyBody.items[0].name).toBe('Sarees');
     });
+  });
+
+  it('supportsTwoInputMannequin is true only when the garment type requires the mannequin step and has a two-input workflow configured', async () => {
+    const merchant = await createMerchant(app, 'two-input-flag@example.com');
+    const auth = await authHeader(merchant.userId);
+
+    const twoInputWf = await seedTwoInputWorkflowTemplate(app);
+    const [sareeType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({
+        genderSlug: 'women',
+        slug: `saree-two-input-${randomUUID()}`,
+        label: 'Saree',
+        requiresMannequinStep: true,
+        mannequinTwoInputWorkflowTemplateId: twoInputWf.id,
+      })
+      .returning();
+    const [plainType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({ genderSlug: 'women', slug: `shirt-${randomUUID()}`, label: 'Shirt' })
+      .returning();
+
+    const sareeSubRes = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/subcategories',
+      headers: auth,
+      payload: { category: 'women', name: 'Sarees', garmentSubcategoryId: sareeType.id },
+    });
+    const plainSubRes = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/subcategories',
+      headers: auth,
+      payload: { category: 'women', name: 'Shirts', garmentSubcategoryId: plainType.id },
+    });
+    expect(
+      (sareeSubRes.json() as { supportsTwoInputMannequin: boolean }).supportsTwoInputMannequin,
+    ).toBe(true);
+    expect(
+      (plainSubRes.json() as { supportsTwoInputMannequin: boolean }).supportsTwoInputMannequin,
+    ).toBe(false);
+
+    const list = await app.inject({
+      method: 'GET',
+      url: '/v1/merchant/catalog/subcategories?category=women',
+      headers: auth,
+    });
+    const items = (
+      list.json() as { items: Array<{ id: string; supportsTwoInputMannequin: boolean }> }
+    ).items;
+    expect(
+      items.find((i) => i.id === (sareeSubRes.json() as { id: string }).id)
+        ?.supportsTwoInputMannequin,
+    ).toBe(true);
+    expect(
+      items.find((i) => i.id === (plainSubRes.json() as { id: string }).id)
+        ?.supportsTwoInputMannequin,
+    ).toBe(false);
   });
 });

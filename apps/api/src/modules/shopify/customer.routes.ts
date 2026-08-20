@@ -21,6 +21,7 @@ import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 import { atomicDeductStore, refundStoreAndMarkFailed } from '../credits/shopify-ledger.js';
 import { resolveEffectiveEnabled } from './activation.js';
+import { runRefill } from './autorefill.js';
 import { mintAccountLinkCode } from './customer-auth.js';
 import {
   checkShopperLimits,
@@ -29,7 +30,6 @@ import {
   reserveStoreDailySlot,
   ShopperLimitRaceRefusal,
 } from './limits.js';
-import { checkPaygSpendCap } from './payg.js';
 import { resolveShopper } from './shopper.js';
 
 const SLOT_RELEASE_MAX_ATTEMPTS = 3;
@@ -303,12 +303,8 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
       const storeId = req.shopifyStoreId as string;
       const store = req.shopifyStoreRow as typeof schema.shopifyStores.$inferSelect;
 
-      const jobCost = store.billingMode === 'usage' ? 0 : await getTryonCreditCost(app);
-      if (store.billingMode === 'usage') {
-        await checkPaygSpendCap(app, store);
-      } else {
-        await requireStoreHasCredits(app, store, jobCost);
-      }
+      const jobCost = await getTryonCreditCost(app);
+      await requireStoreHasCredits(app, store, jobCost);
 
       const {
         customerPhotoKey,
@@ -460,18 +456,22 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
               // than re-resolving — a default promoted mid-flight can't change the
               // workflow under a job whose credits are already deducted.
               workflowTemplateId,
-              // Pinned at creation, same reasoning as workflowTemplateId: the
-              // dispatcher must never re-check the store's live billingMode,
-              // since a plan change mid-flight could otherwise change how a
-              // job in progress gets billed.
-              ...(store.billingMode === 'usage' ? { billingMode: 'usage' as const } : {}),
             },
           });
-          if (store.billingMode !== 'usage') {
-            await atomicDeductStore(tx as never, storeId, jobCost, jobId);
-          }
+          await atomicDeductStore(tx as never, storeId, jobCost, jobId);
         });
         jobCommitted = true;
+
+        // Fired after the transaction commits and deliberately NOT awaited: a
+        // shopper is waiting on this request, and a Shopify round trip has no
+        // business being in their critical path. The hourly sweep in
+        // alert-scheduler.ts is the safety net if this process dies before the
+        // promise settles, so losing it costs at most an hour, never a charge.
+        if (store.autorefillStatus === 'ACTIVE') {
+          void runRefill(app, store).catch((err) => {
+            app.log.error({ err, storeId }, 'auto-refill after job dispatch failed');
+          });
+        }
 
         // Extends the presign-time ownership marker (originally EX 600, matching the
         // presigned URL's own expiry) to 24h now that the photo has proven itself real
@@ -511,30 +511,15 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
             // its ledger entry, and the FAILED transition either all land or
             // none do — see refundStoreAndMarkFailed for why the old
             // two-step version could leave a partially-compensated job after
-            // a crash. The usage-mode branch below is not that: there's
-            // nothing to refund and no ledger entry, so it's a plain
-            // conditional status update, not a transaction.
-            let compensated: boolean;
-            if (store.billingMode === 'usage') {
-              // Nothing was deducted for a usage-mode job — only the FAILED
-              // transition matters here, same QUEUED-guard idempotency as
-              // refundStoreAndMarkFailed's job update below.
-              const [claimed] = await app.db
-                .update(schema.jobs)
-                .set({ status: 'FAILED', errorCode: 'ENQUEUE_FAIL' })
-                .where(and(eq(schema.jobs.id, jobId), eq(schema.jobs.status, 'QUEUED')))
-                .returning({ id: schema.jobs.id });
-              compensated = Boolean(claimed);
-            } else {
-              ({ compensated } = await refundStoreAndMarkFailed(
-                app.db,
-                storeId,
-                jobCost,
-                jobId,
-                'REFUND_ENQUEUE_FAIL',
-                'ENQUEUE_FAIL',
-              ));
-            }
+            // a crash.
+            const { compensated } = await refundStoreAndMarkFailed(
+              app.db,
+              storeId,
+              jobCost,
+              jobId,
+              'REFUND_ENQUEUE_FAIL',
+              'ENQUEUE_FAIL',
+            );
             if (!compensated) {
               // The XADD looked like it failed but actually landed: the
               // dispatcher already picked the job up and moved it past QUEUED

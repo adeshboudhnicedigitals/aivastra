@@ -22,7 +22,7 @@ import { assertMerchantUploadKey } from './upload-guard.js';
 type MerchantCatalogRow = typeof schema.merchantCatalogItems.$inferSelect;
 
 async function serializeCatalogItem(app: FastifyInstance, item: MerchantCatalogRow) {
-  const [imageUrl, thumbnailUrl] = await Promise.all([
+  const [imageUrl, thumbnailUrl, secondImageUrl] = await Promise.all([
     app.storage
       .presignGet(item.r2Key, 3600)
       .then((result) => result.url)
@@ -31,6 +31,12 @@ async function serializeCatalogItem(app: FastifyInstance, item: MerchantCatalogR
       .presignGet(item.thumbnailKey, 3600)
       .then((result) => result.url)
       .catch(() => null),
+    item.secondR2Key
+      ? app.storage
+          .presignGet(item.secondR2Key, 3600)
+          .then((result) => result.url)
+          .catch(() => null)
+      : Promise.resolve(null),
   ]);
 
   return {
@@ -39,6 +45,7 @@ async function serializeCatalogItem(app: FastifyInstance, item: MerchantCatalogR
     offerPrice: Math.round(item.offerPricePaise / 100),
     imageUrl,
     thumbnailUrl,
+    secondImageUrl,
   };
 }
 
@@ -136,7 +143,26 @@ async function serializeSubcategory(
     .select({ n: count() })
     .from(schema.merchantCatalogItems)
     .where(eq(schema.merchantCatalogItems.subcategoryId, row.id));
-  return { ...row, productCount: n };
+  // Mirrors the existing per-row productCount lookup above — same N+1-per-row shape this
+  // function already has, not a new performance concern for a merchant's subcategory list
+  // (bounded by how many subcategories one merchant creates, never paginated at scale).
+  const [garmentType] = await app.db
+    .select({
+      requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep,
+      mannequinTwoInputWorkflowTemplateId:
+        schema.garmentSubcategories.mannequinTwoInputWorkflowTemplateId,
+      twoInputTryonWorkflowTemplateId: schema.garmentSubcategories.twoInputTryonWorkflowTemplateId,
+    })
+    .from(schema.garmentSubcategories)
+    .where(eq(schema.garmentSubcategories.id, row.garmentSubcategoryId));
+  return {
+    ...row,
+    productCount: n,
+    supportsTwoInputMannequin: Boolean(
+      garmentType?.requiresMannequinStep && garmentType?.mannequinTwoInputWorkflowTemplateId,
+    ),
+    supportsTwoInputDirectTryon: Boolean(garmentType?.twoInputTryonWorkflowTemplateId),
+  };
 }
 
 export async function merchantCatalogRoutes(app: FastifyInstance) {
@@ -533,6 +559,12 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
       await Promise.all([
         assertMerchantUploadKey(app, merchantId, body.r2Key, 'image'),
         assertMerchantUploadKey(app, merchantId, body.thumbnailKey, 'thumbnail'),
+        ...(body.secondR2Key
+          ? [assertMerchantUploadKey(app, merchantId, body.secondR2Key, 'second image')]
+          : []),
+        ...(body.secondThumbnailKey
+          ? [assertMerchantUploadKey(app, merchantId, body.secondThumbnailKey, 'second thumbnail')]
+          : []),
       ]);
 
       const [item] = await app.db
@@ -546,6 +578,8 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
           offerPricePaise: body.offerPrice * 100,
           r2Key: body.r2Key,
           thumbnailKey: body.thumbnailKey,
+          secondR2Key: body.secondR2Key ?? null,
+          secondThumbnailKey: body.secondThumbnailKey ?? null,
         })
         .returning();
 
@@ -664,6 +698,10 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
       await Promise.allSettled([
         app.storage.deleteObject(deleted.r2Key),
         app.storage.deleteObject(deleted.thumbnailKey),
+        ...(deleted.secondR2Key ? [app.storage.deleteObject(deleted.secondR2Key)] : []),
+        ...(deleted.secondThumbnailKey
+          ? [app.storage.deleteObject(deleted.secondThumbnailKey)]
+          : []),
       ]);
 
       reply.code(204);
@@ -902,6 +940,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
             flatImageKey,
             subcategoryId,
             merchantId,
+            secondFlatImageKey,
           });
 
       reply.code(201);

@@ -2,31 +2,64 @@ import { useEffect, useState } from 'react';
 import { Icon } from '../../components/Icons';
 import { apiErrorMessage, apiFetch } from '../../lib/data';
 
+// Static, and deliberately not editable here: the price is the number sent to
+// Shopify in the charge mutation. Config that changes what a merchant is
+// *charged* is a different risk class from config that changes what they
+// *receive*, so only the credit figures below are tunable.
+const PACKS = [
+  { id: 'pack_10', label: 'Starter', priceUsd: 10 },
+  { id: 'pack_25', label: 'Growth', priceUsd: 25 },
+  { id: 'pack_50', label: 'Pro', priceUsd: 50 },
+  { id: 'pack_100', label: 'Enterprise', priceUsd: 100 },
+] as const;
+
+type PackId = (typeof PACKS)[number]['id'];
+type PackCredits = Record<PackId, { credits: number; autorefillCredits: number }>;
+
+const DEFAULT_PACK_CREDITS: PackCredits = {
+  pack_10: { credits: 800, autorefillCredits: 880 },
+  pack_25: { credits: 2250, autorefillCredits: 2475 },
+  pack_50: { credits: 4800, autorefillCredits: 5280 },
+  pack_100: { credits: 10000, autorefillCredits: 11000 },
+};
+
+function centsPerCredit(priceUsd: number, credits: number): string {
+  if (!credits) return '—';
+  return `${((priceUsd * 100) / credits).toFixed(2)}¢/credit`;
+}
+
 interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
 export default function ShopifyCreditsTab({ toast }: Props) {
   const [shopifyTrialCredits, setShopifyTrialCredits] = useState(25);
-  const [shopifyPlanCredits, setShopifyPlanCredits] = useState({
-    starter: 1925,
-    growth: 5000,
-    pro: 22000,
-  });
+  const [packCredits, setPackCredits] = useState<PackCredits>(DEFAULT_PACK_CREDITS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    type IncomingPackCredits = Partial<
+      Record<PackId, Partial<{ credits: number; autorefillCredits: number }>>
+    >;
     apiFetch<{
       shopify?: {
         trialCredits: number;
-        planCredits?: { starter: number; growth: number; pro: number };
+        packCredits?: IncomingPackCredits;
       };
     }>('/admin/config')
       .then((cfg) => {
         if (cfg.shopify) {
           setShopifyTrialCredits(cfg.shopify.trialCredits);
-          if (cfg.shopify.planCredits) setShopifyPlanCredits(cfg.shopify.planCredits);
+          if (cfg.shopify.packCredits) {
+            setPackCredits((prev) => {
+              const incoming = cfg.shopify?.packCredits;
+              if (!incoming) return prev;
+              return Object.fromEntries(
+                PACKS.map((p) => [p.id, { ...prev[p.id], ...incoming[p.id] }]),
+              ) as PackCredits;
+            });
+          }
         }
       })
       .catch((e) =>
@@ -45,7 +78,7 @@ export default function ShopifyCreditsTab({ toast }: Props) {
       await apiFetch('/admin/config', {
         method: 'PATCH',
         body: JSON.stringify({
-          shopify: { trialCredits: shopifyTrialCredits, planCredits: shopifyPlanCredits },
+          shopify: { trialCredits: shopifyTrialCredits, packCredits },
         }),
       });
       toast({ title: 'Shopify credits saved' });
@@ -78,8 +111,7 @@ export default function ShopifyCreditsTab({ toast }: Props) {
               </div>
               <div className="setting-desc" style={{ marginBottom: 12 }}>
                 Credits granted once, automatically, the first time a Shopify store links to an
-                AiVastra account — before the merchant picks a paid plan. Independent of any
-                day-based trial configured in Partner Dashboard.
+                AiVastra account — before the merchant buys any credit pack. This is the free tier.
               </div>
               <div
                 style={{
@@ -110,49 +142,69 @@ export default function ShopifyCreditsTab({ toast }: Props) {
                 </div>
               </div>
               <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
-                {(['starter', 'growth', 'pro'] as const).map((plan) => (
+                {PACKS.map((pack) => (
                   <div
-                    key={plan}
+                    key={pack.id}
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 12,
+                      display: 'grid',
+                      gap: 8,
                       padding: '10px 12px',
                       border: '1px solid var(--border)',
                       borderRadius: 'var(--r)',
                       background: 'var(--surface-2)',
                     }}
                   >
-                    <span className="setting-lbl" style={{ textTransform: 'capitalize' }}>
-                      {plan}
-                    </span>
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        marginLeft: 'auto',
-                      }}
-                    >
-                      <input
-                        className="input"
-                        type="number"
-                        min={1}
-                        max={1000000}
-                        style={{ width: 100, textAlign: 'right' }}
-                        value={shopifyPlanCredits[plan]}
-                        disabled={saving}
-                        onChange={(e) =>
-                          setShopifyPlanCredits((prev) => ({
-                            ...prev,
-                            [plan]: Number(e.target.value),
-                          }))
-                        }
-                      />
-                      <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                        credits / cycle
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <span className="setting-lbl">{pack.label}</span>
+                      <span style={{ fontSize: 13, color: 'var(--muted)' }}>
+                        ${pack.priceUsd} · fixed
                       </span>
                     </div>
+
+                    {(['credits', 'autorefillCredits'] as const).map((field) => (
+                      <div key={field} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: 13, color: 'var(--muted)' }}>
+                          {field === 'credits' ? 'One-time purchase' : 'Auto-refill (+bonus)'}
+                        </span>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            marginLeft: 'auto',
+                          }}
+                        >
+                          <input
+                            className="input"
+                            type="number"
+                            min={1}
+                            max={1000000}
+                            style={{ width: 100, textAlign: 'right' }}
+                            value={packCredits[pack.id][field]}
+                            disabled={saving}
+                            onChange={(e) =>
+                              setPackCredits((prev) => ({
+                                ...prev,
+                                [pack.id]: {
+                                  ...prev[pack.id],
+                                  [field]: Number(e.target.value),
+                                },
+                              }))
+                            }
+                          />
+                          <span
+                            style={{
+                              fontSize: 13,
+                              color: 'var(--muted)',
+                              whiteSpace: 'nowrap',
+                              width: 110,
+                            }}
+                          >
+                            {centsPerCredit(pack.priceUsd, packCredits[pack.id][field])}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ))}
               </div>
@@ -167,15 +219,12 @@ export default function ShopifyCreditsTab({ toast }: Props) {
                   !Number.isInteger(shopifyTrialCredits) ||
                   shopifyTrialCredits < 0 ||
                   shopifyTrialCredits > 1000 ||
-                  !Number.isInteger(shopifyPlanCredits.starter) ||
-                  shopifyPlanCredits.starter < 1 ||
-                  shopifyPlanCredits.starter > 1000000 ||
-                  !Number.isInteger(shopifyPlanCredits.growth) ||
-                  shopifyPlanCredits.growth < 1 ||
-                  shopifyPlanCredits.growth > 1000000 ||
-                  !Number.isInteger(shopifyPlanCredits.pro) ||
-                  shopifyPlanCredits.pro < 1 ||
-                  shopifyPlanCredits.pro > 1000000
+                  PACKS.some((pack) =>
+                    (['credits', 'autorefillCredits'] as const).some((field) => {
+                      const value = packCredits[pack.id][field];
+                      return !Number.isInteger(value) || value < 1 || value > 1000000;
+                    }),
+                  )
                 }
               >
                 {saving ? 'Saving…' : 'Save'}

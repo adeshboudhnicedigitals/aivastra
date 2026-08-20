@@ -67,6 +67,7 @@ export interface GarmentType {
   mannequinWorkflowTemplateId?: string | null;
   sareeStep2WorkflowTemplateId?: string | null;
   mannequinTwoInputWorkflowTemplateId?: string | null;
+  twoInputTryonWorkflowTemplateId?: string | null;
   upperUploadLabel?: string | null;
   lowerUploadLabel?: string | null;
   requiresThirdUpload?: boolean;
@@ -417,6 +418,7 @@ export interface ContactRequest {
   source: string | null;
   message: string | null;
   attachmentKey: string | null;
+  attachmentUrl: string | null;
   status: 'new' | 'read' | 'done';
   createdAt: string;
 }

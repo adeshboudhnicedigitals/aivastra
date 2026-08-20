@@ -7,6 +7,227 @@
 - Updated `Sidebar.tsx` to gate 20 navigation items on real permission keys (`hasPermission`) rather than hard-coded role arrays, fixing drifts for `shopify-funnels`, `users`, and `credit-analysis` per `0160_permissions.sql` seed data. Preserved hardcoded roles for `payments` as intentional holdout since no permission key exists for it yet. Settings gear is now gated on `hasPermission('admin_users.manage')`.
 - Updated `RecycleBinPage.tsx`'s `canHardDelete` check to use `hasPermission('assets.delete')` instead of `role === 'SUPER_ADMIN' || role === 'MODERATOR'`.
 
+## 2026-08-20 — Merchant Catalog Two-Input (Body + Pallu) Direct Try-On
+
+**Done**
+- **Task 1 (DB Migration)**: Added `second_r2_key` and `second_thumbnail_key` columns to `merchant_catalog_items` table, and `two_input_tryon_workflow_template_id` (foreign key to `workflow_templates.id` ON DELETE SET NULL) to `garment_subcategories` table in migration `0159_merchant_catalog_two_input_tryon.sql`. Updated Drizzle schema definitions in `merchant.ts` and `models.ts`.
+- **Task 2 (Types)**: Extended `MerchantCatalogCreateBody`, `MerchantCatalogItem`, and `MerchantCatalogSubcategory` (adding `supportsTwoInputDirectTryon: z.boolean()`) in `@aivastra/types` `widget.ts`. Added `twoInputTryonWorkflowTemplateId` to `PatchGarmentTypeBody` in `admin.ts`.
+- **Task 3 (API Catalog Routes)**: Updated `serializeCatalogItem` to presign `secondImageUrl`, `serializeSubcategory` to return `supportsTwoInputDirectTryon`, `POST /v1/merchant/catalog` to validate upload ownership and insert `secondR2Key`/`secondThumbnailKey`, and `DELETE /v1/merchant/catalog/:id` to clean up the second image and thumbnail from storage. Verified with integration tests in `merchant-catalog.test.ts`.
+- **Task 4 (Admin Web UI)**: Added "Two-Input Direct Try-On Workflow" dropdown to `EditGarmentTypeModal.tsx` and updated `GarmentType` interface in `apps/admin-web/src/types.ts`. Verified typecheck via `npx tsc -b --force`.
+- **Task 5 (Tryon Garment Resolution)**: Updated `resolveTryonGarment` in `resolve-tryon-garment.ts` to detect `secondR2Key` on merchant catalog items and route to the active `twoInputTryonWorkflowTemplateId` configured on the garment subcategory instead of requiring a `tryonCategoryId`.
+- **Task 6 (Tryon Job Creation)**: Updated `createMerchantTryonJob` (`create-tryon-job.ts`) and `POST /v1/merchant/tryon/jobs` (`tryon.routes.ts`) to accept `secondGarmentKey` and persist it into `job_inputs.third_garment_key`.
+- **Task 7 (Dispatcher)**: Updated `processWidgetJob` in `apps/dispatcher/src/job/processor.ts` to query `tryonGarmentNodeId2`, validate that two-input templates match jobs with `thirdGarmentKey`, upload the second garment image as `merchant_garment2`, and patch `workflow[garmentNodeId2].inputs.image`.
+- **Task 8 (Catalogues Web UI)**: Fixed saree modal display by committing Flat Image hide logic for two-input saree types. Added Pallu upload box to `ProductModal.tsx` in Catalogue Image mode when `supportsTwoInputDirectTryon` is true, validated image presence in `missingImage`, and uploaded both primary and secondary images to R2 on form submit. Passed `supportsTwoInputDirectTryon` from `CatalogueManagerContent.tsx`.
+
+## 2026-08-20 — Merchant Catalog Saree Two-Input (Body & Pallu)
+
+**Done**
+- **Task 1**: Exposed `supportsTwoInputMannequin` on `GET /v1/merchant/catalog/subcategories`
+  responses (computed from `garment_subcategories.requires_mannequin_step` AND
+  `mannequin_two_input_workflow_template_id`). Added `supportsTwoInputMannequin: z.boolean()`
+  to `MerchantCatalogSubcategory` in `@aivastra/types` and covered with integration tests in
+  `merchant-catalog-subcategories.test.ts`.
+- **Task 2**: Updated `createMerchantCatalogJob` (`apps/api/src/modules/merchant/create-job.ts`)
+  to accept `secondFlatImageKey?: string`. When provided, validates that the garment type requires
+  the mannequin step and has `mannequinTwoInputWorkflowTemplateId`, validates merchant ownership of
+  the pallu key, and inserts a two-job pair in a single transaction: a standalone `saree_mannequin`
+  job (0 credits, queued) and a step-2 `merchant_catalog` job (`PENDING_MANNEQUIN` with `params.mannequinJobId`
+  and credit deduction). Only the mannequin job is enqueued to Redis `jobs:normal`; the existing dispatcher
+  sweep `promoteSareeStep2Jobs` automatically promotes the step-2 job upon completion without dispatcher
+  code changes. Covered with integration tests in `merchant-catalog-generate.test.ts`.
+- **Task 3**: Forwarded `secondFlatImageKey` from the `POST /v1/merchant/catalog/generate` route handler
+  into `createMerchantCatalogJob`.
+- **Task 4**: Updated `CatalogueManagerContent.tsx` and `ProductModal.tsx` in `apps/catalogues-web` to
+  thread `supportsTwoInputMannequin` through. When true in Flat Image mode, `ProductModal` displays a
+  secondary "Upload Pallu" upload box alongside the body garment image, changes the primary upload hint
+  to "Upload the body (front) photo", requires both body and pallu images before enabling "Generate Catalogue Image",
+  and presigns/forwards `secondFlatImageKey` on generate.
+
+## 2026-08-20 — Shopify auto-refill (phase 3): whole-branch review fixes
+
+Final whole-branch review of `feature/shopify-credit-wallet` phase 3 (session-
+locked auto-refill trigger, enrolment/confirm/disable/raise-cap routes,
+`app_subscriptions_update` webhook, low-credit banner + auto-refill panel in
+the embedded admin) caught 2 Critical and 7 Important findings; this entry
+covers the fix wave for the Critical findings and the 6 Important findings
+judged to need fixing before merge (2 Important findings — `withAdvisoryLock`
+reaching into pooled `app.db` inside its callback, and 7 Minor polish items —
+were explicitly deferred as documented follow-ups, not silently fixed).
+
+**Done**
+- **C1 — the new webhook topic was only ever going to reach stores that
+  install or reauth after this deploy.** `registerWebhooksDecorator`
+  (`webhook.routes.ts`) only fires per-shop at install/reauth time; a topic
+  also has to be declared in `shopify.app.toml`'s (and the `.dev`/`.staging`
+  variants') `[[webhooks.subscriptions]]` block for `make shopify-deploy` to
+  push it to every already-installed store. This exact lesson was learned and
+  documented in phase 1 for `app_purchases_one_time/update` and was not
+  re-applied to phase 3's own `app_subscriptions/update` topic. Added the
+  matching block to all three TOML files. **`make shopify-deploy` (prod) /
+  `make shopify-deploy-staging` still needs to run out-of-repo** — a plain
+  merge does not publish this to Partner Dashboard.
+- **C2 — the low-credit banner and alert email both trusted a status flag
+  with no liveness check**, so any failure mode that leaves `autorefillStatus`
+  at `'ACTIVE'` without auto-refill actually topping the store up (a
+  stuck-PENDING purchase row, an expired card, any other `charge()` failure)
+  silenced the merchant exactly when they most needed to hear about it.
+  `LowCreditsBanner` (`DashboardPage.tsx`) now falls through to the normal
+  low-balance banner whenever `runway.level === 'empty'`, regardless of
+  recorded status. `runAlertTick` (`alert-scheduler.ts`) now also tracks this
+  tick's own `runRefill` outcome and stops treating `'ACTIVE'` as
+  self-explanatory when that outcome was `'failed'`.
+- **I1 — `confirmAutorefill` trusted our own row instead of asking Shopify.**
+  Shopify redirects the merchant back to the same `returnUrl` whether they
+  approved or declined a subscription, so a non-null
+  `autorefillSubscriptionId` alone can't distinguish the two. `confirmAutorefill`
+  now re-fetches the subscription's real status via `node(id:)`
+  (`fetchSubscriptionStatus`, new in `autorefill-client.ts`) and writes
+  whatever Shopify actually reports — mirrors `purchase.ts`'s
+  `confirmPurchase` pattern for the equivalent one-time-charge case. The
+  `app_subscriptions_update` webhook remains a second, independent path to the
+  same correction.
+- **I2 — no way to raise the monthly cap from the UI** once auto-refill hit
+  `CAP_REACHED`; the merchant's only option was disable-and-re-enrol.
+  `PricingPage.tsx` now has an inline raise-limit control inside the
+  `CAP_REACHED` banner (calls the existing `POST .../autorefill/raise-cap`
+  route, top-level-navigates to Shopify's approval page). `LowCreditsBanner`
+  gained a `hideCapReached` prop (used only on `PricingPage`) so its own
+  `CAP_REACHED` banner doesn't duplicate the one now rendered inline in the
+  auto-refill card.
+- **I3 — `CANCELLED`/`DECLINED` were dead ends in the SPA.** `me.autorefill.enabled`
+  is server-side true for these two statuses (it means "there's a status to
+  show", not "there's a live subscription"), which was hiding the enrolment
+  form behind a `Turn off auto-refill` button for a subscription that was
+  already off, with no way back in. `PricingPage.tsx` now derives its own
+  `isLive`/`canEnrol` from the actual status, shows an explanatory banner for
+  each of the two dead states, and re-shows the enrolment form so the merchant
+  can just try again.
+- **I4 — re-enrolling over a `CAP_REACHED` subscription skipped the cancel
+  call.** `enrolAutorefill`'s guard for cancelling a prior subscription before
+  creating a new one only matched `PENDING`/`ACTIVE`; `CAP_REACHED` is this
+  codebase's own status for "still ACTIVE at Shopify's end, refills just hit
+  the merchant's ceiling" — skipping the cancel for it would have orphaned a
+  live charge authorization exactly as badly as skipping it for `ACTIVE`
+  would. Added `CAP_REACHED` to the guard.
+- **I6 (partial)** — added integration coverage that `disableAutorefill`
+  genuinely calls Shopify's `cancelSubscription` (not just clears local
+  columns), and that local columns still clear when that call fails.
+  `disableAutorefill` now takes an optional `deps.cancelSubscription` override,
+  mirroring `runRefill`'s existing `deps.charge` injection seam.
+- I7 — this entry.
+
+**Deferred (documented, not fixed this wave)**
+- I5 — `withAdvisoryLock`'s callback reaches into the pooled `app.db` in a
+  couple of call sites rather than exclusively using the scoped `db` it's
+  handed; not a correctness bug today but a latent pool-deadlock risk if a
+  future caller nests a pooled-`db` call inside the locked callback under load.
+- 7 Minor findings from the final review (naming/comment nits, non-blocking
+  polish) — left as-is; not tracked individually here.
+
+**Open Questions / Decisions**
+- The phase 1 manual QA item ("buy a pack on a development store end to end")
+  was never performed by a human this session and remains open before merge.
+- No second fix wave was run after this one per the SDD process for final
+  reviews — any further findings from re-review get adjudicated directly
+  rather than re-dispatched.
+
+## 2026-08-19 — Shopify low-credit alerting: whole-branch review fixes
+
+Final whole-branch review of `feature/shopify-credit-wallet` phase 2 (burn-rate
+runway + alert-level computation, hourly alert scheduler with escalation-only
+low-credit email, Polaris low-credit banners in the embedded admin) caught bugs
+that only showed up considering the phase end to end, even though each of the
+5 tasks had passed its own review individually.
+
+**Done**
+- **The whole feature was a no-op for every pre-existing install.**
+  `shop_email` (this phase's new column) is only written by
+  `upsertShopifyStore` on install/reinstall, so every store installed before
+  this migration had it `NULL` and stayed `NULL` forever. Worse,
+  `runAlertTick` (`apps/api/src/modules/shopify/alert-scheduler.ts`) was
+  stamping `lastAlertLevel` unconditionally even when nothing could be sent —
+  so the first tick after deploy would have silently walked the entire
+  existing install base, sent zero emails, and permanently suppressed every
+  low-balance alert (escalation-only logic never re-fires unless the level
+  gets strictly worse or first recovers to `'ok'`). Fixed both halves:
+  `lastAlertLevel` now only advances past its previous value when a
+  notification was actually deliverable, and a store missing `shop_email` is
+  now backfilled in-tick via the same token + GraphQL machinery
+  `provisionShopifyStore` used at install (`getValidAccessToken` +
+  `shopifyGraphQL('shop { email }')`), persisted once so it isn't refetched on
+  later ticks. A backfill failure (dead token, needs reauth, Shopify
+  unreachable) is caught locally, logged, and that store is skipped without
+  blocking the rest of the tick.
+- **GDPR gap:** the `shop_redact` webhook handler purged shopper rows and job
+  objects but left `shopify_stores.shop_email` (the shop owner's own PII,
+  introduced this phase) untouched. Now clears `shopEmail`, `lastAlertLevel`,
+  and `lastAlertAt` on the store row too (`webhook.routes.ts`).
+- **Wrong credit-cost source:** `computeRunway` was dividing by the
+  compile-time `SIMPLE_TRYON_COST` instead of the live, admin-tunable
+  `getTryonCreditCost(app)` the storefront actually charges — so retuning
+  `tryon.creditCost` in the admin panel would silently desync every banner and
+  email's try-on count from what shoppers actually pay. `deriveLevel`'s
+  `'empty'` boundary also only checked `balance <= 0`, one credit lower than
+  where the storefront itself already refuses a try-on (`balance < jobCost`);
+  it now takes an optional `tryonCost` (defaulting to `SIMPLE_TRYON_COST` so
+  existing pure-function tests are unaffected) and `computeRunway` threads the
+  live cost through. Frontend `tryOnsFromCredits` (`apps/shopify/src/lib/packs.ts`)
+  still has its own hardcoded divisor for the one spot with no live number to
+  read (documented in place), but `PricingPage` now prefers
+  `me.runway.tryOnsRemaining` (the live-corrected value already on the `/me`
+  response) wherever `me` is loaded.
+- Removed a duplicate `COUNT(*) FROM jobs WHERE shopify_store_id = ?` in
+  `/v1/shopify/me` — `computeRunway` already computes the identical number as
+  `lifetimeJobs`; the route now reuses it instead of a second round trip.
+- `(store.lastAlertLevel ?? 'ok') as AlertLevel` was an unchecked cast on a
+  plain `text` column; a corrupt/unexpected value would silently make
+  `ALERT_LEVEL_RANK` lookups `undefined` and permanently silence that store.
+  Added a runtime guard that falls back to `'ok'` for anything outside the
+  four known levels.
+- Added integration test coverage for `defaultSendEmail`'s real argument
+  mapping into `sendLowCreditsEmail` (previously only exercised through the
+  `deps.sendEmail` test seam, so the mapping itself had zero test coverage —
+  protected by TypeScript only) and for the shop-email backfill's two paths
+  (succeeds → persists + sends; fails → skips without blocking other stores).
+- One-character optional-chaining hardening (`me?.runway?.` vs `me?.runway.`)
+  in `apps/shopify/src/pages/PricingPage.tsx` and `DashboardPage.tsx` — not
+  currently reachable since the SPA and API deploy together, but cheap.
+
+**Open Questions / Decisions**
+- A store whose token needs reauth will retry the `shop_email` backfill on
+  every hourly tick indefinitely (no backoff/negative-caching) — an accepted
+  tradeoff of not wanting to silently give up on a store forever; revisit if
+  the install base grows large enough for this to matter.
+
+## 2026-08-19 — Shopify billing: App Pricing → Manual Pricing (prepaid credit packs)
+
+**Out-of-repo state changed (Partner Dashboard) — do before deploying:**
+- Switched the app from Shopify App Pricing to Manual Pricing in Partner
+  Dashboard settings. Per Shopify staff this needs no app re-review.
+- Removed the starter / growth / pro / Pay-as-you-go App Pricing plans and the
+  `tryon_generated` usage meter.
+- Registered `app_purchases_one_time/update`. The other topics are registered
+  per-shop by registerWebhooksDecorator at install.
+- Removed `SHOPIFY_APP_EVENTS_CLIENT_ID` / `_SECRET` and
+  `SHOPIFY_APP_HANDLE` / `VITE_SHOPIFY_APP_HANDLE` from every `.env` on the VPS
+  and from the compose `args:` blocks.
+
+**Note:** `VITE_*` vars are baked in at build time — removing the app-handle arg
+requires a rebuild, and a cached layer can silently keep the old value. Confirm
+the output asset hash changed.
+
+**Migration 0160 deviation — `shopify_catalog_jobs` deliberately NOT dropped.**
+Task 10's brief required confirming `SELECT count(*) FROM shopify_catalog_jobs`
+is `0` in production before dropping that table. This session had no
+configured access to the production VPS database, so per explicit human
+instruction the check was skipped rather than guessed at, and the migration
+ships without the `DROP TABLE "shopify_catalog_jobs"` statement — the table is
+left in place, orphaned from the Drizzle schema (matching the brief's own
+documented fallback for an unconfirmed-empty table). **Manual follow-up still
+needed:** run that count against production, and if it's `0`, ship a small
+follow-up migration dropping `shopify_catalog_jobs`; if nonzero, raise the data
+decision described in the Task 10 brief before dropping it.
+
 ## 2026-08-19 — Second SSO entry point for tryon-library-app: code-based handoff
 
 **Done**

@@ -147,11 +147,32 @@ export const SystemConfigBody = z.object({
   shopify: z
     .object({
       trialCredits: z.number().int().min(0).max(1000).optional(),
-      planCredits: z
+      packCredits: z
         .object({
-          starter: z.number().int().positive().max(1_000_000),
-          growth: z.number().int().positive().max(1_000_000),
-          pro: z.number().int().positive().max(1_000_000),
+          pack_10: z
+            .object({
+              credits: z.number().int().positive().max(1_000_000),
+              autorefillCredits: z.number().int().positive().max(1_000_000),
+            })
+            .partial(),
+          pack_25: z
+            .object({
+              credits: z.number().int().positive().max(1_000_000),
+              autorefillCredits: z.number().int().positive().max(1_000_000),
+            })
+            .partial(),
+          pack_50: z
+            .object({
+              credits: z.number().int().positive().max(1_000_000),
+              autorefillCredits: z.number().int().positive().max(1_000_000),
+            })
+            .partial(),
+          pack_100: z
+            .object({
+              credits: z.number().int().positive().max(1_000_000),
+              autorefillCredits: z.number().int().positive().max(1_000_000),
+            })
+            .partial(),
         })
         .partial()
         .optional(),
@@ -607,6 +628,7 @@ export const PatchGarmentTypeBody = z.object({
   mannequinWorkflowTemplateId: z.string().uuid().nullable().optional(),
   sareeStep2WorkflowTemplateId: z.string().uuid().nullable().optional(),
   mannequinTwoInputWorkflowTemplateId: z.string().uuid().nullable().optional(),
+  twoInputTryonWorkflowTemplateId: z.string().uuid().nullable().optional(),
   publicApiSlug: PublicApiSlugField,
 });
 export const PresignGarmentTypeBody = z.object({

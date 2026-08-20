@@ -1338,4 +1338,217 @@ describe('merchant catalog generate (single, Path B)', () => {
       expect(body.items.find((i) => i.label === 'Zeta Style')?.supportsTwoInput).toBe(true);
     });
   });
+
+  describe('secondFlatImageKey on the full-composite (non-mannequinOnly) path', () => {
+    it('creates a mannequin job + a PENDING_MANNEQUIN step-2 job, deducts credits on the step-2 job, and enqueues only the mannequin job', async () => {
+      const { userId } = await createMerchant(app, 'two-input-full-happy@example.com');
+      await grantUserCredits(app, userId, 100);
+      const auth = await authHeader(userId);
+
+      // seedTwoInputGarmentType (not seedFullDefaults — that helper's garment type has no
+      // two-input workflow) gives a garment type with both requiresMannequinStep and
+      // mannequinTwoInputWorkflowTemplateId set. It has no defaultPoseId, so wire one up
+      // the same way seedFullDefaults does internally, plus a face/background for the
+      // merchantCatalogDefaults config the step-2 compositing needs.
+      const { garmentType: sareeType, twoInputWorkflowTemplate } = await seedTwoInputGarmentType(
+        app,
+        'women',
+        { withSingleInput: true },
+      );
+      const wf = await seedWorkflowTemplate(app);
+      const pose = await seedPose(app, 'women', wf.id);
+      const face = await seedFace(app, 'women');
+      const bg = await seedBackground(app);
+      await app.db
+        .update(schema.garmentSubcategories)
+        .set({ defaultPoseId: pose.id })
+        .where(eq(schema.garmentSubcategories.id, sareeType.id));
+      await app.redis.set(
+        CONFIG_KEY,
+        JSON.stringify({
+          merchantCatalogDefaults: { women: { faceId: face.id, backgroundId: bg.id } },
+          merchantCatalogAspectRatio: '2:3',
+        }),
+      );
+
+      const subcatRes = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/subcategories',
+        headers: auth,
+        payload: { category: 'women', name: 'Sarees', garmentSubcategoryId: sareeType.id },
+      });
+      const subcategoryId = (subcatRes.json() as { id: string }).id;
+
+      const flatImageKey = await presignFlat(app, auth);
+      const secondFlatImageKey = await presignFlat(app, auth);
+
+      const [balBefore] = await app.db
+        .select()
+        .from(schema.userCredits)
+        .where(eq(schema.userCredits.userId, userId));
+
+      const generate = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/generate',
+        headers: auth,
+        payload: { subcategoryId, flatImageKey, secondFlatImageKey },
+      });
+      expect(generate.statusCode).toBe(201);
+      const { jobId } = generate.json() as { jobId: string };
+
+      const [step2] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+      expect(step2.status).toBe('PENDING_MANNEQUIN');
+      expect(step2.source).toBe('merchant_catalog');
+
+      const [step2Inputs] = await app.db
+        .select()
+        .from(schema.jobInputs)
+        .where(eq(schema.jobInputs.jobId, jobId));
+      expect(step2Inputs.upperGarmentKey).toBeNull();
+      const step2Params = step2Inputs.params as Record<string, unknown>;
+      const mannequinJobId = step2Params.mannequinJobId as string;
+      expect(mannequinJobId).toBeTruthy();
+      expect(step2Params.kind).toBe('merchant_catalog');
+
+      const [mannequinJob] = await app.db
+        .select()
+        .from(schema.jobs)
+        .where(eq(schema.jobs.id, mannequinJobId));
+      expect(mannequinJob.status).toBe('QUEUED');
+      expect(mannequinJob.source).toBe('saree_mannequin');
+      expect(mannequinJob.creditsCharged).toBe(0);
+
+      const [mannequinInputs] = await app.db
+        .select()
+        .from(schema.jobInputs)
+        .where(eq(schema.jobInputs.jobId, mannequinJobId));
+      expect(mannequinInputs.upperGarmentKey).toBe(flatImageKey);
+      expect(mannequinInputs.thirdGarmentKey).toBe(secondFlatImageKey);
+      expect(mannequinInputs.faceId).toBe(face.id);
+
+      // Credits deducted once, on the step-2 job, at creation time — not deferred.
+      const [balAfter] = await app.db
+        .select()
+        .from(schema.userCredits)
+        .where(eq(schema.userCredits.userId, userId));
+      expect(balAfter.balance).toBeLessThan(balBefore.balance);
+
+      // Only the mannequin job is enqueued; the step-2 job is not.
+      const stream = await app.redis.xrange('jobs:normal', '-', '+');
+      const enqueuedJobIds = stream.map(([, fields]) => fields[fields.indexOf('jobId') + 1]);
+      expect(enqueuedJobIds).toContain(mannequinJobId);
+      expect(enqueuedJobIds).not.toContain(jobId);
+
+      void twoInputWorkflowTemplate; // referenced only for setup symmetry
+    });
+
+    it('rejects with 400 when the garment type has no two-input workflow configured', async () => {
+      const { userId } = await createMerchant(app, 'two-input-full-noconf@example.com');
+      await grantUserCredits(app, userId, 100);
+      const auth = await authHeader(userId);
+      const { garmentType, face, bg } = await seedFullDefaults('women');
+
+      const subcatRes = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/subcategories',
+        headers: auth,
+        payload: { category: 'women', name: 'Sarees', garmentSubcategoryId: garmentType.id },
+      });
+      const subcategoryId = (subcatRes.json() as { id: string }).id;
+
+      const flatImageKey = await presignFlat(app, auth);
+      const secondFlatImageKey = await presignFlat(app, auth);
+
+      const generate = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/generate',
+        headers: auth,
+        payload: { subcategoryId, flatImageKey, secondFlatImageKey },
+      });
+      expect(generate.statusCode).toBe(400);
+      void face;
+      void bg;
+    });
+
+    it('promotes the step-2 job to QUEUED with the mannequin output as upperGarmentKey once the mannequin job completes (simulated)', async () => {
+      const { userId } = await createMerchant(app, 'two-input-full-promote@example.com');
+      await grantUserCredits(app, userId, 100);
+      const auth = await authHeader(userId);
+      const { garmentType: sareeType } = await seedTwoInputGarmentType(app, 'women', {
+        withSingleInput: true,
+      });
+      const wf = await seedWorkflowTemplate(app);
+      const pose = await seedPose(app, 'women', wf.id);
+      const face = await seedFace(app, 'women');
+      const bg = await seedBackground(app);
+      await app.db
+        .update(schema.garmentSubcategories)
+        .set({ defaultPoseId: pose.id })
+        .where(eq(schema.garmentSubcategories.id, sareeType.id));
+      await app.redis.set(
+        CONFIG_KEY,
+        JSON.stringify({
+          merchantCatalogDefaults: { women: { faceId: face.id, backgroundId: bg.id } },
+          merchantCatalogAspectRatio: '2:3',
+        }),
+      );
+
+      const subcatRes = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/subcategories',
+        headers: auth,
+        payload: { category: 'women', name: 'Sarees', garmentSubcategoryId: sareeType.id },
+      });
+      const subcategoryId = (subcatRes.json() as { id: string }).id;
+      const flatImageKey = await presignFlat(app, auth);
+      const secondFlatImageKey = await presignFlat(app, auth);
+
+      const generate = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/generate',
+        headers: auth,
+        payload: { subcategoryId, flatImageKey, secondFlatImageKey },
+      });
+      const { jobId: step2JobId } = generate.json() as { jobId: string };
+      const [step2Inputs] = await app.db
+        .select()
+        .from(schema.jobInputs)
+        .where(eq(schema.jobInputs.jobId, step2JobId));
+      const mannequinJobId = (step2Inputs.params as Record<string, unknown>)
+        .mannequinJobId as string;
+
+      // Simulate the dispatcher completing the mannequin job (dispatcher is not running
+      // in this integration test — same convention as merchant-catalog-generate.test.ts's
+      // own "marks a completed job COMPLETED" test).
+      const mannequinResultKey = `outputs/${mannequinJobId}/result.png`;
+      await app.storage.putObject(mannequinResultKey, Buffer.from('drape-output'), 'image/png');
+      await app.db
+        .update(schema.jobs)
+        .set({ status: 'COMPLETED' })
+        .where(eq(schema.jobs.id, mannequinJobId));
+
+      // Run the actual promoter sweep against the real dispatcher config shape.
+      const { promoteSareeStep2Jobs } = await import(
+        '../../../dispatcher/src/job/saree-step2-promoter.js'
+      );
+      await promoteSareeStep2Jobs({
+        db: app.db,
+        redis: app.redis,
+        pub: app.redis,
+        log: app.log,
+      } as never);
+
+      const [step2] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, step2JobId));
+      expect(step2.status).toBe('QUEUED');
+      const [step2InputsAfter] = await app.db
+        .select()
+        .from(schema.jobInputs)
+        .where(eq(schema.jobInputs.jobId, step2JobId));
+      expect(step2InputsAfter.upperGarmentKey).toBe(mannequinResultKey);
+
+      const stream = await app.redis.xrange('jobs:normal', '-', '+');
+      const enqueuedJobIds = stream.map(([, fields]) => fields[fields.indexOf('jobId') + 1]);
+      expect(enqueuedJobIds).toContain(step2JobId);
+    });
+  });
 });
