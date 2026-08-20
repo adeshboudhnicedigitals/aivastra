@@ -11,6 +11,7 @@ import {
 } from './lib/appBridge';
 import { runNavGuard } from './lib/navGuard';
 import AnalyticsPage from './pages/AnalyticsPage';
+import AutorefillCallbackPage from './pages/AutorefillCallbackPage';
 import BillingCallbackPage from './pages/BillingCallbackPage';
 import DashboardPage from './pages/DashboardPage';
 import ManagePage from './pages/ManagePage';
@@ -124,6 +125,7 @@ export default function App() {
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/support" element={<SupportPage />} />
           <Route path="/billing/callback" element={<BillingCallbackPage />} />
+          <Route path="/billing/autorefill-callback" element={<AutorefillCallbackPage />} />
           {/* Merchants may have bookmarked the old path while it was the only
               product surface. */}
           <Route path="/products" element={<Navigate to="/manage" replace />} />

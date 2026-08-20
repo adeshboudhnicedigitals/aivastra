@@ -1,9 +1,27 @@
 # Shopify pay-as-you-go (usage-based) billing — design
 
 **Date:** 2026-08-17
-**Status:** approved, not yet implemented
+**Status:** IMPLEMENTED (merged via PR #190), then SUPERSEDED on 2026-08-19 —
+to be removed by `2026-08-19-shopify-credit-wallet-design.md`
 **Branch:** `feature/shopify-payg-billing`
 **Supersedes:** `2026-08-17-shopify-credit-topup-design.md` (blocked — see that file)
+
+## Why this is being removed (2026-08-19)
+
+Nothing here was wrong. The App Events integration, the reconciliation check
+against `AppUsagePricing` (which catches the API's always-202 behaviour), and
+the app-side spend cap all worked as designed and were verified in review.
+
+The product model changed underneath it. The Shopify surface is moving to
+non-expiring prepaid credit packs with no monthly commitment, which means
+leaving Shopify App Pricing for Manual Pricing — and App Events meters only
+bill against an App Pricing metered plan. Everything in this spec is therefore
+being deleted, not migrated.
+
+One correction worth recording: this spec's "Open verification item" about the
+App Events `client_id`/`client_secret` being a distinct credential was the
+right instinct, and the same discipline applied on 2026-08-19 is what caught
+that the *superseded* top-up spec had asserted a non-existent webhook gap.
 
 ## Problem
 

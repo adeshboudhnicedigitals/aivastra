@@ -20,8 +20,19 @@ afterEach(() => {
   process.env = { ...original };
 });
 
+/**
+ * Vars this file asserts *unset* behaviour for. Inherited from the developer's
+ * own shell or .env they would otherwise leak in through `original` and make a
+ * "defaults to false when unset" case pass or fail depending on whose machine
+ * it runs on — which is exactly what happened once a real .env carried
+ * SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS=true for local Shopify testing.
+ */
+const CLEARED = ['SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS'];
+
 function load(overrides: Record<string, string> = {}) {
-  process.env = { ...original, ...REQUIRED, ...overrides } as NodeJS.ProcessEnv;
+  const base = { ...original, ...REQUIRED } as NodeJS.ProcessEnv;
+  for (const key of CLEARED) delete base[key];
+  process.env = { ...base, ...overrides };
   return loadEnv();
 }
 
