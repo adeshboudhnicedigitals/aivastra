@@ -1,4 +1,4 @@
-﻿import { randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import { eq } from 'drizzle-orm';
@@ -395,5 +395,83 @@ describe('merchant catalog', () => {
     const servedImage = await fetch(catalogItems[0]!.imageUrl!);
     expect(servedImage.ok).toBe(true);
     expect(Buffer.from(await servedImage.arrayBuffer()).equals(resultBody)).toBe(true);
+  });
+
+  it('stores and serves a second image when provided', async () => {
+    async function presignAndPut(
+      merchantAuth: Record<string, string>,
+      kind: 'image' | 'thumbnail',
+      data: Buffer = Buffer.from('test-image'),
+    ) {
+      const assetId = randomUUID();
+      const presign = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/presign',
+        headers: merchantAuth,
+        payload: {
+          assetId,
+          kind,
+          contentType: 'image/jpeg',
+          contentLength: data.length,
+        },
+      });
+      expect(presign.statusCode).toBe(200);
+      const upload = presign.json() as { uploadUrl: string; r2Key: string };
+      await putPresigned(upload.uploadUrl, data, 'image/jpeg');
+      return upload;
+    }
+
+    const merchant = await createMerchant(app, 'second-image-merchant@example.com');
+    const auth = await merchantAuthHeader(merchant.userId);
+
+    const garmentType = await seedGarmentType(app, 'women');
+    const subcatRes = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/subcategories',
+      headers: auth,
+      payload: { category: 'women', name: 'Sarees', garmentSubcategoryId: garmentType.id },
+    });
+    const subcategoryId = (subcatRes.json() as { id: string }).id;
+
+    const primary = await presignAndPut(auth, 'image', Buffer.from('primary-body'));
+    const primaryThumb = await presignAndPut(auth, 'thumbnail', Buffer.from('primary-thumb'));
+    const second = await presignAndPut(auth, 'image', Buffer.from('second-pallu'));
+    const secondThumb = await presignAndPut(auth, 'thumbnail', Buffer.from('second-thumb'));
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog',
+      headers: auth,
+      payload: {
+        subcategoryId,
+        label: 'Two-Input Saree',
+        sku: 'SKU-2IN',
+        actualPrice: 2000,
+        offerPrice: 1500,
+        r2Key: primary.r2Key,
+        thumbnailKey: primaryThumb.r2Key,
+        secondR2Key: second.r2Key,
+        secondThumbnailKey: secondThumb.r2Key,
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    const body = res.json() as {
+      id: string;
+      secondR2Key: string | null;
+      secondImageUrl: string | null;
+      secondThumbnailKey: string | null;
+    };
+    expect(body.secondR2Key).toBe(second.r2Key);
+    expect(body.secondThumbnailKey).toBe(secondThumb.r2Key);
+    expect(body.secondImageUrl).toBeTruthy();
+
+    const deleteRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/merchant/catalog/${body.id}`,
+      headers: auth,
+    });
+    expect(deleteRes.statusCode).toBe(204);
+    await expect(app.storage.headObject(second.r2Key)).rejects.toThrow();
+    await expect(app.storage.headObject(secondThumb.r2Key)).rejects.toThrow();
   });
 });
