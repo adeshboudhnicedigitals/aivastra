@@ -393,7 +393,15 @@ export async function enrolAutorefill(
       name: 'AiVastra auto-refill',
       terms: `$${pack.priceUsd} per ${tryOns} try-ons, charged automatically when your balance runs low`,
       cappedAmountUsd: args.cappedAmountUsd,
-      returnUrl: `${app.env.SHOPIFY_APP_URL}/shopify-admin/billing/autorefill-callback`,
+      // Points at our own API, not the SPA directly — same reasoning as
+      // purchase.ts's createCharge call (see its comment): Shopify's
+      // post-approval redirect is a top-level navigation outside the embedded
+      // iframe, so the SPA would land with no App Bridge and no way to call
+      // confirmAutorefill. Also covers raiseCap: Shopify reuses this same
+      // returnUrl for any later appSubscriptionLineItemUpdate confirmation on
+      // this subscription, so this fix applies there too without separate
+      // wiring.
+      returnUrl: `${app.env.SHOPIFY_APP_URL}/v1/shopify/billing/autorefill/return?shop=${encodeURIComponent(store.shopDomain)}`,
       test: app.env.SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS === true,
     },
   );

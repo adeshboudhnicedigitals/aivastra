@@ -143,7 +143,15 @@ export async function createPurchase(
   // approval page and the invoice. Derived from the live cost rather than
   // hardcoded so it stays honest if an admin retunes tryon.creditCost.
   const tryOns = Math.floor(credits / (await getTryonCreditCost(app)));
-  const returnUrl = `${app.env.SHOPIFY_APP_URL}/shopify-admin/billing/callback?purchase=${row.id}`;
+  // Points at our own API, not the SPA directly — see the `/return` route in
+  // purchase.routes.ts for why. Shopify's post-approval redirect is always a
+  // top-level navigation outside the embedded iframe (no App Bridge, no
+  // session token available), so landing the SPA there directly leaves it
+  // unable to call anything — including the confirm call below, which is what
+  // actually grants the credits. This route instead bounces the merchant
+  // straight back through Shopify's own embedded-app URL, which is the only
+  // thing that can hand App Bridge a fresh `host`/`id_token`.
+  const returnUrl = `${app.env.SHOPIFY_APP_URL}/v1/shopify/billing/purchase/return?purchase=${row.id}&shop=${encodeURIComponent(store.shopDomain)}`;
 
   try {
     const { confirmationUrl, purchase } = await createCharge(app, store, {

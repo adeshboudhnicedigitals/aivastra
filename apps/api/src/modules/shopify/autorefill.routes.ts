@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { buildPostInstallRedirect } from './auth.routes.js';
 import {
   confirmAutorefill,
   defaultTriggerCredits,
@@ -25,6 +26,8 @@ const UpdateBody = z.object({
 
 const RaiseCapBody = z.object({ cappedAmountUsd: z.number().positive().max(10_000) });
 
+const ReturnQuery = z.object({ shop: z.string().min(1) });
+
 export async function shopifyAutorefillRoutes(app: FastifyInstance) {
   const store = (req: { shopifyStore?: unknown }) =>
     req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
@@ -39,6 +42,27 @@ export async function shopifyAutorefillRoutes(app: FastifyInstance) {
     '/v1/shopify/billing/autorefill/confirm',
     { preHandler: app.requireShopifySession },
     async (req) => confirmAutorefill(app, store(req)),
+  );
+
+  // Unauthenticated by necessity — see the matching route/comment in
+  // purchase.routes.ts. This is what enrolAutorefill's (and raiseCap's, which
+  // reuses the same subscription-level returnUrl) confirmationUrl actually
+  // points at; it exists purely to bounce the merchant back through Shopify's
+  // own embedded-app URL so App Bridge has a parent frame before
+  // confirmAutorefill ever runs.
+  app.get(
+    '/v1/shopify/billing/autorefill/return',
+    { schema: { querystring: ReturnQuery } },
+    async (req, reply) => {
+      const { shop } = req.query as z.infer<typeof ReturnQuery>;
+      const apiKey = app.env.SHOPIFY_API_KEY;
+      const storeHandle = shop.replace(/\.myshopify\.com$/, '');
+      return reply.redirect(
+        apiKey
+          ? buildPostInstallRedirect(shop, apiKey, '/billing/autorefill-callback')
+          : `https://admin.shopify.com/store/${storeHandle}/apps`,
+      );
+    },
   );
 
   // Changing pack or threshold does not touch the approved ceiling, so it needs

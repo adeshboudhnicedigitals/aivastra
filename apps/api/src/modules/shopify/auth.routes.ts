@@ -89,7 +89,10 @@ export async function upsertShopifyStore(
 }
 
 /**
- * Where to send the merchant once OAuth completes.
+ * Where to send the merchant once OAuth completes — or, via the optional
+ * `path` param, back into a specific SPA route after a Shopify billing
+ * approval redirect (see purchase.routes.ts / autorefill.routes.ts's `/return`
+ * routes).
  *
  * This must hand control back to Shopify rather than point at our own SPA. Only
  * Shopify can mint the `host` and `id_token` query params that App Bridge needs
@@ -97,11 +100,14 @@ export async function upsertShopifyStore(
  * app itself. Redirecting straight at the SPA leaves App Bridge with no parent
  * coordinates, and every call into it — `idToken()` included — then hangs
  * forever: no resolve, no reject, no console error, just a permanent loading
- * spinner for the merchant.
+ * spinner for the merchant. Shopify forwards whatever comes after
+ * `/apps/{apiKey}` straight through to the app's own URL, so `path` (e.g.
+ * `/billing/callback?purchase=...`) lands the merchant on that exact SPA
+ * route, still embedded.
  */
-export function buildPostInstallRedirect(shop: string, apiKey: string): string {
+export function buildPostInstallRedirect(shop: string, apiKey: string, path = ''): string {
   const storeHandle = shop.replace(/\.myshopify\.com$/, '');
-  return `https://admin.shopify.com/store/${storeHandle}/apps/${apiKey}`;
+  return `https://admin.shopify.com/store/${storeHandle}/apps/${apiKey}${path}`;
 }
 
 const SHOP_DETAILS = `
