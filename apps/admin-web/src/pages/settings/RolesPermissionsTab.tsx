@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Icon } from '../../components/Icons';
 import { apiErrorMessage, apiFetch } from '../../lib/data';
 
 interface Permission {
@@ -17,10 +18,36 @@ interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
+// Two prefixes the naive title-case below gets wrong ("Dev Api", "Tryon") — every
+// other prefix already reads fine auto-split, so this stays a short override list
+// instead of a full lookup table to keep in sync with every permission key.
+const GROUP_LABEL_OVERRIDES: Record<string, string> = {
+  dev_api: 'Dev API',
+  tryon: 'Try-On',
+};
+
+// "credit_analysis.read" -> "Credit Analysis" — every key already carries its own
+// resource prefix, so grouping needs no separate lookup table to keep in sync.
+function groupLabel(key: string): string {
+  const prefix = key.split('.')[0];
+  return (
+    GROUP_LABEL_OVERRIDES[prefix] ??
+    prefix
+      .split('_')
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ')
+  );
+}
+
+function roleLabel(role: string): string {
+  return role === 'SUPER_ADMIN' ? 'Super Admin' : role.charAt(0) + role.slice(1).toLowerCase();
+}
+
 export default function RolesPermissionsTab({ toast }: Props) {
   const [data, setData] = useState<MatrixResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState<string | null>(null); // `${role}:${key}` in flight
+  const [query, setQuery] = useState('');
 
   useEffect(() => {
     apiFetch<MatrixResponse>('/admin/role-permissions')
@@ -79,58 +106,111 @@ export default function RolesPermissionsTab({ toast }: Props) {
     }
   }
 
+  // Groups stay in the order permissions arrive in (already alphabetical by key
+  // from the API), so groups fall out naturally without a separate sort pass.
+  const groups = useMemo(() => {
+    if (!data) return [];
+    const q = query.trim().toLowerCase();
+    const filtered = q
+      ? data.permissions.filter(
+          (p) => p.key.toLowerCase().includes(q) || (p.description ?? '').toLowerCase().includes(q),
+        )
+      : data.permissions;
+
+    const byGroup = new Map<string, Permission[]>();
+    for (const perm of filtered) {
+      const g = groupLabel(perm.key);
+      if (!byGroup.has(g)) byGroup.set(g, []);
+      byGroup.get(g)?.push(perm);
+    }
+    return Array.from(byGroup.entries());
+  }, [data, query]);
+
   if (loading) return <p className="sub">Loading&hellip;</p>;
   if (!data) return null;
 
   return (
-    <div style={{ overflowX: 'auto' }}>
-      <p className="lede" style={{ marginBottom: 16 }}>
+    <div>
+      <p className="lede" style={{ marginBottom: 14 }}>
         Super Admin always has every permission and can't be edited here — it's the account that
         recovers access if a role gets misconfigured.
       </p>
-      <table className="table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr style={{ borderBottom: '1px solid var(--border)' }}>
-            <th style={{ textAlign: 'left', padding: '0.5rem' }}>Permission</th>
-            {data.roles.map((role) => (
-              <th
-                key={role}
-                style={{ padding: '0.5rem', textAlign: 'center', fontSize: '0.75rem' }}
-              >
-                {role}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {data.permissions.map((perm) => (
-            <tr key={perm.id} style={{ borderBottom: '1px solid var(--border)' }}>
-              <td style={{ padding: '0.5rem' }}>
-                <div style={{ fontFamily: 'monospace', fontSize: '0.8125rem' }}>{perm.key}</div>
-                {perm.description && (
-                  <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
-                    {perm.description}
-                  </div>
-                )}
-              </td>
-              {data.roles.map((role) => {
-                const editable = data.editableRoles.includes(role);
-                const checked = data.matrix[role]?.includes(perm.key) ?? false;
-                return (
-                  <td key={role} style={{ padding: '0.5rem', textAlign: 'center' }}>
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      disabled={!editable || pending === `${role}:${perm.key}`}
-                      onChange={(e) => toggle(role, perm.key, e.target.checked)}
-                    />
-                  </td>
-                );
-              })}
+      <div className="search" style={{ width: 300, marginBottom: 14 }}>
+        <Icon.Search />
+        <input
+          placeholder="Filter permissions…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Permission</th>
+              {data.roles.map((role) => (
+                <th key={role} style={{ textAlign: 'center' }}>
+                  {roleLabel(role)}
+                </th>
+              ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {groups.map(([group, perms]) => (
+              <Fragment key={group}>
+                <tr>
+                  <td
+                    colSpan={data.roles.length + 1}
+                    style={{
+                      background: 'var(--surface-2)',
+                      padding: '6px 16px',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      letterSpacing: '0.08em',
+                      textTransform: 'uppercase',
+                      color: 'var(--muted)',
+                    }}
+                  >
+                    {group}
+                  </td>
+                </tr>
+                {perms.map((perm) => (
+                  <tr key={perm.id}>
+                    <td>
+                      <div>{perm.description ?? perm.key}</div>
+                      <div className="mono sub">{perm.key}</div>
+                    </td>
+                    {data.roles.map((role) => {
+                      const editable = data.editableRoles.includes(role);
+                      const checked = data.matrix[role]?.includes(perm.key) ?? false;
+                      return (
+                        <td key={role} style={{ textAlign: 'center' }}>
+                          <input
+                            type="checkbox"
+                            className="cb"
+                            checked={checked}
+                            disabled={!editable || pending === `${role}:${perm.key}`}
+                            onChange={(e) => toggle(role, perm.key, e.target.checked)}
+                            title={editable ? undefined : 'Super Admin always has every permission'}
+                            style={editable ? undefined : { opacity: 0.55, cursor: 'not-allowed' }}
+                          />
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </Fragment>
+            ))}
+            {groups.length === 0 && (
+              <tr>
+                <td colSpan={data.roles.length + 1} className="empty">
+                  No permissions match "{query}".
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
