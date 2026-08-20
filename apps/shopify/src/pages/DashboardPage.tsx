@@ -24,12 +24,40 @@ import type { ShopifyMe, ShopifyOnboardingConfirmResponse, ShopifyStats } from '
 // tree, so the hook always resolves, and it keeps callers from having to
 // thread a navigate function through just to render a banner.
 //
+// Takes the whole `me` object, not just `runway` — the banner now has to
+// branch on `autorefill.status` too, since a store enrolled in auto-refill
+// changes what "low credits" should mean (see below).
+//
 // Renders `null` at 'ok' — this is deliberately not a blocking modal, and the
 // app is not disabled at zero: a merchant at zero can still manage products,
 // read analytics and edit the widget, and the actual breakage is on the
 // storefront, not in here.
-export function LowCreditsBanner({ runway }: { runway: ShopifyMe['runway'] }) {
+export function LowCreditsBanner({ me }: { me: ShopifyMe }) {
   const navigate = useNavigate();
+  const { runway, autorefill } = me;
+
+  // Auto-refill has stopped at a ceiling the merchant set. This is the one
+  // auto-refill state that needs their attention, and it is more urgent than a
+  // plain low balance because they believe it is handled.
+  if (autorefill.status === 'CAP_REACHED') {
+    return (
+      <Banner
+        tone="critical"
+        title="Auto-refill has stopped — monthly limit reached"
+        // Not `url: '/pricing'` — see the comment on the low-balance banner
+        // below; same production-vs-dev basename trap.
+        action={{ content: 'Raise limit', onAction: () => navigate('/pricing') }}
+      >
+        <Text as="p">
+          Your balance is {runway.balance.toLocaleString()} credits and automatic refills are paused
+          until you raise your monthly limit.
+        </Text>
+      </Banner>
+    );
+  }
+
+  // A healthy enrolled store is never "low" — the refill fires first.
+  if (autorefill.status === 'ACTIVE') return null;
 
   if (runway.level === 'ok') return null;
 
@@ -205,7 +233,7 @@ export default function DashboardPage() {
       <BlockStack gap="400">
         {error && <Banner tone="critical">{error}</Banner>}
 
-        {me?.runway && <LowCreditsBanner runway={me.runway} />}
+        {me && <LowCreditsBanner me={me} />}
 
         <Card>
           <BlockStack gap="200">

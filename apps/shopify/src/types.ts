@@ -87,6 +87,13 @@ export interface ShopifyMe {
     daysRemaining: number | null;
     level: 'ok' | 'warning' | 'critical' | 'empty';
   };
+  autorefill: {
+    enabled: boolean;
+    status: 'PENDING' | 'ACTIVE' | 'CANCELLED' | 'DECLINED' | 'CAP_REACHED' | null;
+    packId: string | null;
+    triggerCredits: number | null;
+    cappedAmountUsdCents: number | null;
+  };
   stats: ShopifyStats;
 }
 
