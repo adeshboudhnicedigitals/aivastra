@@ -1,3 +1,12 @@
+## 2026-08-20 — Admin Role-Permission Matrix (API, Settings Tab, Sidebar & Recycle Bin fixes)
+
+**Done**
+- Implemented `GET` and `PATCH /admin/role-permissions` API (`apps/api/src/modules/admin/role-permissions.routes.ts`) gated by existing `admin_users.manage` permission. Reads existing `permissions` and `role_permissions` tables to return the matrix of role grants, and updates grants transactionally with audit logging (`role_permissions.grant` / `role_permissions.revoke`). `SUPER_ADMIN` is strictly excluded from editing via the zod request body enum (`EDITABLE_ROLES = ['ADMIN', 'MODERATOR', 'SUPPORT']`).
+- Registered `adminRolePermissionsRoutes` in `apps/api/src/server.ts` and added integration tests in `apps/api/test/integration/role-permissions.test.ts` (verified matrix fetching, idempotent granting/revoking, audit log writes, rejection of `SUPER_ADMIN` edits, and 403 authorization gating for non-super admins).
+- Created "Roles & Permissions" matrix settings tab (`apps/admin-web/src/pages/settings/RolesPermissionsTab.tsx`) and integrated it into `SettingsPage.tsx`. Features optimistic updates, in-flight state tracking per cell, disabled checkboxes for `SUPER_ADMIN`, and error rollback with toast alerts.
+- Updated `Sidebar.tsx` to gate 20 navigation items on real permission keys (`hasPermission`) rather than hard-coded role arrays, fixing drifts for `shopify-funnels`, `users`, and `credit-analysis` per `0160_permissions.sql` seed data. Preserved hardcoded roles for `payments` as intentional holdout since no permission key exists for it yet. Settings gear is now gated on `hasPermission('admin_users.manage')`.
+- Updated `RecycleBinPage.tsx`'s `canHardDelete` check to use `hasPermission('assets.delete')` instead of `role === 'SUPER_ADMIN' || role === 'MODERATOR'`.
+
 ## 2026-08-19 — Second SSO entry point for tryon-library-app: code-based handoff
 
 **Done**
