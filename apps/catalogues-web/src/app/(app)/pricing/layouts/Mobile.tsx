@@ -23,7 +23,6 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
     countryRef,
     ratesLoading,
     isNonIn,
-    currentPlanSlug,
     cataloguePlans,
     tryonPlans,
     plansLoading,
@@ -411,7 +410,6 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                   const features = PLAN_FEATURES[idx] ?? PLAN_FEATURES[0];
                   const accent = meta.accent;
                   const highlighted = plan.isHighlighted;
-                  const isCurrentPlan = plan.slug === currentPlanSlug;
 
                   const cardContent = (
                     // biome-ignore lint/correctness/useJsxKeyInIterable: cardContent is wrapped by keyed parent in the map return below
@@ -599,11 +597,9 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                       <div style={{ padding: '4px 16px 16px' }}>
                         <Tooltip
                           tip={
-                            isCurrentPlan
-                              ? "You're already on this plan"
-                              : buying && buying !== plan.slug
-                                ? 'Another payment is in progress'
-                                : undefined
+                            buying && buying !== plan.slug
+                              ? 'Another payment is in progress'
+                              : undefined
                           }
                           position="bottom"
                           containerStyle={{ width: '100%' }}
@@ -614,7 +610,7 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                               highlighted ? 'upgrade-plan-btn highlighted' : 'upgrade-plan-btn'
                             }
                             onClick={() => startBuy(plan)}
-                            disabled={!!buying || isCurrentPlan}
+                            disabled={!!buying}
                             style={{
                               width: '100%',
                               padding: '11px 16px',
@@ -625,24 +621,16 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                               fontFamily: 'inherit',
                               fontWeight: 700,
                               fontSize: 14,
-                              cursor: isCurrentPlan || buying ? 'not-allowed' : 'pointer',
+                              cursor: buying ? 'not-allowed' : 'pointer',
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'center',
                               gap: 6,
-                              opacity: isCurrentPlan
-                                ? 0.5
-                                : buying && buying !== plan.slug
-                                  ? 0.45
-                                  : 1,
+                              opacity: buying && buying !== plan.slug ? 0.45 : 1,
                             }}
                           >
-                            {isCurrentPlan
-                              ? 'Current Plan'
-                              : buying === plan.slug
-                                ? 'Processing…'
-                                : 'Upgrade'}
-                            {!isCurrentPlan && buying !== plan.slug && <ArrowRight size={16} />}
+                            {buying === plan.slug ? 'Processing…' : 'Upgrade'}
+                            {buying !== plan.slug && <ArrowRight size={16} />}
                           </button>
                         </Tooltip>
                       </div>
@@ -730,7 +718,6 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                   const features = TRYON_FEATURES;
                   const accent = meta.accent;
                   const highlighted = plan.isHighlighted;
-                  const isCurrentPlan = plan.slug === currentPlanSlug;
 
                   const cardContent = (
                     // biome-ignore lint/correctness/useJsxKeyInIterable: cardContent is wrapped by keyed parent in the map return below
@@ -918,11 +905,9 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                       <div style={{ padding: '4px 16px 16px' }}>
                         <Tooltip
                           tip={
-                            isCurrentPlan
-                              ? "You're already on this plan"
-                              : buying && buying !== plan.slug
-                                ? 'Another payment is in progress'
-                                : undefined
+                            buying && buying !== plan.slug
+                              ? 'Another payment is in progress'
+                              : undefined
                           }
                           position="bottom"
                           containerStyle={{ width: '100%' }}
@@ -933,7 +918,7 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                               highlighted ? 'upgrade-plan-btn highlighted' : 'upgrade-plan-btn'
                             }
                             onClick={() => startBuy(plan)}
-                            disabled={!!buying || isCurrentPlan}
+                            disabled={!!buying}
                             style={{
                               width: '100%',
                               padding: '11px 16px',
@@ -944,24 +929,16 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                               fontFamily: 'inherit',
                               fontWeight: 700,
                               fontSize: 14,
-                              cursor: isCurrentPlan || buying ? 'not-allowed' : 'pointer',
+                              cursor: buying ? 'not-allowed' : 'pointer',
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'center',
                               gap: 6,
-                              opacity: isCurrentPlan
-                                ? 0.5
-                                : buying && buying !== plan.slug
-                                  ? 0.45
-                                  : 1,
+                              opacity: buying && buying !== plan.slug ? 0.45 : 1,
                             }}
                           >
-                            {isCurrentPlan
-                              ? 'Current Plan'
-                              : buying === plan.slug
-                                ? 'Processing…'
-                                : 'Upgrade'}
-                            {!isCurrentPlan && buying !== plan.slug && <ArrowRight size={16} />}
+                            {buying === plan.slug ? 'Processing…' : 'Upgrade'}
+                            {buying !== plan.slug && <ArrowRight size={16} />}
                           </button>
                         </Tooltip>
                       </div>
