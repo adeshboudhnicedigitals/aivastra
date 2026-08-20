@@ -7,9 +7,7 @@ import { financialYearFor, renderInvoicePdf } from './invoice-pdf.js';
 
 const CONFIG_KEY = 'config:system';
 
-async function readSellerConfig(
-  app: FastifyInstance,
-): Promise<{ gstin: string; legalName: string; address: string }> {
+async function readSellerConfig(app: FastifyInstance): Promise<typeof DEFAULT_SELLER_CONFIG> {
   const raw = await app.redis.get(CONFIG_KEY);
   const cfg = raw ? JSON.parse(raw) : {};
   return { ...DEFAULT_SELLER_CONFIG, ...cfg.seller };
@@ -58,10 +56,15 @@ export async function issueInvoiceIfNeeded(
       .select()
       .from(schema.payments)
       .where(eq(schema.payments.id, paymentId));
-    if (!payment || payment.status !== 'paid') return null;
+    if (payment?.status !== 'paid') return null;
 
     const [user] = await app.db
-      .select({ email: schema.users.email })
+      .select({
+        email: schema.users.email,
+        displayName: schema.users.displayName,
+        companyName: schema.users.companyName,
+        phone: schema.users.phone,
+      })
       .from(schema.users)
       .where(eq(schema.users.id, payment.userId));
     if (!user?.email) return null;
@@ -80,12 +83,22 @@ export async function issueInvoiceIfNeeded(
       invoiceNumber,
       issuedAt,
       seller,
-      customer: { email: user.email, gstin: payment.gstin },
+      customer: {
+        email: user.email,
+        gstin: payment.gstin,
+        displayName: user.displayName,
+        companyName: user.companyName,
+        phone: user.phone,
+      },
+      orderId: payment.razorpayOrderId,
       planName: plan?.name ?? payment.planId,
       credits: payment.credits,
       basePaise: payment.basePaise,
       gstPaise: payment.gstPaise,
       totalPaise: payment.totalPaise,
+      paymentStatus: payment.status,
+      razorpayPaymentId: payment.razorpayPaymentId,
+      paidAt: payment.paidAt,
     });
 
     const r2Key = keys.invoice(paymentId);

@@ -16,6 +16,7 @@ import DevApiPage from './pages/DevApiPage';
 import HeldBatchesPage from './pages/HeldBatchesPage';
 import JobsPage from './pages/JobsPage';
 import LoginPage from './pages/LoginPage';
+import PaymentsPage from './pages/PaymentsPage';
 import RecycleBinPage from './pages/RecycleBinPage';
 import SareePage from './pages/SareePage';
 import SettingsPage from './pages/SettingsPage';
@@ -48,6 +49,7 @@ const PATH_LABELS: Record<string, string> = {
   saree: 'Saree',
   'shopify-funnels': 'Shopify',
   'credit-analysis': 'Credit Analysis',
+  payments: 'Payments',
   'shopify-stores': 'Shopify Stores',
   telemetry: 'Telemetry',
 };
@@ -238,6 +240,7 @@ export default function App() {
             <Route path="/workflows" element={<WorkflowsPage {...pageProps} />} />
             <Route path="/shopify-funnels" element={<ShopifyFunnelsPage {...pageProps} />} />
             <Route path="/credit-analysis" element={<CreditAnalysisPage {...pageProps} />} />
+            <Route path="/payments" element={<PaymentsPage {...pageProps} />} />
             <Route path="/shopify-stores" element={<ShopifyStoresPage {...pageProps} />} />
             <Route path="/telemetry" element={<TelemetryPage {...pageProps} />} />
             <Route path="/tryon" element={<TryonPage {...pageProps} />} />

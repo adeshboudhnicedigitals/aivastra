@@ -132,6 +132,12 @@ const groups: NavGroup[] = [
         roles: ['SUPER_ADMIN', 'SUPPORT', 'ADMIN'],
       },
       {
+        k: 'payments',
+        label: 'Payments',
+        icon: Icon.Credit,
+        roles: ['SUPER_ADMIN', 'SUPPORT', 'ADMIN'],
+      },
+      {
         k: 'telemetry',
         label: 'Telemetry',
         icon: Icon.Clock,
