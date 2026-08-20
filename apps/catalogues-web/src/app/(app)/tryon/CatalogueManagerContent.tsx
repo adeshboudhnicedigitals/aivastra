@@ -814,6 +814,7 @@ export function CatalogueManagerContent() {
         }}
         onSaved={handleProductSaved}
         subcategoryId={selectedSubcategoryId}
+        supportsTwoInputMannequin={selectedSub?.supportsTwoInputMannequin ?? false}
         initialData={editingProd}
       />
 

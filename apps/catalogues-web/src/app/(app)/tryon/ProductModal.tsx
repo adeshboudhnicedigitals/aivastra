@@ -12,6 +12,7 @@ interface ProductModalProps {
   onClose: () => void;
   onSaved: () => void;
   subcategoryId: string | null;
+  supportsTwoInputMannequin: boolean;
   initialData?: MerchantCatalogItem;
 }
 
@@ -20,6 +21,7 @@ export function ProductModal({
   onClose,
   onSaved,
   subcategoryId,
+  supportsTwoInputMannequin,
   initialData,
 }: ProductModalProps) {
   const [label, setLabel] = useState('');
@@ -31,6 +33,10 @@ export function ProductModal({
   const [imageMode, setImageMode] = useState<'catalogue' | 'flat'>('catalogue');
   const [selectedFile, setSelectedFile] = useState<File | undefined>(undefined);
   const [previewUrl, setPreviewUrl] = useState<string | undefined>(undefined);
+  // Pallu is only relevant in 'flat' imageMode for a two-input-capable subcategory —
+  // mirrors Studio's Body/Pallu pair (studio/page.tsx's palluGarmentFile/palluGarmentKey).
+  const [palluFile, setPalluFile] = useState<File | undefined>(undefined);
+  const [palluPreviewUrl, setPalluPreviewUrl] = useState<string | undefined>(undefined);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   // The product row created by the generate+import flow, still awaiting the
@@ -39,9 +45,12 @@ export function ProductModal({
   const [generatedItem, setGeneratedItem] = useState<MerchantCatalogItem | undefined>(undefined);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const palluInputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const previewUrlRef = useRef<string | undefined>(undefined);
   previewUrlRef.current = previewUrl;
+  const palluPreviewUrlRef = useRef<string | undefined>(undefined);
+  palluPreviewUrlRef.current = palluPreviewUrl;
   const generatedItemRef = useRef<MerchantCatalogItem | undefined>(undefined);
   generatedItemRef.current = generatedItem;
 
@@ -62,6 +71,8 @@ export function ProductModal({
       }
       setSelectedFile(undefined);
       setPreviewUrl(undefined);
+      setPalluFile(undefined);
+      setPalluPreviewUrl(undefined);
       setGeneratedItem(undefined);
       setErrorMsg(undefined);
       setIsGenerating(false);
@@ -73,6 +84,7 @@ export function ProductModal({
   useEffect(() => {
     if (open) return;
     if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    if (palluPreviewUrlRef.current) URL.revokeObjectURL(palluPreviewUrlRef.current);
     if (generatedItemRef.current) void deleteProduct(generatedItemRef.current.id);
   }, [open]);
 
@@ -129,8 +141,25 @@ export function ProductModal({
     }
   };
 
+  const handlePalluFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (palluPreviewUrl) URL.revokeObjectURL(palluPreviewUrl);
+    setPalluFile(file);
+    setPalluPreviewUrl(URL.createObjectURL(file));
+    setErrorMsg(undefined);
+    if (generatedItem) {
+      void deleteProduct(generatedItem.id);
+      setGeneratedItem(undefined);
+    }
+  };
+
+  const requiresPallu = imageMode === 'flat' && supportsTwoInputMannequin;
+
   const handleGenerate = async () => {
     if (!selectedFile || !subcategoryId) return;
+    if (requiresPallu && !palluFile) return;
     setIsGenerating(true);
     setErrorMsg(undefined);
     try {
@@ -139,9 +168,13 @@ export function ProductModal({
         setGeneratedItem(undefined);
       }
       const { r2Key: flatImageKey } = await presignAndUpload(selectedFile, 'flat');
+      const secondFlatImageKey = requiresPallu
+        ? (await presignAndUpload(palluFile as File, 'flat')).r2Key
+        : undefined;
       const { jobId } = await api.post<{ jobId: string }>('/v1/merchant/catalog/generate', {
         subcategoryId,
         flatImageKey,
+        ...(secondFlatImageKey ? { secondFlatImageKey } : {}),
       });
       const status = await pollGenerateJob(jobId);
       if (status.status !== 'COMPLETED') {
@@ -165,7 +198,8 @@ export function ProductModal({
   const hasPriceError = offerPriceNum > actualPriceNum;
   const missingImage =
     !isEditing &&
-    ((imageMode === 'catalogue' && !selectedFile) || (imageMode === 'flat' && !generatedItem));
+    ((imageMode === 'catalogue' && !selectedFile) ||
+      (imageMode === 'flat' && !generatedItem && (!selectedFile || (requiresPallu && !palluFile))));
   const isSaveDisabled = hasPriceError || isGenerating || isSaving || missingImage;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -407,7 +441,9 @@ export function ProductModal({
                         <UploadIcon size={28} />
                       </div>
                       <div style={{ fontSize: 13, color: C.mid, fontWeight: 500 }}>
-                        Upload flat garment photo
+                        {requiresPallu
+                          ? 'Upload the body (front) photo'
+                          : 'Upload flat garment photo'}
                       </div>
                     </div>
                   ) : (
@@ -460,6 +496,43 @@ export function ProductModal({
                           </div>
                         )}
                       </div>
+                      {requiresPallu && (
+                        <div
+                          // biome-ignore lint/a11y/useKeyWithClickEvents: simple click trigger
+                          onClick={() => !busy && palluInputRef.current?.click()}
+                          style={{
+                            width: 104,
+                            height: 130,
+                            borderRadius: 8,
+                            border: `1px dashed ${C.border2}`,
+                            background: palluPreviewUrl ? C.field : 'transparent',
+                            position: 'relative',
+                            overflow: 'hidden',
+                            flexShrink: 0,
+                            cursor: busy ? 'not-allowed' : 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          {palluPreviewUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            // biome-ignore lint/performance/noImgElement: local preview
+                            <img
+                              src={palluPreviewUrl}
+                              alt="Pallu"
+                              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                            />
+                          ) : (
+                            <div style={{ textAlign: 'center', padding: 8 }}>
+                              <UploadIcon size={20} />
+                              <div style={{ fontSize: 11, color: C.mid, marginTop: 4 }}>
+                                Upload Pallu
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                       <div
                         style={{
                           flex: 1,
@@ -479,8 +552,11 @@ export function ProductModal({
                               type="button"
                               onClick={() => {
                                 if (previewUrl) URL.revokeObjectURL(previewUrl);
+                                if (palluPreviewUrl) URL.revokeObjectURL(palluPreviewUrl);
                                 setSelectedFile(undefined);
                                 setPreviewUrl(undefined);
+                                setPalluFile(undefined);
+                                setPalluPreviewUrl(undefined);
                               }}
                               disabled={isGenerating}
                               style={{
@@ -525,9 +601,12 @@ export function ProductModal({
                                 type="button"
                                 onClick={() => {
                                   if (previewUrl) URL.revokeObjectURL(previewUrl);
+                                  if (palluPreviewUrl) URL.revokeObjectURL(palluPreviewUrl);
                                   if (generatedItem) void deleteProduct(generatedItem.id);
                                   setSelectedFile(undefined);
                                   setPreviewUrl(undefined);
+                                  setPalluFile(undefined);
+                                  setPalluPreviewUrl(undefined);
                                   setGeneratedItem(undefined);
                                 }}
                                 disabled={busy}
@@ -559,6 +638,14 @@ export function ProductModal({
             type="file"
             ref={fileInputRef}
             onChange={handleFileChange}
+            accept="image/jpeg,image/png,image/webp"
+            style={{ display: 'none' }}
+            tabIndex={-1}
+          />
+          <input
+            type="file"
+            ref={palluInputRef}
+            onChange={handlePalluFileChange}
             accept="image/jpeg,image/png,image/webp"
             style={{ display: 'none' }}
             tabIndex={-1}
