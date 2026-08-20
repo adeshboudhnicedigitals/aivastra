@@ -672,7 +672,7 @@ git commit -m "fix(admin): gate sidebar nav on permissions instead of hard-coded
 **Files:**
 - Modify: `apps/admin-web/src/pages/RecycleBinPage.tsx:50-51`
 
-- [ ] **Step 1: Replace the role check with a permission check**
+- [x] **Step 1: Replace the role check with a permission check**
 
 ```ts
 // Before:
@@ -691,13 +691,13 @@ seed data (verified against `0160_permissions.sql` — `ADMIN`'s grants include
 a widening. Confirmed by inspection, not assumption — no seed data change needed for this
 task.
 
-- [ ] **Step 2: Manual verification**
+- [x] **Step 2: Manual verification**
 
 Log in as `MODERATOR`, confirm the hard-delete button still appears in Recycle Bin (has
 `assets.delete` by default). Using Task 2's tab, revoke `assets.delete` from `MODERATOR`,
 reload, confirm the button disappears.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add apps/admin-web/src/pages/RecycleBinPage.tsx
