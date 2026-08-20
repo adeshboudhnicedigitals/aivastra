@@ -919,6 +919,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
             flatImageKey,
             subcategoryId,
             merchantId,
+            secondFlatImageKey,
           });
 
       reply.code(201);
