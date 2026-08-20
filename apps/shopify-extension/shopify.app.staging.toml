@@ -50,3 +50,7 @@ api_version = "2026-07"
   [[webhooks.subscriptions]]
   topics = [ "app_subscriptions/update" ]
   uri = "https://staging-admin.aivastra.com/v1/shopify/webhooks/app_subscriptions_update"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app_subscriptions/approaching_capped_amount" ]
+  uri = "https://staging-admin.aivastra.com/v1/shopify/webhooks/app_subscriptions_approaching_capped_amount"

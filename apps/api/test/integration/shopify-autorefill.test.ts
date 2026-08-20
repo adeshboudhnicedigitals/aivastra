@@ -2,7 +2,12 @@ import { createHmac } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { disableAutorefill, runRefill } from '../../src/modules/shopify/autorefill.js';
+import {
+  disableAutorefill,
+  refreshAutorefillState,
+  runRefill,
+} from '../../src/modules/shopify/autorefill.js';
+import type { SubscriptionState } from '../../src/modules/shopify/autorefill-client.js';
 import { buildTestApp } from '../helpers/api.js';
 import { startContainers } from '../helpers/containers.js';
 
@@ -267,6 +272,173 @@ describe('disableAutorefill', () => {
       .where(eq(schema.shopifyStores.id, store.id));
     expect(refreshed.autorefillStatus).toBeNull();
     expect(refreshed.autorefillSubscriptionId).toBeNull();
+  });
+});
+
+describe('refreshAutorefillState', () => {
+  const observed = (over: Partial<SubscriptionState> = {}): SubscriptionState => ({
+    id: 'gid://shopify/AppSubscription/refresh',
+    status: 'ACTIVE',
+    cappedAmountUsd: 50,
+    balanceUsedUsd: 10,
+    ...over,
+  });
+
+  // Merchants can change the capped amount from the Shopify admin, where this
+  // app never sees the click — and we show that number back to them.
+  it('writes back a ceiling the merchant changed in the Shopify admin', async () => {
+    await reset(100, {
+      autorefillStatus: 'ACTIVE',
+      autorefillSubscriptionId: 'gid://shopify/AppSubscription/refresh',
+      autorefillCappedAmountCents: 5000,
+    });
+
+    await refreshAutorefillState(app, store, {
+      fetchStatus: async () => observed({ cappedAmountUsd: 120, balanceUsedUsd: 30 }),
+    });
+
+    const [refreshed] = await app.db
+      .select()
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, store.id));
+    expect(refreshed.autorefillCappedAmountCents).toBe(12000);
+    expect(refreshed.autorefillBalanceUsedCents).toBe(3000);
+  });
+
+  // CAP_REACHED is ours, not Shopify's, and nothing else ever clears it — a
+  // merchant who raises the ceiling in the Shopify admin would otherwise stay
+  // stuck with auto-refill off despite headroom they already paid for.
+  it('recovers from CAP_REACHED once there is headroom again', async () => {
+    await reset(100, {
+      autorefillStatus: 'CAP_REACHED',
+      autorefillSubscriptionId: 'gid://shopify/AppSubscription/refresh',
+      autorefillCappedAmountCents: 5000,
+      autorefillCapWarnedAt: new Date(),
+    });
+
+    await refreshAutorefillState(app, store, {
+      fetchStatus: async () => observed({ cappedAmountUsd: 200, balanceUsedUsd: 50 }),
+    });
+
+    const [refreshed] = await app.db
+      .select()
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, store.id));
+    expect(refreshed.autorefillStatus).toBe('ACTIVE');
+    // The ceiling they were warned about is not the ceiling they now have.
+    expect(refreshed.autorefillCapWarnedAt).toBeNull();
+  });
+
+  it('stays CAP_REACHED while the ceiling is still exhausted', async () => {
+    await reset(100, {
+      autorefillStatus: 'CAP_REACHED',
+      autorefillSubscriptionId: 'gid://shopify/AppSubscription/refresh',
+      autorefillCappedAmountCents: 5000,
+    });
+
+    await refreshAutorefillState(app, store, {
+      fetchStatus: async () => observed({ cappedAmountUsd: 50, balanceUsedUsd: 50 }),
+    });
+
+    const [refreshed] = await app.db
+      .select()
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, store.id));
+    expect(refreshed.autorefillStatus).toBe('CAP_REACHED');
+  });
+
+  // Recovery must never re-arm a subscription the merchant actually cancelled,
+  // however much headroom the line item reports.
+  it('never recovers a subscription Shopify reports as cancelled', async () => {
+    await reset(100, {
+      autorefillStatus: 'CAP_REACHED',
+      autorefillSubscriptionId: 'gid://shopify/AppSubscription/refresh',
+    });
+
+    await refreshAutorefillState(app, store, {
+      fetchStatus: async () =>
+        observed({ status: 'CANCELLED', cappedAmountUsd: 200, balanceUsedUsd: 0 }),
+    });
+
+    const [refreshed] = await app.db
+      .select()
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, store.id));
+    expect(refreshed.autorefillStatus).toBe('CANCELLED');
+  });
+});
+
+describe('app_subscriptions_approaching_capped_amount webhook — HTTP layer', () => {
+  const deliver = async (subscriptionId: string) => {
+    const body = JSON.stringify({
+      admin_graphql_api_id: subscriptionId,
+      name: 'AiVastra auto-refill',
+      capped_amount: '50.00',
+      admin_graphql_api_shop_id: `gid://shopify/Shop/${store.shopifyShopId}`,
+    });
+    return app.inject({
+      method: 'POST',
+      url: '/v1/shopify/webhooks/app_subscriptions_approaching_capped_amount',
+      headers: {
+        'content-type': 'application/json',
+        'x-shopify-hmac-sha256': createHmac('sha256', WEBHOOK_SECRET).update(body).digest('base64'),
+        'x-shopify-shop-domain': store.shopDomain,
+      },
+      payload: body,
+    });
+  };
+
+  const warnedAt = async () => {
+    const [row] = await app.db
+      .select()
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, store.id));
+    return row.autorefillCapWarnedAt;
+  };
+
+  // No shopEmail on this fixture, so the email itself is skipped — what this
+  // proves is that the route accepts a real delivery, matches it to the right
+  // store, and records that the warning was handled. The store's own token is
+  // a fake, so the live refresh inside fails and the stored ceiling is used:
+  // that fallback is deliberate, since dropping the warning over a brief
+  // Shopify outage is worse for the merchant than warning with a stale figure.
+  it('stamps the store as warned on a real HMAC-signed delivery', async () => {
+    await reset(100, {
+      autorefillStatus: 'ACTIVE',
+      autorefillSubscriptionId: 'gid://shopify/AppSubscription/approaching',
+      autorefillCappedAmountCents: 5000,
+      autorefillCapWarnedAt: null,
+    });
+
+    expect((await deliver('gid://shopify/AppSubscription/approaching')).statusCode).toBe(200);
+    expect(await warnedAt()).not.toBeNull();
+  });
+
+  // Shopify may re-deliver this topic across one cycle; one email per ceiling
+  // is enough.
+  it('does not re-warn on a redelivery', async () => {
+    const alreadyWarned = new Date('2026-08-01T00:00:00.000Z');
+    await reset(100, {
+      autorefillStatus: 'ACTIVE',
+      autorefillSubscriptionId: 'gid://shopify/AppSubscription/approaching',
+      autorefillCappedAmountCents: 5000,
+      autorefillCapWarnedAt: alreadyWarned,
+    });
+
+    expect((await deliver('gid://shopify/AppSubscription/approaching')).statusCode).toBe(200);
+    expect(await warnedAt()).toEqual(alreadyWarned);
+  });
+
+  it('is a no-op when the delivered subscription id does not match the store', async () => {
+    await reset(100, {
+      autorefillStatus: 'ACTIVE',
+      autorefillSubscriptionId: 'gid://shopify/AppSubscription/approaching',
+      autorefillCappedAmountCents: 5000,
+      autorefillCapWarnedAt: null,
+    });
+
+    expect((await deliver('gid://shopify/AppSubscription/unrelated')).statusCode).toBe(200);
+    expect(await warnedAt()).toBeNull();
   });
 });
 

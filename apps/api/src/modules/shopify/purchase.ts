@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import {
@@ -9,10 +9,21 @@ import {
 } from '../../lib/resolution-config.js';
 import { grantStore } from '../credits/shopify-ledger.js';
 import { getPack } from './packs.js';
-import { shopifyGraphQL } from './service.js';
+import { shopifyGraphQL, warnIfManagedPricing } from './service.js';
 import { getValidAccessToken } from './token.js';
 
 type Store = typeof schema.shopifyStores.$inferSelect;
+
+/**
+ * How many test-charge grants a single development store may ever receive.
+ *
+ * Deliberately checked with a plain count rather than a lock or a unique
+ * index: the check racing itself can only overshoot by however many test
+ * purchases a store has genuinely in flight at that instant, which is slack
+ * measured in packs on a store that pays nothing anyway. The thing this must
+ * prevent is unbounded repetition, and a count does that.
+ */
+const TEST_GRANT_LIMIT = 3;
 
 export interface OneTimePurchaseState {
   id: string;
@@ -83,7 +94,9 @@ async function defaultCreateCharge(
 
   const payload = data.appPurchaseOneTimeCreate;
   if (payload.userErrors?.length) {
-    throw new AppError('SHOPIFY', 502, payload.userErrors.map((e) => e.message).join('; '));
+    const message = payload.userErrors.map((e) => e.message).join('; ');
+    warnIfManagedPricing(app.log, store.shopDomain, message);
+    throw new AppError('SHOPIFY', 502, message);
   }
   if (!payload.confirmationUrl || !payload.appPurchaseOneTime) {
     throw new AppError('SHOPIFY', 502, 'Shopify returned no confirmation URL for the charge');
@@ -158,7 +171,13 @@ export async function createPurchase(
       name: `AiVastra — ${tryOns} try-ons`,
       amountUsd: pack.priceUsd,
       returnUrl,
-      test: app.env.SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS === true,
+      // Per-store, not a single global switch. Shopify's rule is that a
+      // development store is only ever billed in test mode, while a real
+      // merchant must be charged for real ("set `test` to `false`, otherwise
+      // app users who install your app aren't charged"). Both hold at once
+      // only if this is decided per store. The env flag stays as the escape
+      // hatch for testing against a store that isn't a development store.
+      test: store.partnerDevelopment || app.env.SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS === true,
     });
     await app.db
       .update(schema.shopifyCreditPurchases)
@@ -222,6 +241,7 @@ async function storeBalance(app: FastifyInstance, storeId: string): Promise<numb
  */
 export async function grantForPurchase(
   app: FastifyInstance,
+  store: Store,
   purchaseRow: typeof schema.shopifyCreditPurchases.$inferSelect,
   observed: OneTimePurchaseState,
 ): Promise<number> {
@@ -232,19 +252,62 @@ export async function grantForPurchase(
   // pack, take the credits, and repeat. Credits are GPU spend, so that converts
   // straight into cost.
   //
+  // But refusing outright is what broke App Store review: reviewers test on a
+  // development store, so every charge they make is a test charge, and an app
+  // that takes the approval and grants nothing reads as broken. So a test
+  // charge grants when the store really is a partner development store —
+  // bounded by TEST_GRANT_LIMIT below, which is what keeps that from being the
+  // free-credit faucet the paragraph above describes.
+  //
   // `=== true` rather than truthiness: the test harness casts an Env object
   // directly and leaves this undefined, and a gate guarding revenue must read
   // as denied for anything that is not explicitly boolean true.
-  const testAllowed = !observed.test || app.env.SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS === true;
+  const testAllowed =
+    !observed.test ||
+    store.partnerDevelopment === true ||
+    app.env.SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS === true;
 
   if (observed.test && !testAllowed) {
     app.log.warn(
       { storeId: purchaseRow.storeId, purchaseId: purchaseRow.id },
-      'shopify test purchase — no credits granted (set SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS=true to allow)',
+      'shopify test purchase — no credits granted (not a development store; set SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS=true to allow)',
     );
     return 0;
   }
   if (observed.status !== 'ACTIVE') return 0;
+
+  // The bound on test-funded credits. Counted from the ledger rather than a
+  // column so it survives a store row being rewritten by a reinstall, and it
+  // counts grants that actually landed — the idempotent no-op of a replayed
+  // webhook doesn't consume budget. A reviewer needs one or two purchases to
+  // see the flow work end to end; three is slack without being a supply.
+  //
+  // Bounded only on the automatic development-store allowance. Setting
+  // SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS is a deliberate operator opt-in on a
+  // machine whose credits cost nobody anything, and capping it there just
+  // means a developer exercising the low-balance, auto-refill and cap paths
+  // runs out of credits mid-test with a log line and no explanation. The gate
+  // that matters is the flag itself, which is off in production.
+  const bounded = app.env.SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS !== true;
+
+  if (observed.test && bounded) {
+    const [row] = await app.db
+      .select({ granted: sql<number>`count(*)::int` })
+      .from(schema.shopifyCreditLedger)
+      .where(
+        and(
+          eq(schema.shopifyCreditLedger.storeId, purchaseRow.storeId),
+          eq(schema.shopifyCreditLedger.reason, 'SHOPIFY_PACK_TEST'),
+        ),
+      );
+    if ((row?.granted ?? 0) >= TEST_GRANT_LIMIT) {
+      app.log.warn(
+        { storeId: purchaseRow.storeId, purchaseId: purchaseRow.id, limit: TEST_GRANT_LIMIT },
+        'shopify test purchase — development-store test grant limit reached, no credits granted',
+      );
+      return 0;
+    }
+  }
 
   // Distinct reason so test-funded credits stay separable from paid ones in the
   // ledger forever. `reason` is free text and is only ever written, so this
@@ -300,7 +363,7 @@ export async function confirmPurchase(
     throw new AppError('SHOPIFY', 502, 'charge not found at Shopify');
   }
 
-  const creditsGranted = await grantForPurchase(app, row, observed);
+  const creditsGranted = await grantForPurchase(app, store, row, observed);
 
   await app.db
     .update(schema.shopifyCreditPurchases)

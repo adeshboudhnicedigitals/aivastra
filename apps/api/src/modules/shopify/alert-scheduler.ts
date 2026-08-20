@@ -3,7 +3,7 @@ import { eq, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { sendLowCreditsEmail } from '../../lib/mailer.js';
 import { buildPostInstallRedirect } from './auth.routes.js';
-import { runRefill } from './autorefill.js';
+import { refreshAutorefillState, runRefill } from './autorefill.js';
 import { ALERT_LEVEL_RANK, type AlertLevel, computeRunway } from './runway.js';
 import { shopifyGraphQL } from './service.js';
 import { getValidAccessToken } from './token.js';
@@ -33,7 +33,7 @@ function normalizeAlertLevel(value: string | null): AlertLevel {
  * merchant at the exact moment we are asking them to spend money. Fall back to
  * the shop's app list, which is one extra click but always works.
  */
-function appLinkFor(app: FastifyInstance, shopDomain: string): string {
+export function appLinkFor(app: FastifyInstance, shopDomain: string): string {
   const apiKey = app.env.SHOPIFY_API_KEY;
   const storeHandle = shopDomain.replace(/\.myshopify\.com$/, '');
   return apiKey
@@ -158,6 +158,26 @@ export async function runAlertTick(app: FastifyInstance, deps: TickDeps = {}): P
       // the auto-refill-suppresses-the-email logic below being fooled by its
       // own stale read in the one tick where the store actually needs the
       // email most.
+      // Reconcile with Shopify before deciding anything, because two of the
+      // inputs below are things only Shopify knows: the merchant may have
+      // changed the capped amount from the Shopify admin, and a CAP_REACHED
+      // store whose ceiling was raised there (or whose 30-day cycle simply
+      // rolled over) has headroom again and should resume refilling. Failure
+      // here is not fatal to the tick — the store keeps whatever state it had,
+      // which is the same position this loop was in before the refresh
+      // existed.
+      if (store.autorefillSubscriptionId) {
+        try {
+          const refreshed = await refreshAutorefillState(app, store);
+          if (refreshed) store.autorefillStatus = refreshed.status;
+        } catch (err) {
+          app.log.warn(
+            { err, storeId: store.id, shopDomain: store.shopDomain },
+            'auto-refill state refresh failed — continuing with the stored state',
+          );
+        }
+      }
+
       let autorefillStatus = store.autorefillStatus;
       // Hoisted out of the `if` below so the suppression check further down
       // can see this tick's own refill outcome — not just the resulting

@@ -138,7 +138,110 @@ describe('credit pack purchase', () => {
     expect(result.creditsGranted).toBe(0);
   });
 
-  it('grants nothing for a test charge when the env gate is off', async () => {
+  // App Store reviewers test on a development store, where Shopify makes every
+  // charge a test charge. Refusing those outright is what makes the app look
+  // broken during review, so these two cover the narrow allowance and the bound
+  // that keeps it from being a free-credit faucet.
+  it('grants a test charge on a partner development store', async () => {
+    const [devStore] = await app.db
+      .insert(schema.shopifyStores)
+      .values({
+        shopDomain: 'dev-store-grant.myshopify.com',
+        shopifyShopId: 987654330,
+        accessToken: 'enc:token',
+        scope: 'read_products',
+        partnerDevelopment: true,
+      })
+      .returning();
+
+    const { purchaseId } = await createPurchase(app, devStore, 'pack_10', {
+      createCharge: async () => ({
+        confirmationUrl: 'https://shopify.test/c',
+        purchase: fakeCharge({ id: 'gid://shopify/AppPurchaseOneTime/dev-1', test: true }),
+      }),
+    });
+    const result = await confirmPurchase(app, devStore, purchaseId, {
+      fetchPurchase: async () =>
+        fakeCharge({ id: 'gid://shopify/AppPurchaseOneTime/dev-1', test: true }),
+    });
+    expect(result.creditsGranted).toBe(800);
+  });
+
+  it('stops granting test charges on a development store past the lifetime limit', async () => {
+    const [devStore] = await app.db
+      .insert(schema.shopifyStores)
+      .values({
+        shopDomain: 'dev-store-limit.myshopify.com',
+        shopifyShopId: 987654331,
+        accessToken: 'enc:token',
+        scope: 'read_products',
+        partnerDevelopment: true,
+      })
+      .returning();
+
+    const buy = async (n: number) => {
+      const chargeId = `gid://shopify/AppPurchaseOneTime/dev-limit-${n}`;
+      const { purchaseId } = await createPurchase(app, devStore, 'pack_10', {
+        createCharge: async () => ({
+          confirmationUrl: 'https://shopify.test/c',
+          purchase: fakeCharge({ id: chargeId, test: true }),
+        }),
+      });
+      return confirmPurchase(app, devStore, purchaseId, {
+        fetchPurchase: async () => fakeCharge({ id: chargeId, test: true }),
+      });
+    };
+
+    // TEST_GRANT_LIMIT is 3.
+    expect((await buy(1)).creditsGranted).toBe(800);
+    expect((await buy(2)).creditsGranted).toBe(800);
+    expect((await buy(3)).creditsGranted).toBe(800);
+    expect((await buy(4)).creditsGranted).toBe(0);
+  });
+
+  // The limit exists for development stores we did not choose to trust — a
+  // reviewer's, or anyone's once the app is publicly installable. An operator
+  // who sets the flag has opted in deliberately, and capping them there strands
+  // local testing of the low-balance and auto-refill paths halfway through.
+  it('does not apply the test-grant limit when the env gate is explicitly on', async () => {
+    const flagged = await buildTestApp(ctx, {
+      SHOPIFY_APP_URL: 'https://app.aivastra.test',
+      SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS: true,
+    });
+    try {
+      const [devStore] = await flagged.db
+        .insert(schema.shopifyStores)
+        .values({
+          shopDomain: 'dev-store-unbounded.myshopify.com',
+          shopifyShopId: 987654332,
+          accessToken: 'enc:token',
+          scope: 'read_products',
+          partnerDevelopment: true,
+        })
+        .returning();
+
+      let granted = 0;
+      for (let n = 1; n <= 5; n++) {
+        const chargeId = `gid://shopify/AppPurchaseOneTime/unbounded-${n}`;
+        const { purchaseId } = await createPurchase(flagged, devStore, 'pack_10', {
+          createCharge: async () => ({
+            confirmationUrl: 'https://shopify.test/c',
+            purchase: fakeCharge({ id: chargeId, test: true }),
+          }),
+        });
+        const result = await confirmPurchase(flagged, devStore, purchaseId, {
+          fetchPurchase: async () => fakeCharge({ id: chargeId, test: true }),
+        });
+        granted += result.creditsGranted;
+      }
+      // 5 packs, all granted — past TEST_GRANT_LIMIT of 3.
+      expect(granted).toBe(4000);
+    } finally {
+      await flagged.close();
+    }
+  });
+
+  it('grants nothing for a test charge on a real store when the env gate is off', async () => {
     const { purchaseId } = await createPurchase(app, store, 'pack_10', {
       createCharge: async () => ({
         confirmationUrl: 'https://shopify.test/c',
@@ -211,7 +314,7 @@ describe('one-time purchase webhook', () => {
       .from(schema.shopifyCreditPurchases)
       .where(eq(schema.shopifyCreditPurchases.id, purchaseId));
 
-    const granted = await grantForPurchase(app, row, {
+    const granted = await grantForPurchase(app, store, row, {
       id: chargeId,
       status: 'ACTIVE',
       test: false,

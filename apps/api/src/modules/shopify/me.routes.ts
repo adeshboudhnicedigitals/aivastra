@@ -129,6 +129,12 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
         packId: store.autorefillPackId,
         triggerCredits: store.autorefillTriggerCredits,
         cappedAmountUsdCents: store.autorefillCappedAmountCents,
+        // Read straight from Postgres like everything else here — refreshed
+        // from Shopify by the hourly sweep, not by this route. A dashboard
+        // load must not cost a Shopify round trip, and this figure only has to
+        // be roughly current to be useful: it exists to show the merchant how
+        // much of their own ceiling this cycle has consumed.
+        balanceUsedUsdCents: store.autorefillBalanceUsedCents,
       },
       stats: {
         totalTryOns,

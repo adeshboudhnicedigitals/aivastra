@@ -102,6 +102,14 @@ export const shopifyStores = pgTable('shopify_stores', {
   // watches it reset at 05:30 local time will file a bug. Null for rows that
   // predate this column; those fall back to UTC until the next reinstall.
   ianaTimezone: text('iana_timezone'),
+  // Whether this is a Shopify partner development store (shop.plan.partnerDevelopment).
+  // Shopify bills those in test mode only — no money ever moves — so this
+  // decides both halves of the billing test flag: what we send Shopify on a
+  // charge, and whether a test charge is allowed to grant credits. App Store
+  // reviewers test on exactly such a store, and a grant path that refuses every
+  // test charge reads to them as an app that takes payment and delivers
+  // nothing. Refreshed on every provision, since a store's plan can change.
+  partnerDevelopment: boolean('partner_development').notNull().default(false),
   ownerUserId: uuid('owner_user_id').references(() => users.id, { onDelete: 'set null' }),
   installedAt: timestamp('installed_at', { withTimezone: true }).notNull().defaultNow(),
   uninstalledAt: timestamp('uninstalled_at', { withTimezone: true }),
@@ -120,6 +128,19 @@ export const shopifyStores = pgTable('shopify_stores', {
   // to re-resolve it.
   autorefillLineItemId: text('autorefill_line_item_id'),
   autorefillCappedAmountCents: integer('autorefill_capped_amount_cents'),
+  // The cycle's spend so far against that ceiling, as Shopify last reported it.
+  // A cache of Shopify's own balanceUsed, refreshed by the hourly sweep — never
+  // incremented locally, because Shopify resets it on its own 30-day boundary
+  // and a locally-summed figure would drift permanently the first time we
+  // missed one. Null until the first refresh, or when the subscription has no
+  // usage line item to read it off.
+  autorefillBalanceUsedCents: integer('autorefill_balance_used_cents'),
+  // When the merchant was last emailed that they are near the ceiling, from
+  // Shopify's app_subscriptions/approaching_capped_amount webhook. Shopify may
+  // deliver that topic repeatedly across one cycle; this is what keeps it to
+  // one email. Cleared whenever the cap is raised or the cycle rolls over, so
+  // the next approach warns again.
+  autorefillCapWarnedAt: timestamp('autorefill_cap_warned_at', { withTimezone: true }),
   // 'PENDING' | 'ACTIVE' | 'CANCELLED' | 'DECLINED' | 'CAP_REACHED'.
   // CAP_REACHED is ours, not Shopify's: it records that a refill was refused
   // because the cycle's capped amount was exhausted, so the UI can say

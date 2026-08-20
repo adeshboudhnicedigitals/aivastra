@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import type { FastifyBaseLogger } from 'fastify';
 import type { Redis } from 'ioredis';
 import { AppError } from '../../lib/errors.js';
 
@@ -6,6 +7,32 @@ import { AppError } from '../../lib/errors.js';
 // Shopify retires versions ~1 year after release — bump this centrally,
 // not per-callsite, so it never goes stale in only some places.
 export const SHOPIFY_API_VERSION = '2026-07';
+
+/**
+ * Turns one specific Shopify userError into an unmissable operator signal.
+ *
+ * Shopify answers every Billing API charge mutation with "Managed Pricing Apps
+ * cannot use the Billing API (to create charges)" once the app has been put on
+ * Shopify App Pricing (formerly Managed Pricing) in the Partner Dashboard —
+ * which is what editing the public plans on the App Store listing can do. From
+ * inside the app it is indistinguishable from any other userError, so without
+ * this it surfaces as a generic 502 on a single merchant's purchase while in
+ * fact *every* charge in the app, on every store, is dead until the app is
+ * switched back to Manual pricing. That distinction is the whole reason this
+ * exists: one merchant's failed purchase is a support ticket, this is an
+ * outage.
+ */
+export function warnIfManagedPricing(
+  log: FastifyBaseLogger,
+  shopDomain: string,
+  message: string,
+): void {
+  if (!/managed pricing/i.test(message)) return;
+  log.fatal(
+    { shopDomain, shopifyMessage: message },
+    'BILLING DISABLED FOR ALL STORES — the app is on Shopify App Pricing; switch it back to Manual pricing in the Partner Dashboard, then re-test a purchase',
+  );
+}
 
 // Every direct call to Shopify's Admin API (REST or GraphQL) must go through
 // this wrapper instead of a raw fetch(). A store's granted OAuth scope can

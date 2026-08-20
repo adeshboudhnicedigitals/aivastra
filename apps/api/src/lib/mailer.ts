@@ -217,3 +217,63 @@ export async function sendLowCreditsEmail(
 
   await send(apiKey, { from, to, subject, html: lowCreditsHtml(params) });
 }
+
+/**
+ * The 90%-of-ceiling warning, from Shopify's
+ * app_subscriptions/approaching_capped_amount webhook.
+ *
+ * Deliberately not phrased as a problem. The merchant set this ceiling on
+ * purpose and it is doing its job; the only thing they need to know is that
+ * auto-refill will stop when it is reached, while there is still time to raise
+ * it. Warning tone, not alarm.
+ */
+function capApproachingHtml(p: {
+  appUrl: string;
+  cappedAmountUsd: number;
+  balanceUsedUsd: number | null;
+}): string {
+  const spent =
+    p.balanceUsedUsd != null
+      ? `<p style="font-size:14px;color:#555;margin:0 0 8px;">You've used <strong style="color:#1a1a1a;">$${p.balanceUsedUsd.toFixed(2)}</strong> of your <strong style="color:#1a1a1a;">$${p.cappedAmountUsd.toFixed(2)}</strong> monthly auto-refill limit this cycle.</p>`
+      : `<p style="font-size:14px;color:#555;margin:0 0 8px;">You're close to your <strong style="color:#1a1a1a;">$${p.cappedAmountUsd.toFixed(2)}</strong> monthly auto-refill limit for this cycle.</p>`;
+
+  return `<!DOCTYPE html>
+<html>
+<body style="font-family:sans-serif;background:#f6f6f6;margin:0;padding:40px 0;">
+  <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;">
+    <div style="background:#b26a00;padding:20px 32px;">
+      <h1 style="color:#fff;font-size:18px;font-weight:700;margin:0;">You're nearing your auto-refill limit</h1>
+    </div>
+    <div style="padding:32px;">
+      ${spent}
+      <p style="font-size:14px;color:#555;margin:16px 0 28px;">
+        When the limit is reached, auto-refill stops for the rest of this billing cycle and your
+        credits will run down without topping up. You can raise the limit in the app, or leave it
+        as is — it resets at the start of your next cycle.
+      </p>
+      <a href="${p.appUrl}" style="display:inline-block;background:#1a1a1a;color:#fff;font-size:14px;font-weight:600;padding:12px 28px;border-radius:8px;text-decoration:none;">Review auto-refill</a>
+      <p style="font-size:12px;color:#999;margin:32px 0 0;">This limit is the ceiling you approved — we can never charge past it without asking you again.</p>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+export async function sendAutorefillCapApproachingEmail(
+  apiKey: string,
+  from: string,
+  to: string,
+  params: {
+    shopDomain: string;
+    appUrl: string;
+    cappedAmountUsd: number;
+    balanceUsedUsd: number | null;
+  },
+): Promise<void> {
+  await send(apiKey, {
+    from,
+    to,
+    subject: `${params.shopDomain}: nearing your auto-refill spending limit`,
+    html: capApproachingHtml(params),
+  });
+}

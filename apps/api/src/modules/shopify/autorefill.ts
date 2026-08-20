@@ -307,7 +307,11 @@ export async function runRefill(
         tx as never,
         store.id,
         pack.autorefillCredits,
-        'SHOPIFY_AUTOREFILL',
+        // A refill on a development store is charged against a test
+        // subscription, so no money backs it. Distinct reason for the same
+        // purpose SHOPIFY_PACK_TEST serves on the manual path: test-funded
+        // credits stay separable from paid ones in the ledger forever.
+        store.partnerDevelopment ? 'SHOPIFY_AUTOREFILL_TEST' : 'SHOPIFY_AUTOREFILL',
         `shopify_autorefill:${result.recordId}`,
       );
     });
@@ -402,7 +406,10 @@ export async function enrolAutorefill(
       // this subscription, so this fix applies there too without separate
       // wiring.
       returnUrl: `${app.env.SHOPIFY_APP_URL}/v1/shopify/billing/autorefill/return?shop=${encodeURIComponent(store.shopDomain)}`,
-      test: app.env.SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS === true,
+      // Per-store for the same reason as purchase.ts's createCharge call — see
+      // the comment there. A development store can only ever hold a test
+      // subscription, and a real merchant must hold a real one.
+      test: store.partnerDevelopment || app.env.SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS === true,
     },
   );
 
@@ -416,6 +423,11 @@ export async function enrolAutorefill(
       autorefillSubscriptionId: subscriptionId,
       autorefillLineItemId: lineItemId,
       autorefillCappedAmountCents: Math.round(args.cappedAmountUsd * 100),
+      // A fresh subscription starts a fresh cycle: nothing spent, nothing
+      // warned about. Both are explicitly reset rather than left carrying the
+      // previous enrolment's figures, since re-enrolling reuses this same row.
+      autorefillBalanceUsedCents: 0,
+      autorefillCapWarnedAt: null,
       autorefillStatus: 'PENDING',
       updatedAt: new Date(),
     })
@@ -475,9 +487,95 @@ export async function confirmAutorefill(
   const status = mapSubscriptionStatus(observed.status);
   await app.db
     .update(schema.shopifyStores)
-    .set({ autorefillStatus: status, updatedAt: new Date() })
+    .set({ autorefillStatus: status, ...capColumns(observed), updatedAt: new Date() })
     .where(eq(schema.shopifyStores.id, store.id));
   return { status };
+}
+
+/** The cap/spend columns to write from a Shopify read, skipping fields it didn't report. */
+function capColumns(observed: {
+  cappedAmountUsd: number | null;
+  balanceUsedUsd: number | null;
+}): Partial<typeof schema.shopifyStores.$inferInsert> {
+  return {
+    ...(observed.cappedAmountUsd != null
+      ? { autorefillCappedAmountCents: Math.round(observed.cappedAmountUsd * 100) }
+      : {}),
+    ...(observed.balanceUsedUsd != null
+      ? { autorefillBalanceUsedCents: Math.round(observed.balanceUsedUsd * 100) }
+      : {}),
+  };
+}
+
+/**
+ * Re-reads the subscription from Shopify and reconciles what only Shopify can
+ * know.
+ *
+ * Two things drift without this, both of them silently:
+ *
+ * 1. **The ceiling.** Merchants can change the capped amount from the Shopify
+ *    admin, where this app never sees the click. Our stored figure is shown to
+ *    the merchant in the app, so a stale one is the app confidently telling
+ *    them a number that is wrong.
+ * 2. **CAP_REACHED.** That status is ours, not Shopify's, and nothing else ever
+ *    clears it. A merchant who responds to hitting the ceiling by raising it in
+ *    the Shopify admin — the obvious place to do it — would otherwise stay
+ *    CAP_REACHED forever, with auto-refill permanently off despite headroom
+ *    they already paid for. Recovery is gated on Shopify reporting the
+ *    subscription ACTIVE *and* real headroom, so this can never re-arm a
+ *    subscription the merchant actually cancelled.
+ *
+ * Returns the observed state, or null when it couldn't be read — callers treat
+ * that as "leave everything as it was" rather than as a change.
+ */
+export async function refreshAutorefillState(
+  app: FastifyInstance,
+  store: Store,
+  deps: ConfirmDeps = {},
+): Promise<{
+  status: string;
+  cappedAmountUsd: number | null;
+  balanceUsedUsd: number | null;
+} | null> {
+  const fetchStatus = deps.fetchStatus ?? fetchSubscriptionStatus;
+  if (!store.autorefillSubscriptionId) return null;
+
+  const observed = await fetchStatus(app, store, store.autorefillSubscriptionId);
+  if (!observed) return null;
+
+  const shopifyStatus = mapSubscriptionStatus(observed.status);
+  const patch: Partial<typeof schema.shopifyStores.$inferInsert> = {
+    ...capColumns(observed),
+    updatedAt: new Date(),
+  };
+
+  const hasHeadroom =
+    observed.cappedAmountUsd != null &&
+    observed.balanceUsedUsd != null &&
+    observed.balanceUsedUsd < observed.cappedAmountUsd;
+
+  if (shopifyStatus !== 'ACTIVE') {
+    // Cancelled, declined or expired at Shopify's end — that's authoritative
+    // over anything we hold, CAP_REACHED included.
+    patch.autorefillStatus = shopifyStatus;
+  } else if (store.autorefillStatus === 'CAP_REACHED' && hasHeadroom) {
+    patch.autorefillStatus = 'ACTIVE';
+    // Re-arm the approaching-cap warning: the ceiling this store was warned
+    // about is not the ceiling it now has.
+    patch.autorefillCapWarnedAt = null;
+    app.log.info(
+      { storeId: store.id, shopDomain: store.shopDomain },
+      'auto-refill recovered from CAP_REACHED — ceiling raised or cycle rolled over',
+    );
+  }
+
+  await app.db.update(schema.shopifyStores).set(patch).where(eq(schema.shopifyStores.id, store.id));
+
+  return {
+    status: patch.autorefillStatus ?? store.autorefillStatus ?? shopifyStatus,
+    cappedAmountUsd: observed.cappedAmountUsd,
+    balanceUsedUsd: observed.balanceUsedUsd,
+  };
 }
 
 interface DisableDeps {
@@ -518,6 +616,8 @@ export async function disableAutorefill(
       autorefillSubscriptionId: null,
       autorefillLineItemId: null,
       autorefillCappedAmountCents: null,
+      autorefillBalanceUsedCents: null,
+      autorefillCapWarnedAt: null,
       autorefillStatus: null,
       updatedAt: new Date(),
     })
@@ -554,6 +654,9 @@ export async function raiseCap(
     .set({
       autorefillCappedAmountCents: Math.round(cappedAmountUsd * 100),
       autorefillStatus: 'PENDING',
+      // The merchant was warned about the old ceiling; the new one deserves its
+      // own warning when they approach it.
+      autorefillCapWarnedAt: null,
       updatedAt: new Date(),
     })
     .where(eq(schema.shopifyStores.id, store.id));

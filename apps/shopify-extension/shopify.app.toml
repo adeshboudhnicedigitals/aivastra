@@ -64,3 +64,12 @@ api_version = "2026-07"
   [[webhooks.subscriptions]]
   topics = [ "app_subscriptions/update" ]
   uri = "https://app.aivastra.com/v1/shopify/webhooks/app_subscriptions_update"
+
+  # Fires at 90% of the merchant's approved monthly ceiling. Without it the
+  # first they hear about the limit is when auto-refill has already stopped and
+  # their balance is draining — this is the only chance to tell them while
+  # raising the ceiling still prevents that. Declared app-wide for the same
+  # reason as the two blocks above.
+  [[webhooks.subscriptions]]
+  topics = [ "app_subscriptions/approaching_capped_amount" ]
+  uri = "https://app.aivastra.com/v1/shopify/webhooks/app_subscriptions_approaching_capped_amount"

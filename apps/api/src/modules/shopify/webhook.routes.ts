@@ -3,6 +3,9 @@ import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 import { AppError } from '../../lib/errors.js';
+import { sendAutorefillCapApproachingEmail } from '../../lib/mailer.js';
+import { appLinkFor } from './alert-scheduler.js';
+import { refreshAutorefillState } from './autorefill.js';
 import { collectShopperData, type RedactResult, redactShopperData } from './gdpr.js';
 import { defaultFetchPurchase, grantForPurchase, type OneTimePurchaseState } from './purchase.js';
 import { enqueueSync, shopifyAdminFetch, verifyWebhookHmac } from './service.js';
@@ -76,6 +79,7 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
     'shop_redact',
     'app_purchases_one_time_update',
     'app_subscriptions_update',
+    'app_subscriptions_approaching_capped_amount',
   ] as const;
 
   for (const topic of topics) {
@@ -114,9 +118,30 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
         switch (topic) {
           case 'app_uninstalled':
             if (store) {
+              // The auto-refill columns are cleared alongside uninstalledAt,
+              // not left standing. Shopify cancels the app subscription itself
+              // when the app is uninstalled, and our app_subscriptions/update
+              // subscription dies with the install — so that correction never
+              // arrives and nothing else would ever reset these. Leaving them
+              // set makes a reinstalled store show auto-refill as ACTIVE
+              // against a subscription that no longer exists, and makes
+              // runRefill charge a dead line item on every trigger. Shopify's
+              // own requirement is that an app re-requests approval for
+              // charges after a reinstall, which is exactly what clearing
+              // these forces.
               await app.db
                 .update(schema.shopifyStores)
-                .set({ uninstalledAt: new Date() })
+                .set({
+                  uninstalledAt: new Date(),
+                  autorefillPackId: null,
+                  autorefillTriggerCredits: null,
+                  autorefillSubscriptionId: null,
+                  autorefillLineItemId: null,
+                  autorefillCappedAmountCents: null,
+                  autorefillBalanceUsedCents: null,
+                  autorefillCapWarnedAt: null,
+                  autorefillStatus: null,
+                })
                 .where(eq(schema.shopifyStores.id, store.id));
             }
             break;
@@ -231,7 +256,7 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
               );
             }
 
-            const granted = await grantForPurchase(app, purchaseRow, observed);
+            const granted = await grantForPurchase(app, store, purchaseRow, observed);
             await app.db
               .update(schema.shopifyCreditPurchases)
               .set({ status: observed.status, updatedAt: new Date() })
@@ -262,6 +287,76 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
             req.log.info(
               { topic, storeId: store.id, status: mapped },
               'auto-refill subscription status updated',
+            );
+            break;
+          }
+          case 'app_subscriptions_approaching_capped_amount': {
+            // Shopify fires this at 90% of the ceiling. Without it the merchant
+            // first learns about the limit when auto-refill has already stopped
+            // and their balance is draining — this is the only chance to tell
+            // them while raising it still prevents that.
+            const subId = (payload as { admin_graphql_api_id?: string }).admin_graphql_api_id;
+            if (!store || !subId) break;
+            if (store.autorefillSubscriptionId !== subId) break;
+            // Shopify may re-deliver this across a cycle; one email per
+            // ceiling is enough. The stamp is cleared whenever the cap is
+            // raised or the store recovers from CAP_REACHED, so the next
+            // approach warns again.
+            if (store.autorefillCapWarnedAt) break;
+
+            // The payload carries a capped amount, but it is not read: the
+            // amounts Shopify holds are re-fetched live, exactly as the
+            // one-time purchase branch above re-fetches rather than trusting
+            // the delivery body. Unlike that branch this failing is not worth
+            // a retry — we already hold a stored ceiling good enough to warn
+            // against, and dropping the warning because Shopify was briefly
+            // unreachable is strictly worse for the merchant than warning with
+            // a slightly stale figure.
+            let refreshed: Awaited<ReturnType<typeof refreshAutorefillState>> = null;
+            try {
+              refreshed = await refreshAutorefillState(app, store);
+            } catch (err) {
+              req.log.warn(
+                { err, topic, storeId: store.id },
+                'auto-refill state refresh failed while warning about the cap — using the stored ceiling',
+              );
+            }
+            const cappedAmountUsd =
+              refreshed?.cappedAmountUsd ??
+              (store.autorefillCappedAmountCents != null
+                ? store.autorefillCappedAmountCents / 100
+                : null);
+            if (cappedAmountUsd == null) break;
+
+            if (store.shopEmail) {
+              await sendAutorefillCapApproachingEmail(
+                app.env.RESEND_API_KEY,
+                app.env.EMAIL_FROM,
+                store.shopEmail,
+                {
+                  shopDomain: store.shopDomain,
+                  appUrl: appLinkFor(app, store.shopDomain),
+                  cappedAmountUsd,
+                  balanceUsedUsd: refreshed?.balanceUsedUsd ?? null,
+                },
+              );
+            } else {
+              req.log.warn(
+                { topic, storeId: store.id },
+                'auto-refill cap warning not emailed — store has no shop email on record',
+              );
+            }
+            // Stamped either way. An unreachable store would otherwise re-enter
+            // this branch on every redelivery and retry an email that cannot
+            // succeed; the in-app figures (refreshed just above) still tell
+            // them, and the warn line above is what an operator acts on.
+            await app.db
+              .update(schema.shopifyStores)
+              .set({ autorefillCapWarnedAt: new Date() })
+              .where(eq(schema.shopifyStores.id, store.id));
+            req.log.info(
+              { topic, storeId: store.id, cappedAmountUsd },
+              'auto-refill approaching cap — merchant warned',
             );
             break;
           }
@@ -318,6 +413,7 @@ export const registerWebhooksDecorator = fp(async (app: FastifyInstance) => {
       'products/delete': `${base}/products_delete`,
       'app_purchases_one_time/update': `${base}/app_purchases_one_time_update`,
       'app_subscriptions/update': `${base}/app_subscriptions_update`,
+      'app_subscriptions/approaching_capped_amount': `${base}/app_subscriptions_approaching_capped_amount`,
     };
     for (const [topic, address] of Object.entries(map)) {
       try {

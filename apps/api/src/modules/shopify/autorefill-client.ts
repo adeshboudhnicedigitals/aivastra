@@ -1,7 +1,7 @@
 import type { schema } from '@aivastra/db';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
-import { shopifyGraphQL } from './service.js';
+import { shopifyGraphQL, warnIfManagedPricing } from './service.js';
 import { getValidAccessToken } from './token.js';
 
 type Store = typeof schema.shopifyStores.$inferSelect;
@@ -108,14 +108,70 @@ const SUBSCRIPTION_STATUS_QUERY = `
       ... on AppSubscription {
         id
         status
+        lineItems {
+          id
+          plan {
+            pricingDetails {
+              ... on AppUsagePricing {
+                cappedAmount { amount }
+                balanceUsed { amount }
+              }
+            }
+          }
+        }
       }
     }
   }
 `;
 
-function throwOnUserErrors(errors: UserError[] | undefined, context: string): void {
+interface SubscriptionNode {
+  id: string;
+  status: string;
+  lineItems?: Array<{
+    id: string;
+    plan?: {
+      pricingDetails?: {
+        cappedAmount?: { amount?: string | null } | null;
+        balanceUsed?: { amount?: string | null } | null;
+      } | null;
+    } | null;
+  }> | null;
+}
+
+export interface SubscriptionState {
+  id: string;
+  status: string;
+  /**
+   * The ceiling and the cycle's spend so far, as Shopify currently holds them
+   * — null when the subscription has no usage line item to read them off.
+   * Both are money strings ("50.00") on the wire; parsed here so no caller has
+   * to remember that.
+   */
+  cappedAmountUsd: number | null;
+  balanceUsedUsd: number | null;
+}
+
+/** Money strings arrive as "50.00"; anything unparseable is treated as absent. */
+function parseMoney(amount: string | null | undefined): number | null {
+  if (amount == null) return null;
+  const value = Number(amount);
+  return Number.isFinite(value) ? value : null;
+}
+
+function throwOnUserErrors(
+  app: FastifyInstance,
+  store: Store,
+  errors: UserError[] | undefined,
+  context: string,
+): void {
   if (errors?.length) {
-    throw new AppError('SHOPIFY', 502, `${context}: ${errors.map((e) => e.message).join('; ')}`);
+    const message = errors.map((e) => e.message).join('; ');
+    // Every mutation in this file is a charge mutation, so all of them return
+    // the Managed Pricing refusal once the app is on Shopify App Pricing —
+    // see warnIfManagedPricing for why that one message deserves its own
+    // signal rather than another 502 in the pile.
+    warnIfManagedPricing(app.log, store.shopDomain, message);
+    throw new AppError('SHOPIFY', 502, `${context}: ${message}`);
   }
 }
 
@@ -154,7 +210,7 @@ export async function createUsageSubscription(
   });
 
   const payload = data.appSubscriptionCreate;
-  throwOnUserErrors(payload.userErrors, 'auto-refill subscription');
+  throwOnUserErrors(app, store, payload.userErrors, 'auto-refill subscription');
 
   const lineItemId = payload.appSubscription?.lineItems?.[0]?.id;
   if (!payload.confirmationUrl || !payload.appSubscription || !lineItemId) {
@@ -212,6 +268,11 @@ export async function createUsageRecord(
     // unrecognized as a genuine failure rather than silently assuming the cap.
     const capReached =
       /exceeds balance remaining/i.test(message) || /failed to create usage charge/i.test(message);
+    // This path returns rather than throws, so it never reaches
+    // throwOnUserErrors — and a Managed Pricing refusal here would otherwise
+    // be filed as an ordinary 'failed' refill and retried forever against an
+    // app that cannot charge at all.
+    warnIfManagedPricing(app.log, store.shopDomain, message);
     return { ok: false, capReached, message };
   }
 
@@ -245,7 +306,7 @@ export async function updateCappedAmount(
   });
 
   const payload = data.appSubscriptionLineItemUpdate;
-  throwOnUserErrors(payload.userErrors, 'auto-refill cap update');
+  throwOnUserErrors(app, store, payload.userErrors, 'auto-refill cap update');
   if (!payload.confirmationUrl) {
     throw new AppError('SHOPIFY', 502, 'Shopify returned no confirmation URL for the cap update');
   }
@@ -264,28 +325,46 @@ export async function cancelSubscription(
       userErrors: UserError[];
     };
   }>(store.shopDomain, accessToken, CANCEL_SUBSCRIPTION, { id: subscriptionId });
-  throwOnUserErrors(data.appSubscriptionCancel.userErrors, 'auto-refill cancel');
+  throwOnUserErrors(app, store, data.appSubscriptionCancel.userErrors, 'auto-refill cancel');
 }
 
 /**
- * Re-fetches a subscription's real current status from Shopify. Used by
+ * Re-fetches a subscription's real current state from Shopify. Used by
  * confirmAutorefill (autorefill.ts) because Shopify redirects the merchant
  * back to the same returnUrl whether they approved or declined — trusting our
  * own row's non-null subscription id would mark a declined subscription
  * ACTIVE, same class of bug purchase.ts's confirmPurchase already avoids for
  * one-time charges via defaultFetchPurchase.
+ *
+ * The cap and cycle spend come back alongside the status because Shopify is
+ * authoritative for both and we are not: "merchants can use the Shopify admin
+ * to change their subscription's capped amount", which happens entirely
+ * outside this app. A locally-remembered ceiling is therefore a guess, and one
+ * we show the merchant — see refreshAutorefillState in autorefill.ts.
  */
 export async function fetchSubscriptionStatus(
   app: FastifyInstance,
   store: Store,
   subscriptionId: string,
-): Promise<{ id: string; status: string } | null> {
+): Promise<SubscriptionState | null> {
   const accessToken = await getValidAccessToken(app, store);
-  const data = await shopifyGraphQL<{ node: { id: string; status: string } | null }>(
+  const data = await shopifyGraphQL<{ node: SubscriptionNode | null }>(
     store.shopDomain,
     accessToken,
     SUBSCRIPTION_STATUS_QUERY,
     { id: subscriptionId },
   );
-  return data.node;
+  if (!data.node) return null;
+
+  // The usage line item is the only one this app ever creates, so the first
+  // one carrying usage pricing is it. Written as a find rather than [0] so a
+  // subscription that later grows a second line item doesn't silently start
+  // reporting the wrong one's numbers.
+  const usage = data.node.lineItems?.find((li) => li.plan?.pricingDetails?.cappedAmount != null);
+  return {
+    id: data.node.id,
+    status: data.node.status,
+    cappedAmountUsd: parseMoney(usage?.plan?.pricingDetails?.cappedAmount?.amount),
+    balanceUsedUsd: parseMoney(usage?.plan?.pricingDetails?.balanceUsed?.amount),
+  };
 }

@@ -21,6 +21,8 @@ export interface ShopDetails {
   phone?: string;
   address?: string;
   ianaTimezone?: string;
+  /** shop.plan.partnerDevelopment — see the column comment in the db schema. */
+  partnerDevelopment: boolean;
 }
 
 export async function upsertShopifyStore(
@@ -63,6 +65,11 @@ export async function upsertShopifyStore(
           ianaTimezone: shop.ianaTimezone ?? null,
           shopEmail: shop.email,
           allowedOrigins: origins,
+          // Refreshed rather than left at the install-time value: a store can
+          // stop being a development store (a partner transfers it to a real
+          // merchant), and continuing to treat it as one would keep issuing
+          // test charges that never collect money.
+          partnerDevelopment: shop.partnerDevelopment,
           uninstalledAt: null,
           updatedAt: new Date(),
         })
@@ -82,6 +89,7 @@ export async function upsertShopifyStore(
         ianaTimezone: shop.ianaTimezone ?? null,
         shopEmail: shop.email,
         allowedOrigins: origins,
+        partnerDevelopment: shop.partnerDevelopment,
       })
       .returning();
     return store;
@@ -121,6 +129,7 @@ const SHOP_DETAILS = `
       shopOwnerName
       billingAddress { phone address1 city country }
       ianaTimezone
+      plan { partnerDevelopment }
     }
   }
 `;
@@ -140,6 +149,7 @@ interface ShopDetailsData {
       country?: string | null;
     } | null;
     ianaTimezone?: string | null;
+    plan?: { partnerDevelopment?: boolean | null } | null;
   };
 }
 
@@ -179,6 +189,10 @@ export async function provisionShopifyStore(
       .filter(Boolean)
       .join(', '),
     ianaTimezone: s.ianaTimezone ?? undefined,
+    // Defaults to false when the field is absent for any reason: a missing
+    // answer must never be read as "test charges are fine here", because that
+    // is the reading that gives credits away.
+    partnerDevelopment: s.plan?.partnerDevelopment === true,
   };
 
   const store = await upsertShopifyStore(app, details, accessToken, scope, grant);

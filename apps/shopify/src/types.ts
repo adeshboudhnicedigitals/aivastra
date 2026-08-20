@@ -93,6 +93,7 @@ export interface ShopifyMe {
     packId: string | null;
     triggerCredits: number | null;
     cappedAmountUsdCents: number | null;
+    balanceUsedUsdCents: number | null;
   };
   stats: ShopifyStats;
 }

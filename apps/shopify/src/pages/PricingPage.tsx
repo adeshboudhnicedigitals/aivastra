@@ -244,11 +244,19 @@ export default function PricingPage() {
                   </InlineStack>
                   <InlineStack align="space-between">
                     <Text as="span" tone="subdued">
-                      Monthly limit
+                      This cycle
                     </Text>
+                    {/* Both figures come from Shopify, which is authoritative
+                        for the ceiling — a merchant can change it from the
+                        Shopify admin without this app ever seeing the click.
+                        Showing spend against it beats showing the ceiling
+                        alone: the limit only matters relative to how close
+                        they are to it. */}
                     <Text as="span" fontWeight="semibold">
                       {me.autorefill.cappedAmountUsdCents != null
-                        ? `$${(me.autorefill.cappedAmountUsdCents / 100).toFixed(2)}`
+                        ? me.autorefill.balanceUsedUsdCents != null
+                          ? `$${(me.autorefill.balanceUsedUsdCents / 100).toFixed(2)} of $${(me.autorefill.cappedAmountUsdCents / 100).toFixed(2)} limit`
+                          : `$${(me.autorefill.cappedAmountUsdCents / 100).toFixed(2)} limit`
                         : '—'}
                     </Text>
                   </InlineStack>
