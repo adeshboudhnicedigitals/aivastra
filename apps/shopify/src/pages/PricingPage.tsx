@@ -29,6 +29,11 @@ export default function PricingPage() {
   const [buying, setBuying] = useState<string | null>(null);
   const [refillPack, setRefillPack] = useState('pack_25');
   const [refillCap, setRefillCap] = useState('100');
+  // Percent of the selected pack's credits, not a raw credit count — matches
+  // the server's own default (defaultTriggerCredits, autorefill.ts: 20% of
+  // pack.credits) so leaving this untouched reproduces exactly what enrolling
+  // with no triggerCredits at all already did.
+  const [refillThresholdPct, setRefillThresholdPct] = useState('20');
   const [enrolling, setEnrolling] = useState(false);
   const [newCap, setNewCap] = useState('');
   const [raisingCap, setRaisingCap] = useState(false);
@@ -61,6 +66,10 @@ export default function PricingPage() {
     setEnrolling(true);
     setError(null);
     try {
+      const selectedPack = PACK_DISPLAY.find((p) => p.id === refillPack);
+      const triggerCredits = selectedPack
+        ? Math.round((selectedPack.credits * Number.parseInt(refillThresholdPct, 10)) / 100)
+        : undefined;
       const { confirmationUrl } = await apiFetch<{ confirmationUrl: string }>(
         '/v1/shopify/billing/autorefill',
         {
@@ -68,6 +77,7 @@ export default function PricingPage() {
           body: JSON.stringify({
             packId: refillPack,
             cappedAmountUsd: Number.parseFloat(refillCap),
+            ...(triggerCredits ? { triggerCredits } : {}),
           }),
         },
       );
@@ -202,9 +212,49 @@ export default function PricingPage() {
             </InlineStack>
 
             <Text as="p" tone="subdued">
-              Never run out. When your balance drops below your threshold we buy your chosen pack
-              automatically — and auto-refill packs include 10% extra credits.
+              Never run out. When your balance drops below your chosen threshold we buy your chosen
+              pack automatically — and auto-refill packs include 10% extra credits.
             </Text>
+
+            {/* Called out in its own block, not folded into the paragraph above —
+                these are the exact numbers governing when and how much the
+                merchant gets charged, so they should be scannable at a glance
+                rather than read out of a sentence. */}
+            {isLive && me && (
+              <Box background="bg-surface-secondary" padding="300" borderRadius="200">
+                <BlockStack gap="150">
+                  <InlineStack align="space-between">
+                    <Text as="span" tone="subdued">
+                      Refill pack
+                    </Text>
+                    <Text as="span" fontWeight="semibold">
+                      {PACK_DISPLAY.find((p) => p.id === me.autorefill.packId)?.label ??
+                        me.autorefill.packId}
+                    </Text>
+                  </InlineStack>
+                  <InlineStack align="space-between">
+                    <Text as="span" tone="subdued">
+                      Refills when balance drops below
+                    </Text>
+                    <Text as="span" fontWeight="semibold">
+                      {me.autorefill.triggerCredits != null
+                        ? `${me.autorefill.triggerCredits.toLocaleString()} credits`
+                        : '—'}
+                    </Text>
+                  </InlineStack>
+                  <InlineStack align="space-between">
+                    <Text as="span" tone="subdued">
+                      Monthly limit
+                    </Text>
+                    <Text as="span" fontWeight="semibold">
+                      {me.autorefill.cappedAmountUsdCents != null
+                        ? `$${(me.autorefill.cappedAmountUsdCents / 100).toFixed(2)}`
+                        : '—'}
+                    </Text>
+                  </InlineStack>
+                </BlockStack>
+              </Box>
+            )}
 
             {autorefillStatus === 'CANCELLED' && (
               <Banner tone="warning" title="Auto-refill was cancelled">
@@ -229,11 +279,22 @@ export default function PricingPage() {
                 <Select
                   label="Refill with"
                   options={PACK_DISPLAY.map((p) => ({
-                    label: `${p.label} — $${p.priceUsd} (${Math.round((p.credits * 1.1) / 5).toLocaleString()} try-ons)`,
+                    label: `${p.label} — $${p.priceUsd} (${tryOnsFromCredits(p.autorefillCredits).toLocaleString()} try-ons)`,
                     value: p.id,
                   }))}
                   value={refillPack}
                   onChange={setRefillPack}
+                />
+                <Select
+                  label="Refill when balance drops below"
+                  options={['10', '20', '30'].map((pct) => {
+                    const pack = PACK_DISPLAY.find((p) => p.id === refillPack);
+                    const credits = pack ? Math.round((pack.credits * Number(pct)) / 100) : 0;
+                    return { label: `${pct}% (${credits.toLocaleString()} credits)`, value: pct };
+                  })}
+                  value={refillThresholdPct}
+                  onChange={setRefillThresholdPct}
+                  helpText="20% is the default we use if you don't change this — lower means fewer, bigger refills; higher means smaller top-ups more often."
                 />
                 <TextField
                   label="Monthly limit"

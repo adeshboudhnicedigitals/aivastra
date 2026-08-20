@@ -9,8 +9,8 @@ import { apiErrorMessage, apiFetch } from '../../lib/data';
 const PACKS = [
   { id: 'pack_10', label: 'Starter', priceUsd: 10 },
   { id: 'pack_25', label: 'Growth', priceUsd: 25 },
-  { id: 'pack_50', label: 'Scale', priceUsd: 50 },
-  { id: 'pack_100', label: 'Volume', priceUsd: 100 },
+  { id: 'pack_50', label: 'Pro', priceUsd: 50 },
+  { id: 'pack_100', label: 'Enterprise', priceUsd: 100 },
 ] as const;
 
 type PackId = (typeof PACKS)[number]['id'];

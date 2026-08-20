@@ -38,13 +38,13 @@ export interface CreditPack {
 export const CREDIT_PACKS: Record<CreditPackId, CreditPack> = {
   pack_10: { id: 'pack_10', priceUsd: 10, credits: 800, autorefillCredits: 880, label: 'Starter' },
   pack_25: { id: 'pack_25', priceUsd: 25, credits: 2250, autorefillCredits: 2475, label: 'Growth' },
-  pack_50: { id: 'pack_50', priceUsd: 50, credits: 4800, autorefillCredits: 5280, label: 'Scale' },
+  pack_50: { id: 'pack_50', priceUsd: 50, credits: 4800, autorefillCredits: 5280, label: 'Pro' },
   pack_100: {
     id: 'pack_100',
     priceUsd: 100,
     credits: 10000,
     autorefillCredits: 11000,
-    label: 'Volume',
+    label: 'Enterprise',
   },
 };
 
