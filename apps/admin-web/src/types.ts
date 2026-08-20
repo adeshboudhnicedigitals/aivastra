@@ -67,6 +67,7 @@ export interface GarmentType {
   mannequinWorkflowTemplateId?: string | null;
   sareeStep2WorkflowTemplateId?: string | null;
   mannequinTwoInputWorkflowTemplateId?: string | null;
+  twoInputTryonWorkflowTemplateId?: string | null;
   upperUploadLabel?: string | null;
   lowerUploadLabel?: string | null;
   requiresThirdUpload?: boolean;
