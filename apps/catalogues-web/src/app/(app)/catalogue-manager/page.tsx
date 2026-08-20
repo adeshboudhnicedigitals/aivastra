@@ -1,7 +1,7 @@
 import { CatalogueManagerContent } from './CatalogueManagerContent';
 
 export const metadata = {
-  title: 'Try On Library | Ai Vastra',
+  title: 'Try-On | Ai Vastra',
 };
 
 export default function CatalogueManagerPage() {

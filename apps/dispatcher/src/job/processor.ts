@@ -8,7 +8,7 @@ import {
   jobsProcessedTotal,
 } from '@aivastra/observability';
 import { keys, type StorageProvider } from '@aivastra/storage';
-import { WORKER_POOL } from '@aivastra/types';
+import { PAYG_PRICE_PER_TRYON_USD_CENTS, WORKER_POOL } from '@aivastra/types';
 import type { S3Client } from '@aws-sdk/client-s3';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { and, eq, sql } from 'drizzle-orm';
@@ -2317,6 +2317,25 @@ async function processShopifyJob(
       jobLog,
     });
 
+    // billingMode is pinned into params at creation time (same reasoning as
+    // workflowTemplateId above) — never re-queried here, so a plan change
+    // mid-flight can't change how a job already in progress gets billed.
+    // Best-effort: a failed insert here logs but must not prevent the
+    // already-COMPLETED job from being ack'd — the merchant already got
+    // their result either way, and a missed usage row is a lost-revenue
+    // risk, not a correctness one.
+    if (params.billingMode === 'usage') {
+      try {
+        await db.insert(schema.shopifyUsageEvents).values({
+          storeId: shopifyStoreId,
+          jobId,
+          priceUsdCents: PAYG_PRICE_PER_TRYON_USD_CENTS,
+        });
+      } catch (err) {
+        jobLog.error({ err, jobId, shopifyStoreId }, 'PAYG usage_events insert failed');
+      }
+    }
+
     await redis.xack(stream, 'dispatcher-cg', messageId);
     await setWorkerStatus(redis, w.id, 'IDLE');
     recordJobOutcome('success', startedAt, job.source);
@@ -2429,28 +2448,37 @@ async function markShopifyFailed(
 ): Promise<void> {
   const { db, redis, pub } = cfg;
 
-  await db.transaction(async (tx) => {
-    const existing = await tx
-      .select()
-      .from(schema.shopifyCreditLedger)
-      .where(
-        and(
-          eq(schema.shopifyCreditLedger.jobId, jobId),
-          eq(schema.shopifyCreditLedger.reason, 'JOB_FAIL_REFUND'),
-        ),
-      );
-    if (existing.length) return;
-    await tx
-      .update(schema.shopifyStoreCredits)
-      .set({ balance: sql`${schema.shopifyStoreCredits.balance} + ${creditsCharged}` })
-      .where(eq(schema.shopifyStoreCredits.storeId, shopifyStoreId));
-    await tx.insert(schema.shopifyCreditLedger).values({
-      storeId: shopifyStoreId,
-      delta: creditsCharged,
-      reason: 'JOB_FAIL_REFUND',
-      jobId,
+  // PAYG jobs always have creditsCharged === 0 — nothing was ever deducted
+  // from shopify_store_credits, so there is nothing to refund. Skipping the
+  // ledger write entirely (not just writing a zero-delta row) keeps the
+  // plan's invariant that PAYG stores never touch shopify_credit_ledger at
+  // all; a zero-delta JOB_FAIL_REFUND row would otherwise pollute the admin
+  // ledger view with phantom refunds on every failed PAYG job. The status
+  // transition below still runs unconditionally regardless.
+  if (creditsCharged > 0) {
+    await db.transaction(async (tx) => {
+      const existing = await tx
+        .select()
+        .from(schema.shopifyCreditLedger)
+        .where(
+          and(
+            eq(schema.shopifyCreditLedger.jobId, jobId),
+            eq(schema.shopifyCreditLedger.reason, 'JOB_FAIL_REFUND'),
+          ),
+        );
+      if (existing.length) return;
+      await tx
+        .update(schema.shopifyStoreCredits)
+        .set({ balance: sql`${schema.shopifyStoreCredits.balance} + ${creditsCharged}` })
+        .where(eq(schema.shopifyStoreCredits.storeId, shopifyStoreId));
+      await tx.insert(schema.shopifyCreditLedger).values({
+        storeId: shopifyStoreId,
+        delta: creditsCharged,
+        reason: 'JOB_FAIL_REFUND',
+        jobId,
+      });
     });
-  });
+  }
 
   await transitionJob(db, pub, jobId, '', 'FAILED', { errorCode, shopifyStoreId }, log);
   await redis.xack(stream, 'dispatcher-cg', messageId);

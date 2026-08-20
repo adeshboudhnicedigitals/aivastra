@@ -1,18 +1,216 @@
+## 2026-08-19 — Second SSO entry point for tryon-library-app: code-based handoff
+
+**Done**
+- Added a second way for the Android app to reach the same `catalog-app`
+  cookie session as the 2026-08-18 header-based exchange, for WebView
+  wrappers that can't set a custom header on the initial `loadUrl` — a
+  short-lived, single-use handoff code passed as a URL query param instead.
+  Both entry points mint the identical session type via the same
+  `createSessionTokens(..., 'catalog-app')`; deliberately kept the header
+  flow rather than replacing it (explicit product decision).
+- New `POST /v1/auth/catalog-app-device-code` (`apps/api/src/modules/auth/routes.ts`,
+  `app.requireDeviceUser`-guarded, same as the header exchange): mints a
+  192-bit random code (`randomBytes(24).base64url`), stores it in Redis as
+  `catalog-app-handoff:{code}` → userId with a 60s TTL, returns
+  `{ code, expiresInSeconds: 60 }`. Extracted the shared ban/merchant-active
+  check (`assertCatalogAppEligible`) out of the original device-exchange
+  route so both entry points use it identically.
+- New `POST /v1/auth/catalog-app-code-exchange` (public — the code itself is
+  the credential, same trust model as a password-reset token): looks the
+  code up via Redis `GETDEL` (atomic single-use, no reuse race), 401
+  `INVALID_CODE` if missing/expired/already consumed, otherwise mints the
+  catalog-app session. No re-check of ban/merchant status at exchange time —
+  the code's existence already proves `assertCatalogAppEligible` passed
+  within the last 60 seconds, matching how every other device-session route
+  in this file trusts a token for its full lifetime.
+- `apps/catalogues-web/src/middleware.ts`: `/tryon-library-app` now also
+  checks `?code=` (before the existing header check). On success, redirects
+  to the same path with `code` stripped from the URL so it doesn't linger in
+  WebView history or get resent on refresh — the code is already consumed by
+  that point regardless.
+- 12 new integration tests (`apps/api/test/integration/catalog-app-device-code.test.ts`):
+  issuance guard checks (mirrors the 6 device-exchange tests), single-use
+  enforcement (second exchange attempt on the same code → 401), unknown
+  code, expired code (synthetic 1s TTL to keep the test fast rather than
+  waiting the real 60s), malformed/too-short code → 400. All 12 pass; the
+  original 8 device-exchange tests re-verified passing after the shared-
+  helper refactor.
+
+**Android integration contract (for the native app, separate repo, not
+implemented here) — code-flow variant:**
+- Call `POST /v1/auth/catalog-app-device-code` with the existing device
+  access token as a normal `Authorization: Bearer` header (never in a URL).
+- Open the WebView at `https://app.aivastra.com/tryon-library-app?code=<code>`
+  within 60 seconds — the code is single-use and expires either way.
+- No header needed for this variant. The `X-Aivastra-Device-Token` header
+  approach from 2026-08-18 is still supported and unchanged, for apps that
+  can set custom headers on `loadUrl`.
+
+**Open Questions / Decisions**
+- Not yet committed/pushed — implemented directly in this session, awaiting
+  go-ahead to commit/branch-push/PR (branch `feature/tryon-library-app-code-sso`
+  created off `dev`, uncommitted at time of writing).
+- Same two open items carried over from 2026-08-18 apply here too: the
+  Cloudflare cache-rule check for `/tryon-library-app` (now varies on two
+  signals — a header and a query param — either can carry `Set-Cookie`), and
+  the pre-existing `isBanned` gap in `requireDeviceUser` itself (both new
+  routes work around it locally via `assertCatalogAppEligible`, same as
+  before).
+
+## 2026-08-18 — Android tryon-library-app SSO bypass (backend + web)
+
+**Done**
+- New endpoint `POST /v1/auth/catalog-app-device-exchange`
+  (`apps/api/src/modules/auth/routes.ts`, guarded by the existing
+  `app.requireDeviceUser`): exchanges a live device-session bearer token
+  (`aud: 'device'`, minted by `/v1/auth/device-login`, `/device-login/google`,
+  or `/device-refresh`) for a `catalog-app` cookie session — same session
+  type and `NOT_A_MERCHANT` gate the password-based
+  `portal: 'catalog-app'` branch of `/v1/auth/login` already issues, reused
+  unmodified via `createSessionTokens`, plus its own explicit `isBanned`
+  check (`requireDeviceUser` doesn't carry one). Rate-limited `60/min`.
+- `apps/catalogues-web/src/middleware.ts` now recognizes a
+  `X-Aivastra-Device-Token` header on requests to `/tryon-library-app`: when
+  present it calls the new endpoint server-to-server (forwarding
+  `cf-connecting-ip`, 3s timeout) and attaches the resulting cookie before
+  the page's own client-side login check (`AuthGate.tsx`, left unmodified)
+  ever runs — regardless of whether a `catalog_app_refresh` cookie already
+  exists, so a stale/revoked one can't permanently block re-exchange.
+- Built via superpowers:subagent-driven-development: 2 implementation tasks
+  (both task-reviewed clean) + a whole-branch review that caught real bugs
+  in the combination, fixed in a follow-up commit (see below).
+- **Whole-branch review caught, and this branch now fixes:**
+  1. **(Critical)** `/v1/auth/device-refresh` was reissuing access tokens
+     without the `'device'` audience claim (`issueDeviceSession` sets it,
+     the refresh path didn't) — meant `requireDeviceUser` would reject any
+     *refreshed* device session, i.e. almost every real Android call past
+     the first 15-minute token window. Fixed; regression test added that
+     exercises the real login → refresh → exchange path (the original 6
+     tests all hand-minted `aud: 'device'` tokens directly and missed this).
+  2. **(Important)** banned users could still obtain a catalog-app session
+     through the new route, since `requireDeviceUser` never checks
+     `isBanned`. Fixed with an explicit check local to the new route
+     (deliberately did not modify the shared guard — also used by
+     `/v1/merchant/onboarding`, out of scope here).
+  3. **(Important)** the middleware only attempted the exchange when no
+     `catalog_app_refresh` cookie existed yet — a stale-but-present cookie
+     (7-day lifetime, independent of the server-side session's actual
+     validity) permanently blocked the SSO path with no recovery. Fixed:
+     exchange now runs whenever the header is present.
+  4. **(Important)** the rate limiter keys on `cf-connecting-ip`
+     (`apps/api/src/server.ts`), which the middleware's server-to-server
+     fetch never sent — collapsing every Android device onto one shared
+     bucket keyed on the web container's own IP. Fixed: middleware now
+     forwards the header; limit raised `10→60/min` to match.
+  5. **(Minor)** added a 3s fetch timeout so a hung API can't hang the
+     Edge middleware indefinitely on this public page.
+  6. **(Minor)** corrected two stale/inaccurate lines in the design doc.
+
+**Manual verification (Task 2, before the fix wave above — middleware
+shape unchanged by the fixes beyond the cookie-gate/IP-forward/timeout
+edits, all typecheck/lint-clean):** against live local dev servers
+(api `:4000`, web `:3000`), using a merchant seeded directly into local dev
+Postgres:
+- Valid device token header → `200 OK` with
+  `set-cookie: catalog_app_refresh=...; Path=/; Max-Age=604800; HttpOnly; SameSite=lax`.
+- No header → `200 OK`, no `set-cookie` at all; exchange endpoint never
+  called.
+- Garbage token → `200 OK`, page renders normally (no 500), no cookie set;
+  API log confirms a `401 UNAUTH` on the exchange call, cleanly swallowed.
+
+**Test results (post-fix):** `catalog-app-device-exchange.test.ts` 8/8
+(6 original + 2 added for the Critical/Important fixes); full API
+integration suite 543/543; full API unit suite 587/588 — the one failure
+(`src/env.test.ts`, `SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS defaults to false when
+unset`) is a pre-existing, unrelated local-machine issue: this repo's own
+root `.env` sets that var to `true`, leaking into the test's `process.env`
+read. Confirmed unrelated to any file this branch touches.
+
+**Android integration contract (for the native app, separate repo, not
+implemented here):**
+- Send `X-Aivastra-Device-Token: <deviceAccessToken>` only on the WebView's
+  first `loadUrl` call for `/tryon-library-app` — the resulting cookie
+  persists in the WebView's cookie jar afterward, no header needed again.
+- On native logout, clear this origin's WebView cookies and ideally also
+  call `POST /api/catalog-app/logout`, or a shared/kiosk device can leave
+  the previous merchant's session live in the WebView.
+
+**Open Questions / Decisions**
+- Design + plan: `docs/superpowers/specs/2026-08-18-android-tryon-library-app-sso-design.md`,
+  `docs/superpowers/plans/2026-08-18-android-tryon-library-app-sso.md`.
+- Branch `feature/android-tryon-library-app-sso` pushed to origin for
+  manual review/merge — no PR opened yet (explicit request).
+- Not fixed here, flagged as a related pre-existing gap: `requireDeviceUser`
+  (`apps/api/src/plugins/auth.ts`) doesn't check `isBanned` at all — this
+  branch worked around it locally in the new route, but
+  `/v1/merchant/onboarding` (the guard's other consumer) still has the same
+  gap. Worth a follow-up if it isn't tracked elsewhere.
+- Not verified: the reviewer flagged that Cloudflare cache rules for this
+  host are out-of-repo state (per `CLAUDE.md`) and should be checked once
+  before shipping — the `/tryon-library-app` response now varies on a
+  request header and can carry a `Set-Cookie`, and a cache rule that
+  ignores that would risk a cross-user session leak. No code change; a
+  dashboard check to do before/at deploy time.
+
+## 2026-08-18 — Pricing plan deep-link for WordPress Buy Now buttons
+
+**Done**
+- Middleware (`apps/catalogues-web/src/middleware.ts`) now preserves the full
+  path+query string (not just the bare path) in the `next` redirect param
+  when bouncing an unauthenticated visitor to `/login` — needed so
+  `/pricing?plan=<slug>` survives the login/Google-OAuth round trip.
+- Pricing page (`apps/catalogues-web/src/app/(app)/pricing/use-pricing-data.ts`)
+  reads a `plan` query param once its plan/credits/payment-history queries
+  have all resolved, and auto-calls the existing `startBuy(plan)` — the same
+  function the on-page "Buy Now" buttons call — reusing all existing
+  purchase gating unchanged.
+- WordPress buttons on aivastra.com can now link to
+  `https://app.aivastra.com/pricing?plan=<slug>` (slug = the
+  `credit_plans.slug` value, visible in admin → Settings → Plans) for a
+  one-click checkout experience, working whether the visitor is already
+  logged in or has to log in first.
+- Fixed during final review: a `${BASE}`-prefix bug in the URL-cleanup step
+  that would have double-prefixed `NEXT_PUBLIC_BASE_PATH` deployments (latent
+  in current prod/staging since both currently deploy with an empty base
+  path), and switched from stripping the entire query string to stripping
+  only the `plan` param (so campaign tracking params like `utm_source`
+  survive).
+
+**Failed / Not Done**
+- No Docker daemon available in this session — the plan's manual
+  browser-verification steps (logged-in auto-open, the full logged-out login
+  round trip, unknown-slug fallback) were never run live; only typecheck, a
+  production build, and two independent hand-traces of the effect's logic
+  were done. **Run these before pointing any real WordPress button at this**,
+  especially confirming the checkout modal survives the `router.replace`
+  call that immediately follows `startBuy(plan)` (same-route soft
+  navigation — expected to preserve component state per Next.js App Router
+  behavior, but unobserved in a live browser).
+
+**Open Questions / Decisions**
+- Enterprise plan intentionally out of scope — no `credit_plans` row exists
+  for it yet; this feature works unchanged once one is added (just another
+  slug).
+- New email/password signups (which require `/verify-email`, a separate page
+  load) do not get the auto-popup — only already-logged-in visitors and the
+  login/Google-OAuth round trip are covered. Documented as a deliberate scope
+  boundary in the design spec, not a gap.
+
 ## 2026-08-17 — Implemented Admin Identity, Capability Authorization & Audit Trail
 
 **Done**
 - **Phase 0 & 1:** Documented break-glass attribution model. Extracted and unified admin access resolution via `resolveAdminAccess(app, userId)` in `guard.ts`, unifying `/results/login` and `/admin/*` routes. Verified with passing integration test `test/integration/results-auth.test.ts`.
 - **Phase 2 (`audit_logs`):**
-  - Hand-crafted migration `0157_audit_logs.sql` (journal idx 157) defining append-only `audit_logs` table with PostgreSQL trigger `audit_logs_prevent_mutation` rejecting `UPDATE`/`DELETE`.
+  - Hand-crafted migration `0159_audit_logs.sql` (journal idx 159; renumbered from the original `0157` after merging `dev`, which had independently claimed indices 157–158 — see "Migration Index Conflicts" in `docs/version-control.md`) defining append-only `audit_logs` table with PostgreSQL trigger `audit_logs_prevent_mutation` rejecting `UPDATE`/`DELETE`.
   - Added Prometheus counter `audit_log_write_failures_total` via `@aivastra/observability`.
   - Implemented transactional, fail-closed `recordAudit(tx, params)` helper in `apps/api/src/modules/admin/audit.ts`.
   - Wired audit logging into high-risk administrative mutations (workers create/patch/delete, workflows create/patch/reassign/delete, users patch/erase/admin role changes, credits grant/deduct).
   - Implemented `GET /admin/audit-logs` endpoint with action/resourceType/resourceId filters and pagination in `apps/api/src/modules/admin/audit.routes.ts`.
   - Verified with comprehensive integration tests in `test/integration/admin-audit-logs.test.ts` (3/3 pass: append-only trigger rejection, fail-closed rollback + metric, and full mutation lifecycle).
 - **Phase 3 (Capability Permissions Model):**
-  - Hand-crafted migration `0158_permissions.sql` (journal idx 158) with `permissions` & `role_permissions` schema and exact role capability seed data. Added `admin_users_role_check` constraint.
+  - Hand-crafted migration `0160_permissions.sql` (journal idx 160; also renumbered from `0158`, same collision) with `permissions` & `role_permissions` schema and exact role capability seed data. Added `admin_users_role_check` constraint.
   - Implemented `requirePermission`, `requireAnyPermission`, and `getRolePermissions` in `apps/api/src/modules/admin/guard.ts`.
-  - Migrated all 27 admin route files and 64 route handler sites from legacy role-list checks to granular capability permissions (zero legacy `requireAdmin(` call sites remaining in route definitions).
+  - Migrated all 27 admin route files and 64 route handler sites from legacy role-list checks to granular capability permissions (zero legacy `requireAdmin(` call sites remaining in route definitions, aside from one write route on `dev`'s `shopify-stores.routes.ts` reconciled during this merge — no matching capability permission exists yet, left on `requireAdmin(['SUPER_ADMIN'])` pending a follow-up).
   - Wired user capabilities into `GET /admin/me` (`permissions: Array<string>`).
   - Created and ran comprehensive parity test suite (`test/integration/permissions-parity.test.ts`) validating 100% matrix parity across all 4 admin roles (`SUPER_ADMIN`, `ADMIN`, `MODERATOR`, `SUPPORT`).
 - **Phase 4 (Frontend Gating & Activity Trail):**
@@ -32,7 +230,7 @@
   superuser in every environment (dev/staging/prod — verified against
   `infra/docker-compose*.yml` and `.env.production.example`, no second role exists
   anywhere), so `REVOKE UPDATE, DELETE` would be inert against it. The
-  `audit_logs_prevent_mutation` trigger (migration `0157`) stops accidental
+  `audit_logs_prevent_mutation` trigger (migration `0159`) stops accidental
   `UPDATE`/`DELETE` but not a superuser who explicitly disables the trigger first —
   which is exactly the failure mode this whole initiative exists to reduce (shared,
   over-privileged credentials). The real fix — a genuinely non-superuser runtime DB

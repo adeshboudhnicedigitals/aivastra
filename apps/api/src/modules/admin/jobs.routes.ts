@@ -1,6 +1,6 @@
 import { schema } from '@aivastra/db';
-import { JOB_SOURCE } from '@aivastra/types';
-import { aliasedTable, and, count, desc, eq, ilike, or, sql } from 'drizzle-orm';
+import { JOB_SOURCE, jobSourceSchema } from '@aivastra/types';
+import { aliasedTable, and, count, desc, eq, gte, ilike, lte, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -27,6 +27,13 @@ const JobsQuery = z.object({
     .optional(),
   search: z.string().optional(),
   date: z.string().optional(),
+  jobType: jobSourceSchema.optional(),
+  workerId: z.string().optional(),
+  // Created-at range filter (datetime-local input values, e.g. "2026-08-18T14:30") —
+  // separate from `date` above (exact-day match), which other admin pages already
+  // navigate here with via router state and must keep working unchanged.
+  createdFrom: z.string().optional(),
+  createdTo: z.string().optional(),
 });
 
 export async function adminJobsRoutes(app: FastifyInstance) {
@@ -36,8 +43,11 @@ export async function adminJobsRoutes(app: FastifyInstance) {
   app.get('/admin/jobs/sources', { preHandler: R }, async () => Object.values(JOB_SOURCE));
 
   app.get('/admin/jobs', { preHandler: R, schema: { querystring: JobsQuery } }, async (req) => {
-    // biome-ignore lint/suspicious/noExplicitAny: Fastify typed-provider workaround
-    const { page, pageSize, status, search, date } = req.query as any;
+    const query =
+      // biome-ignore lint/suspicious/noExplicitAny: Fastify typed-provider workaround
+      req.query as any;
+    const { page, pageSize, status, search, date, jobType, workerId, createdFrom, createdTo } =
+      query;
 
     const conditions: ReturnType<typeof eq>[] = [];
     if (status) conditions.push(eq(schema.jobs.status, status));
@@ -45,6 +55,12 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       // Postgres exact date match for UTC createdAt
       conditions.push(sql`${schema.jobs.createdAt}::date = ${date}::date` as ReturnType<typeof eq>);
     }
+    if (jobType) {
+      conditions.push(sql`${jobTypeSql()} = ${jobType}` as ReturnType<typeof eq>);
+    }
+    if (workerId) conditions.push(eq(schema.jobs.workerId, workerId));
+    if (createdFrom) conditions.push(gte(schema.jobs.createdAt, new Date(createdFrom)));
+    if (createdTo) conditions.push(lte(schema.jobs.createdAt, new Date(createdTo)));
     if (search) {
       conditions.push(
         or(
@@ -56,10 +72,13 @@ export async function adminJobsRoutes(app: FastifyInstance) {
     }
     const where = conditions.length > 0 ? and(...conditions) : undefined;
 
+    // jobType filtering (jobTypeSql) reads job_inputs.face_id, so the count query
+    // needs the same join as the row query below or it 500s whenever jobType is set.
     const [{ total }] = await app.db
       .select({ total: count() })
       .from(schema.jobs)
       .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
+      .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
       .where(where);
 
     const rows = await app.db

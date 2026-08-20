@@ -97,6 +97,7 @@ describe('real repository workspace', () => {
       'api',
       'chatbot',
       'dispatcher',
+      'shopify-admin',
       'web',
     ]);
     expect(consumersAsTargets('@aivastra/db')).toEqual(['api', 'chatbot', 'dispatcher']);

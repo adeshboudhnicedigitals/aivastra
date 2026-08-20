@@ -103,7 +103,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
       const updatedAt = new Date().toISOString();
       cur.appVideo = { key, updatedAt };
       await app.redis.set(KEY, JSON.stringify(cur));
-      return { videoUrl: await appVideoUrl(app, key, updatedAt), updatedAt };
+      return { videoUrl: await appVideoUrl(app, key), updatedAt };
     },
   );
 
@@ -116,7 +116,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
   // Public — used by the Android app to fetch the current intro/promo video (no auth)
   app.get('/v1/config/app-video', async () => {
     const cfg = await readAppVideoConfig(app, KEY);
-    return { videoUrl: cfg ? await appVideoUrl(app, cfg.key, cfg.updatedAt) : null };
+    return { videoUrl: cfg ? await appVideoUrl(app, cfg.key) : null };
   });
 
   app.get('/admin/stats', { preHandler: requirePermission('config.read') }, async (req) => {
@@ -317,11 +317,14 @@ async function readAppVideoConfig(
   return appVideo ?? null;
 }
 
-// Cache-busting query param — the object key is fixed (re-uploads overwrite it in
-// place), so without this a CDN/client cache would keep serving the old clip.
-async function appVideoUrl(app: FastifyInstance, key: string, updatedAt: string): Promise<string> {
+// No manual cache-bust needed: presignGet() embeds a fresh X-Amz-Date/X-Amz-Signature
+// on every call, so the URL changes on every re-fetch regardless of the fixed object
+// key. Appending an extra query param here previously broke SigV4 validation (403
+// SignatureDoesNotMatch) — the signature only covers the exact query string present
+// when it was signed.
+async function appVideoUrl(app: FastifyInstance, key: string): Promise<string> {
   const { url } = await app.storage.presignGet(key, 3600);
-  return `${url}?v=${new Date(updatedAt).getTime()}`;
+  return url;
 }
 
 function formatAge(d: Date | null): string {

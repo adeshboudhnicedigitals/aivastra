@@ -153,7 +153,14 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
     (location.state as { date?: string })?.date || null,
   );
   const [query, setQuery] = useState((location.state as { search?: string })?.search || '');
+  const [jobTypeFilter, setJobTypeFilter] = useState<string>('');
+  const [workerFilter, setWorkerFilter] = useState<string>('');
+  const [createdFrom, setCreatedFrom] = useState<string>('');
+  const [createdTo, setCreatedTo] = useState<string>('');
+  const [jobTypeOptions, setJobTypeOptions] = useState<string[]>([]);
+  const [workerOptions, setWorkerOptions] = useState<{ id: string; label: string }[]>([]);
   const [page, setPage] = useState(0);
+  const [jumpToPage, setJumpToPage] = useState('');
   const [sortKey, setSortKey] = useState<keyof Job>('createdAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -193,6 +200,10 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
         if (filter !== 'all') params.set('status', filter);
         if (dateFilter) params.set('date', dateFilter);
         if (query) params.set('search', query);
+        if (jobTypeFilter) params.set('jobType', jobTypeFilter);
+        if (workerFilter) params.set('workerId', workerFilter);
+        if (createdFrom) params.set('createdFrom', createdFrom);
+        if (createdTo) params.set('createdTo', createdTo);
         const data = await apiFetch<{ items: Job[]; total: number }>(`/admin/jobs?${params}`);
         setJobs(data.items);
         setTotal(data.total);
@@ -207,7 +218,7 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
         if (!silent) setLoading(false);
       }
     },
-    [page, filter, dateFilter, query, toast],
+    [page, filter, dateFilter, query, jobTypeFilter, workerFilter, createdFrom, createdTo, toast],
   );
 
   useEffect(() => {
@@ -237,6 +248,20 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
       cancelled = true;
     };
   }, [requestedJobId, toast]);
+
+  // Filter dropdown options — fetched once, not tied to the jobs list itself.
+  useEffect(() => {
+    apiFetch<string[]>('/admin/jobs/sources')
+      .then(setJobTypeOptions)
+      .catch(() => {
+        // Non-fatal — the job type filter dropdown just stays empty.
+      });
+    apiFetch<{ id: string; label: string }[]>('/admin/workers')
+      .then((workers) => setWorkerOptions(workers.map((w) => ({ id: w.id, label: w.label }))))
+      .catch(() => {
+        // Non-fatal — the worker filter dropdown just stays empty.
+      });
+  }, []);
 
   const flushQueue = useCallback(async () => {
     setFlushing(true);
@@ -286,6 +311,30 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
     setQuery(q);
     setPage(0);
   };
+  const handleJobTypeFilter = (v: string) => {
+    setJobTypeFilter(v);
+    setPage(0);
+  };
+  const handleWorkerFilter = (v: string) => {
+    setWorkerFilter(v);
+    setPage(0);
+  };
+  const handleCreatedFrom = (v: string) => {
+    setCreatedFrom(v);
+    setPage(0);
+  };
+  const handleCreatedTo = (v: string) => {
+    setCreatedTo(v);
+    setPage(0);
+  };
+  const hasExtraFilters = !!(jobTypeFilter || workerFilter || createdFrom || createdTo);
+  const clearExtraFilters = () => {
+    setJobTypeFilter('');
+    setWorkerFilter('');
+    setCreatedFrom('');
+    setCreatedTo('');
+    setPage(0);
+  };
 
   const sorted = [...jobs].sort((a, b) => {
     const aVal = a[sortKey] ?? '';
@@ -298,6 +347,14 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
   });
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
+
+  const handleJumpToPage = () => {
+    const n = Number.parseInt(jumpToPage, 10);
+    if (!Number.isNaN(n) && n >= 1 && n <= Math.max(1, totalPages)) {
+      setPage(n - 1);
+    }
+    setJumpToPage('');
+  };
 
   const handleSort = (k: keyof Job) => {
     if (k === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -743,6 +800,99 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
             </div>
           )}
         </div>
+
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            marginBottom: 16,
+            flexWrap: 'wrap',
+          }}
+        >
+          <select
+            value={jobTypeFilter}
+            onChange={(e) => handleJobTypeFilter(e.target.value)}
+            style={{
+              padding: '6px 12px',
+              borderRadius: 6,
+              border: '1px solid var(--border)',
+              background: 'var(--surface)',
+              color: 'var(--ink)',
+              fontSize: 13,
+              cursor: 'pointer',
+              outline: 'none',
+            }}
+          >
+            <option value="">All Job Types</option>
+            {jobTypeOptions.map((jt) => (
+              <option key={jt} value={jt}>
+                {jt}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={workerFilter}
+            onChange={(e) => handleWorkerFilter(e.target.value)}
+            style={{
+              padding: '6px 12px',
+              borderRadius: 6,
+              border: '1px solid var(--border)',
+              background: 'var(--surface)',
+              color: 'var(--ink)',
+              fontSize: 13,
+              cursor: 'pointer',
+              outline: 'none',
+            }}
+          >
+            <option value="">All Workers</option>
+            {workerOptions.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.label || w.id}
+              </option>
+            ))}
+          </select>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span className="sub" style={{ fontSize: 13, color: 'var(--muted)' }}>
+              Created:
+            </span>
+            <input
+              type="datetime-local"
+              value={createdFrom}
+              onChange={(e) => handleCreatedFrom(e.target.value)}
+              style={{
+                padding: '5px 8px',
+                borderRadius: 6,
+                border: '1px solid var(--border)',
+                background: 'var(--surface)',
+                color: 'var(--ink)',
+                fontSize: 13,
+              }}
+            />
+            <span style={{ fontSize: 13, color: 'var(--muted)' }}>to</span>
+            <input
+              type="datetime-local"
+              value={createdTo}
+              onChange={(e) => handleCreatedTo(e.target.value)}
+              style={{
+                padding: '5px 8px',
+                borderRadius: 6,
+                border: '1px solid var(--border)',
+                background: 'var(--surface)',
+                color: 'var(--ink)',
+                fontSize: 13,
+              }}
+            />
+          </div>
+
+          {hasExtraFilters && (
+            <button className="btn sm ghost" onClick={clearExtraFilters}>
+              Clear filters
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Mobile/Tablet single vertical bar header */}
@@ -944,6 +1094,112 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                       {f.l}
                     </button>
                   ))}
+                </div>
+
+                {/* Job type / worker / created-at range */}
+                <div
+                  style={{
+                    borderTop: '1px solid var(--border)',
+                    paddingTop: 8,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                  }}
+                >
+                  <span className="sub" style={{ fontSize: 12, color: 'var(--muted)' }}>
+                    Job Type:
+                  </span>
+                  <select
+                    value={jobTypeFilter}
+                    onChange={(e) => handleJobTypeFilter(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      borderRadius: 6,
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg-2)',
+                      color: 'var(--ink)',
+                      fontSize: 13,
+                    }}
+                  >
+                    <option value="">All Job Types</option>
+                    {jobTypeOptions.map((jt) => (
+                      <option key={jt} value={jt}>
+                        {jt}
+                      </option>
+                    ))}
+                  </select>
+
+                  <span className="sub" style={{ fontSize: 12, color: 'var(--muted)' }}>
+                    Worker:
+                  </span>
+                  <select
+                    value={workerFilter}
+                    onChange={(e) => handleWorkerFilter(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      borderRadius: 6,
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg-2)',
+                      color: 'var(--ink)',
+                      fontSize: 13,
+                    }}
+                  >
+                    <option value="">All Workers</option>
+                    {workerOptions.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.label || w.id}
+                      </option>
+                    ))}
+                  </select>
+
+                  <span className="sub" style={{ fontSize: 12, color: 'var(--muted)' }}>
+                    Created from:
+                  </span>
+                  <input
+                    type="datetime-local"
+                    value={createdFrom}
+                    onChange={(e) => handleCreatedFrom(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      borderRadius: 6,
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg-2)',
+                      color: 'var(--ink)',
+                      fontSize: 13,
+                    }}
+                  />
+
+                  <span className="sub" style={{ fontSize: 12, color: 'var(--muted)' }}>
+                    Created to:
+                  </span>
+                  <input
+                    type="datetime-local"
+                    value={createdTo}
+                    onChange={(e) => handleCreatedTo(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      borderRadius: 6,
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg-2)',
+                      color: 'var(--ink)',
+                      fontSize: 13,
+                    }}
+                  />
+
+                  {hasExtraFilters && (
+                    <button
+                      type="button"
+                      className="btn sm ghost"
+                      onClick={clearExtraFilters}
+                      style={{ width: '100%' }}
+                    >
+                      Clear filters
+                    </button>
+                  )}
                 </div>
               </div>
             </>
@@ -1558,6 +1814,43 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
             totalItems={total}
             pageSize={PAGE_SIZE}
           />
+
+          {totalPages > 1 && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                marginTop: 12,
+              }}
+            >
+              <span style={{ fontSize: 13, color: 'var(--muted)' }}>Jump to page:</span>
+              <input
+                type="number"
+                min={1}
+                max={totalPages}
+                placeholder={`1-${totalPages}`}
+                value={jumpToPage}
+                onChange={(e) => setJumpToPage(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleJumpToPage();
+                }}
+                style={{
+                  width: 70,
+                  padding: '5px 8px',
+                  borderRadius: 6,
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface)',
+                  color: 'var(--ink)',
+                  fontSize: 13,
+                }}
+              />
+              <button className="btn sm ghost" onClick={handleJumpToPage}>
+                Go
+              </button>
+            </div>
+          )}
         </>
       )}
 

@@ -460,7 +460,7 @@ hangs on streaming responses.
   `audit_log_write_failures_total` (Prometheus) increments. This makes `audit_logs`
   a hard dependency for every admin write it's wired into.
 - `audit_logs` is append-only via a `BEFORE UPDATE OR DELETE` trigger
-  (`audit_logs_prevent_mutation`, migration `0157`), **not** a `REVOKE`-based ACL —
+  (`audit_logs_prevent_mutation`, migration `0159`), **not** a `REVOKE`-based ACL —
   `POSTGRES_USER=tryon` is a Postgres superuser in every environment including
   production (no second, restricted DB role exists yet), so a `REVOKE` would be
   inert. The trigger stops accidental `UPDATE`/`DELETE` but a superuser can still

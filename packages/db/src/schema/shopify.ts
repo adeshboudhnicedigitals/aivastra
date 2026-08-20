@@ -126,6 +126,22 @@ export const shopifyStores = pgTable('shopify_stores', {
   currentSubscriptionId: text('current_subscription_id'),
   currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
   lastBillingSyncAt: timestamp('last_billing_sync_at', { withTimezone: true }),
+  // PAYG billing. 'prepaid' (default) is every existing store — deducts from
+  // shopify_store_credits as today. 'usage' means this store is on the
+  // Pay-as-you-go plan: no credits ledger involvement at all, billed in USD
+  // through Shopify's App Events API instead. Set by syncStoreSubscription
+  // from the synced plan handle, never client-trusted.
+  billingMode: text('billing_mode').notNull().default('prepaid'),
+  // Merchant-set monthly spend ceiling for billingMode='usage' stores, in USD
+  // cents. Enforced entirely app-side — Shopify usage meters have no cap
+  // support. Null until the store first becomes 'usage', at which point
+  // syncStoreSubscription seeds a default.
+  paygSpendCapUsdCents: integer('payg_spend_cap_usd_cents'),
+  // Persists AppSubscription.test, which syncStoreSubscription already reads
+  // but previously discarded. Gates PAYG usage reporting the same way
+  // SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS already gates credit grants — a dev
+  // store's test charges must never be reported as real usage in production.
+  subscriptionIsTest: boolean('subscription_is_test').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -154,6 +170,36 @@ export const shopifyCreditLedger = pgTable('shopify_credit_ledger', {
   externalRef: text('external_ref'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// One row per successfully COMPLETED job for a billingMode='usage' store.
+// A job that fails is never inserted here — for a postpaid model, "don't
+// report" achieves the same effect as a prepaid refund, with no separate
+// mechanism needed. Written by the dispatcher (job/processor.ts) on the
+// same COMPLETED transition every other job type already goes through;
+// reported to Shopify's App Events API asynchronously by usage-scheduler.ts.
+export const shopifyUsageEvents = pgTable(
+  'shopify_usage_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    storeId: uuid('store_id')
+      .notNull()
+      .references(() => shopifyStores.id, { onDelete: 'cascade' }),
+    jobId: uuid('job_id').notNull().unique(),
+    // Snapshotted from PAYG_PRICE_PER_TRYON_USD at insert time — never
+    // re-derived later, same "the row is the record of what was promised"
+    // reasoning the superseded top-up spec used for its credits column.
+    priceUsdCents: integer('price_usd_cents').notNull(),
+    status: text('status').notNull().default('PENDING'), // 'PENDING' | 'REPORTED'
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    reportedAt: timestamp('reported_at', { withTimezone: true }),
+  },
+  (table) => ({
+    storeCreatedIdx: index('shopify_usage_events_store_created_idx').on(
+      table.storeId,
+      table.createdAt,
+    ),
+  }),
+);
 
 export const shopifyFunnelTemplates = pgTable(
   'shopify_funnel_templates',

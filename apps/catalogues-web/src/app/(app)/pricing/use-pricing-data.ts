@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BarChart2, Building2, Rocket } from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import React, { useEffect, useRef, useState } from 'react';
 import { FlagAE, FlagGB, FlagIN, FlagUS } from '@/components/icons';
 import { C } from '@/components/tokens';
@@ -16,6 +17,9 @@ export interface CreditPlan {
   isHighlighted: boolean;
   badge: string | null;
   sortOrder: number;
+  planType: 'catalogue' | 'tryon';
+  perUnitPriceLabel: string | null;
+  unitCountLabel: string | null;
 }
 
 export const FLAGS: Record<string, React.ReactElement> = {
@@ -45,16 +49,6 @@ export type PaymentResult =
       onRetry: () => void;
     };
 
-interface ResolutionConfig {
-  enabled: boolean;
-  creditCost: number;
-}
-export interface ResolutionConfigs {
-  HD?: ResolutionConfig;
-  '2K'?: ResolutionConfig;
-  '4K'?: ResolutionConfig;
-}
-
 const CURRENCY: Record<string, { code: string; locale: string }> = {
   IN: { code: 'INR', locale: 'en-IN' },
   US: { code: 'USD', locale: 'en-US' },
@@ -81,8 +75,8 @@ export const PLAN_META = [
     iconSrc: undefined,
     iconBg: C.mid,
     checkGrad: false,
-    icon2k: `${BASE}/assets/2k-b-vec.svg`,
-    icon4k: `${BASE}/assets/4k-b-vec.svg`,
+    // icon2k: `${BASE}/assets/2k-b-vec.svg`,
+    // icon4k: `${BASE}/assets/4k-b-vec.svg`,
     invertUsage: true,
   },
   {
@@ -93,8 +87,8 @@ export const PLAN_META = [
     iconSrc: `${BASE}/assets/gro-vec.svg`,
     iconBg: C.mid,
     checkGrad: true,
-    icon2k: `${BASE}/assets/2k-vec.svg`,
-    icon4k: `${BASE}/assets/4k-vec.svg`,
+    // icon2k: `${BASE}/assets/2k-vec.svg`,
+    // icon4k: `${BASE}/assets/4k-vec.svg`,
     invertUsage: false,
   },
   {
@@ -105,37 +99,53 @@ export const PLAN_META = [
     iconSrc: `${BASE}/assets/pro-vec.svg`,
     iconBg: C.mid,
     checkGrad: false,
-    icon2k: `${BASE}/assets/2k-b-vec.svg`,
-    icon4k: `${BASE}/assets/4k-b-vec.svg`,
+    // icon2k: `${BASE}/assets/2k-b-vec.svg`,
+    // icon4k: `${BASE}/assets/4k-b-vec.svg`,
     invertUsage: true,
   },
 ] as const;
 
 export const PLAN_FEATURES = [
   [
-    'Both 2K & 4K Resolution',
     'Standard AI Models',
     'Standard Backgrounds',
-    'Single Image Generation',
+    'Single Catalogue photo Generation',
     'Product Catalogue Templates',
     'Email Support',
   ],
   [
-    'Both 2K & 4K Resolution',
-    'Premium AI Models',
-    'Premium Backgrounds',
-    'Bulk Image Generation',
-    'Marketplace Templates',
-    'Priority Support',
+    'Standard AI Models',
+    'Standard Backgrounds',
+    'Bulk Catalogue photo Generation',
+    'Product Catalogue Templates',
+    'Email Support',
   ],
   [
-    'Both 2K & 4K Resolution',
-    'Premium AI Models',
-    'Premium Backgrounds',
-    'Bulk Image Generation',
-    'Marketplace Templates',
-    'Dedicated Support',
+    'Standard AI Models',
+    'Standard Backgrounds',
+    'Bulk Catalogue photo Generation',
+    'Product Catalogue Templates',
+    'Email Support',
   ],
+  [
+    'Standard AI Models',
+    'Standard Backgrounds',
+    'Bulk Catalogue photo Generation',
+    'Product Catalogue Templates',
+    'Email Support',
+  ],
+] as const;
+
+// Static feature list for the AI Virtual Try-On pricing tab — same across
+// every plan (unlike PLAN_FEATURES, which varies by plan). The per-plan
+// try-on price (plan.perUnitPriceLabel) is prepended to this in the layout,
+// not included here, since it's dynamic.
+export const TRYON_FEATURES = [
+  'Instant Priority Processing',
+  'Pay Only for Successful Try-Ons',
+  'White Label Integration',
+  'Website & Shopify Integration',
+  'Standard AI Quality',
 ] as const;
 
 export const COUNTRIES = [
@@ -193,6 +203,8 @@ function loadRazorpay(): Promise<boolean> {
 
 export function usePricingData() {
   const qc = useQueryClient();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [paymentResult, setPaymentResult] = useState<PaymentResult | null>(null);
   const [buying, setBuying] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'catalogue' | 'tryon'>('catalogue');
@@ -210,8 +222,9 @@ export function usePricingData() {
   const [rates, setRates] = useState<Record<string, number>>(FALLBACK_RATES);
   const [ratesLoading, setRatesLoading] = useState(true);
   const countryRef = useRef<HTMLDivElement>(null);
+  const autoOpenedRef = useRef(false);
 
-  const { data: credits } = useQuery<{
+  const { data: credits, isLoading: creditsLoading } = useQuery<{
     balance: number;
     firstPurchaseBonusPercent: number | null;
     recent: { delta: number; reason: string; createdAt: string }[];
@@ -228,7 +241,7 @@ export function usePricingData() {
     staleTime: 60_000,
   });
 
-  const { data: paymentHistory } = useQuery<{
+  const { data: paymentHistory, isLoading: paymentHistoryLoading } = useQuery<{
     payments: {
       planId: string;
       planName: string | null;
@@ -247,20 +260,12 @@ export function usePricingData() {
     queryFn: () => api.get<CreditPlan[]>('/v1/payments/plans'),
     staleTime: 5 * 60 * 1000,
   });
-  const visiblePlans = plans.filter((plan) => plan.slug !== 'free');
+  const cataloguePlans = plans.filter(
+    (plan) => plan.slug !== 'free' && plan.planType === 'catalogue',
+  );
+  const tryonPlans = plans.filter((plan) => plan.planType === 'tryon');
+  const purchasablePlans = plans.filter((plan) => plan.slug !== 'free');
   const hasPriorPurchase = paymentHistory?.payments?.some((p) => p.status === 'paid') ?? false;
-
-  const { data: resolutionData } = useQuery<{ resolutions: ResolutionConfigs }>({
-    queryKey: ['resolution-configs'],
-    queryFn: () => api.get('/v1/config/resolutions'),
-    staleTime: 10 * 60 * 1000,
-  });
-
-  const resolutions: ResolutionConfigs = resolutionData?.resolutions ?? {
-    HD: { enabled: false, creditCost: 10 },
-    '2K': { enabled: true, creditCost: 25 },
-    '4K': { enabled: true, creditCost: 40 },
-  };
 
   useEffect(() => {
     setCountry(detectCountry());
@@ -288,6 +293,41 @@ export function usePricingData() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
+
+  // WordPress "Buy Now" buttons deep-link to /pricing?plan=<slug> and expect
+  // checkout to open automatically — no extra click. Works for both
+  // catalogue- and try-on-type plans (slug lookup spans both); switches
+  // activeTab to match the plan's type so the tab underneath the popup isn't
+  // left showing the wrong list. Waits for plans, credits, and payment
+  // history to finish loading so startBuy's first-time-buyer gating (coupon
+  // modal vs. straight to GSTIN/Razorpay) sees real data instead of pre-load
+  // defaults. Fires at most once per page load (autoOpenedRef), then strips
+  // `plan` from the URL either way so a refresh or back-navigation doesn't
+  // reopen the modal or re-check a now-stale slug.
+  useEffect(() => {
+    if (autoOpenedRef.current) return;
+    if (plansLoading || creditsLoading || paymentHistoryLoading) return;
+    const planSlug = searchParams.get('plan');
+    if (!planSlug) return;
+    autoOpenedRef.current = true;
+    const plan = purchasablePlans.find((p) => p.slug === planSlug);
+    if (plan) {
+      setActiveTab(plan.planType);
+      startBuy(plan);
+    }
+    const rest = new URLSearchParams(searchParams);
+    rest.delete('plan');
+    const qs = rest.toString();
+    router.replace(qs ? `/pricing?${qs}` : '/pricing', { scroll: false });
+  }, [
+    plansLoading,
+    creditsLoading,
+    paymentHistoryLoading,
+    purchasablePlans,
+    searchParams,
+    router,
+    startBuy,
+  ]);
 
   const isNonIn = country !== 'IN';
 
@@ -496,10 +536,11 @@ export function usePricingData() {
     countryRef,
     ratesLoading,
     isNonIn,
-    visiblePlans,
+    currentPlanSlug: currentTier,
+    cataloguePlans,
+    tryonPlans,
     plansLoading,
     firstPurchaseBonusPercent,
-    resolutions,
     displayBase,
     displayTotal,
     displayTax,

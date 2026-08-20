@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer';
 import { schema } from '@aivastra/db';
+import { PAYG_PRICE_PER_TRYON_USD_CENTS } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildTestApp } from '../helpers/api.js';
@@ -453,6 +454,128 @@ describe('shopify customer routes', () => {
     expect((second.json() as { jobId: string }).jobId).not.toBe(
       (first.json() as { jobId: string }).jobId,
     );
+  });
+
+  it('skips the credit ledger and pins billingMode for a usage-mode store', async () => {
+    await seedDefaultFunnelTemplate();
+    const [store] = await app.db
+      .insert(schema.shopifyStores)
+      .values({
+        shopDomain: `payg-job-${Date.now()}-${Math.random()}.myshopify.com`,
+        shopifyShopId: Date.now(),
+        accessToken: 'enc',
+        scope: 'read_products',
+        billingMode: 'usage',
+        subscriptionStatus: 'active',
+      })
+      .returning();
+    const r2Key = await uploadCustomerPhoto(store.storeKey, Buffer.from('photo-bytes'));
+    await seedGarment(store.id, 91);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/customer/jobs',
+      headers: { 'x-widget-key': store.storeKey },
+      payload: { customerPhotoKey: r2Key, shopifyProductId: 91 },
+    });
+    expect(res.statusCode).toBe(201);
+    const { jobId } = res.json() as { jobId: string };
+
+    const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+    expect(job.creditsCharged).toBe(0);
+
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, jobId));
+    expect((inputs.params as { billingMode?: string }).billingMode).toBe('usage');
+
+    const ledgerRows = await app.db
+      .select()
+      .from(schema.shopifyCreditLedger)
+      .where(eq(schema.shopifyCreditLedger.jobId, jobId));
+    expect(ledgerRows).toHaveLength(0);
+  });
+
+  it('rejects job creation when a usage-mode store is at its spend cap', async () => {
+    await seedDefaultFunnelTemplate();
+    const [store] = await app.db
+      .insert(schema.shopifyStores)
+      .values({
+        shopDomain: `payg-cap-job-${Date.now()}-${Math.random()}.myshopify.com`,
+        shopifyShopId: Date.now() + 1,
+        accessToken: 'enc',
+        scope: 'read_products',
+        billingMode: 'usage',
+        subscriptionStatus: 'active',
+        paygSpendCapUsdCents: PAYG_PRICE_PER_TRYON_USD_CENTS,
+      })
+      .returning();
+    const [existingJob] = await (app.db.insert(schema.jobs).values as never)({
+      shopifyStoreId: store.id,
+      customerPhotoKey: 'x',
+      status: 'COMPLETED',
+      creditsCharged: 0,
+    }).returning();
+    await app.db.insert(schema.shopifyUsageEvents).values({
+      storeId: store.id,
+      jobId: existingJob.id,
+      priceUsdCents: PAYG_PRICE_PER_TRYON_USD_CENTS, // already at the cap
+    });
+
+    const r2Key = await uploadCustomerPhoto(store.storeKey, Buffer.from('photo-bytes'));
+    await seedGarment(store.id, 92);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/customer/jobs',
+      headers: { 'x-widget-key': store.storeKey },
+      payload: { customerPhotoKey: r2Key, shopifyProductId: 92 },
+    });
+    expect(res.statusCode).toBe(402);
+
+    const jobs = await app.db
+      .select()
+      .from(schema.jobs)
+      .where(eq(schema.jobs.shopifyStoreId, store.id));
+    expect(jobs).toHaveLength(1); // only the pre-seeded one — nothing new was inserted
+  });
+
+  it('rejects job creation for a usage-mode store with no active subscription', async () => {
+    // billingMode is set to 'usage' from the plan name alone — a PENDING
+    // subscription (merchant never approved the charge) still leaves
+    // billingMode as 'usage'. Without checkPaygSpendCap's subscription-status
+    // gate, this store could generate try-ons for free, well under its cap.
+    await seedDefaultFunnelTemplate();
+    const [store] = await app.db
+      .insert(schema.shopifyStores)
+      .values({
+        shopDomain: `payg-pending-${Date.now()}-${Math.random()}.myshopify.com`,
+        shopifyShopId: Date.now() + 2,
+        accessToken: 'enc',
+        scope: 'read_products',
+        billingMode: 'usage',
+        subscriptionStatus: 'pending',
+        paygSpendCapUsdCents: 5000, // well under the cap — status is the only blocker
+      })
+      .returning();
+    const r2Key = await uploadCustomerPhoto(store.storeKey, Buffer.from('photo-bytes'));
+    await seedGarment(store.id, 93);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/customer/jobs',
+      headers: { 'x-widget-key': store.storeKey },
+      payload: { customerPhotoKey: r2Key, shopifyProductId: 93 },
+    });
+    expect(res.statusCode).toBe(402);
+    expect((res.json() as { error: { code: string } }).error.code).toBe('SUBSCRIPTION_INACTIVE');
+
+    const jobs = await app.db
+      .select()
+      .from(schema.jobs)
+      .where(eq(schema.jobs.shopifyStoreId, store.id));
+    expect(jobs).toHaveLength(0);
   });
 
   it('returns a presigned preview URL for a photo owned by this store', async () => {

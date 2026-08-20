@@ -62,16 +62,62 @@ describe('dispatcher crash recovery', () => {
       .insert(schema.catalogCategories)
       .values({ typeId: ct?.id, slug: 'c', label: 'C' })
       .returning();
-    const mkItem = (k: string) =>
+    const [workflow] = await env.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `rec-wf-${Date.now()}`,
+        label: 'Recovery test workflow',
+        jsonContent: {
+          f: { class_type: 'LoadImage', inputs: { image: 'x.jpg' } },
+          p: { class_type: 'LoadImage', inputs: { image: 'x.jpg' } },
+          b: { class_type: 'LoadImage', inputs: { image: 'x.jpg' } },
+          g: { class_type: 'LoadImage', inputs: { image: 'x.jpg' } },
+          out: { class_type: 'SaveImage', inputs: { images: ['f', 0] } },
+        },
+        workflowType: 'regular',
+        faceNodeId: 'f',
+        poseNodeId: 'p',
+        bgNodeId: 'b',
+        upperNodeIds: ['g'],
+        facePhasePromptNode: 'f',
+        garmentPhasePromptNode: 'f',
+      })
+      .returning();
+
+    const [[face], [background], [pose], [l]] = await Promise.all([
+      env.db
+        .insert(schema.modelFaces)
+        .values({
+          gender: 'women',
+          label: 'Model',
+          r2Key: 'r/m.jpg',
+          thumbnailKey: 'r/m.jpg',
+          faceSideR2Key: 'r/m.jpg',
+        })
+        .returning(),
+      env.db
+        .insert(schema.modelBackgrounds)
+        .values({ label: 'Bg', r2Key: 'r/b.jpg', thumbnailKey: 'r/b.jpg' })
+        .returning(),
+      env.db
+        .insert(schema.modelPoseAssets)
+        .values({
+          label: 'Pose',
+          r2Key: 'r/p.jpg',
+          thumbnailKey: 'r/p.jpg',
+          workflowTemplateId: workflow?.id,
+        })
+        .returning(),
       env.db
         .insert(schema.catalogItems)
-        .values({ categoryId: cc?.id, label: 'I', r2Key: k, thumbnailKey: k })
-        .returning();
-    const [[m], [p], [b], [l]] = await Promise.all([
-      mkItem('r/m.jpg'),
-      mkItem('r/p.jpg'),
-      mkItem('r/b.jpg'),
-      mkItem('r/l.jpg'),
+        .values({
+          categoryId: cc?.id,
+          type: 'lower',
+          label: 'I',
+          r2Key: 'r/l.jpg',
+          thumbnailKey: 'r/l.jpg',
+        })
+        .returning(),
     ]);
 
     const [job] = await env.db
@@ -81,9 +127,9 @@ describe('dispatcher crash recovery', () => {
     await env.db.insert(schema.jobInputs).values({
       jobId: job?.id,
       upperGarmentKey: `inputs/${job?.id}/garment.jpg`,
-      modelCatalogId: m?.id,
-      poseCatalogId: p?.id,
-      backgroundCatalogId: b?.id,
+      faceId: face?.id,
+      poseId: pose?.id,
+      backgroundId: background?.id,
       lowerCatalogId: l?.id,
     });
     for (const key of [
