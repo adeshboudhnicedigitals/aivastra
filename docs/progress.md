@@ -1,3 +1,51 @@
+## 2026-08-20 — Merchant Catalog Saree Two-Input (Body & Pallu)
+
+**Done**
+- **Task 1**: Exposed `supportsTwoInputMannequin` on `GET /v1/merchant/catalog/subcategories`
+  responses (computed from `garment_subcategories.requires_mannequin_step` AND
+  `mannequin_two_input_workflow_template_id`). Added `supportsTwoInputMannequin: z.boolean()`
+  to `MerchantCatalogSubcategory` in `@aivastra/types` and covered with integration tests in
+  `merchant-catalog-subcategories.test.ts`.
+- **Task 2**: Updated `createMerchantCatalogJob` (`apps/api/src/modules/merchant/create-job.ts`)
+  to accept `secondFlatImageKey?: string`. When provided, validates that the garment type requires
+  the mannequin step and has `mannequinTwoInputWorkflowTemplateId`, validates merchant ownership of
+  the pallu key, and inserts a two-job pair in a single transaction: a standalone `saree_mannequin`
+  job (0 credits, queued) and a step-2 `merchant_catalog` job (`PENDING_MANNEQUIN` with `params.mannequinJobId`
+  and credit deduction). Only the mannequin job is enqueued to Redis `jobs:normal`; the existing dispatcher
+  sweep `promoteSareeStep2Jobs` automatically promotes the step-2 job upon completion without dispatcher
+  code changes. Covered with integration tests in `merchant-catalog-generate.test.ts`.
+- **Task 3**: Forwarded `secondFlatImageKey` from the `POST /v1/merchant/catalog/generate` route handler
+  into `createMerchantCatalogJob`.
+- **Task 4**: Updated `CatalogueManagerContent.tsx` and `ProductModal.tsx` in `apps/catalogues-web` to
+  thread `supportsTwoInputMannequin` through. When true in Flat Image mode, `ProductModal` displays a
+  secondary "Upload Pallu" upload box alongside the body garment image, changes the primary upload hint
+  to "Upload the body (front) photo", requires both body and pallu images before enabling "Generate Catalogue Image",
+  and presigns/forwards `secondFlatImageKey` on generate.
+
+## 2026-08-20 — Merchant Catalog Saree Two-Input (Body & Pallu)
+
+**Done**
+- **Task 1**: Exposed `supportsTwoInputMannequin` on `GET /v1/merchant/catalog/subcategories`
+  responses (computed from `garment_subcategories.requires_mannequin_step` AND
+  `mannequin_two_input_workflow_template_id`). Added `supportsTwoInputMannequin: z.boolean()`
+  to `MerchantCatalogSubcategory` in `@aivastra/types` and covered with integration tests in
+  `merchant-catalog-subcategories.test.ts`.
+- **Task 2**: Updated `createMerchantCatalogJob` (`apps/api/src/modules/merchant/create-job.ts`)
+  to accept `secondFlatImageKey?: string`. When provided, validates that the garment type requires
+  the mannequin step and has `mannequinTwoInputWorkflowTemplateId`, validates merchant ownership of
+  the pallu key, and inserts a two-job pair in a single transaction: a standalone `saree_mannequin`
+  job (0 credits, queued) and a step-2 `merchant_catalog` job (`PENDING_MANNEQUIN` with `params.mannequinJobId`
+  and credit deduction). Only the mannequin job is enqueued to Redis `jobs:normal`; the existing dispatcher
+  sweep `promoteSareeStep2Jobs` automatically promotes the step-2 job upon completion without dispatcher
+  code changes. Covered with integration tests in `merchant-catalog-generate.test.ts`.
+- **Task 3**: Forwarded `secondFlatImageKey` from the `POST /v1/merchant/catalog/generate` route handler
+  into `createMerchantCatalogJob`.
+- **Task 4**: Updated `CatalogueManagerContent.tsx` and `ProductModal.tsx` in `apps/catalogues-web` to
+  thread `supportsTwoInputMannequin` through. When true in Flat Image mode, `ProductModal` displays a
+  secondary "Upload Pallu" upload box alongside the body garment image, changes the primary upload hint
+  to "Upload the body (front) photo", requires both body and pallu images before enabling "Generate Catalogue Image",
+  and presigns/forwards `secondFlatImageKey` on generate.
+
 ## 2026-08-19 — Second SSO entry point for tryon-library-app: code-based handoff
 
 **Done**
