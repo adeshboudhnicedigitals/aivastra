@@ -328,6 +328,28 @@ export async function enrolAutorefill(
     throw new AppError('CONFIG', 500, 'SHOPIFY_APP_URL is not configured');
   }
 
+  // A double-submit or a re-enrol-to-switch-packs without disabling first
+  // would otherwise overwrite autorefillSubscriptionId with no cancel call —
+  // orphaning the prior subscription at Shopify, since disableAutorefill can
+  // only ever reach whatever subscription id is currently on the row. Same
+  // try/catch-and-continue-anyway pattern as disableAutorefill: blocking
+  // re-enrolment entirely over a cancel failure is worse for the merchant
+  // than a possibly-orphaned old subscription logged for an operator to
+  // notice.
+  if (
+    store.autorefillSubscriptionId &&
+    (store.autorefillStatus === 'PENDING' || store.autorefillStatus === 'ACTIVE')
+  ) {
+    try {
+      await cancelSubscription(app, store, store.autorefillSubscriptionId);
+    } catch (err) {
+      app.log.error(
+        { err, storeId: store.id, subscriptionId: store.autorefillSubscriptionId },
+        'failed to cancel prior auto-refill subscription at Shopify before re-enrolling — proceeding anyway, prior subscription may be orphaned',
+      );
+    }
+  }
+
   const trigger = args.triggerCredits ?? defaultTriggerCredits(pack.id);
   const tryOns = Math.floor(pack.autorefillCredits / SIMPLE_TRYON_COST);
 

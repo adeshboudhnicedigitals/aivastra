@@ -2,6 +2,7 @@ import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { AppError } from '../../lib/errors.js';
 import {
   confirmAutorefill,
   defaultTriggerCredits,
@@ -9,6 +10,7 @@ import {
   enrolAutorefill,
   raiseCap,
 } from './autorefill.js';
+import { getPack } from './packs.js';
 
 const EnrolBody = z.object({
   packId: z.string().min(1).max(64),
@@ -48,6 +50,15 @@ export async function shopifyAutorefillRoutes(app: FastifyInstance) {
     async (req) => {
       const s = store(req);
       const body = req.body as z.infer<typeof UpdateBody>;
+      // Reject an unknown pack up front — same check enrolAutorefill already
+      // makes. Without it, an unrecognized packId gets written verbatim and,
+      // when no triggerCredits was also supplied, defaultTriggerCredits(...)
+      // silently resolves to null: shouldRefill treats a null trigger as
+      // permanently ineligible, so the store's auto-refill goes dark with no
+      // error ever surfaced to the merchant.
+      if (body.packId && !getPack(body.packId)) {
+        throw new AppError('BAD_REQUEST', 400, 'unknown pack');
+      }
       const packId = body.packId ?? s.autorefillPackId;
       const patch: Partial<typeof schema.shopifyStores.$inferInsert> = { updatedAt: new Date() };
       if (body.packId) patch.autorefillPackId = body.packId;
