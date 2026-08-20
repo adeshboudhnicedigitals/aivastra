@@ -178,6 +178,11 @@ export const MerchantCatalogSubcategory = z.object({
   category: MerchantCatalogCategory,
   name: z.string(),
   garmentSubcategoryId: z.string().uuid(),
+  // True only when the linked garment type both requires the mannequin step AND has a
+  // two-input (body + pallu) step-1 workflow configured. Drives whether ProductModal
+  // shows a second "Pallu" upload box for this subcategory — see docs/superpowers/plans/
+  // 2026-08-20-merchant-catalog-saree-two-input.md.
+  supportsTwoInputMannequin: z.boolean(),
   sortOrder: z.number().int(),
   productCount: z.number().int(),
   createdAt: z.string(),

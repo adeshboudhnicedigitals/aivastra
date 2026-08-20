@@ -136,7 +136,24 @@ async function serializeSubcategory(
     .select({ n: count() })
     .from(schema.merchantCatalogItems)
     .where(eq(schema.merchantCatalogItems.subcategoryId, row.id));
-  return { ...row, productCount: n };
+  // Mirrors the existing per-row productCount lookup above — same N+1-per-row shape this
+  // function already has, not a new performance concern for a merchant's subcategory list
+  // (bounded by how many subcategories one merchant creates, never paginated at scale).
+  const [garmentType] = await app.db
+    .select({
+      requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep,
+      mannequinTwoInputWorkflowTemplateId:
+        schema.garmentSubcategories.mannequinTwoInputWorkflowTemplateId,
+    })
+    .from(schema.garmentSubcategories)
+    .where(eq(schema.garmentSubcategories.id, row.garmentSubcategoryId));
+  return {
+    ...row,
+    productCount: n,
+    supportsTwoInputMannequin: Boolean(
+      garmentType?.requiresMannequinStep && garmentType?.mannequinTwoInputWorkflowTemplateId,
+    ),
+  };
 }
 
 export async function merchantCatalogRoutes(app: FastifyInstance) {
