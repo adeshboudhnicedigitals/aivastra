@@ -1,3 +1,4 @@
+import { setDefaultResultOrder } from 'node:dns';
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { loadEnv } from './env.js';
@@ -7,6 +8,14 @@ import { startCollectionResyncScheduler } from './modules/shopify/collections-re
 import { startSyncConsumer } from './modules/shopify/sync-consumer.js';
 import { startUploadSweeper } from './modules/uploads/sweeper.js';
 import { buildServer } from './server.js';
+
+// Containers here have no IPv6 route, but external hosts we call (Shopify's
+// Fastly edge, R2/MinIO) resolve AAAA. Node's Happy-Eyeballs default races
+// both families with only ~250ms before falling back to IPv4 — a window a
+// dead IPv6 attempt can occasionally lose outright, surfacing as a spurious
+// ETIMEDOUT on an otherwise-healthy outbound call. Forcing IPv4-first removes
+// the race instead of racing a leg that can never win.
+setDefaultResultOrder('ipv4first');
 
 const env = loadEnv();
 const app = await buildServer(env);
