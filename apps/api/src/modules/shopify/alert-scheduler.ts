@@ -3,6 +3,7 @@ import { eq, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { sendLowCreditsEmail } from '../../lib/mailer.js';
 import { buildPostInstallRedirect } from './auth.routes.js';
+import { runRefill } from './autorefill.js';
 import { ALERT_LEVEL_RANK, type AlertLevel, computeRunway } from './runway.js';
 import { shopifyGraphQL } from './service.js';
 import { getValidAccessToken } from './token.js';
@@ -143,12 +144,48 @@ export async function runAlertTick(app: FastifyInstance, deps: TickDeps = {}): P
   for (const store of stores) {
     try {
       const runway = await computeRunway(app, store.id);
+
+      // Safety net for a refill that was lost to a process restart between the
+      // job committing and its fire-and-forget promise settling. runRefill is
+      // idempotent on all three of its guards, so calling it here when one
+      // already succeeded is a cheap no-op.
+      //
+      // `autorefillStatus` is tracked locally rather than read straight off
+      // `store` below: `store` is this tick's pre-sweep snapshot, and a
+      // 'cap_reached' outcome here means runRefill just flipped the row to
+      // CAP_REACHED in the DB — `store.autorefillStatus` won't reflect that
+      // without a re-fetch we don't otherwise need. Keeping this local avoids
+      // the auto-refill-suppresses-the-email logic below being fooled by its
+      // own stale read in the one tick where the store actually needs the
+      // email most.
+      let autorefillStatus = store.autorefillStatus;
+      if (autorefillStatus === 'ACTIVE') {
+        const outcome = await runRefill(app, store);
+        if (outcome === 'refilled') {
+          // The balance just changed underneath us; alerting on the stale value
+          // would email a merchant about a shortfall that no longer exists.
+          await app.db
+            .update(schema.shopifyStores)
+            .set({ lastAlertLevel: 'ok' })
+            .where(eq(schema.shopifyStores.id, store.id));
+          continue;
+        }
+        if (outcome === 'cap_reached') {
+          autorefillStatus = 'CAP_REACHED';
+        }
+      }
+
       const previous = normalizeAlertLevel(store.lastAlertLevel);
       const worsened = ALERT_LEVEL_RANK[runway.level] > ALERT_LEVEL_RANK[previous];
+      // An ACTIVE auto-refill store is not "running low" in any sense the
+      // merchant needs to act on — the refill fires before they run out. The
+      // exception is CAP_REACHED, where auto-refill has stopped and they very
+      // much do need to know.
+      const autorefillHandlesIt = autorefillStatus === 'ACTIVE';
       // Re-checked (not just `needsNotification`) at the send call below so
       // TypeScript can narrow `runway.level` away from 'ok' — SendEmailArgs
       // deliberately excludes 'ok' as a level, since 'ok' never sends.
-      const needsNotification = worsened && runway.level !== 'ok';
+      const needsNotification = worsened && runway.level !== 'ok' && !autorefillHandlesIt;
 
       let shopEmail = store.shopEmail;
       let notified = false;

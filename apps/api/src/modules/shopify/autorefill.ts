@@ -115,8 +115,10 @@ export async function runRefill(
 
   // Pre-lock gate only: decides whether it's worth attempting a refill at
   // all. Everything that actually decides ELIGIBILITY (status, trigger,
-  // lineItemId) is re-read fresh from inside the lock below — see the I2 note
-  // there for why the pre-lock `store` snapshot can't be trusted for that.
+  // lineItemId, packId) is re-read fresh from inside the lock below — see the
+  // I2 note there for why the pre-lock `store` snapshot can't be trusted for
+  // that. `pack` here is ONLY used for this cheap pre-check; it must never be
+  // the one used for money-relevant decisions past this point.
   const packId = store.autorefillPackId;
   if (!packId || !store.autorefillLineItemId) return 'skipped';
 
@@ -139,17 +141,24 @@ export async function runRefill(
       // the lock, in one round trip — not the `store` param captured before
       // the lock was acquired. Only `balance` used to be re-read here; the
       // rest came from the stale pre-lock snapshot. That's most dangerous for
-      // the hourly safety-net sweep (not yet built): it loads all stores up
-      // front, then loops with per-store network work, so a store's snapshot
-      // could be minutes stale by the time its runRefill call actually runs
-      // here — e.g. a merchant who disabled auto-refill in that window could
-      // still get charged off the stale ACTIVE status otherwise.
+      // the hourly safety-net sweep: it loads all stores up front, then loops
+      // with per-store network work, so a store's snapshot could be minutes
+      // stale by the time its runRefill call actually runs here — e.g. a
+      // merchant who disabled auto-refill in that window could still get
+      // charged off the stale ACTIVE status otherwise. `autorefillPackId` is
+      // included in this re-read for the same reason: an admin could pull a
+      // pack from sale, or the merchant could switch packs, in the window
+      // between the pre-lock snapshot and here, and the pre-lock `pack`
+      // resolved from `store.autorefillPackId` must not be the one that
+      // decides the charge amount, the credits granted, or the purchase
+      // row's recorded packId.
       const [row] = await tx
         .select({
           balance: schema.shopifyStoreCredits.balance,
           autorefillStatus: schema.shopifyStores.autorefillStatus,
           autorefillTriggerCredits: schema.shopifyStores.autorefillTriggerCredits,
           autorefillLineItemId: schema.shopifyStores.autorefillLineItemId,
+          autorefillPackId: schema.shopifyStores.autorefillPackId,
         })
         .from(schema.shopifyStores)
         .leftJoin(
@@ -171,6 +180,19 @@ export async function runRefill(
         return null;
       }
 
+      // Re-resolve the pack from the freshly-read packId, not the pre-lock
+      // `pack` closed over from the function argument. Same "no longer sold"
+      // possibility as the pre-lock check above, just re-checked against the
+      // value that's actually about to be charged.
+      const freshPack = row.autorefillPackId ? getPack(row.autorefillPackId) : null;
+      if (!freshPack) {
+        app.log.error(
+          { storeId: store.id, packId: row.autorefillPackId },
+          'auto-refill pack no longer sold as of the locked re-read — refill skipped',
+        );
+        return null;
+      }
+
       // Guard 2: the partial unique index rejects a second in-flight
       // autorefill row for this store — a backstop, per the reasoning above,
       // not the thing actually doing the work now.
@@ -179,12 +201,12 @@ export async function runRefill(
         .values({
           storeId: store.id,
           source: 'autorefill',
-          packId: pack.id,
+          packId: freshPack.id,
           // Snapshotted at INSERT exactly like a manual purchase — the grant
           // reads this column, never CREDIT_PACKS, so an admin editing pack
           // generosity mid-flight cannot change what this refill delivers.
-          credits: pack.autorefillCredits,
-          priceUsdCents: Math.round(pack.priceUsd * 100),
+          credits: freshPack.autorefillCredits,
+          priceUsdCents: Math.round(freshPack.priceUsd * 100),
           status: 'PENDING',
         })
         .onConflictDoNothing()
@@ -192,11 +214,13 @@ export async function runRefill(
 
       const purchaseId = inserted[0]?.id;
       if (!purchaseId) return null;
-      return { purchaseId, lineItemId: row.autorefillLineItemId };
+      return { purchaseId, lineItemId: row.autorefillLineItemId, pack: freshPack };
     });
 
     if (!eligibility) return 'skipped';
-    const { purchaseId, lineItemId } = eligibility;
+    // Shadows the pre-lock `pack` on purpose — everything below must use the
+    // freshly-resolved one from inside the lock, never the pre-lock snapshot.
+    const { purchaseId, lineItemId, pack } = eligibility;
 
     const tryOns = Math.floor(pack.autorefillCredits / SIMPLE_TRYON_COST);
 

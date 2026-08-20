@@ -194,3 +194,19 @@ describe('auto-refill', () => {
     expect(refreshed.autorefillStatus).toBe('ACTIVE');
   });
 });
+
+describe('auto-refill lifecycle', () => {
+  it('stops refilling once the subscription is cancelled at Shopify', async () => {
+    await reset(100, { autorefillStatus: 'CANCELLED' });
+    expect(await runRefill(app, store, okCharge())).toBe('skipped');
+    expect(charges).toHaveLength(0);
+  });
+
+  it('resumes refilling after the merchant re-approves', async () => {
+    await reset(100, { autorefillStatus: 'CANCELLED' });
+    expect(await runRefill(app, store, okCharge())).toBe('skipped');
+
+    await reset(100, { autorefillStatus: 'ACTIVE' });
+    expect(await runRefill(app, store, okCharge())).toBe('refilled');
+  });
+});

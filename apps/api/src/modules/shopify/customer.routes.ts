@@ -21,6 +21,7 @@ import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 import { atomicDeductStore, refundStoreAndMarkFailed } from '../credits/shopify-ledger.js';
 import { resolveEffectiveEnabled } from './activation.js';
+import { runRefill } from './autorefill.js';
 import { mintAccountLinkCode } from './customer-auth.js';
 import {
   checkShopperLimits,
@@ -460,6 +461,17 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
           await atomicDeductStore(tx as never, storeId, jobCost, jobId);
         });
         jobCommitted = true;
+
+        // Fired after the transaction commits and deliberately NOT awaited: a
+        // shopper is waiting on this request, and a Shopify round trip has no
+        // business being in their critical path. The hourly sweep in
+        // alert-scheduler.ts is the safety net if this process dies before the
+        // promise settles, so losing it costs at most an hour, never a charge.
+        if (store.autorefillStatus === 'ACTIVE') {
+          void runRefill(app, store).catch((err) => {
+            app.log.error({ err, storeId }, 'auto-refill after job dispatch failed');
+          });
+        }
 
         // Extends the presign-time ownership marker (originally EX 600, matching the
         // presigned URL's own expiry) to 24h now that the photo has proven itself real

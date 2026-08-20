@@ -75,6 +75,7 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
     'customers_redact',
     'shop_redact',
     'app_purchases_one_time_update',
+    'app_subscriptions_update',
   ] as const;
 
   for (const topic of topics) {
@@ -241,6 +242,29 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
             );
             break;
           }
+          case 'app_subscriptions_update': {
+            // The merchant can cancel or decline the auto-refill subscription
+            // from Shopify's own billing screen, where our app never sees the
+            // click. Without this the store would keep believing it has a live
+            // charge authorization and every refill would fail confusingly.
+            const subId = (payload as { admin_graphql_api_id?: string }).admin_graphql_api_id;
+            const rawStatus = (payload as { status?: string }).status;
+            if (!store || !subId || !rawStatus) break;
+            if (store.autorefillSubscriptionId !== subId) break;
+
+            const status = rawStatus.toUpperCase();
+            const mapped =
+              status === 'ACTIVE' ? 'ACTIVE' : status === 'DECLINED' ? 'DECLINED' : 'CANCELLED';
+            await app.db
+              .update(schema.shopifyStores)
+              .set({ autorefillStatus: mapped, updatedAt: new Date() })
+              .where(eq(schema.shopifyStores.id, store.id));
+            req.log.info(
+              { topic, storeId: store.id, status: mapped },
+              'auto-refill subscription status updated',
+            );
+            break;
+          }
         }
       } catch (err) {
         if (err instanceof WebhookOutboundFetchFailure) {
@@ -293,6 +317,7 @@ export const registerWebhooksDecorator = fp(async (app: FastifyInstance) => {
       'products/update': `${base}/products_update`,
       'products/delete': `${base}/products_delete`,
       'app_purchases_one_time/update': `${base}/app_purchases_one_time_update`,
+      'app_subscriptions/update': `${base}/app_subscriptions_update`,
     };
     for (const [topic, address] of Object.entries(map)) {
       try {
