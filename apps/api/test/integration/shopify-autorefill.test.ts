@@ -129,6 +129,15 @@ describe('auto-refill', () => {
     expect(charges).toHaveLength(1);
     expect(results.filter((r) => r === 'refilled')).toHaveLength(1);
     expect(results.filter((r) => r === 'skipped')).toHaveLength(1);
+
+    // A single charge with a double *grant* would still show charges.length
+    // === 1 above — assert the final balance too, matching the happy-path
+    // test's math for pack_25 (100 starting + 2475 auto-refill credits).
+    const [credits] = await app.db
+      .select()
+      .from(schema.shopifyStoreCredits)
+      .where(eq(schema.shopifyStoreCredits.storeId, store.id));
+    expect(credits.balance).toBe(2575);
   });
 
   it('uses the purchase row id as the idempotency key', async () => {

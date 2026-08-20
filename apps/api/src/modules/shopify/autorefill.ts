@@ -74,8 +74,13 @@ interface RefillDeps {
  *        with, the second insert succeeds, and both callers charge.
  *    A session lock doesn't release at any transaction boundary — only when
  *    `withAdvisoryLock`'s `finally` runs, after the whole callback (including
- *    `charge()`) resolves — so no second caller can even start its own
- *    attempt until the first one, in full, is done. It still uses separate,
+ *    `charge()`) resolves. Acquisition is non-blocking (`pg_try_advisory_lock`):
+ *    a second caller for the same store doesn't wait for the first to finish —
+ *    it fails to acquire immediately and `runRefill` maps that straight to
+ *    `'skipped'`, the same outcome as every other "someone else is already
+ *    handling this" case in this function. Either way, no second caller can
+ *    make any progress — insert, charge, or grant — until the first one, in
+ *    full, is done. It still uses separate,
  *    independently-committing transactions inside the callback (via the
  *    reserved connection's own `db`), so the initial `PENDING` row is durable
  *    *before* `charge()` is ever called — a mid-call crash still leaves a
@@ -102,9 +107,12 @@ export async function runRefill(
 ): Promise<'refilled' | 'skipped' | 'cap_reached' | 'failed'> {
   const charge = deps.charge ?? createUsageRecord;
 
+  // Pre-lock gate only: decides whether it's worth attempting a refill at
+  // all. Everything that actually decides ELIGIBILITY (status, trigger,
+  // lineItemId) is re-read fresh from inside the lock below — see the I2 note
+  // there for why the pre-lock `store` snapshot can't be trusted for that.
   const packId = store.autorefillPackId;
-  const lineItemId = store.autorefillLineItemId;
-  if (!packId || !lineItemId) return 'skipped';
+  if (!packId || !store.autorefillLineItemId) return 'skipped';
 
   const pack = getPack(packId);
   if (!pack) {
@@ -115,23 +123,45 @@ export async function runRefill(
     return 'skipped';
   }
 
-  return app.withAdvisoryLock(`shopify-autorefill:${store.id}`, async (lockedDb) => {
+  const outcome = await app.withAdvisoryLock(`shopify-autorefill:${store.id}`, async (lockedDb) => {
     // Guard 1 is this lock itself, held for everything below. The old
     // per-transaction pg_advisory_xact_lock is gone — nothing else needs it,
     // since only one caller can be inside this callback for this store's key
     // at a time.
-    const purchaseId = await lockedDb.transaction(async (tx) => {
-      const [credits] = await tx
-        .select({ balance: schema.shopifyStoreCredits.balance })
-        .from(schema.shopifyStoreCredits)
-        .where(eq(schema.shopifyStoreCredits.storeId, store.id));
+    const eligibility = await lockedDb.transaction(async (tx) => {
+      // Re-read balance AND everything else `shouldRefill` depends on inside
+      // the lock, in one round trip — not the `store` param captured before
+      // the lock was acquired. Only `balance` used to be re-read here; the
+      // rest came from the stale pre-lock snapshot. That's most dangerous for
+      // the hourly safety-net sweep (not yet built): it loads all stores up
+      // front, then loops with per-store network work, so a store's snapshot
+      // could be minutes stale by the time its runRefill call actually runs
+      // here — e.g. a merchant who disabled auto-refill in that window could
+      // still get charged off the stale ACTIVE status otherwise.
+      const [row] = await tx
+        .select({
+          balance: schema.shopifyStoreCredits.balance,
+          autorefillStatus: schema.shopifyStores.autorefillStatus,
+          autorefillTriggerCredits: schema.shopifyStores.autorefillTriggerCredits,
+          autorefillLineItemId: schema.shopifyStores.autorefillLineItemId,
+        })
+        .from(schema.shopifyStores)
+        .leftJoin(
+          schema.shopifyStoreCredits,
+          eq(schema.shopifyStoreCredits.storeId, schema.shopifyStores.id),
+        )
+        .where(eq(schema.shopifyStores.id, store.id));
 
       const eligible = shouldRefill({
-        balance: credits?.balance ?? 0,
-        triggerCredits: store.autorefillTriggerCredits,
-        status: store.autorefillStatus,
+        balance: row?.balance ?? 0,
+        triggerCredits: row?.autorefillTriggerCredits ?? null,
+        status: row?.autorefillStatus ?? null,
       });
-      if (!eligible) {
+      // A lineItemId can only disappear between the pre-lock gate and here if
+      // the merchant's subscription changed out from under us mid-flight —
+      // treat that the same as "not eligible" since there's nothing to charge
+      // against.
+      if (!eligible || !row?.autorefillLineItemId) {
         return null;
       }
 
@@ -154,33 +184,64 @@ export async function runRefill(
         .onConflictDoNothing()
         .returning({ id: schema.shopifyCreditPurchases.id });
 
-      return inserted[0]?.id ?? null;
+      const purchaseId = inserted[0]?.id;
+      if (!purchaseId) return null;
+      return { purchaseId, lineItemId: row.autorefillLineItemId };
     });
 
-    if (!purchaseId) return 'skipped';
+    if (!eligibility) return 'skipped';
+    const { purchaseId, lineItemId } = eligibility;
 
     const tryOns = Math.floor(pack.autorefillCredits / SIMPLE_TRYON_COST);
 
     // Guard 3: Shopify's idempotency key, keyed on the row. A retry after a
     // timeout reuses it and cannot produce a second charge.
-    const result = await charge(app, store, {
-      lineItemId,
-      description: `AiVastra auto-refill — ${tryOns} try-ons`,
-      amountUsd: pack.priceUsd,
-      idempotencyKey: `autorefill:${purchaseId}`,
-    });
+    //
+    // createUsageRecord can THROW (auth failure, non-2xx, GraphQL transport
+    // error, throttle exhaustion) rather than resolve to `{ ok: false }`. A
+    // throw here leaves the purchase row PENDING forever — Guard 2's partial
+    // unique index then silently blocks every future refill attempt for this
+    // store, since a second insert keeps conflicting with the stuck row. We
+    // deliberately do NOT mark the row FAILED on this path: doing so would
+    // let a future retry mint a NEW purchase row with a NEW idempotency key,
+    // which reopens the exact double-charge risk Guard 3 exists to prevent,
+    // in case Shopify actually processed this attempt despite the throw. So
+    // this is scoped to just giving an operator visibility — log loudly and
+    // re-throw — not to reconciling stale PENDING rows, which is real,
+    // separate future work.
+    let result: Awaited<ReturnType<typeof charge>>;
+    try {
+      result = await charge(app, store, {
+        lineItemId,
+        description: `AiVastra auto-refill — ${tryOns} try-ons`,
+        amountUsd: pack.priceUsd,
+        idempotencyKey: `autorefill:${purchaseId}`,
+      });
+    } catch (err) {
+      app.log.error(
+        { err, storeId: store.id, purchaseId },
+        'auto-refill charge() threw — purchase row stays PENDING and will block future refills for this store until reconciled manually',
+      );
+      throw err;
+    }
 
     if (!result.ok) {
-      await lockedDb
-        .update(schema.shopifyCreditPurchases)
-        .set({ status: 'FAILED', updatedAt: new Date() })
-        .where(eq(schema.shopifyCreditPurchases.id, purchaseId));
-
       if (result.capReached) {
-        await lockedDb
-          .update(schema.shopifyStores)
-          .set({ autorefillStatus: 'CAP_REACHED', updatedAt: new Date() })
-          .where(eq(schema.shopifyStores.id, store.id));
+        // The FAILED purchase-row update and the store's CAP_REACHED
+        // transition are combined into one transaction here (unlike the
+        // plain 'failed' branch below) because a crash between the two
+        // separate statements could leave the store retrying into a ceiling
+        // we already know it hit.
+        await lockedDb.transaction(async (tx) => {
+          await tx
+            .update(schema.shopifyCreditPurchases)
+            .set({ status: 'FAILED', updatedAt: new Date() })
+            .where(eq(schema.shopifyCreditPurchases.id, purchaseId));
+          await tx
+            .update(schema.shopifyStores)
+            .set({ autorefillStatus: 'CAP_REACHED', updatedAt: new Date() })
+            .where(eq(schema.shopifyStores.id, store.id));
+        });
         // warn, not error: the merchant set this ceiling and it is doing its job.
         app.log.warn(
           { storeId: store.id, shopDomain: store.shopDomain },
@@ -188,6 +249,11 @@ export async function runRefill(
         );
         return 'cap_reached';
       }
+
+      await lockedDb
+        .update(schema.shopifyCreditPurchases)
+        .set({ status: 'FAILED', updatedAt: new Date() })
+        .where(eq(schema.shopifyCreditPurchases.id, purchaseId));
 
       app.log.error(
         { storeId: store.id, message: result.message },
@@ -221,4 +287,10 @@ export async function runRefill(
     );
     return 'refilled';
   });
+
+  // withAdvisoryLock resolves to `undefined` when a second concurrent caller
+  // for this store couldn't acquire the (now non-blocking) session lock —
+  // that's the same "someone else is already handling this" case every other
+  // early-return in this function already treats as 'skipped'.
+  return outcome ?? 'skipped';
 }

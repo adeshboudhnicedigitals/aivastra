@@ -5,7 +5,7 @@ declare module 'fastify' {
   interface FastifyInstance {
     db: DB;
     env: import('../env.js').Env;
-    withAdvisoryLock<T>(lockKey: string, fn: (db: DB) => Promise<T>): Promise<T>;
+    withAdvisoryLock<T>(lockKey: string, fn: (db: DB) => Promise<T>): Promise<T | undefined>;
   }
 }
 export const dbPlugin = fp(async (app) => {
