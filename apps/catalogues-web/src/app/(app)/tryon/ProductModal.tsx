@@ -309,54 +309,60 @@ export function ProductModal({
             </div>
           ) : (
             <>
-              <div
-                style={{
-                  display: 'flex',
-                  borderRadius: 8,
-                  border: `1px solid ${C.border2}`,
-                  overflow: 'hidden',
-                  background: C.white,
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={() => setImageMode('catalogue')}
-                  disabled={busy}
+              {/* Flat Image's AI-generate step isn't needed for two-input (body+pallu)
+                  products — try-on already works directly off the body+pallu pair without
+                  an AI-generated mannequin photo — so it's hidden (not removed) for
+                  two-input-capable subcategories; Catalogue Image (direct upload) only. */}
+              {!supportsTwoInputMannequin && (
+                <div
                   style={{
-                    flex: 1,
-                    padding: '12px 16px',
-                    border: 'none',
-                    background:
-                      imageMode === 'catalogue' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
-                    color: imageMode === 'catalogue' ? C.pink : C.text,
-                    fontWeight: imageMode === 'catalogue' ? 600 : 500,
-                    fontSize: 14,
-                    cursor: busy ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.15s ease',
-                    borderRight: `1px solid ${C.border2}`,
+                    display: 'flex',
+                    borderRadius: 8,
+                    border: `1px solid ${C.border2}`,
+                    overflow: 'hidden',
+                    background: C.white,
                   }}
                 >
-                  Catalogue Image
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setImageMode('flat')}
-                  disabled={busy}
-                  style={{
-                    flex: 1,
-                    padding: '12px 16px',
-                    border: 'none',
-                    background: imageMode === 'flat' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
-                    color: imageMode === 'flat' ? C.pink : C.text,
-                    fontWeight: imageMode === 'flat' ? 600 : 500,
-                    fontSize: 14,
-                    cursor: busy ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  Flat Image
-                </button>
-              </div>
+                  <button
+                    type="button"
+                    onClick={() => setImageMode('catalogue')}
+                    disabled={busy}
+                    style={{
+                      flex: 1,
+                      padding: '12px 16px',
+                      border: 'none',
+                      background:
+                        imageMode === 'catalogue' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
+                      color: imageMode === 'catalogue' ? C.pink : C.text,
+                      fontWeight: imageMode === 'catalogue' ? 600 : 500,
+                      fontSize: 14,
+                      cursor: busy ? 'not-allowed' : 'pointer',
+                      transition: 'all 0.15s ease',
+                      borderRight: `1px solid ${C.border2}`,
+                    }}
+                  >
+                    Catalogue Image
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImageMode('flat')}
+                    disabled={busy}
+                    style={{
+                      flex: 1,
+                      padding: '12px 16px',
+                      border: 'none',
+                      background: imageMode === 'flat' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
+                      color: imageMode === 'flat' ? C.pink : C.text,
+                      fontWeight: imageMode === 'flat' ? 600 : 500,
+                      fontSize: 14,
+                      cursor: busy ? 'not-allowed' : 'pointer',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    Flat Image
+                  </button>
+                </div>
+              )}
 
               {imageMode === 'catalogue' ? (
                 <div
@@ -450,89 +456,96 @@ export function ProductModal({
                     <div
                       style={{
                         display: 'flex',
-                        gap: 20,
-                        alignItems: 'center',
+                        // Two fixed-width 104px preview boxes plus a wide action button
+                        // don't fit side by side in this modal's 480px width — stack
+                        // images above actions instead of squeezing the button into
+                        // whatever space is left over.
+                        flexDirection: requiresPallu ? 'column' : 'row',
+                        gap: requiresPallu ? 16 : 20,
+                        alignItems: requiresPallu ? 'stretch' : 'center',
                         padding: 16,
                         borderRadius: 8,
                         border: `1px solid ${C.border2}`,
                         background: 'transparent',
                       }}
                     >
-                      <div
-                        style={{
-                          width: 104,
-                          height: 130,
-                          borderRadius: 8,
-                          border: `1px solid ${C.border2}`,
-                          background: C.field,
-                          position: 'relative',
-                          overflow: 'hidden',
-                          flexShrink: 0,
-                        }}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        {/* biome-ignore lint/performance/noImgElement: local/generated preview */}
-                        <img
-                          src={generatedItem?.imageUrl ?? previewUrl}
-                          alt="Flat Garment"
-                          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                        />
-                        {generatedItem && (
-                          <div
-                            style={{
-                              position: 'absolute',
-                              top: 6,
-                              right: 6,
-                              background: C.pink,
-                              color: C.white,
-                              fontSize: 10,
-                              fontWeight: 700,
-                              padding: '2px 6px',
-                              borderRadius: 4,
-                              textTransform: 'uppercase',
-                            }}
-                          >
-                            Generated
-                          </div>
-                        )}
-                      </div>
-                      {requiresPallu && (
+                      <div style={{ display: 'flex', gap: 12 }}>
                         <div
-                          // biome-ignore lint/a11y/useKeyWithClickEvents: simple click trigger
-                          onClick={() => !busy && palluInputRef.current?.click()}
                           style={{
                             width: 104,
                             height: 130,
                             borderRadius: 8,
-                            border: `1px dashed ${C.border2}`,
-                            background: palluPreviewUrl ? C.field : 'transparent',
+                            border: `1px solid ${C.border2}`,
+                            background: C.field,
                             position: 'relative',
                             overflow: 'hidden',
                             flexShrink: 0,
-                            cursor: busy ? 'not-allowed' : 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
                           }}
                         >
-                          {palluPreviewUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            // biome-ignore lint/performance/noImgElement: local preview
-                            <img
-                              src={palluPreviewUrl}
-                              alt="Pallu"
-                              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                            />
-                          ) : (
-                            <div style={{ textAlign: 'center', padding: 8 }}>
-                              <UploadIcon size={20} />
-                              <div style={{ fontSize: 11, color: C.mid, marginTop: 4 }}>
-                                Upload Pallu
-                              </div>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          {/* biome-ignore lint/performance/noImgElement: local/generated preview */}
+                          <img
+                            src={generatedItem?.imageUrl ?? previewUrl}
+                            alt="Flat Garment"
+                            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                          />
+                          {generatedItem && (
+                            <div
+                              style={{
+                                position: 'absolute',
+                                top: 6,
+                                right: 6,
+                                background: C.pink,
+                                color: C.white,
+                                fontSize: 10,
+                                fontWeight: 700,
+                                padding: '2px 6px',
+                                borderRadius: 4,
+                                textTransform: 'uppercase',
+                              }}
+                            >
+                              Generated
                             </div>
                           )}
                         </div>
-                      )}
+                        {requiresPallu && (
+                          <div
+                            // biome-ignore lint/a11y/useKeyWithClickEvents: simple click trigger
+                            onClick={() => !busy && palluInputRef.current?.click()}
+                            style={{
+                              width: 104,
+                              height: 130,
+                              borderRadius: 8,
+                              border: `1px dashed ${C.border2}`,
+                              background: palluPreviewUrl ? C.field : 'transparent',
+                              position: 'relative',
+                              overflow: 'hidden',
+                              flexShrink: 0,
+                              cursor: busy ? 'not-allowed' : 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            {palluPreviewUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              // biome-ignore lint/performance/noImgElement: local preview
+                              <img
+                                src={palluPreviewUrl}
+                                alt="Pallu"
+                                style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                              />
+                            ) : (
+                              <div style={{ textAlign: 'center', padding: 8 }}>
+                                <UploadIcon size={20} />
+                                <div style={{ fontSize: 11, color: C.mid, marginTop: 4 }}>
+                                  Upload Pallu
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                       <div
                         style={{
                           flex: 1,
@@ -544,7 +557,11 @@ export function ProductModal({
                       >
                         {!generatedItem ? (
                           <>
-                            <GradBtn type="button" onClick={handleGenerate} disabled={isGenerating}>
+                            <GradBtn
+                              type="button"
+                              onClick={handleGenerate}
+                              disabled={isGenerating || (requiresPallu && !palluFile)}
+                            >
                               {isGenerating && <SpinnerIcon size={14} />}
                               {isGenerating ? 'Generating...' : 'Generate Catalogue Image'}
                             </GradBtn>
