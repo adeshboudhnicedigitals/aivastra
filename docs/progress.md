@@ -6859,3 +6859,20 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 
 **Open Questions / Decisions**
 - Confirm in the Partner Dashboard that Pro’s configured recurring charge is $229/month; this repository cannot inspect or modify that external configuration.
+## 2026-08-20 — Rebuild PR #215 on current dev without stale kiosk history
+
+**Done**
+- Rebuilt `feat/android-webview-profile-api-updates` from current `dev` and
+  reapplied only the intended Android WebView, profile, navigation, API model,
+  and version changes. The former branch contained 1,811 unrelated commits and
+  proposed removed kiosk/API/dispatcher files as additions.
+- Preserved the original working tree's uncommitted Android staging/release
+  configuration by doing the repair in an isolated worktree.
+- Removed the old commit's unused hard-coded `DEV_URL`; environment-specific
+  Android URL work remains separate in the original working tree.
+
+**Failed / Not Done**
+- `:app:compileDebugKotlin :app:testDebugUnitTest` reached Android build setup
+  but could not proceed because the isolated worktree intentionally has no
+  ignored `app/google-services.json`. No local Firebase configuration was
+  copied into the repair worktree.

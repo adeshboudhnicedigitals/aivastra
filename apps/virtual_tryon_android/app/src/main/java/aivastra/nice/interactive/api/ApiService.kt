@@ -1,6 +1,7 @@
 package aivastra.nice.interactive.api
 
 import aivastra.nice.interactive.data.models.AppVideoConfigResponse
+import aivastra.nice.interactive.data.models.CatalogAppDeviceCodeResponse
 import aivastra.nice.interactive.data.models.DeviceLoginRequest
 import aivastra.nice.interactive.data.models.DeviceLoginResponse
 import aivastra.nice.interactive.data.models.ForceLoginRequest
@@ -110,4 +111,12 @@ interface ApiService {
     /** Creates the merchants row for this user. Returns 409 if one already exists. */
     @POST("v1/merchant/onboarding")
     suspend fun submitOnboarding(@Body request: MerchantOnboardingRequest): Response<MerchantOnboardingResponse>
+
+    /**
+     * Mints a single-use code (60s TTL) from this device's bearer token so the
+     * Try-On Library WebView can log in as the same user without a fresh sign-in.
+     * No body — the user is identified from the Authorization header.
+     */
+    @POST("v1/auth/catalog-app-device-code")
+    suspend fun getCatalogAppDeviceCode(): Response<CatalogAppDeviceCodeResponse>
 }
