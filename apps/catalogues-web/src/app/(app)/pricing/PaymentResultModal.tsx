@@ -240,7 +240,7 @@ export function PaymentResultModal({
             <button
               type="button"
               onClick={() => {
-                router.push('/catalogues');
+                router.push('/tryon');
                 onClose();
               }}
               style={{

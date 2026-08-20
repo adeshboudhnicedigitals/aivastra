@@ -110,7 +110,7 @@ function CreditSummaryBar() {
           <div style={{ fontSize: 16, fontWeight: 700, color: C.text, lineHeight: 1.2 }}>
             {available}
           </div>
-          <div style={{ fontSize: 11, color: C.mid }}>Available</div>
+          <div style={{ fontSize: 11, color: C.mid }}>Credits Available</div>
         </div>
       </div>
 
@@ -121,7 +121,7 @@ function CreditSummaryBar() {
           <div style={{ fontSize: 16, fontWeight: 700, color: C.text, lineHeight: 1.2 }}>
             {used}
           </div>
-          <div style={{ fontSize: 11, color: C.mid }}>Used</div>
+          <div style={{ fontSize: 11, color: C.mid }}>Credits Used</div>
         </div>
       </div>
     </div>

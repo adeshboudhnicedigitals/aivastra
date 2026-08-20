@@ -93,6 +93,15 @@ data class LogoutResponse(
     @SerializedName("ok") val ok: Boolean
 )
 
+/**
+ * Single-use code (60s TTL) that lets the in-app WebView (Try-On Library) log
+ * into the same account as this device session, without re-entering credentials.
+ */
+data class CatalogAppDeviceCodeResponse(
+    @SerializedName("code") val code: String,
+    @SerializedName("expiresInSeconds") val expiresInSeconds: Int
+)
+
 // ─── Device Limit Error Payload ──────────────────────────────────────────────
 
 data class ActiveDevice(
