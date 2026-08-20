@@ -1,5 +1,8 @@
 'use client';
-import type { MerchantCatalogListResponse } from '@aivastra/types';
+import type {
+  MerchantCatalogListResponse,
+  MerchantCatalogSubcategoryListResponse,
+} from '@aivastra/types';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
 import { C } from '@/components/tokens';
@@ -22,6 +25,15 @@ export default function EditProductScreen() {
       ),
   });
   const product = productsQuery.data?.items.find((p) => p.id === productId);
+
+  const subcategoriesQuery = useQuery({
+    queryKey: ['merchant-catalog-subcategories'],
+    queryFn: () =>
+      api.get<MerchantCatalogSubcategoryListResponse>(
+        '/v1/merchant/catalog/subcategories?includeDemo=false',
+      ),
+  });
+  const subcategory = subcategoriesQuery.data?.items.find((s) => s.id === subcategoryId);
 
   function goBackToProducts() {
     router.push(`/tryon-library-app/subcategory/${subcategoryId}`);
@@ -71,6 +83,8 @@ export default function EditProductScreen() {
       <ProductForm
         subcategoryId={subcategoryId}
         initialData={product}
+        supportsTwoInputMannequin={subcategory?.supportsTwoInputMannequin ?? false}
+        supportsTwoInputDirectTryon={subcategory?.supportsTwoInputDirectTryon ?? false}
         onSaved={handleSaved}
         onCancel={goBackToProducts}
       />
