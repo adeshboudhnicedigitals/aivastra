@@ -102,7 +102,7 @@ this as a many-to-many table. Add a small CRUD route pair gated by the existing
 - Modify: `apps/api/src/server.ts` — register the module
 - Test: `apps/api/test/integration/role-permissions.test.ts`
 
-- [ ] **Step 1: Write the route file**
+- [x] **Step 1: Write the route file**
 
 ```ts
 // apps/api/src/modules/admin/role-permissions.routes.ts
@@ -210,7 +210,7 @@ export async function adminRolePermissionsRoutes(app: FastifyInstance) {
 }
 ```
 
-- [ ] **Step 2: Register it**
+- [x] **Step 2: Register it**
 
 In `apps/api/src/server.ts`, add the import next to the other admin route imports
 (around line 27):
@@ -225,7 +225,7 @@ And register it next to `adminUsersRoutes` (around line 375):
 await app.register(adminRolePermissionsRoutes);
 ```
 
-- [ ] **Step 3: Write the integration test**
+- [x] **Step 3: Write the integration test**
 
 ```ts
 // apps/api/test/integration/role-permissions.test.ts
@@ -330,13 +330,13 @@ describe('admin role-permissions matrix', () => {
 });
 ```
 
-- [ ] **Step 4: Run it**
+- [x] **Step 4: Run it**
 
 Run: `pnpm docker:up` (if not already running), then from `apps/api`:
 `npx vitest run --config vitest.integration.config.ts test/integration/role-permissions.test.ts`
 Expected: 4 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/modules/admin/role-permissions.routes.ts apps/api/src/server.ts apps/api/test/integration/role-permissions.test.ts

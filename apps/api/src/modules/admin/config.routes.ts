@@ -110,7 +110,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
   app.get('/admin/config/app-video', { preHandler: requirePermission('config.read') }, async () => {
     const cfg = await readAppVideoConfig(app, KEY);
     if (!cfg) return { videoUrl: null, updatedAt: null };
-    return { videoUrl: await appVideoUrl(app, cfg.key, cfg.updatedAt), updatedAt: cfg.updatedAt };
+    return { videoUrl: await appVideoUrl(app, cfg.key), updatedAt: cfg.updatedAt };
   });
 
   // Public — used by the Android app to fetch the current intro/promo video (no auth)
