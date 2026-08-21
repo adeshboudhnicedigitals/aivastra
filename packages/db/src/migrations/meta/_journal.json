@@ -1191,6 +1191,13 @@
       "when": 1787307613827,
       "tag": "0169_slow_gamma_corps",
       "breakpoints": true
+    },
+    {
+      "idx": 170,
+      "version": "7",
+      "when": 1787314793923,
+      "tag": "0170_striped_morlocks",
+      "breakpoints": true
     }
   ]
 }
