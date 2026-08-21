@@ -137,6 +137,32 @@ describe('pose presets', () => {
     });
     expect(create.statusCode).toBe(400);
     expect(create.json().error.code).toBe('INVALID_POSE_IDS');
+
+    // A pose that was active at save time but is later deactivated must be
+    // filtered out of the preset's poseIds on GET (activePoseIds in
+    // routes.ts), not just rejected at create time.
+    const poseId = await makePose();
+    const saved = await app.inject({
+      method: 'POST',
+      url: '/v1/pose-presets',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { name: 'Goes Stale', poseIds: [poseId] },
+    });
+    expect(saved.statusCode).toBe(201);
+
+    await app.db
+      .update(schema.modelPoseAssets)
+      .set({ isActive: false })
+      .where(eq(schema.modelPoseAssets.id, poseId));
+
+    const list = await app.inject({
+      method: 'GET',
+      url: '/v1/pose-presets',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(list.statusCode).toBe(200);
+    const staled = list.json().named.find((p: { name: string }) => p.name === 'Goes Stale');
+    expect(staled.poseIds).toEqual([]);
   });
 
   it("cannot delete another user's preset", async () => {
@@ -155,6 +181,7 @@ describe('pose presets', () => {
       headers: { authorization: `Bearer ${b.token}` },
     });
     expect(del.statusCode).toBe(404);
+    expect(del.json().error.code).toBe('NOT_FOUND');
   });
 
   it('rejects deleting the last-used row', async () => {
@@ -170,5 +197,6 @@ describe('pose presets', () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(del.statusCode).toBe(400);
+    expect(del.json().error.code).toBe('VALIDATION');
   });
 });
