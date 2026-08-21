@@ -248,7 +248,7 @@ export async function merchantTryonRoutes(app: FastifyInstance) {
       // reuse one uploaded photo across several jobs (same customer, different
       // garments), so job count and distinct-photo count are different things.
       // See docs/superpowers/specs/2026-08-21-merchant-tryon-history-design.md.
-      const dayBucket = sql`(date_trunc('day', ${schema.jobs.createdAt} at time zone 'UTC'))::date::text`;
+      const dayBucket = sql<string>`to_char((${schema.jobs.createdAt} at time zone 'UTC')::date, 'YYYY-MM-DD')`;
 
       const conditions = [eq(schema.jobs.merchantId, merchantId)];
       if (before) {
@@ -275,8 +275,9 @@ export async function merchantTryonRoutes(app: FastifyInstance) {
 
       // Raw sql`` aggregates come back from the driver as strings regardless of
       // the sql<number> annotations — those generics are TypeScript-only (same
-      // caveat as GET /v1/batches/:id above). day is cast to ::text in SQL so
-      // it arrives as a plain 'YYYY-MM-DD' string, no Date round-trip needed.
+      // caveat as GET /v1/batches/:id in modules/jobs/). day is formatted via
+      // to_char() in SQL so it arrives as a plain 'YYYY-MM-DD' string, no Date
+      // round-trip needed.
       const days = rows.map((r) => ({
         date: r.day,
         inputCount: Number(r.inputCount),

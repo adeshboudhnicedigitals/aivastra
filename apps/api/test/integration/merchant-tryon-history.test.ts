@@ -68,8 +68,10 @@ describe('merchant try-on history', () => {
     const { merchant, merchantUser } = await createMerchant(app, 'history-a@example.com');
     const auth = await authHeader(merchantUser.id);
 
-    // 2026-08-19: two jobs reuse the same photo (P1), both completed; one job
-    // uses a different photo (P2) and fails. inputCount=2 (P1,P2), generatedCount=2, failedCount=1.
+    // 2026-08-19: three completed jobs reuse the same photo (P1); one job uses
+    // a different photo (P2) and fails. inputCount=2 (P1,P2), generatedCount=3
+    // (three P1 completions), failedCount=1 — generatedCount exceeds inputCount,
+    // the divergence this endpoint exists to expose.
     await seedJob(app, {
       merchantId: merchant.id,
       userId: merchantUser.id,
@@ -90,6 +92,16 @@ describe('merchant try-on history', () => {
       customerPhotoKey: 'merchant-inputs/p2.jpg',
       status: 'FAILED',
       createdAt: '2026-08-19T11:00:00.000Z',
+    });
+    // A third completion reusing photo P1 — generatedCount (3) now exceeds
+    // inputCount (2, distinct photos P1+P2), demonstrating the divergence
+    // this endpoint exists to expose (one photo, multiple garment try-ons).
+    await seedJob(app, {
+      merchantId: merchant.id,
+      userId: merchantUser.id,
+      customerPhotoKey: 'merchant-inputs/p1.jpg',
+      status: 'COMPLETED',
+      createdAt: '2026-08-19T12:00:00.000Z',
     });
 
     // 2026-08-20: one queued job, not yet completed or failed.
@@ -119,9 +131,12 @@ describe('merchant try-on history', () => {
 
     expect(body.days).toEqual([
       { date: '2026-08-20', inputCount: 1, generatedCount: 0, failedCount: 0 },
-      { date: '2026-08-19', inputCount: 2, generatedCount: 2, failedCount: 1 },
+      { date: '2026-08-19', inputCount: 2, generatedCount: 3, failedCount: 1 },
     ]);
     expect(body.nextCursor).toBeNull();
+    // The headline behavior this endpoint exists to expose: one reused photo
+    // can produce more completed (generated) jobs than distinct input photos.
+    expect(body.days[1].generatedCount).toBeGreaterThan(body.days[1].inputCount);
   });
 
   it("never leaks another merchant's jobs into the response", async () => {
