@@ -19,7 +19,12 @@ import { AppError } from '../../lib/errors.js';
 import { withIdempotency } from '../../lib/idempotency.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { getSareeSettings } from '../saree/settings.js';
-import { createCatalogVideoJob, createJob, createSimpleTryonJob } from './create.js';
+import {
+  createCatalogVideoJob,
+  createJob,
+  createSimpleTryonJob,
+  updateLastUsedPosePreset,
+} from './create.js';
 import { createBatchJobs } from './createBatch.js';
 import { createSareeJob } from './createSaree.js';
 import { createSareeMannequinJob } from './createSareeMannequin.js';
@@ -97,6 +102,12 @@ export async function jobsRoutes(app: FastifyInstance) {
         req.headers['idempotency-key'] as string | undefined,
         () => createJob(app, req.userId, req.body as z.infer<typeof CreateTryOnJobRequest>),
       );
+      // Best-effort "last used" pose preset tracking — scoped to this route only
+      // (see updateLastUsedPosePreset's doc comment for why regenerate.ts and the
+      // dev API must not trigger it). Never throws, so it can't turn a successful
+      // job-creation response into an error; awaited so tests/response ordering
+      // stay deterministic, not to gate the response on it succeeding.
+      await updateLastUsedPosePreset(app, req.userId, result.poseIds);
       reply.code(201);
       return result;
     },

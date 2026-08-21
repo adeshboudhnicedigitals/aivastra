@@ -764,6 +764,50 @@ export async function resolveTryonPlan(
   return { catalogueId, cost: COST, looks: looks_ };
 }
 
+/**
+ * Best-effort last-used pose preset update. Never allowed to fail the caller
+ * it's invoked from — always wrap in try/catch (this function already does)
+ * and never await it in a way that lets its rejection propagate. A
+ * delete+insert pair (not onConflictDoUpdate) because the "one row per user"
+ * constraint is a partial unique index on isLastUsed=true, and there's no
+ * existing precedent in this codebase for targeting a partial index as an
+ * ON CONFLICT arbiter — plain delete+insert in one transaction is simpler
+ * and just as atomic for this single-row case.
+ *
+ * Deliberately NOT called from createJob itself — createJob has three
+ * callers (the /v1/jobs/tryon route, regenerate.ts's single-pose re-run, and
+ * the public dev API's merchant-driven job creation) and only the first is an
+ * interactive studio-wizard submission whose pose selection should overwrite
+ * the user's "last used" chip. Exported so /v1/jobs/tryon's route handler
+ * (the one call site that should trigger it) can call it directly after
+ * createJob resolves.
+ */
+export async function updateLastUsedPosePreset(
+  app: FastifyInstance,
+  userId: string,
+  poseIds: string[],
+): Promise<void> {
+  if (poseIds.length === 0) return;
+  const unique = Array.from(new Set(poseIds));
+  try {
+    await app.db.transaction(async (tx) => {
+      await tx
+        .delete(schema.userPosePresets)
+        .where(
+          and(
+            eq(schema.userPosePresets.userId, userId),
+            eq(schema.userPosePresets.isLastUsed, true),
+          ),
+        );
+      await tx
+        .insert(schema.userPosePresets)
+        .values({ userId, name: null, poseIds: unique, isLastUsed: true });
+    });
+  } catch (err) {
+    app.log.warn({ err, userId }, 'failed to update last-used pose preset');
+  }
+}
+
 export async function createJob(
   app: FastifyInstance,
   userId: string,
@@ -913,7 +957,17 @@ export async function createJob(
     }
   }
 
-  return { catalogueId: plan.catalogueId, jobIds };
+  return {
+    catalogueId: plan.catalogueId,
+    jobIds,
+    // Exposed so /v1/jobs/tryon's route handler — the only caller that should
+    // track "last used" pose presets — can call updateLastUsedPosePreset with
+    // exactly the poseIds resolveTryonPlan actually resolved, without
+    // re-deriving them from the request body (which isn't a 1:1 match with
+    // what actually got used; see resolveTryonPlan's Amazon-background-override
+    // and template-looks handling above).
+    poseIds: plan.looks.map((l) => l.poseId),
+  };
 }
 
 export async function createSimpleTryonJob(

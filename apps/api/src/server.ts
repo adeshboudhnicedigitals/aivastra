@@ -72,6 +72,7 @@ import { merchantTryonResultsRoutes } from './modules/merchant/tryon-results.rou
 import { merchantUploadSessionRoutes } from './modules/merchant/upload-sessions.routes.js';
 import { modelsRoutes } from './modules/models/routes.js';
 import { paymentsRoutes } from './modules/payments/routes.js';
+import { posePresetsRoutes } from './modules/pose-presets/routes.js';
 import { resultsRoutes } from './modules/results/routes.js';
 import { shopifyCustomerRoutes } from './modules/shopify/customer.routes.js';
 import { shopifyRoutes } from './modules/shopify/routes.js';
@@ -358,6 +359,7 @@ export async function buildServer(env: Env) {
   await app.register(uploadsRoutes);
   await app.register(backgroundsRoutes);
   await app.register(jobsRoutes);
+  await app.register(posePresetsRoutes);
   await app.register(merchantCatalogRoutes);
   await app.register(merchantOnboardingRoutes);
   await app.register(merchantTryonRoutes);
