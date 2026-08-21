@@ -13,6 +13,9 @@ import { hashPassword } from '../auth/service.js';
 import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
 import { jobTypeSql } from './job-type.js';
+import { renderUsersExportPdf } from './users-export-pdf.js';
+import { loadUsersForExport, UsersExportQuery } from './users-export-query.js';
+import { renderUsersExportXlsx } from './users-export-xlsx.js';
 
 const PaginatedSearch = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -105,6 +108,64 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         .offset((page - 1) * pageSize);
 
       return { page, pageSize, total, items: rows };
+    },
+  );
+
+  // Full (unpaginated) filtered export for the business-development/customer-
+  // management team — name, contact, plan, and account fields, as either a
+  // landscape PDF table or an .xlsx workbook. Shares the same search/merchant/
+  // showBanned filters as the list above, plus a createdAt date range and sort
+  // direction; loadUsersForExport applies the filters and row shape identically
+  // for both formats.
+  app.get(
+    '/admin/users/export.pdf',
+    { preHandler: ALL, schema: { querystring: UsersExportQuery } },
+    async (req, reply) => {
+      const query = req.query as UsersExportQuery;
+      const rows = await loadUsersForExport(app, query);
+      const pdf = await renderUsersExportPdf(rows, {
+        generatedAt: new Date(),
+        filters: {
+          search: query.search,
+          merchantsOnly: query.merchant,
+          showBanned: query.showBanned,
+          createdFrom: query.createdFrom,
+          createdTo: query.createdTo,
+          sortDir: query.sortDir,
+        },
+      });
+
+      const filename = `users-export-${new Date().toISOString().slice(0, 10)}.pdf`;
+      return reply
+        .header('Content-Type', 'application/pdf')
+        .header('Content-Disposition', `attachment; filename="${filename}"`)
+        .send(pdf);
+    },
+  );
+
+  app.get(
+    '/admin/users/export.xlsx',
+    { preHandler: ALL, schema: { querystring: UsersExportQuery } },
+    async (req, reply) => {
+      const query = req.query as UsersExportQuery;
+      const rows = await loadUsersForExport(app, query);
+      const xlsx = await renderUsersExportXlsx(rows, {
+        generatedAt: new Date(),
+        filters: {
+          search: query.search,
+          merchantsOnly: query.merchant,
+          showBanned: query.showBanned,
+          createdFrom: query.createdFrom,
+          createdTo: query.createdTo,
+          sortDir: query.sortDir,
+        },
+      });
+
+      const filename = `users-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      return reply
+        .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        .header('Content-Disposition', `attachment; filename="${filename}"`)
+        .send(xlsx);
     },
   );
 

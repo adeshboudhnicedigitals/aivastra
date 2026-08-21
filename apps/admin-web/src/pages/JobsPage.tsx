@@ -7,7 +7,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import type { SortDir } from '../components/Th';
 import { Th } from '../components/Th';
 import { useAdminJobStream } from '../hooks/use-admin-job-stream';
-import { apiErrorMessage, apiFetch } from '../lib/data';
+import { apiErrorMessage, apiFetch, apiFetchBlob } from '../lib/data';
 import type { Job } from '../types';
 
 const PAGE_SIZE = 25;
@@ -178,6 +178,7 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
     Record<string, 'input' | 'output' | 'events' | null>
   >({});
   const [jobDetailsMap, setJobDetailsMap] = useState<Record<string, JobDetail>>({});
+  const [exportingXlsx, setExportingXlsx] = useState(false);
 
   const toggleMobileJobExpand = async (j: Job) => {
     const willExpand = expandedJobId !== j.id;
@@ -326,6 +327,36 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
   const handleCreatedTo = (v: string) => {
     setCreatedTo(v);
     setPage(0);
+  };
+  const handleExportXlsx = async () => {
+    setExportingXlsx(true);
+    try {
+      const params = new URLSearchParams();
+      if (filter !== 'all') params.set('status', filter);
+      if (dateFilter) params.set('date', dateFilter);
+      if (query) params.set('search', query);
+      if (jobTypeFilter) params.set('jobType', jobTypeFilter);
+      if (workerFilter) params.set('workerId', workerFilter);
+      if (createdFrom) params.set('createdFrom', createdFrom);
+      if (createdTo) params.set('createdTo', createdTo);
+      const blob = await apiFetchBlob(`/admin/jobs/export.xlsx?${params}`);
+      const href = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = href;
+      anchor.download = `jobs-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(href);
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to export jobs',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setExportingXlsx(false);
+    }
   };
   const hasExtraFilters = !!(jobTypeFilter || workerFilter || createdFrom || createdTo);
   const clearExtraFilters = () => {
@@ -749,6 +780,13 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
             )}
             <button
               className="btn sm ghost"
+              onClick={() => void handleExportXlsx()}
+              disabled={exportingXlsx}
+            >
+              <Icon.Download /> {exportingXlsx ? 'Exporting…' : 'Download Excel'}
+            </button>
+            <button
+              className="btn sm ghost"
               onClick={() => void load()}
               disabled={loading}
               title="Refresh"
@@ -885,6 +923,9 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                 fontSize: 13,
               }}
             />
+            <span className="sub" style={{ fontSize: 12, color: 'var(--muted)' }}>
+              (applies to Download Excel)
+            </span>
           </div>
 
           {hasExtraFilters && (
@@ -906,23 +947,34 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
           }}
         >
           <h1 style={{ margin: 0 }}>Jobs</h1>
-          <button
-            className="btn sm ghost"
-            onClick={() => void load()}
-            disabled={loading}
-            title="Refresh"
-            style={{ display: 'flex', alignItems: 'center', gap: 4 }}
-          >
-            <span
-              style={{
-                display: 'inline-block',
-                animation: loading ? 'spin 0.8s linear infinite' : 'none',
-              }}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              className="btn sm ghost"
+              onClick={() => void handleExportXlsx()}
+              disabled={exportingXlsx}
+              title="Download Excel"
+              style={{ display: 'flex', alignItems: 'center', gap: 4 }}
             >
-              <Icon.Refresh />
-            </span>
-            Refresh
-          </button>
+              <Icon.Download />
+            </button>
+            <button
+              className="btn sm ghost"
+              onClick={() => void load()}
+              disabled={loading}
+              title="Refresh"
+              style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+            >
+              <span
+                style={{
+                  display: 'inline-block',
+                  animation: loading ? 'spin 0.8s linear infinite' : 'none',
+                }}
+              >
+                <Icon.Refresh />
+              </span>
+              Refresh
+            </button>
+          </div>
         </div>
 
         <div style={{ position: 'relative' }}>
@@ -1189,6 +1241,9 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                       fontSize: 13,
                     }}
                   />
+                  <span className="sub" style={{ fontSize: 11, color: 'var(--muted)' }}>
+                    Applies to Download Excel too
+                  </span>
 
                   {hasExtraFilters && (
                     <button

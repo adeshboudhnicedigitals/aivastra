@@ -3,12 +3,12 @@ import { MerchantCatalogCategory, type MerchantCatalogSubcategory } from '@aivas
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
-import { C } from '@/components/tokens';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { PremiumSelect } from '@/components/ui/premium-select';
 import { catalogAppApi as api } from '../catalog-app-api';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { StickyBottomBar } from '../components/StickyBottomBar';
+import { LIGHT } from '../theme';
 import { useSessionExpiryMessage } from '../use-session-expiry-message';
 
 function AddSubcategoryScreenInner() {
@@ -56,7 +56,9 @@ function AddSubcategoryScreenInner() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div
+      style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: LIGHT.bg }}
+    >
       <ScreenHeader
         variant="back"
         title="Add Subcategory"
@@ -69,8 +71,8 @@ function AddSubcategoryScreenInner() {
         style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 20, padding: 16 }}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <label htmlFor="sub-name" style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
-            Name <span style={{ color: C.pink }}>*</span>
+          <label htmlFor="sub-name" style={{ fontSize: 13, fontWeight: 600, color: LIGHT.text }}>
+            Name <span style={{ color: '#f55c7a' }}>*</span>
           </label>
           <input
             id="sub-name"
@@ -82,21 +84,27 @@ function AddSubcategoryScreenInner() {
               width: '100%',
               height: 48,
               borderRadius: 8,
-              border: `1px solid ${C.border2}`,
+              border: `1px solid ${LIGHT.border2}`,
               padding: '0 14px',
               fontSize: 15,
               fontFamily: 'inherit',
-              background: C.field,
-              color: C.text,
+              background: LIGHT.field,
+              color: LIGHT.text,
             }}
           />
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
-            Garment Type <span style={{ color: C.pink }}>*</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: LIGHT.text }}>
+            Garment Type <span style={{ color: '#f55c7a' }}>*</span>
           </span>
-          <div style={{ border: `1px solid ${C.border2}`, borderRadius: 8, background: C.field }}>
+          <div
+            style={{
+              border: `1px solid ${LIGHT.border2}`,
+              borderRadius: 8,
+              background: LIGHT.field,
+            }}
+          >
             <PremiumSelect
               value={garmentSubcategoryId}
               onChange={(val) => setGarmentSubcategoryId(val as string)}
@@ -108,7 +116,7 @@ function AddSubcategoryScreenInner() {
           </div>
         </div>
 
-        {error && <p style={{ fontSize: 13, color: C.pink, margin: 0 }}>{error}</p>}
+        {error && <p style={{ fontSize: 13, color: '#f55c7a', margin: 0 }}>{error}</p>}
       </form>
 
       <StickyBottomBar>
@@ -120,9 +128,9 @@ function AddSubcategoryScreenInner() {
             flex: 1,
             height: 48,
             borderRadius: 8,
-            border: `1px solid ${C.border2}`,
-            background: C.white,
-            color: C.text,
+            border: `1px solid ${LIGHT.border2}`,
+            background: LIGHT.card,
+            color: LIGHT.text,
             fontFamily: 'inherit',
             fontSize: 15,
             fontWeight: 600,
@@ -155,7 +163,7 @@ function AddSubcategoryScreenInner() {
 
 export default function AddSubcategoryScreen() {
   return (
-    <Suspense fallback={<div style={{ minHeight: '100vh', background: C.white }} />}>
+    <Suspense fallback={<div style={{ minHeight: '100vh', background: LIGHT.bg }} />}>
       <AddSubcategoryScreenInner />
     </Suspense>
   );

@@ -255,6 +255,47 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
   return readApiResponse<T>(res);
 }
 
+// For file downloads (PDF/CSV export) where the response body isn't JSON.
+// Mirrors apiFetch's 401-refresh-and-retry dance but resolves to a Blob.
+export async function apiFetchBlob(path: string, init: RequestInit = {}): Promise<Blob> {
+  const makeHeaders = (token: string | null): HeadersInit => ({
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...((init.headers as Record<string, string>) ?? {}),
+  });
+
+  const res = await fetchApi(path, {
+    ...init,
+    headers: makeHeaders(_token),
+    credentials: 'include',
+  });
+
+  if (res.status === 401 && _token) {
+    const refreshRes = await fetchApi('/admin/auth/refresh', {
+      method: 'POST',
+      credentials: 'include',
+    });
+    if (refreshRes.ok) {
+      const { accessToken } = await readApiResponse<{ accessToken: string }>(refreshRes);
+      setToken(accessToken);
+      const retry = await fetchApi(path, {
+        ...init,
+        headers: makeHeaders(accessToken),
+        credentials: 'include',
+      });
+      if (!retry.ok) throw await apiErrorFromResponse(retry);
+      return retry.blob();
+    }
+    setToken(null);
+    _onAuthFailure?.();
+    throw new ApiError(401, {
+      error: { code: 'SESSION_EXPIRED', message: 'Your session has expired. Sign in again.' },
+    });
+  }
+
+  if (!res.ok) throw await apiErrorFromResponse(res);
+  return res.blob();
+}
+
 export async function patchAdminPreferences(preferences: { theme?: 'light' | 'dark' | 'system' }) {
   return apiFetch<{ preferences: { theme?: 'light' | 'dark' | 'system' } }>(
     '/admin/me/preferences',
