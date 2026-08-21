@@ -1,3 +1,25 @@
+## 2026-08-21 — Google Drive Export for Studio Results
+
+**Done**
+- **Task 1 (DB Schema & Migration)**: Created `google_drive_connections` table (`packages/db/src/schema/google-drive.ts`) with `userId` (unique FK to users CASCADE), `googleEmail`, `refreshTokenEnc`, `scope`, `revokedAt`, and exported from `packages/db/src/schema/index.ts`. Generated and applied migration `0168_google_drive_connections.sql`.
+- **Task 2 (Env Var)**: Added `GOOGLE_DRIVE_TOKEN_ENC_KEY` (32-byte base64) to `apps/api/src/env.ts` and `.env.production.example`.
+- **Task 3 (Types)**: Added `GoogleDriveStatusResponse` and `GoogleDriveExportResponse` schemas/types in `packages/types/src/google-drive.ts` and exported from `packages/types/src/index.ts`.
+- **Task 4 (API Module)**: Implemented self-contained `apps/api/src/modules/google-drive/` module:
+  - `drive-client.ts`: `findOrCreateAppFolder` (finds or creates "AI Vastra" folder) and `uploadFile` (multipart upload).
+  - `token.ts`: `getConnection`, `getValidDriveAccessToken` (on-demand token exchange via refresh token, handling `invalid_grant` -> `REAUTH_REQUIRED`), `saveConnection`, and `disconnect` (best-effort revoke at Google + clears credentials).
+  - `oauth.ts`: `buildAuthUrl` (`drive.file`, `access_type=offline`, conditional `prompt=consent`), `exchangeCode`, and `fetchGoogleEmail`.
+  - `service.ts`: `exportResultToDrive` (direct R2 buffer upload to Google Drive without browser round-trip).
+  - `routes.ts`: `GET /v1/integrations/google-drive/connect`, `GET /v1/integrations/google-drive/callback`, `GET /v1/integrations/google-drive/status`, `POST /v1/integrations/google-drive/disconnect`, `POST /v1/jobs/:id/export/google-drive`.
+- **Task 5 (Server Route & User Erasure)**: Registered `googleDriveRoutes` in `apps/api/src/server.ts` and hooked `disconnectGoogleDrive` into `eraseUser` (`apps/api/src/modules/admin/users.routes.ts`) for GDPR erasure.
+- **Task 6 (Integration Tests)**: Added comprehensive integration suite in `apps/api/test/integration/google-drive.test.ts` covering connect redirect, callback code exchange & error redirects, status reporting for all states, export happy path / missing connection / other user / folder creation / invalid grant reauth required, disconnect revoke & state reset, and user erasure revoke. All 16 tests passing.
+- **Task 7 (Studio UI)**:
+  - Added `useGoogleDriveStatus` hook (`apps/catalogues-web/src/hooks/use-google-drive-status.ts`).
+  - Added `DriveIcon` to `apps/catalogues-web/src/components/icons.tsx`.
+  - Added `hideGoogleDrive` prop and Save to Drive action button with loading spinner on each completed result tile in `apps/catalogues-web/src/app/(app)/studio/generation-panel.tsx`.
+  - Added `drive_connected` and `drive_error` URL param handlers with toast feedback and cache invalidation in `apps/catalogues-web/src/app/(app)/studio/page.tsx`.
+  - Added Next.js BFF navigation route `apps/catalogues-web/src/app/api/integrations/google-drive/connect/route.ts`.
+  - Added Google Drive integration status and Disconnect button under Account Settings (`apps/catalogues-web/src/app/(app)/settings/page.tsx`).
+
 ## 2026-08-20 — Admin Role-Permission Matrix (API, Settings Tab, Sidebar & Recycle Bin fixes)
 
 **Done**

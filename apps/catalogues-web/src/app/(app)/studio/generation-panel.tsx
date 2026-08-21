@@ -2,8 +2,9 @@
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { DownloadIcon, FullscreenIcon, SpinnerIcon, XIcon } from '@/components/icons';
+import { DownloadIcon, DriveIcon, FullscreenIcon, SpinnerIcon, XIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
+import { useGoogleDriveStatus } from '@/hooks/use-google-drive-status';
 import { useJobStream } from '@/hooks/use-job-stream';
 import { api } from '@/lib/api';
 import { downloadErrorMessage } from '@/lib/errors';
@@ -28,6 +29,8 @@ export interface GenerationPanelProps {
   hideCatalogueLink?: boolean;
   /** Hides the "Download All" button and each result tile's download icon. */
   hideDownload?: boolean;
+  /** Hides the "Save to Drive" action on each result tile. */
+  hideGoogleDrive?: boolean;
   /** Hides the "AI Processing" input/steps/preview block — that walkthrough is Studio-only; embedded contexts (e.g. the Shopify plugin) go straight to the Generated Results grid. */
   hideProcessingPreview?: boolean;
 }
@@ -63,6 +66,7 @@ export function GenerationPanel({
   onUseImage,
   hideCatalogueLink,
   hideDownload,
+  hideGoogleDrive,
   hideProcessingPreview,
 }: GenerationPanelProps) {
   const qc = useQueryClient();
@@ -89,7 +93,7 @@ export function GenerationPanel({
     if (!jobIds.includes(evt.jobId)) return;
     setStatuses((prev) => ({ ...prev, [evt.jobId]: evt.status }));
 
-    // Keep the catalogue detail cache in sync so navigating to /catalogues/:id
+    // Keep the catalogue detail cache in sync so navigating to /catalogs/:id
     // shows the correct status immediately without waiting for a re-fetch.
     qc.setQueryData(
       ['catalogue', catalogueId],
@@ -120,7 +124,7 @@ export function GenerationPanel({
   // tab backgrounded, etc.) can leave a job stuck at a non-terminal status here
   // forever even though it actually finished server-side. Poll as a fallback —
   // same pattern as the catalogue detail page — so this panel can never drift
-  // from what /catalogues/:id already shows.
+  // from what /catalogs/:id already shows.
   const { data: polledCatalogue } = useQuery<{ jobs: { id: string; status: string }[] }>({
     queryKey: ['catalogue', catalogueId],
     queryFn: () => api.get(`/v1/catalogues/${catalogueId}`),
@@ -202,6 +206,26 @@ export function GenerationPanel({
       alert(e instanceof Error ? e.message : 'The image could not be downloaded. Try again.');
     } finally {
       setDownloading(false);
+    }
+  }
+
+  const driveStatus = useGoogleDriveStatus();
+  const [exportingToDrive, setExportingToDrive] = useState<string | null>(null);
+
+  async function saveToDrive(jobId: string) {
+    if (exportingToDrive) return;
+    if (driveStatus.data?.status !== 'CONNECTED') {
+      window.location.href = '/api/integrations/google-drive/connect';
+      return;
+    }
+    setExportingToDrive(jobId);
+    try {
+      await api.post(`/v1/jobs/${jobId}/export/google-drive`, {});
+      alert('Image saved to your "AI Vastra" Google Drive folder!');
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Could not save to Google Drive. Try again.');
+    } finally {
+      setExportingToDrive(null);
     }
   }
 
@@ -866,6 +890,49 @@ export function GenerationPanel({
                         <DownloadIcon size={14} />
                       </button>
                     )}
+                    {!hideGoogleDrive && (
+                      <button
+                        type="button"
+                        disabled={!isCompleted || !resultUrl || exportingToDrive === job.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (resultUrl) saveToDrive(job.id);
+                        }}
+                        title={
+                          driveStatus.data?.status === 'CONNECTED'
+                            ? 'Save to Google Drive'
+                            : 'Connect Google Drive'
+                        }
+                        style={{
+                          position: 'absolute',
+                          top: 8,
+                          right: hideDownload ? 8 : 42,
+                          background: 'rgba(255, 255, 255, 0.85)',
+                          backdropFilter: 'blur(4px)',
+                          border: 'none',
+                          borderRadius: '50%',
+                          width: 28,
+                          height: 28,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor:
+                            isCompleted && resultUrl && exportingToDrive !== job.id
+                              ? 'pointer'
+                              : 'not-allowed',
+                          opacity: isCompleted && resultUrl ? 1 : 0.45,
+                          color: '#141414',
+                          boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+                          zIndex: 2,
+                        }}
+                      >
+                        {exportingToDrive === job.id ? (
+                          <SpinnerIcon size={14} />
+                        ) : (
+                          <DriveIcon size={14} />
+                        )}
+                      </button>
+                    )}
                     {onUseImage && isCompleted && resultUrl && (
                       <button
                         type="button"
@@ -901,7 +968,7 @@ export function GenerationPanel({
         </div>
         {!hideCatalogueLink && (
           <Link
-            href={`/catalogues/${catalogueId}`}
+            href={`/catalogs/${catalogueId}`}
             style={{
               fontSize: 14,
               fontWeight: 600,

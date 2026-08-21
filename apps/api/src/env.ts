@@ -76,6 +76,10 @@ const Env = z.object({
   SHOPIFY_SCOPES: z.string().default('read_products'),
   // 32-byte key, base64-encoded (44 chars). Required only when Shopify is enabled.
   SHOPIFY_TOKEN_ENC_KEY: z.string().optional(),
+  // 32-byte key, base64-encoded (44 chars). Required only when Google Drive
+  // export is enabled. Same encryptToken/decryptToken helper as the line
+  // above, different key — see lib/crypto.ts.
+  GOOGLE_DRIVE_TOKEN_ENC_KEY: z.string().optional(),
   // Grant credits for Shopify *test* one-time charges (AppPurchaseOneTime.test),
   // which is what every development store produces — Shopify never bills them.
   // Off unless the value is exactly 'true', so production grants only against
