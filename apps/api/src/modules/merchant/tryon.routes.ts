@@ -1,7 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import { MerchantTryonJobCreateBody, MerchantTryonPresignBody } from '@aivastra/types';
-import { and, eq } from 'drizzle-orm';
+import {
+  MerchantTryonHistoryQuery,
+  MerchantTryonJobCreateBody,
+  MerchantTryonPresignBody,
+} from '@aivastra/types';
+import { and, desc, eq, lt, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -225,6 +229,64 @@ export async function merchantTryonRoutes(app: FastifyInstance) {
 
       reply.code(200);
       return { status: 'CANCELLED' };
+    },
+  );
+
+  app.get(
+    '/v1/merchant/tryon/history',
+    {
+      preHandler: app.requireMerchant,
+      schema: { querystring: MerchantTryonHistoryQuery },
+    },
+    async (req) => {
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
+
+      const { before, limit } = req.query as z.infer<typeof MerchantTryonHistoryQuery>;
+
+      // customer_photo_key is stored per-job, not deduplicated — a merchant can
+      // reuse one uploaded photo across several jobs (same customer, different
+      // garments), so job count and distinct-photo count are different things.
+      // See docs/superpowers/specs/2026-08-21-merchant-tryon-history-design.md.
+      const dayBucket = sql`(date_trunc('day', ${schema.jobs.createdAt} at time zone 'UTC'))::date::text`;
+
+      const conditions = [eq(schema.jobs.merchantId, merchantId)];
+      if (before) {
+        conditions.push(lt(schema.jobs.createdAt, new Date(`${before}T00:00:00.000Z`)));
+      }
+
+      const rows = await app.db
+        .select({
+          day: dayBucket.as('day'),
+          inputCount: sql<number>`COUNT(DISTINCT ${schema.jobs.customerPhotoKey})`.as('inputCount'),
+          generatedCount:
+            sql<number>`COUNT(*) FILTER (WHERE ${schema.jobs.status} = 'COMPLETED')`.as(
+              'generatedCount',
+            ),
+          failedCount: sql<number>`COUNT(*) FILTER (WHERE ${schema.jobs.status} = 'FAILED')`.as(
+            'failedCount',
+          ),
+        })
+        .from(schema.jobs)
+        .where(and(...conditions))
+        .groupBy(dayBucket)
+        .orderBy(desc(dayBucket))
+        .limit(limit);
+
+      // Raw sql`` aggregates come back from the driver as strings regardless of
+      // the sql<number> annotations — those generics are TypeScript-only (same
+      // caveat as GET /v1/batches/:id above). day is cast to ::text in SQL so
+      // it arrives as a plain 'YYYY-MM-DD' string, no Date round-trip needed.
+      const days = rows.map((r) => ({
+        date: r.day,
+        inputCount: Number(r.inputCount),
+        generatedCount: Number(r.generatedCount),
+        failedCount: Number(r.failedCount),
+      }));
+
+      const nextCursor = days.length === limit ? days[days.length - 1].date : null;
+
+      return { days, nextCursor };
     },
   );
 }

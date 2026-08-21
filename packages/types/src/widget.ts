@@ -328,6 +328,27 @@ export const MerchantTryonJobDetailResponse = z.object({
   completedAt: z.string().nullable(),
 });
 export type MerchantTryonJobDetailResponse = z.infer<typeof MerchantTryonJobDetailResponse>;
+
+export const MerchantTryonHistoryQuery = z.object({
+  before: z.string().date().optional(),
+  limit: z.coerce.number().int().min(1).max(90).default(30),
+});
+export type MerchantTryonHistoryQuery = z.infer<typeof MerchantTryonHistoryQuery>;
+
+export const MerchantTryonHistoryDay = z.object({
+  date: z.string(),
+  inputCount: z.number().int(),
+  generatedCount: z.number().int(),
+  failedCount: z.number().int(),
+});
+export type MerchantTryonHistoryDay = z.infer<typeof MerchantTryonHistoryDay>;
+
+export const MerchantTryonHistoryResponse = z.object({
+  days: z.array(MerchantTryonHistoryDay),
+  nextCursor: z.string().nullable(),
+});
+export type MerchantTryonHistoryResponse = z.infer<typeof MerchantTryonHistoryResponse>;
+
 export const MerchantUploadSessionCreateResponse = z.object({
   token: z.string(),
   qrUrl: z.string().url(),
