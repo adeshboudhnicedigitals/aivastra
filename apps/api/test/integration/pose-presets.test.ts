@@ -1,6 +1,6 @@
 import { schema } from '@aivastra/db';
-import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { and, eq } from 'drizzle-orm';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildTestApp, type TestApp } from '../helpers/api';
 import { type Containers, startContainers } from '../helpers/containers';
 
@@ -198,5 +198,98 @@ describe('pose presets', () => {
     });
     expect(del.statusCode).toBe(400);
     expect(del.json().error.code).toBe('VALIDATION');
+  });
+
+  describe('last-used auto-tracking', () => {
+    let realHeadObject: typeof app.storage.headObject | undefined;
+    beforeEach(() => {
+      realHeadObject = app.storage.headObject?.bind(app.storage);
+      app.storage.headObject = (async () => ({
+        contentLength: 1024,
+      })) as typeof app.storage.headObject;
+    });
+    afterEach(() => {
+      if (realHeadObject) app.storage.headObject = realHeadObject;
+    });
+
+    async function seedFaceAndLook(suffix: string) {
+      const [face] = await app.db
+        .insert(schema.modelFaces)
+        .values({
+          gender: 'women',
+          label: `Face${suffix}`,
+          r2Key: `f${suffix}.jpg`,
+          thumbnailKey: `f${suffix}.jpg`,
+        })
+        .returning();
+      const [background] = await app.db
+        .insert(schema.modelBackgrounds)
+        .values({ label: `Bg${suffix}`, r2Key: `b${suffix}.jpg`, thumbnailKey: `b${suffix}.jpg` })
+        .returning();
+      const [pose] = await app.db
+        .insert(schema.modelPoseAssets)
+        .values({ label: `Pose${suffix}`, r2Key: `p${suffix}.jpg`, thumbnailKey: `p${suffix}.jpg` })
+        .returning();
+      return { faceId: face.id, backgroundId: background.id, poseId: pose.id };
+    }
+
+    async function submitTryonJob(token: string, userId: string, suffix: string) {
+      const { faceId, backgroundId, poseId } = await seedFaceAndLook(suffix);
+      // INPUT_GARMENT_KEY (packages/types/src/jobs.ts) only accepts the exact
+      // literal `inputs/<uuid>/garment.jpg` — no suffix — so both submissions
+      // for a given user reuse the same key; the Redis ownership binding is
+      // reset before each submit and isn't consumed by createJob, so reuse is safe.
+      const garmentKey = `inputs/${userId}/garment.jpg`;
+      await app.redis.set(`upload:owner:${garmentKey}`, userId, 'EX', 3600);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/jobs/tryon',
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          inputs: { upperGarmentKey: garmentKey, faceId, looks: [{ poseId, backgroundId }] },
+          aspectRatio: '1:1',
+          resolution: '2K',
+        },
+      });
+      return { res, poseId };
+    }
+
+    it('upserts the last-used preset after a successful tryon job, overwriting on resubmit', async () => {
+      const { token, userId } = await getToken('preset-last-used-job@x.com');
+      await app.db
+        .insert(schema.userCredits)
+        .values({ userId, balance: 100 })
+        .onConflictDoUpdate({ target: schema.userCredits.userId, set: { balance: 100 } });
+
+      const first = await submitTryonJob(token, userId, 'a');
+      expect(first.res.statusCode).toBe(201);
+
+      const [lastUsedAfterFirst] = await app.db
+        .select()
+        .from(schema.userPosePresets)
+        .where(
+          and(
+            eq(schema.userPosePresets.userId, userId),
+            eq(schema.userPosePresets.isLastUsed, true),
+          ),
+        );
+      expect(lastUsedAfterFirst).toBeDefined();
+      expect(lastUsedAfterFirst.poseIds).toEqual([first.poseId]);
+
+      const second = await submitTryonJob(token, userId, 'b');
+      expect(second.res.statusCode).toBe(201);
+
+      const rows = await app.db
+        .select()
+        .from(schema.userPosePresets)
+        .where(
+          and(
+            eq(schema.userPosePresets.userId, userId),
+            eq(schema.userPosePresets.isLastUsed, true),
+          ),
+        );
+      expect(rows).toHaveLength(1);
+      expect(rows[0].poseIds).toEqual([second.poseId]);
+    });
   });
 });

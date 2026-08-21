@@ -764,6 +764,41 @@ export async function resolveTryonPlan(
   return { catalogueId, cost: COST, looks: looks_ };
 }
 
+/**
+ * Best-effort last-used pose preset update. Runs after job creation has
+ * already committed and enqueued — never allowed to fail the request. A
+ * delete+insert pair (not onConflictDoUpdate) because the "one row per user"
+ * constraint is a partial unique index on isLastUsed=true, and there's no
+ * existing precedent in this codebase for targeting a partial index as an
+ * ON CONFLICT arbiter — plain delete+insert in one transaction is simpler
+ * and just as atomic for this single-row case.
+ */
+async function updateLastUsedPosePreset(
+  app: FastifyInstance,
+  userId: string,
+  poseIds: string[],
+): Promise<void> {
+  if (poseIds.length === 0) return;
+  const unique = Array.from(new Set(poseIds));
+  try {
+    await app.db.transaction(async (tx) => {
+      await tx
+        .delete(schema.userPosePresets)
+        .where(
+          and(
+            eq(schema.userPosePresets.userId, userId),
+            eq(schema.userPosePresets.isLastUsed, true),
+          ),
+        );
+      await tx
+        .insert(schema.userPosePresets)
+        .values({ userId, name: null, poseIds: unique, isLastUsed: true });
+    });
+  } catch (err) {
+    app.log.warn({ err, userId }, 'failed to update last-used pose preset');
+  }
+}
+
 export async function createJob(
   app: FastifyInstance,
   userId: string,
@@ -912,6 +947,12 @@ export async function createJob(
       throw new AppError('ENQUEUE_FAIL', 503, 'queue unavailable');
     }
   }
+
+  await updateLastUsedPosePreset(
+    app,
+    userId,
+    plan.looks.map((l) => l.poseId),
+  );
 
   return { catalogueId: plan.catalogueId, jobIds };
 }
