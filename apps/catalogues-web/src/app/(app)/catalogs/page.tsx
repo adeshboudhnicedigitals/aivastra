@@ -1786,7 +1786,7 @@ function CataloguesPageInner(): React.ReactElement {
                   ) : (
                     <Link
                       key={cat.catalogueId}
-                      href={`/catalogues/${cat.catalogueId}`}
+                      href={`/catalogs/${cat.catalogueId}`}
                       className="prod-card-wrapper"
                       style={{ textDecoration: 'none', display: 'block', outline: 'none' }}
                     >

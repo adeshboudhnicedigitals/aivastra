@@ -671,6 +671,32 @@ export default function StudioPage(): React.ReactElement {
     toastTimerRef.current = setTimeout(() => setToast(''), 5000);
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('drive_connected') === '1') {
+      qc.invalidateQueries({ queryKey: ['google-drive-status'] });
+      showToast('Google Drive connected successfully!');
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.delete('drive_connected');
+      window.history.replaceState(
+        {},
+        '',
+        nextUrl.pathname + (nextUrl.search ? `?${nextUrl.searchParams.toString()}` : ''),
+      );
+    } else if (params.get('drive_error')) {
+      const err = params.get('drive_error');
+      showToast(`Google Drive connection failed: ${err}`);
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.delete('drive_error');
+      window.history.replaceState(
+        {},
+        '',
+        nextUrl.pathname + (nextUrl.search ? `?${nextUrl.searchParams.toString()}` : ''),
+      );
+    }
+  }, [qc, showToast]);
+
   const { data: creditsData } = useQuery<{ balance: number }>({
     queryKey: ['credits'],
     queryFn: () => api.get('/v1/credits'),

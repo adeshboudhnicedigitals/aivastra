@@ -32,7 +32,7 @@ const NAV: {
   // },
   {
     id: 'catalogues',
-    href: '/catalogues',
+    href: '/catalogs',
     label: 'Catalogs',
     icon: `${BASE}/assets/catalog-icon.svg`,
   },
@@ -43,7 +43,12 @@ const NAV: {
     icon: `${BASE}/assets/catalog-video-icon.svg`,
     catalogVideoOnly: true,
   },
-  { id: 'assets', href: '/assets', label: 'My Products', icon: `${BASE}/assets/asset-icon.svg` },
+  {
+    id: 'assets',
+    href: '/my-products',
+    label: 'My Products',
+    icon: `${BASE}/assets/asset-icon.svg`,
+  },
   {
     id: 'tryon',
     href: '/tryon',

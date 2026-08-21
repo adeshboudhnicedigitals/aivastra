@@ -258,9 +258,11 @@ never a JS-readable cookie (see SEC-H2 in `docs/progress.md`) — seeded by
 cookie.
 
 **Route groups:** `(auth)` — login, register, forgot/reset, verify email;
-`(app)` — studio, catalogues, pricing, settings, assets (protected).
-`src/middleware.ts` guards non-public routes on the `access_token` cookie and
-redirects old paths (`/tryon` → `/studio`, `/dashboard` → `/catalogues`).
+`(app)` — studio, catalogs, pricing, settings, my-products (protected).
+`src/middleware.ts` guards non-public routes on the `access_token` cookie;
+`next.config.ts`'s `redirects()` sends old paths on (`/dashboard`, `/jobs`,
+`/catalogues` → `/catalogs`; `/credits` → `/pricing`; `/account` → `/settings`;
+`/assets` → `/my-products`).
 
 **Studio wizard** (`src/app/(app)/studio/page.tsx`) — 4 steps: gender + garment
 type + platform/aspect ratio + garment upload (direct to R2 via

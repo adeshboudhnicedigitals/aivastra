@@ -8,10 +8,8 @@ import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/rea
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { ChevronRight } from '@/components/icons';
-import { grad } from '@/components/tokens';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { catalogAppApi as api, CatalogAppSessionExpiredError } from './catalog-app-api';
-import { BoldPlusIcon } from './components/BoldPlusIcon';
 import { ScreenHeader } from './components/ScreenHeader';
 import { SubcategoryCard } from './components/SubcategoryCard';
 import { useLoggedOut } from './logged-out-context';
@@ -205,6 +203,19 @@ function SubcategoriesScreenInner() {
   const subcategories = subcategoriesQuery.data?.items ?? [];
   const selectedCategorySubs = subcategories.filter((s) => s.category === selectedCategory);
 
+  // Same garment-type catalog Studio's picker uses (id/label/thumbnailUrl) —
+  // reused here purely for its admin-curated thumbnail, as a stand-in photo
+  // for subcategories that don't have a real product photo yet.
+  const garmentTypesQuery = useQuery({
+    queryKey: ['garment-types', selectedCategory],
+    queryFn: () =>
+      api.get<{ items: { id: string; label: string; thumbnailUrl?: string | null }[] }>(
+        `/v1/models/garment-types?gender=${selectedCategory}`,
+      ),
+    enabled: !merchantGated && !!selectedCategory,
+  });
+  const garmentTypes = garmentTypesQuery.data?.items ?? [];
+
   // One product-list fetch per visible subcategory, just to grab a real photo
   // for its card (the subcategory list response itself carries no thumbnail
   // field). Skipped entirely for subcategories with zero products. Must run
@@ -225,7 +236,10 @@ function SubcategoriesScreenInner() {
   const thumbnailBySubcategoryId = new Map(
     selectedCategorySubs.map((sub, i) => {
       const first = thumbnailQueries[i]?.data?.items?.[0];
-      return [sub.id, first?.thumbnailUrl ?? first?.imageUrl ?? null];
+      const productThumb = first?.thumbnailUrl ?? first?.imageUrl ?? null;
+      const garmentThumb =
+        garmentTypes.find((g) => g.id === sub.garmentSubcategoryId)?.thumbnailUrl ?? null;
+      return [sub.id, productThumb ?? garmentThumb];
     }),
   );
 
@@ -391,11 +405,14 @@ function SubcategoriesScreenInner() {
       {selectedCategorySubs.length === 0 ? (
         <div
           style={{
-            padding: '64px 24px',
+            flex: 1,
+            minHeight: '60vh',
+            padding: '24px',
             textAlign: 'center',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
+            justifyContent: 'center',
             gap: 12,
           }}
         >
@@ -408,53 +425,11 @@ function SubcategoriesScreenInner() {
             style={{ marginBottom: 4 }}
           />
           <h3 style={{ fontSize: 17, fontWeight: 700, color: LIGHT.text, margin: 0 }}>
-            No Subcategories Yet
+            No Categories Yet
           </h3>
           <p style={{ color: LIGHT.mid, fontSize: 14, margin: 0, maxWidth: 280 }}>
-            Add your first subcategory to start organizing your products.
+            Add your first category to start organizing your products.
           </p>
-          <div
-            style={{
-              marginTop: 8,
-              padding: 1.5,
-              borderRadius: 999,
-              background: grad,
-              display: 'inline-block',
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => router.push(addSubcategoryHref)}
-              className="focus-ring hover-surface"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 8,
-                padding: '12px 24px',
-                borderRadius: 999,
-                border: 'none',
-                background: LIGHT.card,
-                fontWeight: 700,
-                fontSize: 14,
-                cursor: 'pointer',
-              }}
-            >
-              <span style={{ display: 'flex', color: '#BD2587' }}>
-                <BoldPlusIcon size={13} />
-              </span>
-              <span
-                style={{
-                  background: grad,
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent',
-                  backgroundClip: 'text',
-                }}
-              >
-                Add Category
-              </span>
-            </button>
-          </div>
         </div>
       ) : (
         <>
@@ -467,7 +442,7 @@ function SubcategoriesScreenInner() {
               padding: '20px 16px 8px',
             }}
           >
-            Subcategories ({selectedCategorySubs.length})
+            Categories ({selectedCategorySubs.length})
           </h2>
           <div
             style={{
@@ -493,9 +468,9 @@ function SubcategoriesScreenInner() {
 
       <ConfirmDialog
         open={bulkDeleteOpen}
-        title="Delete Subcategories"
+        title="Delete Categories"
         message={`Are you sure you want to delete ${selectedIds.size} selected ${
-          selectedIds.size === 1 ? 'subcategory' : 'subcategories'
+          selectedIds.size === 1 ? 'category' : 'categories'
         }? All products inside ${selectedIds.size === 1 ? 'it' : 'them'} will also be deleted.`}
         confirmLabel="Delete"
         danger

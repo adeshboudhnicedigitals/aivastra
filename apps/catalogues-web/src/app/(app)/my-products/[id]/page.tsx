@@ -17,7 +17,10 @@ export default function ViewAssetPage({
       <TopBar
         lead={
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <Link href="/assets" style={{ color: C.mid, display: 'flex', textDecoration: 'none' }}>
+            <Link
+              href="/my-products"
+              style={{ color: C.mid, display: 'flex', textDecoration: 'none' }}
+            >
               <ArrowLeft />
             </Link>
             <div style={{ fontWeight: 700, fontSize: 18, color: C.text }}>Asset Details</div>
