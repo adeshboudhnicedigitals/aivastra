@@ -719,73 +719,60 @@ function BulkUploadScreenInner() {
         )}
 
         {showDetails && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {items.map((item, idx) => (
               <div
                 key={item.id}
                 style={{
+                  display: 'flex',
+                  gap: 14,
+                  padding: 14,
                   border: `1px solid ${item.hasError || item.status === 'failed' ? '#f55c7a' : LIGHT.border}`,
                   borderRadius: 12,
                   background:
                     item.hasError || item.status === 'failed'
                       ? 'rgba(245,92,122,0.03)'
                       : LIGHT.card,
-                  overflow: 'hidden',
                   position: 'relative',
                 }}
               >
                 <div
                   style={{
-                    position: 'absolute',
-                    top: 6,
-                    left: 6,
-                    width: 22,
-                    height: 22,
-                    borderRadius: '50%',
-                    background: 'rgba(245, 92, 122, 0.9)',
-                    color: '#ffffff',
-                    fontSize: 11,
-                    fontWeight: 700,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    zIndex: 1,
+                    flexShrink: 0,
+                    width: 100,
+                    height: 130,
+                    borderRadius: 8,
+                    overflow: 'hidden',
+                    background: LIGHT.field,
+                    position: 'relative',
                   }}
                 >
-                  {idx + 1}
-                </div>
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 6,
+                      left: 6,
+                      width: 22,
+                      height: 22,
+                      borderRadius: '50%',
+                      background: 'rgba(245, 92, 122, 0.9)',
+                      color: '#ffffff',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      zIndex: 1,
+                    }}
+                  >
+                    {idx + 1}
+                  </div>
 
-                <button
-                  type="button"
-                  onClick={() => handleRemoveItem(item.id)}
-                  disabled={item.status === 'uploading' || item.status === 'generating'}
-                  aria-label="Remove item"
-                  style={{
-                    position: 'absolute',
-                    top: 6,
-                    right: 6,
-                    background: 'rgba(0,0,0,0.5)',
-                    color: '#ffffff',
-                    border: 'none',
-                    borderRadius: 6,
-                    width: 28,
-                    height: 28,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer',
-                    zIndex: 1,
-                  }}
-                >
-                  <TrashIcon />
-                </button>
-
-                <div style={{ aspectRatio: '3/4', background: LIGHT.field, position: 'relative' }}>
                   {/* biome-ignore lint/performance/noImgElement: local/generated preview */}
                   <img
                     src={item.fileUrl}
                     alt="Upload preview"
-                    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                   />
                   <div style={{ position: 'absolute', bottom: 6, left: 6 }}>
                     {item.status === 'queued' && (
@@ -871,103 +858,133 @@ function BulkUploadScreenInner() {
                   </div>
                 </div>
 
-                {item.status === readyStatus && (
-                  <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <label style={{ fontSize: 10, fontWeight: 700, color: LIGHT.text }}>
-                      Product Name
-                    </label>
-                    <input
-                      placeholder="e.g. Slim Fit Cotton Shirt"
-                      value={item.name}
-                      onChange={(e) => handleUpdateItem(item.id, { name: e.target.value })}
-                      style={{
-                        width: '100%',
-                        height: 32,
-                        fontSize: 12,
-                        borderRadius: 6,
-                        border: `1px solid ${LIGHT.border2}`,
-                        padding: '0 8px',
-                        background: LIGHT.field,
-                        color: LIGHT.text,
-                      }}
-                    />
-                    <label style={{ fontSize: 10, fontWeight: 700, color: LIGHT.text }}>SKU</label>
-                    <input
-                      placeholder="SKU"
-                      value={item.sku}
-                      onChange={(e) => handleUpdateItem(item.id, { sku: e.target.value })}
-                      style={{
-                        width: '100%',
-                        height: 32,
-                        fontSize: 12,
-                        borderRadius: 6,
-                        border: `1px solid ${item.hasError && !item.sku ? '#f55c7a' : LIGHT.border2}`,
-                        padding: '0 8px',
-                        background: LIGHT.field,
-                        color: LIGHT.text,
-                      }}
-                    />
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <div style={{ flex: 1 }}>
-                        <label style={{ fontSize: 10, fontWeight: 700, color: LIGHT.text }}>
-                          Actual Price
-                        </label>
-                        <input
-                          type="number"
-                          placeholder="₹ Actual"
-                          value={item.actualPrice}
-                          onChange={(e) =>
-                            handleUpdateItem(item.id, { actualPrice: e.target.value })
-                          }
-                          style={{
-                            width: '100%',
-                            height: 32,
-                            fontSize: 12,
-                            borderRadius: 6,
-                            border: `1px solid ${item.hasError && (!item.actualPrice || parseInt(item.offerPrice, 10) > parseInt(item.actualPrice, 10)) ? '#f55c7a' : LIGHT.border2}`,
-                            padding: '0 8px',
-                            background: LIGHT.field,
-                            color: LIGHT.text,
-                          }}
-                        />
+                <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                  {item.status === readyStatus && (
+                    <div
+                      style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingRight: 40 }}
+                    >
+                      <label style={{ fontSize: 10, fontWeight: 700, color: LIGHT.text }}>
+                        Product Name
+                      </label>
+                      <input
+                        placeholder="e.g. Slim Fit Cotton Shirt"
+                        value={item.name}
+                        onChange={(e) => handleUpdateItem(item.id, { name: e.target.value })}
+                        style={{
+                          width: '100%',
+                          height: 32,
+                          fontSize: 12,
+                          borderRadius: 6,
+                          border: `1px solid ${LIGHT.border2}`,
+                          padding: '0 8px',
+                          background: LIGHT.field,
+                          color: LIGHT.text,
+                        }}
+                      />
+                      <label style={{ fontSize: 10, fontWeight: 700, color: LIGHT.text }}>
+                        SKU
+                      </label>
+                      <input
+                        placeholder="SKU"
+                        value={item.sku}
+                        onChange={(e) => handleUpdateItem(item.id, { sku: e.target.value })}
+                        style={{
+                          width: '100%',
+                          height: 32,
+                          fontSize: 12,
+                          borderRadius: 6,
+                          border: `1px solid ${item.hasError && !item.sku ? '#f55c7a' : LIGHT.border2}`,
+                          padding: '0 8px',
+                          background: LIGHT.field,
+                          color: LIGHT.text,
+                        }}
+                      />
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: 10, fontWeight: 700, color: LIGHT.text }}>
+                            Actual Price
+                          </label>
+                          <input
+                            type="number"
+                            placeholder="₹ Actual"
+                            value={item.actualPrice}
+                            onChange={(e) =>
+                              handleUpdateItem(item.id, { actualPrice: e.target.value })
+                            }
+                            style={{
+                              width: '100%',
+                              height: 32,
+                              fontSize: 12,
+                              borderRadius: 6,
+                              border: `1px solid ${item.hasError && (!item.actualPrice || parseInt(item.offerPrice, 10) > parseInt(item.actualPrice, 10)) ? '#f55c7a' : LIGHT.border2}`,
+                              padding: '0 8px',
+                              background: LIGHT.field,
+                              color: LIGHT.text,
+                            }}
+                          />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: 10, fontWeight: 700, color: LIGHT.text }}>
+                            Offer Price
+                          </label>
+                          <input
+                            type="number"
+                            placeholder="₹ Offer"
+                            value={item.offerPrice}
+                            onChange={(e) =>
+                              handleUpdateItem(item.id, { offerPrice: e.target.value })
+                            }
+                            style={{
+                              width: '100%',
+                              height: 32,
+                              fontSize: 12,
+                              borderRadius: 6,
+                              border: `1px solid ${item.hasError && (!item.offerPrice || parseInt(item.offerPrice, 10) > parseInt(item.actualPrice, 10)) ? '#f55c7a' : LIGHT.border2}`,
+                              padding: '0 8px',
+                              background: LIGHT.field,
+                              color: LIGHT.text,
+                            }}
+                          />
+                        </div>
                       </div>
-                      <div style={{ flex: 1 }}>
-                        <label style={{ fontSize: 10, fontWeight: 700, color: LIGHT.text }}>
-                          Offer Price
-                        </label>
-                        <input
-                          type="number"
-                          placeholder="₹ Offer"
-                          value={item.offerPrice}
-                          onChange={(e) =>
-                            handleUpdateItem(item.id, { offerPrice: e.target.value })
-                          }
-                          style={{
-                            width: '100%',
-                            height: 32,
-                            fontSize: 12,
-                            borderRadius: 6,
-                            border: `1px solid ${item.hasError && (!item.offerPrice || parseInt(item.offerPrice, 10) > parseInt(item.actualPrice, 10)) ? '#f55c7a' : LIGHT.border2}`,
-                            padding: '0 8px',
-                            background: LIGHT.field,
-                            color: LIGHT.text,
-                          }}
-                        />
-                      </div>
+                      {item.hasError && (
+                        <div style={{ fontSize: 10, color: '#f55c7a', lineHeight: 1.2 }}>
+                          Please fill valid SKU and ensure Offer ≤ Actual Price.
+                        </div>
+                      )}
                     </div>
-                    {item.hasError && (
-                      <div style={{ fontSize: 10, color: '#f55c7a', lineHeight: 1.2 }}>
-                        Please fill valid SKU and ensure Offer ≤ Actual Price.
-                      </div>
-                    )}
-                  </div>
-                )}
+                  )}
 
-                {item.status === 'failed' && item.errorMessage && (
-                  <div style={{ padding: 10, fontSize: 10, color: '#f55c7a', lineHeight: 1.3 }}>
-                    {item.errorMessage}
-                  </div>
-                )}
+                  {item.status === 'failed' && item.errorMessage && (
+                    <div style={{ padding: 10, fontSize: 10, color: '#f55c7a', lineHeight: 1.3 }}>
+                      {item.errorMessage}
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleRemoveItem(item.id)}
+                  disabled={item.status === 'uploading' || item.status === 'generating'}
+                  aria-label="Remove item"
+                  style={{
+                    position: 'absolute',
+                    top: 10,
+                    right: 10,
+                    background: LIGHT.card,
+                    color: LIGHT.mid,
+                    border: `1px solid ${LIGHT.border2}`,
+                    borderRadius: 8,
+                    width: 32,
+                    height: 32,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <TrashIcon />
+                </button>
               </div>
             ))}
           </div>

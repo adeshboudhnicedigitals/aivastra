@@ -29,7 +29,7 @@ export function SubcategoryCard({
         overflow: 'hidden',
       }}
     >
-      {/* biome-ignore lint/a11y/useSemanticElements: <input type="checkbox"> would clip to this circular hit target's visual style; role+aria-checked keeps it accessible */}
+      {/* biome-ignore lint/a11y/useSemanticElements: <input type="checkbox"> would clip to this custom-styled hit target; role+aria-checked keeps it accessible */}
       <div
         role="checkbox"
         aria-checked={selected}
@@ -53,7 +53,7 @@ export function SubcategoryCard({
           right: 8,
           width: 26,
           height: 26,
-          borderRadius: '50%',
+          borderRadius: 7,
           border: `2px solid ${selected ? accent : 'rgba(255,255,255,0.9)'}`,
           background: selected ? accent : 'rgba(255,255,255,0.85)',
           color: '#fff',
