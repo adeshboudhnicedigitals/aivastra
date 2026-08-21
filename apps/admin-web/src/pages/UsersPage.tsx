@@ -9,7 +9,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import type { SortDir } from '../components/Th';
 import { Th } from '../components/Th';
 import { useAuth } from '../context/AuthContext';
-import { apiErrorMessage, apiFetch } from '../lib/data';
+import { apiErrorMessage, apiFetch, apiFetchBlob } from '../lib/data';
 import type { CreditLedgerEntry, CreditPlan, User } from '../types';
 
 const PAGE_SIZE = 20;
@@ -110,6 +110,10 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [creditActivity, setCreditActivity] = useState<CreditLedgerEntry[]>([]);
   const [creditActivityLoading, setCreditActivityLoading] = useState(false);
   const [showAllCreditActivity, setShowAllCreditActivity] = useState(false);
+  const [exportFrom, setExportFrom] = useState('');
+  const [exportTo, setExportTo] = useState('');
+  const [exportSortDir, setExportSortDir] = useState<'asc' | 'desc'>('desc');
+  const [exportingFormat, setExportingFormat] = useState<'pdf' | 'xlsx' | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -151,6 +155,35 @@ export default function UsersPage({ onNav, toast }: Props) {
   const handleSearch = (q: string) => {
     setQuery(q);
     setPage(0);
+  };
+
+  const handleExport = async (format: 'pdf' | 'xlsx') => {
+    setExportingFormat(format);
+    try {
+      const params = new URLSearchParams({ sortDir: exportSortDir });
+      if (query) params.set('search', query);
+      if (merchantsOnly) params.set('merchant', 'true');
+      if (showBanned) params.set('showBanned', 'true');
+      if (exportFrom) params.set('createdFrom', exportFrom);
+      if (exportTo) params.set('createdTo', exportTo);
+      const blob = await apiFetchBlob(`/admin/users/export.${format}?${params}`);
+      const href = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = href;
+      anchor.download = `users-export-${new Date().toISOString().slice(0, 10)}.${format}`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(href);
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: `Failed to export users (${format.toUpperCase()})`,
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setExportingFormat(null);
+    }
   };
 
   const sorted = [...users].sort((a, b) => {
@@ -1400,6 +1433,20 @@ export default function UsersPage({ onNav, toast }: Props) {
               onChange={(e) => handleSearch(e.target.value)}
             />
           </div>
+          <button
+            className="btn ghost"
+            onClick={() => handleExport('pdf')}
+            disabled={exportingFormat !== null}
+          >
+            <Icon.Download /> {exportingFormat === 'pdf' ? 'Exporting…' : 'Download PDF'}
+          </button>
+          <button
+            className="btn ghost"
+            onClick={() => handleExport('xlsx')}
+            disabled={exportingFormat !== null}
+          >
+            <Icon.Download /> {exportingFormat === 'xlsx' ? 'Exporting…' : 'Download Excel'}
+          </button>
           <button className="btn" onClick={openCreateUser}>
             <Icon.Plus /> Create User
           </button>
@@ -1463,6 +1510,56 @@ export default function UsersPage({ onNav, toast }: Props) {
               />
               Show suspended/deleted
             </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span className="sub" style={{ fontSize: 13, color: 'var(--muted)' }}>
+                Joined:
+              </span>
+              <input
+                type="date"
+                value={exportFrom}
+                onChange={(e) => setExportFrom(e.target.value)}
+                style={{
+                  padding: '5px 8px',
+                  borderRadius: 6,
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface)',
+                  color: 'var(--ink)',
+                  fontSize: 13,
+                }}
+              />
+              <span style={{ fontSize: 13, color: 'var(--muted)' }}>to</span>
+              <input
+                type="date"
+                value={exportTo}
+                onChange={(e) => setExportTo(e.target.value)}
+                style={{
+                  padding: '5px 8px',
+                  borderRadius: 6,
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface)',
+                  color: 'var(--ink)',
+                  fontSize: 13,
+                }}
+              />
+              <select
+                value={exportSortDir}
+                onChange={(e) => setExportSortDir(e.target.value as 'asc' | 'desc')}
+                style={{
+                  padding: '5px 8px',
+                  borderRadius: 6,
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface)',
+                  color: 'var(--ink)',
+                  fontSize: 13,
+                }}
+              >
+                <option value="desc">Newest first</option>
+                <option value="asc">Oldest first</option>
+              </select>
+              <span className="sub" style={{ fontSize: 12, color: 'var(--muted)' }}>
+                (applies to Download PDF/Excel)
+              </span>
+            </div>
             {(() => {
               const pagedUserIds = sorted.map((u) => u.id);
               const pageSelected =
