@@ -98,33 +98,13 @@ export default function ProductsScreen() {
             onClick: () =>
               router.push(`/tryon-library-app/subcategory/${subcategoryId}/add-product`),
           },
+          {
+            label: 'Bulk Upload',
+            onClick: () =>
+              router.push(`/tryon-library-app/subcategory/${subcategoryId}/bulk-upload`),
+          },
         ]}
       />
-
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'flex-end',
-          gap: 8,
-          padding: '10px 16px 0',
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => router.push(`/tryon-library-app/subcategory/${subcategoryId}/bulk-upload`)}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: '#BD2587',
-            fontSize: 13,
-            fontWeight: 700,
-            cursor: 'pointer',
-            padding: 0,
-          }}
-        >
-          Bulk Upload
-        </button>
-      </div>
 
       {reconcileFailedCount !== 0 && (
         <div

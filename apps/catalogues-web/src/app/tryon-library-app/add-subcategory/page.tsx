@@ -61,7 +61,7 @@ function AddSubcategoryScreenInner() {
     >
       <ScreenHeader
         variant="back"
-        title="Add Subcategory"
+        title="Add Category"
         subtitle={`Category: ${category.charAt(0).toUpperCase()}${category.slice(1)}`}
         onBack={() => router.back()}
       />

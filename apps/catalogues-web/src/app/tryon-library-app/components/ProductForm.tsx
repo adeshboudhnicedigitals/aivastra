@@ -1,7 +1,7 @@
 'use client';
 import type { MerchantCatalogItem } from '@aivastra/types';
 import { useEffect, useRef, useState } from 'react';
-import { CameraIcon, InfoIcon, SpinnerIcon, UploadIcon } from '@/components/icons';
+import { CameraIcon, SpinnerIcon, UploadIcon } from '@/components/icons';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { catalogAppApi as api } from '../catalog-app-api';
 import {
@@ -40,9 +40,10 @@ export function ProductForm({
   const [sku, setSku] = useState(initialData?.sku ?? '');
   const [actualPrice, setActualPrice] = useState(initialData?.actualPrice.toString() ?? '');
   const [offerPrice, setOfferPrice] = useState(initialData?.offerPrice.toString() ?? '');
-  // Server default for a newly created item is active — mirror that here so
-  // leaving the toggle untouched needs no extra API call on create.
-  const [liveInApp, setLiveInApp] = useState(initialData?.isActive ?? true);
+  // Server default for a newly created item is active — mirror that here.
+  // "Live in App" was a visibility toggle in the UI; the control is hidden
+  // now but the field still round-trips through the save calls below.
+  const liveInApp = initialData?.isActive ?? true;
   const [errorMsg, setErrorMsg] = useState<string | undefined>(undefined);
 
   const [imageMode, setImageMode] = useState<'catalogue' | 'flat'>('catalogue');
@@ -146,7 +147,7 @@ export function ProductForm({
   const isSaveDisabled = hasPriceError || isGenerating || isSaving || missingImage;
 
   const handleSubmit = async () => {
-    if (!label.trim() || !sku.trim() || !actualPrice || !offerPrice) return;
+    if (!label.trim()) return;
     if (isSaveDisabled) return;
 
     setIsSaving(true);
@@ -218,61 +219,6 @@ export function ProductForm({
   return (
     <>
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 20, padding: 16 }}>
-        <div
-          style={{
-            border: `1px solid ${LIGHT.border2}`,
-            borderRadius: 8,
-            padding: '12px 14px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 4,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 14, fontWeight: 700, color: LIGHT.text }}>Live in App</span>
-              <span style={{ display: 'flex', color: LIGHT.mid }}>
-                <InfoIcon size={14} />
-              </span>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={liveInApp}
-              aria-label="Live in App"
-              onClick={() => setLiveInApp((v) => !v)}
-              style={{
-                width: 42,
-                height: 24,
-                borderRadius: 999,
-                border: 'none',
-                padding: 2,
-                background: liveInApp ? '#f55c7a' : LIGHT.border2,
-                cursor: 'pointer',
-                display: 'flex',
-                justifyContent: liveInApp ? 'flex-end' : 'flex-start',
-                transition: 'background 0.15s ease',
-              }}
-            >
-              <span
-                style={{
-                  width: 20,
-                  height: 20,
-                  borderRadius: '50%',
-                  background: '#ffffff',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
-                  display: 'block',
-                }}
-              />
-            </button>
-          </div>
-          <p style={{ fontSize: 12, color: LIGHT.mid, margin: 0 }}>
-            {liveInApp
-              ? 'Your product will be visible to users'
-              : 'Your product will be hidden from users'}
-          </p>
-        </div>
-
         {isEditing ? (
           <div
             style={{
@@ -850,11 +796,10 @@ export function ProductForm({
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <label htmlFor="product-sku" style={{ fontSize: 13, fontWeight: 600, color: LIGHT.text }}>
-            SKU <span style={{ color: '#f55c7a' }}>*</span>
+            SKU
           </label>
           <input
             id="product-sku"
-            required
             value={sku}
             onChange={(e) => setSku(e.target.value)}
             placeholder="e.g. SH-COT-BLU-S"
@@ -877,7 +822,7 @@ export function ProductForm({
             htmlFor="product-actual-price"
             style={{ fontSize: 13, fontWeight: 600, color: LIGHT.text }}
           >
-            Actual Price <span style={{ color: '#f55c7a' }}>*</span>
+            Actual Price
           </label>
           <div style={{ position: 'relative' }}>
             <span
@@ -895,7 +840,6 @@ export function ProductForm({
             </span>
             <input
               id="product-actual-price"
-              required
               type="number"
               min="0"
               step="1"
@@ -922,7 +866,7 @@ export function ProductForm({
             htmlFor="product-offer-price"
             style={{ fontSize: 13, fontWeight: 600, color: LIGHT.text }}
           >
-            Offer Price <span style={{ color: '#f55c7a' }}>*</span>
+            Offer Price
           </label>
           <div style={{ position: 'relative' }}>
             <span
@@ -940,7 +884,6 @@ export function ProductForm({
             </span>
             <input
               id="product-offer-price"
-              required
               type="number"
               min="0"
               step="1"
