@@ -9,13 +9,15 @@ import type {
 } from '@aivastra/types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { ArrowLeft, GarmentIcon, PlusIcon, TrashIcon } from '@/components/icons';
+import { ArrowLeft, PlusIcon, TrashIcon, UploadIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { DemoVideoSection, GetAppButton } from '@/components/try-on-promo';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { api } from '@/lib/api';
+import { BREAKPOINTS } from '@/lib/breakpoints';
+import { DEFAULT_GARMENT_ICON as DefaultGarmentIcon, getGarmentIcon } from '@/lib/garment-icons';
 import { reconcileHeldProducts } from './api';
 import { BulkUploadModal } from './BulkUploadModal';
 import { ProductModal } from './ProductModal';
@@ -191,6 +193,13 @@ export function CatalogueManagerContent() {
     setProdModalOpen(true);
   };
 
+  // Shortcut from a category card: jump straight to its upload form instead
+  // of navigating in and clicking Add Product as a second step.
+  const openUploadForSubcategory = (subId: string) => {
+    setSelectedSubcategoryId(subId);
+    openAddProduct();
+  };
+
   if (!isMounted) {
     return (
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -228,10 +237,34 @@ export function CatalogueManagerContent() {
 
   const selectedSub = subcategories.find((s) => s.id === selectedSubcategoryId);
   const visibleSubs = subcategories.filter((s) => s.category === selectedCategory);
+  const selectedGarmentTypeLabel = selectedSub
+    ? garmentTypes.find((g) => g.id === selectedSub.garmentSubcategoryId)?.label
+    : undefined;
+  const addProductLabel = selectedGarmentTypeLabel
+    ? `Add ${selectedGarmentTypeLabel}`
+    : 'Add Product';
 
   // --- Views ---
   const renderCategoryTabs = () => (
-    <div style={{ display: 'flex', gap: 10, marginBottom: 24, padding: '0 28px', marginTop: 24 }}>
+    <div
+      className="tryon-hpad tryon-cat-tabs"
+      style={{
+        display: 'flex',
+        gap: 10,
+        marginBottom: 24,
+        padding: '0 28px',
+        marginTop: 24,
+        overflowX: 'auto',
+        WebkitOverflowScrolling: 'touch',
+        scrollbarWidth: 'none',
+        msOverflowStyle: 'none',
+        // `overflow-x: auto` opts this row out of flexbox's automatic
+        // minimum-size protection — without flexShrink: 0 the column flex
+        // container (squeezed by the grid + demo video below) shrinks this
+        // row down to near-zero height instead of ever showing a scrollbar.
+        flexShrink: 0,
+      }}
+    >
       {CATEGORIES.map((cat) => {
         const isSelected = selectedCategory === cat.id;
         return (
@@ -253,6 +286,8 @@ export function CatalogueManagerContent() {
               cursor: 'pointer',
               transition: 'all 0.15s ease',
               outline: 'none',
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
             }}
             className="focus-ring hover-surface"
           >
@@ -267,6 +302,7 @@ export function CatalogueManagerContent() {
     if (visibleSubs.length === 0) {
       return (
         <div
+          className="tryon-hpad tryon-empty-pad"
           style={{
             padding: '64px 24px',
             textAlign: 'center',
@@ -277,18 +313,21 @@ export function CatalogueManagerContent() {
           }}
         >
           <div style={{ color: C.pink, opacity: 0.8, marginBottom: 4 }}>
-            <GarmentIcon size={48} />
+            <DefaultGarmentIcon size={48} />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <h3 style={{ fontSize: 16, fontWeight: 600, color: C.text, margin: 0 }}>
-              No subcategories yet
+            <h3
+              className="tryon-empty-title"
+              style={{ fontSize: 16, fontWeight: 600, color: C.text, margin: 0 }}
+            >
+              No categories yet
             </h3>
-            <p style={{ color: C.light, fontSize: 14, margin: 0, maxWidth: 300 }}>
-              Create your first subcategory to start organizing your products.
+            <p
+              className="tryon-empty-text"
+              style={{ color: C.light, fontSize: 14, margin: 0, maxWidth: 300 }}
+            >
+              Create your first category to start organizing your products.
             </p>
-          </div>
-          <div style={{ marginTop: 8 }}>
-            <GradBtn onClick={openAddSubcategory}>Add Subcategory</GradBtn>
           </div>
         </div>
       );
@@ -296,6 +335,7 @@ export function CatalogueManagerContent() {
 
     return (
       <div
+        className="tryon-hpad tryon-sub-grid"
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
@@ -306,9 +346,10 @@ export function CatalogueManagerContent() {
         {visibleSubs.map((sub) => {
           const garmentTypeLabel =
             garmentTypes.find((g) => g.id === sub.garmentSubcategoryId)?.label || 'Unknown';
+          const GarmentTypeIcon = getGarmentIcon(garmentTypeLabel);
 
           return (
-            // biome-ignore lint/a11y/useSemanticElements: contains a nested interactive <button> (delete) — real <button> here would be invalid HTML (no nesting)
+            // biome-ignore lint/a11y/useSemanticElements: contains nested interactive <button>s (delete, upload) — real <button> here would be invalid HTML (no nesting)
             <div
               key={sub.id}
               className="prod-card focus-ring"
@@ -359,7 +400,7 @@ export function CatalogueManagerContent() {
                   zIndex: 10,
                 }}
                 className="hover-surface"
-                title="Delete subcategory"
+                title="Delete category"
               >
                 <TrashIcon />
               </button>
@@ -372,15 +413,18 @@ export function CatalogueManagerContent() {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  background: 'rgba(245, 92, 122, 0.08)',
+                  background: 'rgba(245, 92, 122, 0.1)',
+                  backdropFilter: 'blur(6px)',
+                  WebkitBackdropFilter: 'blur(6px)',
                   borderRadius: 10,
                 }}
               >
-                <GarmentIcon size={20} />
+                <GarmentTypeIcon size={20} />
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
                 <div
+                  className="tryon-card-title"
                   style={{
                     fontSize: 16,
                     fontWeight: 600,
@@ -407,10 +451,38 @@ export function CatalogueManagerContent() {
                     {garmentTypeLabel}
                   </span>
                   <span style={{ fontSize: 12, color: C.mid }}>
-                    • {sub.productCount} {sub.productCount === 1 ? 'product' : 'products'}
+                    • {sub.productCount} {sub.productCount === 1 ? 'item' : 'items'}
                   </span>
                 </div>
               </div>
+
+              {/* Upload shortcut — skips navigating in first */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openUploadForSubcategory(sub.id);
+                }}
+                style={{
+                  marginTop: 4,
+                  paddingTop: 12,
+                  background: 'none',
+                  border: 'none',
+                  borderTop: `1px solid ${C.border2}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  color: C.pink,
+                  fontWeight: 600,
+                  fontSize: 13,
+                  cursor: 'pointer',
+                }}
+                className="hover-surface"
+              >
+                <UploadIcon size={14} />
+                Add {garmentTypeLabel}
+              </button>
             </div>
           );
         })}
@@ -432,6 +504,7 @@ export function CatalogueManagerContent() {
     if (products.length === 0) {
       return (
         <div
+          className="tryon-hpad tryon-empty-pad"
           style={{
             padding: '64px 24px',
             textAlign: 'center',
@@ -442,18 +515,21 @@ export function CatalogueManagerContent() {
           }}
         >
           <div style={{ color: C.pink, opacity: 0.8, marginBottom: 4 }}>
-            <GarmentIcon size={48} />
+            <DefaultGarmentIcon size={48} />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <h3 style={{ fontSize: 16, fontWeight: 600, color: C.text, margin: 0 }}>
+            <h3
+              className="tryon-empty-title"
+              style={{ fontSize: 16, fontWeight: 600, color: C.text, margin: 0 }}
+            >
               No products yet
             </h3>
-            <p style={{ color: C.light, fontSize: 14, margin: 0, maxWidth: 300 }}>
-              Add your first product to this subcategory.
+            <p
+              className="tryon-empty-text"
+              style={{ color: C.light, fontSize: 14, margin: 0, maxWidth: 300 }}
+            >
+              Add your first product to this category.
             </p>
-          </div>
-          <div style={{ marginTop: 8 }}>
-            <GradBtn onClick={openAddProduct}>Add Product</GradBtn>
           </div>
         </div>
       );
@@ -461,6 +537,7 @@ export function CatalogueManagerContent() {
 
     return (
       <div
+        className="tryon-hpad tryon-prod-grid"
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
@@ -593,7 +670,7 @@ export function CatalogueManagerContent() {
                       opacity: 0.35,
                     }}
                   >
-                    <GarmentIcon size={48} />
+                    <DefaultGarmentIcon size={48} />
                   </div>
                 )}
               </div>
@@ -668,34 +745,138 @@ export function CatalogueManagerContent() {
   };
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div
+      style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+    >
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+            .tryon-cat-tabs::-webkit-scrollbar {
+              display: none;
+            }
+            @media (max-width: ${BREAKPOINTS.sm - 1}px) {
+              .tryon-hpad {
+                padding-left: 16px !important;
+                padding-right: 16px !important;
+              }
+              .tryon-hmargin {
+                margin-left: 16px !important;
+                margin-right: 16px !important;
+              }
+              .tryon-empty-pad {
+                padding-top: 40px !important;
+                padding-bottom: 40px !important;
+              }
+              .tryon-empty-title {
+                font-size: 15px !important;
+              }
+              .tryon-empty-text {
+                font-size: 13px !important;
+              }
+              .tryon-card-title {
+                font-size: 15px !important;
+              }
+              .tryon-detail-title {
+                font-size: 17px !important;
+                line-height: 24px !important;
+              }
+              .tryon-detail-sub {
+                font-size: 13px !important;
+              }
+              .tryon-cat-tabs button {
+                font-size: 13px !important;
+                padding: 6px 14px !important;
+              }
+              .tryon-bulk-btn {
+                height: 40px !important;
+                padding: 0 14px !important;
+                font-size: 13px !important;
+              }
+              .tryon-add-cat-btn {
+                height: 40px !important;
+                padding: 0 16px !important;
+                font-size: 13px !important;
+                gap: 6px !important;
+              }
+              .tryon-sub-grid {
+                grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)) !important;
+                gap: 12px !important;
+              }
+              .tryon-prod-grid {
+                grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)) !important;
+                gap: 12px !important;
+              }
+            }
+            @media (min-width: ${BREAKPOINTS.sm}px) and (max-width: ${BREAKPOINTS.lg - 1}px) {
+              .tryon-hpad {
+                padding-left: 20px !important;
+                padding-right: 20px !important;
+              }
+              .tryon-hmargin {
+                margin-left: 20px !important;
+                margin-right: 20px !important;
+              }
+              .tryon-detail-title {
+                font-size: 18px !important;
+              }
+              .tryon-add-cat-btn {
+                height: 42px !important;
+                padding: 0 20px !important;
+              }
+              .tryon-sub-grid {
+                grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)) !important;
+              }
+              .tryon-prod-grid {
+                grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)) !important;
+              }
+            }
+          `,
+        }}
+      />
       {!selectedSub ? (
         <>
-          <TopBar
-            title="Try-On"
-            subtitle="Organize your products by category and garment type."
-            right={
-              <GradBtn onClick={openAddSubcategory}>
-                <PlusIcon size={14} />
-                <span className="hide-mobile-tablet">Add Subcategory</span>
-                <span className="show-mobile-tablet-only">Add</span>
-              </GradBtn>
-            }
-          />
-          <div style={{ flex: 1, overflowY: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '24px 28px 0' }}>
-              <GetAppButton />
-            </div>
+          <TopBar title="Try-On" right={<GetAppButton />} />
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              overflowY: 'auto',
+              overflowX: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
             {renderCategoryTabs()}
+            <div
+              className="tryon-hpad"
+              style={{ display: 'flex', justifyContent: 'flex-start', padding: '8px 28px 32px' }}
+            >
+              <GradBtn
+                onClick={openAddSubcategory}
+                className="tryon-add-cat-btn"
+                style={{ height: 44, padding: '0 26px' }}
+              >
+                <PlusIcon size={14} />
+                Add Category
+              </GradBtn>
+            </div>
             {renderSubcategoryGrid()}
-            <DemoVideoSection />
+            {/* marginTop: auto pins this to the bottom of the viewport when the
+                grid above is short, instead of it jumping up right under a
+                sparse category — with more subcategories it just flows below
+                them like normal content. minWidth: 0 stops this flex item's
+                content (the fixed-width video box) from forcing the column
+                — and the whole page — wider than the viewport on mobile. */}
+            <div style={{ marginTop: 'auto', minWidth: 0 }}>
+              <DemoVideoSection />
+            </div>
           </div>
         </>
       ) : (
         <>
           <TopBar
             lead={
-              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, minWidth: 0 }}>
                 <button
                   type="button"
                   onClick={() => setSelectedSubcategoryId(null)}
@@ -710,23 +891,39 @@ export function CatalogueManagerContent() {
                     justifyContent: 'center',
                     borderRadius: '50%',
                     transition: 'background 0.15s',
+                    flexShrink: 0,
                   }}
                   className="hover-surface"
-                  title="Back to subcategories"
+                  title="Back to categories"
                 >
                   <ArrowLeft />
                 </button>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 20, lineHeight: '32px', color: C.text }}>
+                <div style={{ minWidth: 0, overflow: 'hidden' }}>
+                  <div
+                    className="tryon-detail-title"
+                    style={{
+                      fontWeight: 600,
+                      fontSize: 20,
+                      lineHeight: '32px',
+                      color: C.text,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
                     {selectedSub.name}
                   </div>
                   <div
+                    className="tryon-detail-sub"
                     style={{
                       fontWeight: 500,
                       fontSize: 14,
                       lineHeight: '20px',
                       color: C.mid,
                       marginTop: 2,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
                     }}
                   >
                     {garmentTypes.find((g) => g.id === selectedSub.garmentSubcategoryId)?.label ||
@@ -735,37 +932,10 @@ export function CatalogueManagerContent() {
                 </div>
               </div>
             }
-            right={
-              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                <button
-                  type="button"
-                  onClick={() => setBulkModalOpen(true)}
-                  style={{
-                    height: 40,
-                    padding: '0 16px',
-                    borderRadius: 8,
-                    border: `1px solid ${C.border2}`,
-                    background: C.card,
-                    color: C.text,
-                    fontWeight: 600,
-                    fontSize: 14,
-                    cursor: 'pointer',
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.02)',
-                  }}
-                  className="hover-surface focus-ring"
-                >
-                  Bulk Upload
-                </button>
-                <GradBtn onClick={openAddProduct}>
-                  <PlusIcon size={14} />
-                  <span className="hide-mobile-tablet">Add Product</span>
-                  <span className="show-mobile-tablet-only">Add</span>
-                </GradBtn>
-              </div>
-            }
           />
           {reconcileFailedCount !== 0 && (
             <div
+              className="tryon-hmargin"
               style={{
                 margin: '16px 28px 0',
                 padding: '8px 12px',
@@ -781,7 +951,48 @@ export function CatalogueManagerContent() {
                 : "Couldn't check for newly generated products — try reloading this page."}
             </div>
           )}
-          <div style={{ flex: 1, overflowY: 'auto' }}>{renderProductGrid()}</div>
+          <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', overflowX: 'hidden' }}>
+            <div
+              className="tryon-hpad"
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 12,
+                alignItems: 'center',
+                padding: '20px 28px 4px',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setBulkModalOpen(true)}
+                className="hover-surface focus-ring tryon-bulk-btn"
+                style={{
+                  height: 44,
+                  padding: '0 20px',
+                  borderRadius: 8,
+                  border: `1px solid ${C.border2}`,
+                  background: C.card,
+                  color: C.text,
+                  fontWeight: 600,
+                  fontSize: 14,
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.02)',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Bulk Upload
+              </button>
+              <GradBtn
+                onClick={openAddProduct}
+                className="tryon-add-cat-btn"
+                style={{ height: 44, padding: '0 26px' }}
+              >
+                <PlusIcon size={14} />
+                {addProductLabel}
+              </GradBtn>
+            </div>
+            {renderProductGrid()}
+          </div>
         </>
       )}
 
@@ -826,7 +1037,7 @@ export function CatalogueManagerContent() {
 
       <ConfirmDialog
         open={!!deleteSub}
-        title="Delete Subcategory"
+        title="Delete Category"
         message={`Are you sure you want to delete "${deleteSub?.name}"? All products inside it will also be deleted.`}
         confirmLabel="Delete"
         danger

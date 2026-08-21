@@ -1,7 +1,8 @@
 'use client';
 
-import { Play, Smartphone } from 'lucide-react';
+import { Play } from 'lucide-react';
 import { useState } from 'react';
+import { FaAndroid } from 'react-icons/fa';
 import { extractYoutubeId } from '@/lib/youtube';
 import { C, grad } from './tokens';
 
@@ -9,41 +10,80 @@ const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=aivastra.n
 
 const DEMO_VIDEO_URL = 'https://youtu.be/bEfqH2V2FDs?si=4UlcPKa87JpdIudW';
 
-/** Top-right link to the Android app — shown below the navbar on the Try-On page.
- * Styled like GradBtn (components/ui/grad-btn.tsx), the app's standard primary
- * button, but as an <a> (external link, not an in-page action) and sized up
- * for visibility since this is a promo, not a routine toolbar action. */
+/** Android app promo — shown in the Try-On page's top bar, next to the
+ * phone/support/user-menu cluster. Lead-in copy plus a link styled like
+ * GradBtn (components/ui/grad-btn.tsx), the app's standard primary button,
+ * but as an <a> (external link, not an in-page action). */
 export function GetAppButton() {
   return (
-    <a
-      href={PLAY_STORE_URL}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="btn-hover-opacity"
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 10,
-        height: 48,
-        padding: '0 28px',
-        boxSizing: 'border-box',
-        borderRadius: 10,
-        fontFamily: 'inherit',
-        fontWeight: 600,
-        fontSize: 16,
-        whiteSpace: 'nowrap',
-        background: grad,
-        color: C.white,
-        border: 'none',
-        textDecoration: 'none',
-        boxShadow: '0 6px 18px rgba(245,92,122,0.28)',
-        flexShrink: 0,
-      }}
+    <div
+      className="get-app-btn"
+      style={{ display: 'flex', alignItems: 'center', gap: 10, marginRight: 16 }}
     >
-      <Smartphone size={20} />
-      Download App
-    </a>
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+            @media (max-width: 1023px) {
+              .get-app-btn {
+                margin-right: 8px !important;
+              }
+              .get-app-btn a {
+                padding: 0 10px !important;
+              }
+            }
+            /* Below 640px the top bar is already tight (hamburger, title,
+               support, credits, avatar) — keep the promo as an icon-only
+               button instead of dropping it, so it stays reachable. */
+            @media (max-width: 639px) {
+              .get-app-btn {
+                margin-right: 4px !important;
+                gap: 0 !important;
+              }
+              .get-app-btn a {
+                width: 34px !important;
+                height: 34px !important;
+                padding: 0 !important;
+              }
+            }
+          `,
+        }}
+      />
+      <span
+        className="hide-mobile-tablet"
+        style={{ fontSize: 14, fontWeight: 600, color: C.text, whiteSpace: 'nowrap' }}
+      >
+        Get Android App
+      </span>
+      <a
+        href={PLAY_STORE_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="btn-hover-opacity"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 8,
+          height: 38,
+          padding: '0 16px',
+          boxSizing: 'border-box',
+          borderRadius: 8,
+          fontFamily: 'inherit',
+          fontWeight: 600,
+          fontSize: 14,
+          whiteSpace: 'nowrap',
+          background: grad,
+          color: C.white,
+          border: 'none',
+          textDecoration: 'none',
+          boxShadow: '0 4px 12px rgba(245,92,122,0.28)',
+          flexShrink: 0,
+        }}
+      >
+        <FaAndroid size={16} />
+        <span className="hide-mobile-tablet">Download App</span>
+      </a>
+    </div>
   );
 }
 
@@ -57,6 +97,7 @@ export function DemoVideoSection({ youtubeUrl = DEMO_VIDEO_URL }: { youtubeUrl?:
 
   return (
     <div
+      className="demo-video-section"
       style={{
         background: C.white,
         borderRadius: 16,
@@ -68,13 +109,32 @@ export function DemoVideoSection({ youtubeUrl = DEMO_VIDEO_URL }: { youtubeUrl?:
         gap: 12,
         boxShadow: '0 8px 30px rgba(0,0,0,0.05)',
         margin: '0 28px 40px',
+        maxWidth: '100%',
+        boxSizing: 'border-box',
       }}
     >
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+            @media (max-width: 639px) {
+              .demo-video-section {
+                margin-left: 16px !important;
+                margin-right: 16px !important;
+                padding: 14px !important;
+              }
+            }
+            @media (min-width: 640px) and (max-width: 1023px) {
+              .demo-video-section {
+                margin-left: 20px !important;
+                margin-right: 20px !important;
+              }
+            }
+          `,
+        }}
+      />
       <div>
-        <div style={{ fontSize: 15, fontWeight: 600, color: C.text }}>See how Try On works</div>
-        <div style={{ fontSize: 12, color: C.mid, marginTop: 2 }}>
-          A quick walkthrough of the steps above
-        </div>
+        <div style={{ fontSize: 15, fontWeight: 600, color: C.text }}>Demo video</div>
+        <div style={{ fontSize: 12, color: C.mid, marginTop: 2 }}>See Try-On in action</div>
       </div>
 
       {/* biome-ignore lint/a11y/useKeyWithClickEvents: same pattern as the Tutorials page card */}
@@ -104,7 +164,7 @@ export function DemoVideoSection({ youtubeUrl = DEMO_VIDEO_URL }: { youtubeUrl?:
             // embedding is allowed for the video. Only reachable after a
             // client-side click, so window is always defined here.
             src={`https://www.youtube.com/embed/${videoId}?autoplay=1&origin=${encodeURIComponent(window.location.origin)}`}
-            title="See how Try On works"
+            title="Try-On demo video"
             frameBorder="0"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
             allowFullScreen
@@ -116,7 +176,7 @@ export function DemoVideoSection({ youtubeUrl = DEMO_VIDEO_URL }: { youtubeUrl?:
             {/* biome-ignore lint/performance/noImgElement: youtube thumbnail */}
             <img
               src={thumbnailUrl}
-              alt="See how Try On works"
+              alt="Try-On demo video"
               style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             />
             <div
