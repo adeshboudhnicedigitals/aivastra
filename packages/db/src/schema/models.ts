@@ -466,10 +466,15 @@ export const garmentShotTypeWorkflows = pgTable(
 // Per-user saved pose sets for the studio wizard's pose step. isLastUsed rows
 // are auto-managed by createJob (apps/api/src/modules/jobs/create.ts) after
 // every /v1/jobs/tryon submission — never user-created or user-deleted.
-// Named presets are explicit, capped at 10/user in the API layer (arrays
-// can't carry a DB-level count constraint). poseIds has no FK to
-// model_pose_assets — Postgres can't FK-constrain array elements, so
-// staleness (a pose later deactivated) is filtered out at read time instead.
+// Named presets are explicit, capped at 10 per (user, gender, garmentType)
+// scope in the API layer (arrays can't carry a DB-level count constraint).
+// poseIds has no FK to model_pose_assets — Postgres can't FK-constrain array
+// elements, so staleness (a pose later deactivated) is filtered out at read
+// time instead. gender/garmentTypeId scope every preset to the exact context
+// its poses were picked under — poses are gender-partitioned and have
+// per-garment-type active/inactive overrides (see model_pose_assets,
+// pose_garment_configs), so a preset saved under one context is meaningless
+// (or silently wrong) under another.
 export const userPosePresets = pgTable(
   'user_pose_presets',
   {
@@ -478,21 +483,30 @@ export const userPosePresets = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     name: text('name'), // null only for the isLastUsed row
+    gender: text('gender').notNull(), // 'men' | 'women' | 'boys' | 'girls' — matches model_pose_assets.genderSlug
+    garmentTypeId: uuid('garment_type_id')
+      .notNull()
+      .references(() => garmentSubcategories.id, { onDelete: 'cascade' }),
     poseIds: uuid('pose_ids').array().notNull(),
     isLastUsed: boolean('is_last_used').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    // At most one last-used row per user.
-    uniqueIndex('user_pose_presets_one_last_used_idx').on(t.userId).where(sql`${t.isLastUsed}`),
+    // At most one last-used row per (user, gender, garmentType) context.
+    uniqueIndex('user_pose_presets_one_last_used_idx')
+      .on(t.userId, t.gender, t.garmentTypeId)
+      .where(sql`${t.isLastUsed}`),
     // Exact-match safety net against the create-time case-insensitive app check
     // (Task 3) racing itself — not a full case-insensitive constraint (no
     // functional-index precedent elsewhere in this schema), just enough to stop
-    // two concurrent requests from both landing the exact same name.
+    // two concurrent requests from both landing the exact same name within the
+    // same (user, gender, garmentType) scope. The same name is reusable across
+    // different scopes.
     uniqueIndex('user_pose_presets_unique_name_idx')
-      .on(t.userId, t.name)
+      .on(t.userId, t.gender, t.garmentTypeId, t.name)
       .where(sql`NOT ${t.isLastUsed}`),
     index('user_pose_presets_user_id_idx').on(t.userId),
+    index('user_pose_presets_scope_idx').on(t.userId, t.gender, t.garmentTypeId),
   ],
 );

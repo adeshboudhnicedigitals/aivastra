@@ -785,9 +785,15 @@ export async function resolveTryonPlan(
 export async function updateLastUsedPosePreset(
   app: FastifyInstance,
   userId: string,
+  gender: string | null,
+  garmentTypeId: string | null,
   poseIds: string[],
 ): Promise<void> {
-  if (poseIds.length === 0) return;
+  // Scoped per (user, gender, garmentTypeId) — see userPosePresets' schema
+  // comment. A job with no resolvable gender (no poses) or no garmentTypeId
+  // (optional on CreateTryOnJobRequest) has no valid scope to track under, so
+  // it's a no-op rather than a write to some fabricated global scope.
+  if (poseIds.length === 0 || !gender || !garmentTypeId) return;
   const unique = Array.from(new Set(poseIds));
   try {
     await app.db.transaction(async (tx) => {
@@ -796,12 +802,19 @@ export async function updateLastUsedPosePreset(
         .where(
           and(
             eq(schema.userPosePresets.userId, userId),
+            eq(schema.userPosePresets.gender, gender),
+            eq(schema.userPosePresets.garmentTypeId, garmentTypeId),
             eq(schema.userPosePresets.isLastUsed, true),
           ),
         );
-      await tx
-        .insert(schema.userPosePresets)
-        .values({ userId, name: null, poseIds: unique, isLastUsed: true });
+      await tx.insert(schema.userPosePresets).values({
+        userId,
+        name: null,
+        gender,
+        garmentTypeId,
+        poseIds: unique,
+        isLastUsed: true,
+      });
     });
   } catch (err) {
     app.log.warn({ err, userId }, 'failed to update last-used pose preset');
@@ -957,6 +970,26 @@ export async function createJob(
     }
   }
 
+  // gender isn't part of CreateTryOnJobRequest — derived from the resolved
+  // pose(s) themselves (the reliable source), not trusted from client input.
+  // Assumes a job's poses are all one gender — the studio picker only ever
+  // queries one gender at a time, but nothing here enforces that server-side,
+  // so a hand-rolled request with mixed-gender looks would silently take the
+  // first look's gender. Harmless: only last-used tracking reads this, and
+  // activePoseIds (pose-presets/routes.ts) filters mismatched poses out at
+  // GET time regardless. A separate, single lookup rather than threading
+  // gender through resolveTryonPlan/TryonPlanLook, which stays untouched.
+  // Skipped when garmentTypeId is absent (optional on CreateTryOnJobRequest)
+  // since updateLastUsedPosePreset no-ops without it anyway — no point
+  // paying the round trip for regenerate.ts/dev API callers that never use it.
+  const firstPoseId = garmentTypeId ? plan.looks[0]?.poseId : undefined;
+  const [firstPoseRow] = firstPoseId
+    ? await app.db
+        .select({ genderSlug: schema.modelPoseAssets.genderSlug })
+        .from(schema.modelPoseAssets)
+        .where(eq(schema.modelPoseAssets.id, firstPoseId))
+    : [];
+
   return {
     catalogueId: plan.catalogueId,
     jobIds,
@@ -967,6 +1000,8 @@ export async function createJob(
     // what actually got used; see resolveTryonPlan's Amazon-background-override
     // and template-looks handling above).
     poseIds: plan.looks.map((l) => l.poseId),
+    gender: firstPoseRow?.genderSlug ?? null,
+    garmentTypeId: garmentTypeId ?? null,
   };
 }
 
