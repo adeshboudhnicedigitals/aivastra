@@ -785,9 +785,15 @@ export async function resolveTryonPlan(
 export async function updateLastUsedPosePreset(
   app: FastifyInstance,
   userId: string,
+  gender: string | null,
+  garmentTypeId: string | null,
   poseIds: string[],
 ): Promise<void> {
-  if (poseIds.length === 0) return;
+  // Scoped per (user, gender, garmentTypeId) — see userPosePresets' schema
+  // comment. A job with no resolvable gender (no poses) or no garmentTypeId
+  // (optional on CreateTryOnJobRequest) has no valid scope to track under, so
+  // it's a no-op rather than a write to some fabricated global scope.
+  if (poseIds.length === 0 || !gender || !garmentTypeId) return;
   const unique = Array.from(new Set(poseIds));
   try {
     await app.db.transaction(async (tx) => {
@@ -796,12 +802,19 @@ export async function updateLastUsedPosePreset(
         .where(
           and(
             eq(schema.userPosePresets.userId, userId),
+            eq(schema.userPosePresets.gender, gender),
+            eq(schema.userPosePresets.garmentTypeId, garmentTypeId),
             eq(schema.userPosePresets.isLastUsed, true),
           ),
         );
-      await tx
-        .insert(schema.userPosePresets)
-        .values({ userId, name: null, poseIds: unique, isLastUsed: true });
+      await tx.insert(schema.userPosePresets).values({
+        userId,
+        name: null,
+        gender,
+        garmentTypeId,
+        poseIds: unique,
+        isLastUsed: true,
+      });
     });
   } catch (err) {
     app.log.warn({ err, userId }, 'failed to update last-used pose preset');
@@ -957,6 +970,21 @@ export async function createJob(
     }
   }
 
+  // gender isn't part of CreateTryOnJobRequest — derived from the resolved
+  // pose(s) themselves (the reliable source; a job's poses are always one
+  // gender since the studio picker only ever queries one gender at a time),
+  // not trusted from client input. A separate, single lookup rather than
+  // threading gender through resolveTryonPlan/TryonPlanLook, which stays
+  // untouched. null when there are no looks (shouldn't happen in practice,
+  // but keeps this defensive).
+  const firstPoseId = plan.looks[0]?.poseId;
+  const [firstPoseRow] = firstPoseId
+    ? await app.db
+        .select({ genderSlug: schema.modelPoseAssets.genderSlug })
+        .from(schema.modelPoseAssets)
+        .where(eq(schema.modelPoseAssets.id, firstPoseId))
+    : [];
+
   return {
     catalogueId: plan.catalogueId,
     jobIds,
@@ -967,6 +995,8 @@ export async function createJob(
     // what actually got used; see resolveTryonPlan's Amazon-background-override
     // and template-looks handling above).
     poseIds: plan.looks.map((l) => l.poseId),
+    gender: firstPoseRow?.genderSlug ?? null,
+    garmentTypeId: garmentTypeId ?? null,
   };
 }
 
