@@ -10,6 +10,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { hashPassword } from '../auth/service.js';
+import { disconnect as disconnectGoogleDrive } from '../google-drive/token.js';
 import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
 import { jobTypeSql } from './job-type.js';
@@ -444,6 +445,13 @@ export async function adminUsersRoutes(app: FastifyInstance) {
       .from(schema.merchants)
       .where(eq(schema.merchants.userId, id));
     if (merchantRow) return { ok: false, reason: 'cannot erase a merchant account owner' };
+
+    // Revoke before delete: dropping the row is not the same as revoking
+    // authorization at Google. Runs against app.db directly (not tx) since
+    // it's an external HTTP call — deliberately outside the transaction so
+    // a Google outage can't roll back the erasure of PII we're obligated
+    // to remove regardless. disconnect() clears the row itself.
+    await disconnectGoogleDrive(app, id);
 
     await app.db.transaction(async (tx) => {
       const [existing] = await tx
