@@ -1,7 +1,7 @@
 'use client';
 import type { MerchantCatalogItem } from '@aivastra/types';
-import { GarmentIcon, TrashIcon } from '@/components/icons';
-import { C } from '@/components/tokens';
+import { ChevronRight, GarmentIcon, TrashIcon } from '@/components/icons';
+import { LIGHT } from '../theme';
 
 export function ProductCard({
   product,
@@ -15,10 +15,10 @@ export function ProductCard({
   return (
     <div
       style={{
-        border: `1px solid ${C.border}`,
+        border: `1px solid ${LIGHT.border}`,
         borderRadius: 14,
         overflow: 'hidden',
-        background: C.card,
+        background: LIGHT.card,
         position: 'relative',
       }}
     >
@@ -37,12 +37,12 @@ export function ProductCard({
           width: 32,
           height: 32,
           borderRadius: 8,
-          background: C.card,
-          border: `1px solid ${C.border2}`,
+          background: LIGHT.card,
+          border: `1px solid ${LIGHT.border2}`,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          color: C.pink,
+          color: '#f55c7a',
           cursor: 'pointer',
           zIndex: 1,
           boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
@@ -68,7 +68,7 @@ export function ProductCard({
         <div
           style={{
             aspectRatio: '3/4',
-            background: C.lighter,
+            background: LIGHT.field,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -76,7 +76,6 @@ export function ProductCard({
           }}
         >
           {product.thumbnailUrl || product.imageUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
             // biome-ignore lint/performance/noImgElement: presigned R2 URL
             <img
               src={product.thumbnailUrl ?? product.imageUrl ?? undefined}
@@ -97,8 +96,8 @@ export function ProductCard({
                 position: 'absolute',
                 top: 6,
                 left: 6,
-                background: C.pink,
-                color: C.white,
+                background: '#f55c7a',
+                color: '#ffffff',
                 fontSize: 10,
                 fontWeight: 700,
                 padding: '2px 6px',
@@ -110,12 +109,14 @@ export function ProductCard({
             </div>
           )}
         </div>
-        <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div
+          style={{ padding: '12px 12px 14px', display: 'flex', flexDirection: 'column', gap: 3 }}
+        >
           <div
             style={{
               fontSize: 14,
-              fontWeight: 600,
-              color: C.text,
+              fontWeight: 700,
+              color: LIGHT.text,
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
@@ -123,15 +124,55 @@ export function ProductCard({
           >
             {product.label}
           </div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-            <span style={{ fontSize: 15, fontWeight: 700, color: C.pink }}>
-              ₹{product.offerPrice}
-            </span>
-            {product.offerPrice < product.actualPrice && (
-              <span style={{ fontSize: 12, color: C.mid, textDecoration: 'line-through' }}>
-                ₹{product.actualPrice}
+          {product.sku && (
+            <div
+              style={{
+                fontSize: 11,
+                color: LIGHT.mid,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              SKU: {product.sku}
+            </div>
+          )}
+          <div
+            style={{
+              marginTop: 6,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: '#f55c7a' }}>
+                ₹{product.offerPrice}
               </span>
-            )}
+              {product.offerPrice < product.actualPrice && (
+                <span style={{ fontSize: 11, color: LIGHT.mid, textDecoration: 'line-through' }}>
+                  ₹{product.actualPrice}
+                </span>
+              )}
+            </div>
+            <div
+              style={{
+                flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 2,
+                padding: '4px 10px',
+                borderRadius: 999,
+                background: 'rgba(245, 92, 122, 0.1)',
+                color: '#f55c7a',
+                fontSize: 12,
+                fontWeight: 700,
+              }}
+            >
+              View
+              <ChevronRight />
+            </div>
           </div>
         </div>
       </div>

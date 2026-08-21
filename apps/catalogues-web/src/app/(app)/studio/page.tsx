@@ -10,6 +10,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { api } from '@/lib/api';
 import { BREAKPOINTS } from '@/lib/breakpoints';
+import { ApiError } from '@/lib/errors';
 import { isSupportedImageBytes } from '@/lib/image-validation';
 import { BatchMode } from './batch/batch-mode';
 import { type GenerationJob, GenerationPanel } from './generation-panel';
@@ -848,6 +849,58 @@ export default function StudioPage(): React.ReactElement {
       showToast(`Couldn't delete: ${(e as Error).message || 'please try again'}`);
     }
   }
+
+  const [isSavingPosePreset, setIsSavingPosePreset] = useState(false);
+  const [presetNameInput, setPresetNameInput] = useState('');
+  const [presetNameModalOpen, setPresetNameModalOpen] = useState(false);
+
+  function handleApplyPosePreset(preset: { poseIds: string[] }) {
+    const availableIds = new Set((poses?.items ?? []).map((p) => p.id));
+    const applicable = preset.poseIds.filter((id) => availableIds.has(id));
+    const dropped = preset.poseIds.length - applicable.length;
+    if (applicable.length === 0) {
+      showToast('All poses in this preset are no longer available.');
+      return;
+    }
+    setPoseIds(applicable);
+    if (dropped > 0) {
+      showToast(
+        `${dropped} pose${dropped === 1 ? '' : 's'} no longer available, removed from preset.`,
+      );
+    }
+  }
+
+  async function handleSavePosePreset() {
+    const name = presetNameInput.trim();
+    if (!name || poseIds.length === 0 || isSavingPosePreset || !garmentTypeId) return;
+    setIsSavingPosePreset(true);
+    try {
+      await api.post('/v1/pose-presets', { name, gender, garmentTypeId, poseIds });
+      await refetchPosePresets();
+      setPresetNameInput('');
+      setPresetNameModalOpen(false);
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'PRESET_LIMIT_REACHED') {
+        showToast('Max 10 presets — delete one first.');
+      } else if (e instanceof ApiError && e.code === 'PRESET_NAME_TAKEN') {
+        showToast('Name already used.');
+      } else {
+        showToast(`Couldn't save preset: ${(e as Error).message || 'please try again'}`);
+      }
+    } finally {
+      setIsSavingPosePreset(false);
+    }
+  }
+
+  async function handleDeletePosePreset(id: string) {
+    try {
+      await api.del(`/v1/pose-presets/${id}`);
+      await refetchPosePresets();
+    } catch (e) {
+      showToast(`Couldn't delete preset: ${(e as Error).message || 'please try again'}`);
+    }
+  }
+
   const { data: backgroundCategories } = useQuery<BackgroundCategoriesResponse>({
     queryKey: ['background-categories', gender],
     queryFn: () => api.get(`/v1/models/background-categories?gender=${gender}`),
@@ -952,6 +1005,19 @@ export default function StudioPage(): React.ReactElement {
     enabled: !!gender,
     staleTime: 60_000,
     refetchOnWindowFocus: true,
+  });
+
+  // Scoped to gender+garmentTypeId — poses are gender-partitioned and have
+  // per-garment-type active/inactive overrides, so a preset saved under one
+  // context is meaningless under another. Only fetches once both are known
+  // (catalogueTemplateId === 'custom' is when the chip row can render at all).
+  const { data: posePresets, refetch: refetchPosePresets } = useQuery<{
+    lastUsed: { id: string; name: string | null; poseIds: string[] } | null;
+    named: { id: string; name: string | null; poseIds: string[] }[];
+  }>({
+    queryKey: ['pose-presets', gender, garmentTypeId],
+    queryFn: () => api.get(`/v1/pose-presets?gender=${gender}&garmentTypeId=${garmentTypeId}`),
+    enabled: catalogueTemplateId === 'custom' && !!gender && !!garmentTypeId,
   });
 
   const selectedPoses = poses?.items.filter((p) => poseIds.includes(p.id)) ?? [];
@@ -1322,6 +1388,7 @@ export default function StudioPage(): React.ReactElement {
       // Credits were deducted server-side — refresh balance + catalogues list.
       qc.invalidateQueries({ queryKey: ['credits'] });
       qc.invalidateQueries({ queryKey: ['catalogues'] });
+      qc.invalidateQueries({ queryKey: ['pose-presets'] });
       const submittedLooks =
         catalogueTemplateId === 'custom'
           ? poseIds.map((poseId) => {
@@ -1397,7 +1464,20 @@ export default function StudioPage(): React.ReactElement {
         platform: 'Amazon',
       });
 
-      // Remaining poses: same catalogue, original background, no Amazon override
+      // Remaining poses: same catalogue, original background, no Amazon override.
+      // NOTE (last-used pose preset tracking limitation): the API tracks
+      // "last used" poses per-request (delete+insert, last write wins) keyed off
+      // exactly the poseIds each /v1/jobs/tryon call resolves. Because this Amazon
+      // flow issues TWO sequential calls — mainPoseId alone, then remainingPoseIds —
+      // this second call's last-used write clobbers the first, so the "Last Used"
+      // chip ends up missing mainPoseId even though a job for it was created. Fixing
+      // this cleanly would need either a "merge" tracking mode on the pose-presets
+      // API or a tracking-only poseIds hint decoupled from job creation on the
+      // tryon request — both are new API surface beyond this fix wave's scope
+      // (Tasks 1-3 are already reviewed/closed), and passing the full poseIds array
+      // into this call's `inputs.poseIds` is not a safe workaround: that field
+      // drives actual job creation, so it would enqueue a duplicate job for
+      // mainPoseId. Left as a known limitation — see final-review-fix-report.md.
       const remainingPoseIds = poseIds.filter((id) => id !== mainPoseId);
       let remainingJobIds: string[] = [];
       if (remainingPoseIds.length > 0) {
@@ -1423,6 +1503,7 @@ export default function StudioPage(): React.ReactElement {
 
       qc.invalidateQueries({ queryKey: ['credits'] });
       qc.invalidateQueries({ queryKey: ['catalogues'] });
+      qc.invalidateQueries({ queryKey: ['pose-presets'] });
       const orderedPoseIds = [mainPoseId, ...remainingPoseIds];
       const orderedJobIds = [...mainJobIds, ...remainingJobIds];
       setActiveGeneration({
@@ -3746,6 +3827,153 @@ export default function StudioPage(): React.ReactElement {
                       )
                     }
                   />
+                  {((posePresets?.named.length ?? 0) > 0 || posePresets?.lastUsed) && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: 8,
+                        marginBottom: 12,
+                      }}
+                    >
+                      {posePresets?.lastUsed && (
+                        <button
+                          type="button"
+                          onClick={() => handleApplyPosePreset(posePresets.lastUsed!)}
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 600,
+                            padding: '6px 12px',
+                            borderRadius: 999,
+                            border: `1px solid ${C.border}`,
+                            background: '#fff',
+                            color: C.text,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Last Used
+                        </button>
+                      )}
+                      {posePresets?.named.map((preset) => (
+                        <div
+                          key={preset.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            borderRadius: 999,
+                            border: `1px solid ${C.border}`,
+                            background: '#fff',
+                            paddingRight: 6,
+                          }}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => handleApplyPosePreset(preset)}
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 600,
+                              padding: '6px 8px',
+                              border: 'none',
+                              background: 'none',
+                              color: C.text,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {preset.name}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeletePosePreset(preset.id)}
+                            aria-label={`Delete preset ${preset.name}`}
+                            style={{
+                              display: 'flex',
+                              border: 'none',
+                              background: 'none',
+                              cursor: 'pointer',
+                              color: C.mid,
+                              padding: 2,
+                            }}
+                          >
+                            <XIcon size={12} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {poseIds.length > 0 && (
+                    <div style={{ marginBottom: 12 }}>
+                      {presetNameModalOpen ? (
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          <input
+                            type="text"
+                            value={presetNameInput}
+                            onChange={(e) => setPresetNameInput(e.target.value)}
+                            placeholder="Preset name"
+                            maxLength={40}
+                            style={{
+                              fontSize: 12,
+                              padding: '6px 10px',
+                              borderRadius: 6,
+                              border: `1px solid ${C.border}`,
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={handleSavePosePreset}
+                            disabled={
+                              isSavingPosePreset || !presetNameInput.trim() || !garmentTypeId
+                            }
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 600,
+                              padding: '6px 12px',
+                              borderRadius: 6,
+                              border: 'none',
+                              background: grad,
+                              color: '#fff',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPresetNameModalOpen(false);
+                              setPresetNameInput('');
+                            }}
+                            style={{
+                              fontSize: 12,
+                              padding: '6px 10px',
+                              border: 'none',
+                              background: 'none',
+                              color: C.mid,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setPresetNameModalOpen(true)}
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 600,
+                            padding: 0,
+                            border: 'none',
+                            background: 'none',
+                            color: C.pink,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          + Save as preset
+                        </button>
+                      )}
+                    </div>
+                  )}
                   {posesError ? (
                     <ErrorState
                       compact

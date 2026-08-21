@@ -24,6 +24,10 @@
  * shopify_credit_purchases: it calls Shopify directly rather than going through
  * createPurchase, precisely so a probe never looks like a merchant's purchase.
  *
+ * Lives under apps/api rather than the repo-root scripts/ directory because it
+ * imports the api's own token and GraphQL modules, plus ioredis — none of which
+ * resolve from the root package, which depends only on @aivastra/db.
+ *
  * Usage:
  *   pnpm check:billing                                  # first installed store
  *   pnpm check:billing my-dev-store.myshopify.com       # a specific store
@@ -33,6 +37,7 @@
  */
 
 import { createDb, eq, isNull, schema } from '@aivastra/db';
+import Redis from 'ioredis';
 
 const PROBE_MUTATION = `
   mutation BillingApiProbe($name: String!, $price: MoneyInput!, $returnUrl: URL!, $test: Boolean!) {
@@ -72,18 +77,27 @@ try {
   // Imported lazily and by path: this script is an ops tool run from the repo
   // root, and pulling in the api module graph at the top would make a missing
   // env var fail before the friendlier checks above ever run.
-  const { getValidAccessToken } = await import('../apps/api/src/modules/shopify/token.js');
-  const { shopifyGraphQL } = await import('../apps/api/src/modules/shopify/service.js');
+  const { getValidAccessToken } = await import('../src/modules/shopify/token.js');
+  const { shopifyGraphQL } = await import('../src/modules/shopify/service.js');
 
-  // getValidAccessToken wants a Fastify instance for its env, db and logger.
-  // Only those three are touched, so a stand-in is honest here rather than
-  // booting the whole server for one GraphQL call.
+  // getValidAccessToken wants a Fastify instance for its env, db, logger and
+  // redis — redis included because a token close to expiry is refreshed under
+  // a Redis lock, and a stub without it throws only on the stores whose token
+  // happens to need refreshing, which is the worst possible time to discover
+  // the gap.
+  const redis = new Redis(process.env.REDIS_URL ?? 'redis://127.0.0.1:6379');
   const app = {
     env: process.env,
     db,
+    redis,
     log: { info: console.log, warn: console.warn, error: console.error },
   } as never;
-  const accessToken = await getValidAccessToken(app, store);
+  let accessToken: string;
+  try {
+    accessToken = await getValidAccessToken(app, store);
+  } finally {
+    redis.disconnect();
+  }
 
   const data = await shopifyGraphQL<{
     appPurchaseOneTimeCreate: {

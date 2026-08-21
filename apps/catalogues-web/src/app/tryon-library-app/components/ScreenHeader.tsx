@@ -1,11 +1,19 @@
 'use client';
 import { useRef, useState } from 'react';
-import { ArrowLeft, PlusIcon } from '@/components/icons';
+import { ArrowLeft } from '@/components/icons';
 import { C } from '@/components/tokens';
+import { BoldPlusIcon } from './BoldPlusIcon';
 
 // Same stops as the shared `grad` token, different angle — kept local to this
 // app section so it doesn't shift the gradient on other pages that use `grad`.
 const ctaGradient = 'linear-gradient(135deg, #521D9C 0.33%, #BD2587 50.77%, #F96657 99.67%)';
+
+// This app section is designed light-only (see page.tsx's LIGHT constant) —
+// the title/subtitle/back-icon must stay dark regardless of theme, since
+// C.text turns near-white under html.dark and would vanish on the forced
+// white background.
+const HEADER_TEXT = '#141414';
+const HEADER_SUBTITLE = '#626262';
 
 interface HeaderAction {
   label: string;
@@ -55,7 +63,7 @@ function HeaderActions({ actions }: { actions: HeaderAction[] }) {
           cursor: 'pointer',
         }}
       >
-        <PlusIcon size={12} />
+        <BoldPlusIcon size={12} />
         {single.label}
       </button>
     );
@@ -147,7 +155,7 @@ function HeaderActions({ actions }: { actions: HeaderAction[] }) {
           cursor: 'pointer',
         }}
       >
-        <PlusIcon size={14} />
+        <BoldPlusIcon size={14} />
       </button>
     </div>
   );
@@ -170,7 +178,7 @@ export function ScreenHeader(props: ScreenHeaderProps) {
               borderRadius: 10,
               border: 'none',
               background: 'transparent',
-              color: C.text,
+              color: HEADER_TEXT,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -185,7 +193,7 @@ export function ScreenHeader(props: ScreenHeaderProps) {
               style={{
                 fontSize: 17,
                 fontWeight: 600,
-                color: C.text,
+                color: HEADER_TEXT,
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
@@ -197,7 +205,7 @@ export function ScreenHeader(props: ScreenHeaderProps) {
               <div
                 style={{
                   fontSize: 12,
-                  color: C.mid,
+                  color: HEADER_SUBTITLE,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
