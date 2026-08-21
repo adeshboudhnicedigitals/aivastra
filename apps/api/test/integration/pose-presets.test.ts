@@ -184,6 +184,35 @@ describe('pose presets', () => {
     expect(del.json().error.code).toBe('NOT_FOUND');
   });
 
+  it('deletes a named preset and it no longer appears in GET', async () => {
+    const { token } = await getToken('preset-delete-ok@x.com');
+    const poseId = await makePose();
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/pose-presets',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { name: 'To Delete', poseIds: [poseId] },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const del = await app.inject({
+      method: 'DELETE',
+      url: `/v1/pose-presets/${created.json().id}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(del.statusCode).toBe(204);
+
+    const list = await app.inject({
+      method: 'GET',
+      url: '/v1/pose-presets',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(list.statusCode).toBe(200);
+    expect(
+      list.json().named.find((p: { id: string }) => p.id === created.json().id),
+    ).toBeUndefined();
+  });
+
   it('rejects deleting the last-used row', async () => {
     const { token, userId } = await getToken('preset-last-used-del@x.com');
     const poseId = await makePose();
@@ -276,6 +305,18 @@ describe('pose presets', () => {
       expect(lastUsedAfterFirst).toBeDefined();
       expect(lastUsedAfterFirst.poseIds).toEqual([first.poseId]);
 
+      // Also assert through the actual response shape callers consume
+      // (ListPosePresetsResponse's `lastUsed` field), not just the raw DB row —
+      // the GET endpoint is what /v1/pose-presets clients (the studio wizard)
+      // actually read.
+      const listAfterFirst = await app.inject({
+        method: 'GET',
+        url: '/v1/pose-presets',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(listAfterFirst.statusCode).toBe(200);
+      expect(listAfterFirst.json().lastUsed?.poseIds).toEqual([first.poseId]);
+
       const second = await submitTryonJob(token, userId, 'b');
       expect(second.res.statusCode).toBe(201);
 
@@ -290,6 +331,14 @@ describe('pose presets', () => {
         );
       expect(rows).toHaveLength(1);
       expect(rows[0].poseIds).toEqual([second.poseId]);
+
+      const listAfterSecond = await app.inject({
+        method: 'GET',
+        url: '/v1/pose-presets',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(listAfterSecond.statusCode).toBe(200);
+      expect(listAfterSecond.json().lastUsed?.poseIds).toEqual([second.poseId]);
     });
   });
 });

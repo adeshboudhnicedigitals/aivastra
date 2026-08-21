@@ -765,15 +765,24 @@ export async function resolveTryonPlan(
 }
 
 /**
- * Best-effort last-used pose preset update. Runs after job creation has
- * already committed and enqueued — never allowed to fail the request. A
+ * Best-effort last-used pose preset update. Never allowed to fail the caller
+ * it's invoked from — always wrap in try/catch (this function already does)
+ * and never await it in a way that lets its rejection propagate. A
  * delete+insert pair (not onConflictDoUpdate) because the "one row per user"
  * constraint is a partial unique index on isLastUsed=true, and there's no
  * existing precedent in this codebase for targeting a partial index as an
  * ON CONFLICT arbiter — plain delete+insert in one transaction is simpler
  * and just as atomic for this single-row case.
+ *
+ * Deliberately NOT called from createJob itself — createJob has three
+ * callers (the /v1/jobs/tryon route, regenerate.ts's single-pose re-run, and
+ * the public dev API's merchant-driven job creation) and only the first is an
+ * interactive studio-wizard submission whose pose selection should overwrite
+ * the user's "last used" chip. Exported so /v1/jobs/tryon's route handler
+ * (the one call site that should trigger it) can call it directly after
+ * createJob resolves.
  */
-async function updateLastUsedPosePreset(
+export async function updateLastUsedPosePreset(
   app: FastifyInstance,
   userId: string,
   poseIds: string[],
@@ -948,13 +957,17 @@ export async function createJob(
     }
   }
 
-  await updateLastUsedPosePreset(
-    app,
-    userId,
-    plan.looks.map((l) => l.poseId),
-  );
-
-  return { catalogueId: plan.catalogueId, jobIds };
+  return {
+    catalogueId: plan.catalogueId,
+    jobIds,
+    // Exposed so /v1/jobs/tryon's route handler — the only caller that should
+    // track "last used" pose presets — can call updateLastUsedPosePreset with
+    // exactly the poseIds resolveTryonPlan actually resolved, without
+    // re-deriving them from the request body (which isn't a 1:1 match with
+    // what actually got used; see resolveTryonPlan's Amazon-background-override
+    // and template-looks handling above).
+    poseIds: plan.looks.map((l) => l.poseId),
+  };
 }
 
 export async function createSimpleTryonJob(

@@ -1357,6 +1357,7 @@ export default function StudioPage(): React.ReactElement {
       // Credits were deducted server-side — refresh balance + catalogues list.
       qc.invalidateQueries({ queryKey: ['credits'] });
       qc.invalidateQueries({ queryKey: ['catalogues'] });
+      qc.invalidateQueries({ queryKey: ['pose-presets'] });
       const submittedLooks =
         catalogueTemplateId === 'custom'
           ? poseIds.map((poseId) => {
@@ -1432,7 +1433,20 @@ export default function StudioPage(): React.ReactElement {
         platform: 'Amazon',
       });
 
-      // Remaining poses: same catalogue, original background, no Amazon override
+      // Remaining poses: same catalogue, original background, no Amazon override.
+      // NOTE (last-used pose preset tracking limitation): the API tracks
+      // "last used" poses per-request (delete+insert, last write wins) keyed off
+      // exactly the poseIds each /v1/jobs/tryon call resolves. Because this Amazon
+      // flow issues TWO sequential calls — mainPoseId alone, then remainingPoseIds —
+      // this second call's last-used write clobbers the first, so the "Last Used"
+      // chip ends up missing mainPoseId even though a job for it was created. Fixing
+      // this cleanly would need either a "merge" tracking mode on the pose-presets
+      // API or a tracking-only poseIds hint decoupled from job creation on the
+      // tryon request — both are new API surface beyond this fix wave's scope
+      // (Tasks 1-3 are already reviewed/closed), and passing the full poseIds array
+      // into this call's `inputs.poseIds` is not a safe workaround: that field
+      // drives actual job creation, so it would enqueue a duplicate job for
+      // mainPoseId. Left as a known limitation — see final-review-fix-report.md.
       const remainingPoseIds = poseIds.filter((id) => id !== mainPoseId);
       let remainingJobIds: string[] = [];
       if (remainingPoseIds.length > 0) {
@@ -1458,6 +1472,7 @@ export default function StudioPage(): React.ReactElement {
 
       qc.invalidateQueries({ queryKey: ['credits'] });
       qc.invalidateQueries({ queryKey: ['catalogues'] });
+      qc.invalidateQueries({ queryKey: ['pose-presets'] });
       const orderedPoseIds = [mainPoseId, ...remainingPoseIds];
       const orderedJobIds = [...mainJobIds, ...remainingJobIds];
       setActiveGeneration({
