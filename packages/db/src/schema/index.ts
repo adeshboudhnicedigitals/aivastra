@@ -8,6 +8,7 @@ export * from './contact.js';
 export * from './credits.js';
 export * from './demo-catalog.js';
 export * from './dev-api.js';
+export * from './google-drive.js';
 export * from './jobs.js';
 export * from './kiosk.js';
 export * from './merchant.js';
