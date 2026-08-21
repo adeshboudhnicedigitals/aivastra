@@ -3,7 +3,9 @@ import { WORKER_POOL, workerPoolSchema } from '@aivastra/types';
 import { asc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { requireAdmin } from './guard.js';
+import { AppError } from '../../lib/errors.js';
+import { recordAudit } from './audit.js';
+import { requirePermission } from './guard.js';
 
 const REGISTRY_KEY = 'worker:registry';
 
@@ -18,7 +20,7 @@ function maskApiKey(key: string): string {
 async function syncToRedis(
   redis: FastifyInstance['redis'],
   id: string,
-  entry: {
+  fields: {
     url?: string;
     apiKey?: string;
     status?: string;
@@ -26,72 +28,56 @@ async function syncToRedis(
     allowedJobTypes?: string[];
   },
 ) {
-  const existing = await redis.hget(REGISTRY_KEY, id);
-  const prev = existing
-    ? (JSON.parse(existing) as {
-        url?: string;
-        apiKey?: string;
-        status?: string;
-        lastSeen?: number;
-        allowedJobTypes?: string[];
-      })
-    : {};
+  const raw = await redis.hget(REGISTRY_KEY, id);
+  const cur = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
   await redis.hset(
     REGISTRY_KEY,
     id,
     JSON.stringify({
-      url: entry.url ?? prev.url,
-      apiKey: entry.apiKey ?? prev.apiKey,
-      status: entry.status ?? prev.status ?? 'IDLE',
-      lastSeen: entry.lastSeen ?? prev.lastSeen ?? Date.now(),
-      allowedJobTypes: entry.allowedJobTypes ?? prev.allowedJobTypes ?? [],
+      ...cur,
+      ...fields,
+      allowedJobTypes: fields.allowedJobTypes ?? cur.allowedJobTypes ?? [],
     }),
   );
 }
 
 export async function adminWorkersRoutes(app: FastifyInstance) {
-  app.get(
-    '/admin/workers',
-    { preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']) },
-    async () => {
-      const dbWorkers = await app.db
-        .select()
-        .from(schema.workers)
-        .orderBy(asc(schema.workers.createdAt));
-      const results = await Promise.all(
-        dbWorkers.map(async (w) => {
-          const raw = await app.redis.hget(REGISTRY_KEY, w.id);
-          const registry = raw ? (JSON.parse(raw) as { status?: string; lastSeen?: number }) : {};
-          const healthy = (await app.redis.get(healthKey(w.id))) === '1';
-          return {
-            id: w.id,
-            label: w.label,
-            url: w.url,
-            apiKeyHint: maskApiKey(w.apiKey),
-            isActive: w.isActive,
-            allowedJobTypes: w.allowedJobTypes ?? [],
-            status: registry.status ?? (w.isActive ? 'IDLE' : 'DRAINING'),
-            healthy,
-            lastSeen: registry.lastSeen ?? null,
-            createdAt: w.createdAt,
-            updatedAt: w.updatedAt,
-          };
-        }),
-      );
-      return results;
-    },
-  );
+  app.get('/admin/workers', { preHandler: requirePermission('workers.read') }, async () => {
+    const dbWorkers = await app.db
+      .select()
+      .from(schema.workers)
+      .orderBy(asc(schema.workers.createdAt));
+    const results = await Promise.all(
+      dbWorkers.map(async (w) => {
+        const raw = await app.redis.hget(REGISTRY_KEY, w.id);
+        const registry = raw ? (JSON.parse(raw) as { status?: string; lastSeen?: number }) : {};
+        const healthy = (await app.redis.get(healthKey(w.id))) === '1';
+        return {
+          id: w.id,
+          label: w.label,
+          url: w.url,
+          apiKeyHint: maskApiKey(w.apiKey),
+          isActive: w.isActive,
+          allowedJobTypes: w.allowedJobTypes ?? [],
+          status: registry.status ?? (w.isActive ? 'IDLE' : 'DRAINING'),
+          healthy,
+          lastSeen: registry.lastSeen ?? null,
+          createdAt: w.createdAt,
+          updatedAt: w.updatedAt,
+        };
+      }),
+    );
+    return results;
+  });
 
-  app.get(
-    '/admin/workers/job-types',
-    { preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']) },
-    async () => Object.values(WORKER_POOL),
+  app.get('/admin/workers/job-types', { preHandler: requirePermission('workers.read') }, async () =>
+    Object.values(WORKER_POOL),
   );
 
   app.post(
     '/admin/workers',
     {
-      preHandler: requireAdmin(['SUPER_ADMIN']),
+      preHandler: requirePermission('workers.write'),
       schema: {
         body: z.object({
           id: z
@@ -114,25 +100,40 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
         allowedJobTypes: string[];
       };
 
-      const existing = await app.db
-        .select({ id: schema.workers.id })
-        .from(schema.workers)
-        .where(eq(schema.workers.id, id));
-      if (existing.length > 0) {
-        return reply
-          .code(409)
-          .send({ error: { code: 'WORKER_EXISTS', message: 'Worker ID already exists' } });
-      }
+      const created = await app.db.transaction(async (tx) => {
+        const existing = await tx
+          .select({ id: schema.workers.id })
+          .from(schema.workers)
+          .where(eq(schema.workers.id, id));
+        if (existing.length > 0) {
+          throw new AppError('WORKER_EXISTS', 409, 'Worker ID already exists');
+        }
 
-      const [created] = await app.db
-        .insert(schema.workers)
-        .values({ id, label, url, apiKey, isActive: true, allowedJobTypes })
-        .returning();
-      if (!created) {
-        return reply
-          .code(500)
-          .send({ error: { code: 'INSERT_FAILED', message: 'Failed to create worker' } });
-      }
+        const [row] = await tx
+          .insert(schema.workers)
+          .values({ id, label, url, apiKey, isActive: true, allowedJobTypes })
+          .returning();
+        if (!row) {
+          throw new AppError('INSERT_FAILED', 500, 'Failed to create worker');
+        }
+
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'worker.create',
+          resourceType: 'worker',
+          resourceId: row.id,
+          after: {
+            id: row.id,
+            label: row.label,
+            url: row.url,
+            isActive: row.isActive,
+            allowedJobTypes,
+          },
+          request: req,
+        });
+
+        return row;
+      });
 
       await syncToRedis(app.redis, id, {
         url,
@@ -160,7 +161,7 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
   app.patch(
     '/admin/workers/:id',
     {
-      preHandler: requireAdmin(['SUPER_ADMIN']),
+      preHandler: requirePermission('workers.write'),
       schema: {
         params: z.object({ id: z.string() }),
         body: z.object({
@@ -188,36 +189,59 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
         allowedJobTypes?: string[];
       };
 
-      const [existing] = await app.db
-        .select()
-        .from(schema.workers)
-        .where(eq(schema.workers.id, id));
-      if (!existing)
-        return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Worker not found' } });
-
       const nextId = body.id ?? id;
-      if (nextId !== id) {
-        const [conflict] = await app.db
-          .select({ id: schema.workers.id })
-          .from(schema.workers)
-          .where(eq(schema.workers.id, nextId));
-        if (conflict) {
-          return reply
-            .code(409)
-            .send({ error: { code: 'WORKER_EXISTS', message: 'Worker ID already exists' } });
-        }
-      }
 
-      const [updated] = await app.db
-        .update(schema.workers)
-        .set({ ...body, id: nextId, updatedAt: new Date() })
-        .where(eq(schema.workers.id, id))
-        .returning();
-      if (!updated) {
-        return reply
-          .code(500)
-          .send({ error: { code: 'UPDATE_FAILED', message: 'Failed to update worker' } });
-      }
+      const { updated, existing } = await app.db.transaction(async (tx) => {
+        const [existingRow] = await tx
+          .select()
+          .from(schema.workers)
+          .where(eq(schema.workers.id, id))
+          .for('update');
+        if (!existingRow) throw new AppError('NOT_FOUND', 404, 'Worker not found');
+
+        if (nextId !== id) {
+          const [conflict] = await tx
+            .select({ id: schema.workers.id })
+            .from(schema.workers)
+            .where(eq(schema.workers.id, nextId));
+          if (conflict) {
+            throw new AppError('WORKER_EXISTS', 409, 'Worker ID already exists');
+          }
+        }
+
+        const [row] = await tx
+          .update(schema.workers)
+          .set({ ...body, id: nextId, updatedAt: new Date() })
+          .where(eq(schema.workers.id, id))
+          .returning();
+        if (!row) {
+          throw new AppError('UPDATE_FAILED', 500, 'Failed to update worker');
+        }
+
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'worker.update',
+          resourceType: 'worker',
+          resourceId: row.id,
+          before: {
+            id: existingRow.id,
+            label: existingRow.label,
+            url: existingRow.url,
+            isActive: existingRow.isActive,
+            allowedJobTypes: existingRow.allowedJobTypes,
+          },
+          after: {
+            id: row.id,
+            label: row.label,
+            url: row.url,
+            isActive: row.isActive,
+            allowedJobTypes: row.allowedJobTypes,
+          },
+          request: req,
+        });
+
+        return { updated: row, existing: existingRow };
+      });
 
       if (nextId !== id) {
         const raw = await app.redis.hget(REGISTRY_KEY, id);
@@ -288,7 +312,7 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
   app.delete(
     '/admin/workers/:id',
     {
-      preHandler: requireAdmin(['SUPER_ADMIN']),
+      preHandler: requirePermission('workers.write'),
       schema: { params: z.object({ id: z.string() }) },
     },
     async (req, reply) => {
@@ -304,7 +328,32 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
         }
       }
 
-      await app.db.delete(schema.workers).where(eq(schema.workers.id, id));
+      await app.db.transaction(async (tx) => {
+        const [existing] = await tx
+          .select()
+          .from(schema.workers)
+          .where(eq(schema.workers.id, id))
+          .for('update');
+        if (!existing) return;
+
+        await tx.delete(schema.workers).where(eq(schema.workers.id, id));
+
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'worker.delete',
+          resourceType: 'worker',
+          resourceId: id,
+          before: {
+            id: existing.id,
+            label: existing.label,
+            url: existing.url,
+            isActive: existing.isActive,
+            allowedJobTypes: existing.allowedJobTypes,
+          },
+          request: req,
+        });
+      });
+
       await app.redis.hdel(REGISTRY_KEY, id);
       await app.redis.del(healthKey(id));
 
@@ -315,7 +364,7 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
   app.post(
     '/admin/workers/:id/drain',
     {
-      preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']),
+      preHandler: requirePermission('workers.drain'),
       schema: { params: z.object({ id: z.string() }) },
     },
     async (req, reply) => {
@@ -331,7 +380,7 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
   app.post(
     '/admin/workers/:id/undrain',
     {
-      preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']),
+      preHandler: requirePermission('workers.drain'),
       schema: { params: z.object({ id: z.string() }) },
     },
     async (req, reply) => {

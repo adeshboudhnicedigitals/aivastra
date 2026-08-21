@@ -1,7 +1,7 @@
 import { schema } from '@aivastra/db';
 import { and, count, eq, gte, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { getPaygSpendThisCycleCents } from './payg.js';
+import { computeRunway } from './runway.js';
 import { windowStart } from './store-day.js';
 
 /**
@@ -59,20 +59,15 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
   app.get('/v1/shopify/me', { preHandler: app.requireShopifySession }, async (req) => {
     const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
 
-    const [creditRow] = await app.db
-      .select({ balance: schema.shopifyStoreCredits.balance })
-      .from(schema.shopifyStoreCredits)
-      .where(eq(schema.shopifyStoreCredits.storeId, store.id))
-      .limit(1);
-    const creditBalance = creditRow?.balance ?? 0;
-
-    const paygSpendThisCycleUsdCents =
-      store.billingMode === 'usage' ? await getPaygSpendThisCycleCents(app, store) : 0;
-
-    const [{ totalTryOns }] = await app.db
-      .select({ totalTryOns: count() })
-      .from(schema.jobs)
-      .where(eq(schema.jobs.shopifyStoreId, store.id));
+    // Supersedes the bare balance lookup: the SPA needs the level and the
+    // runway to render a banner, and computing it here keeps one definition of
+    // "low" shared with the scheduler instead of duplicating thresholds in the
+    // frontend where they would drift.
+    const runway = await computeRunway(app, store.id);
+    // computeRunway already ran a byte-identical COUNT(*) over jobs WHERE
+    // shopify_store_id = ? for `lifetimeJobs` — reuse it instead of a second
+    // round trip for the same number.
+    const totalTryOns = runway.lifetimeJobs;
 
     const [{ syncedProductCount }] = await app.db
       .select({ syncedProductCount: count() })
@@ -119,13 +114,28 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
         shopDomain: store.shopDomain,
         settings: store.settings,
         connectedSince: store.installedAt.toISOString(),
-        planHandle: store.planHandle,
-        subscriptionStatus: store.subscriptionStatus,
-        billingMode: store.billingMode,
-        paygSpendCapUsdCents: store.paygSpendCapUsdCents,
       },
-      creditBalance,
-      paygSpendThisCycleUsdCents,
+      creditBalance: runway.balance,
+      runway: {
+        balance: runway.balance,
+        tryOnsRemaining: runway.tryOnsRemaining,
+        dailyBurnCredits: runway.dailyBurnCredits,
+        daysRemaining: runway.daysRemaining,
+        level: runway.level,
+      },
+      autorefill: {
+        enabled: store.autorefillStatus != null,
+        status: store.autorefillStatus,
+        packId: store.autorefillPackId,
+        triggerCredits: store.autorefillTriggerCredits,
+        cappedAmountUsdCents: store.autorefillCappedAmountCents,
+        // Read straight from Postgres like everything else here — refreshed
+        // from Shopify by the hourly sweep, not by this route. A dashboard
+        // load must not cost a Shopify round trip, and this figure only has to
+        // be roughly current to be useful: it exists to show the merchant how
+        // much of their own ceiling this cycle has consumed.
+        balanceUsedUsdCents: store.autorefillBalanceUsedCents,
+      },
       stats: {
         totalTryOns,
         syncedProductCount,

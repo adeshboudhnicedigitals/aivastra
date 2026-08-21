@@ -8,6 +8,7 @@ export function GradBtn({
   outline = false,
   disabled = false,
   type = 'button',
+  className,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
@@ -15,10 +16,11 @@ export function GradBtn({
   outline?: boolean;
   disabled?: boolean;
   type?: 'button' | 'submit';
+  className?: string;
 }) {
   return (
     <button
-      className="btn-hover-opacity"
+      className={className ? `btn-hover-opacity ${className}` : 'btn-hover-opacity'}
       type={type}
       onClick={onClick}
       disabled={disabled}

@@ -3,6 +3,7 @@ import { and, count, desc, eq, gte, ilike, or, type SQL, sql } from 'drizzle-orm
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { resolveAdminAccess } from '../admin/guard.js';
 import { signAccess, verifyAccess, verifyPassword } from '../auth/service.js';
 
 const LoginBody = z.object({ email: z.string().email(), password: z.string().min(1) });
@@ -23,11 +24,10 @@ export async function resultsRoutes(app: FastifyInstance) {
     if (!token) throw new AppError('UNAUTH', 401, 'missing results token');
     try {
       const payload = await verifyAccess(secret, token);
-      if (payload.kind !== 'results') throw new AppError('UNAUTH', 401, 'invalid token');
+      if (payload.kind !== 'results') throw new AppError('UNAUTH', 401, 'invalid results token');
       req.userId = String(payload.sub);
-      req.adminRole = String(payload.role);
     } catch {
-      throw new AppError('UNAUTH', 401, 'invalid token');
+      throw new AppError('UNAUTH', 401, 'invalid results token');
     }
   }
 
@@ -47,11 +47,13 @@ export async function resultsRoutes(app: FastifyInstance) {
       if (!(await verifyPassword(user.passwordHash, password)))
         throw new AppError('INVALID', 401, 'invalid credentials');
 
-      const [admin] = await app.db
-        .select()
-        .from(schema.adminUsers)
-        .where(eq(schema.adminUsers.userId, user.id));
-      if (admin?.status !== 'active') throw new AppError('FORBIDDEN', 403, 'admin access required');
+      // Explicit decision: preserve existing behavior — any active admin of any role gets a /results session.
+      // resolveAdminAccess() returning non-null (i.e. status === 'active') is sufficient; role is informational
+      // for the minted kind: 'results' token.
+      const admin = await resolveAdminAccess(app, user.id);
+      if (!admin || admin.status !== 'active') {
+        throw new AppError('FORBIDDEN', 403, 'admin access required');
+      }
 
       const token = await signAccess(secret, user.id, { kind: 'results', role: admin.role }, '8h');
       reply.setCookie('results_access_token', token, {

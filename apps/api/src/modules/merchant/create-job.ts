@@ -52,12 +52,21 @@ export async function createMerchantCatalogJob(
     // (POST /admin/held-jobs/release). Credits are still deducted now, in the
     // same transaction, so a released batch can never fail for lack of balance.
     hold?: boolean;
+    // Pallu image for the "Body & Pallu" two-input mannequin step. Only meaningful when
+    // the garment type requires the mannequin step AND has a two-input workflow
+    // configured — validated below. When present, the mannequin drape runs as its own
+    // job (see saree-step2-promoter.ts) instead of the inline single-image path every
+    // other merchant catalog job uses — see docs/superpowers/plans/
+    // 2026-08-20-merchant-catalog-saree-two-input.md.
+    secondFlatImageKey?: string;
   },
 ): Promise<{ jobId: string }> {
   const [garmentType] = await app.db
     .select({
       defaultPoseId: schema.garmentSubcategories.defaultPoseId,
       requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep,
+      mannequinTwoInputWorkflowTemplateId:
+        schema.garmentSubcategories.mannequinTwoInputWorkflowTemplateId,
     })
     .from(schema.garmentSubcategories)
     .where(
@@ -68,6 +77,18 @@ export async function createMerchantCatalogJob(
     )
     .limit(1);
   if (!garmentType) throw new AppError('BAD_CATALOG', 400, 'garment type not found or inactive');
+  if (params.secondFlatImageKey) {
+    if (!garmentType.requiresMannequinStep) {
+      throw new AppError('VALIDATION', 400, 'this garment type does not use the mannequin step');
+    }
+    if (!garmentType.mannequinTwoInputWorkflowTemplateId) {
+      throw new AppError(
+        'CONFIG',
+        400,
+        'garment type missing two-input step-1 workflow configuration',
+      );
+    }
+  }
   if (!garmentType.defaultPoseId) {
     throw new AppError(
       'VALIDATION',
@@ -204,6 +225,9 @@ export async function createMerchantCatalogJob(
     throw new AppError('BAD_CATALOG', 400, 'configured default shoe not found or inactive');
 
   await assertMerchantUploadKey(app, params.merchantId, params.flatImageKey, 'flat garment');
+  if (params.secondFlatImageKey) {
+    await assertMerchantUploadKey(app, params.merchantId, params.secondFlatImageKey, 'pallu');
+  }
 
   const requestedDims = ASPECT_DIMENSIONS[aspectRatio] ?? ASPECT_DIMENSIONS['2:3'];
   const maxOutputPx = await getMaxOutputPx(app);
@@ -224,6 +248,88 @@ export async function createMerchantCatalogJob(
   const cost = await getResolutionCreditCost(app, resolution);
 
   const jobId = randomUUID();
+
+  if (params.secondFlatImageKey) {
+    // Two-input path: create a standalone mannequin job now (0 credits, matches
+    // Studio's createSareeMannequinJob convention — the real charge is on the step-2
+    // job below), and the step-2 job as PENDING_MANNEQUIN pointing at it. Only the
+    // mannequin job is enqueued here; apps/dispatcher/src/job/saree-step2-promoter.ts
+    // (already running, unmodified) promotes the step-2 job to QUEUED once the
+    // mannequin job completes, exactly as it already does for Studio's own two-input
+    // flow. No dispatcher changes needed — verified promoteSareeStep2Jobs does not
+    // branch on jobs.source anywhere.
+    const mannequinJobId = randomUUID();
+    await app.db.transaction(async (tx) => {
+      await tx.insert(schema.jobs).values({
+        id: mannequinJobId,
+        userId: params.userId,
+        status: 'QUEUED',
+        watermark: false,
+        queueStream: 'normal',
+        creditsCharged: 0,
+        source: JOB_SOURCE.SAREE_MANNEQUIN,
+      });
+      await tx.insert(schema.jobInputs).values({
+        jobId: mannequinJobId,
+        upperGarmentKey: params.flatImageKey,
+        thirdGarmentKey: params.secondFlatImageKey,
+        // Reuses the same category-configured face the step-2 composite below will
+        // use — consistent model across drape and final composite. Harmless if the
+        // two-input template has no person node: processSareeMannequinJob only reads
+        // faceId when the template's tryonPersonNodeId is set.
+        faceId: face.id,
+        garmentTypeId: params.garmentSubcategoryId,
+        params: { kind: 'saree_mannequin' },
+      });
+
+      await tx.insert(schema.jobs).values({
+        id: jobId,
+        userId: params.userId,
+        status: params.hold ? 'HELD' : 'PENDING_MANNEQUIN',
+        watermark: false,
+        queueStream: params.hold ? 'low' : 'normal',
+        creditsCharged: cost,
+        source: JOB_SOURCE.MERCHANT_CATALOG,
+      });
+      await atomicDeduct(tx as unknown as typeof app.db, params.userId, cost, jobId);
+      await tx.insert(schema.jobInputs).values({
+        jobId,
+        upperGarmentKey: null,
+        faceId: face.id,
+        backgroundId: background.id,
+        poseId: pose.id,
+        garmentTypeId: params.garmentSubcategoryId,
+        lowerCatalogId: lowerItem?.id ?? null,
+        shoeCatalogId: shoeItem?.id ?? null,
+        params: {
+          kind: 'merchant_catalog',
+          subcategoryId: params.subcategoryId,
+          outputWidth: outputDims.width,
+          outputHeight: outputDims.height,
+          aspectRatio,
+          resolution,
+          mannequinJobId,
+          ...(params.hold ? { heldBatch: true } : {}),
+        },
+      });
+    });
+
+    await app.redis.xadd(
+      'jobs:normal',
+      'MAXLEN',
+      '~',
+      10000,
+      '*',
+      'jobId',
+      mannequinJobId,
+      'userId',
+      params.userId,
+    );
+
+    return { jobId };
+  }
+
+  // Single-input path — unchanged from before this task.
   await app.db.transaction(async (tx) => {
     await tx.insert(schema.jobs).values({
       id: jobId,

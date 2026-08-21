@@ -1,10 +1,8 @@
 import { schema } from '@aivastra/db';
-import { PaygSpendCapBody } from '@aivastra/types';
 import { desc, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { AppError } from '../../lib/errors.js';
-import { requireAdmin } from './guard.js';
+import { requirePermission } from './guard.js';
 
 const LedgerQuery = z.object({
   cursor: z.string().datetime().optional(),
@@ -12,39 +10,13 @@ const LedgerQuery = z.object({
 });
 
 export async function adminShopifyStoresRoutes(app: FastifyInstance) {
-  const RO = requireAdmin(['SUPER_ADMIN', 'SUPPORT', 'ADMIN']);
-
-  const WRITE = requireAdmin(['SUPER_ADMIN']);
-
-  app.patch(
-    '/admin/shopify-stores/:id/payg-cap',
-    {
-      preHandler: WRITE,
-      schema: { params: z.object({ id: z.string().uuid() }), body: PaygSpendCapBody },
-    },
-    async (req) => {
-      const { id } = req.params as { id: string };
-      const { spendCapUsdCents } = req.body as PaygSpendCapBody;
-      const [updated] = await app.db
-        .update(schema.shopifyStores)
-        .set({ paygSpendCapUsdCents: spendCapUsdCents, updatedAt: new Date() })
-        .where(eq(schema.shopifyStores.id, id))
-        .returning({
-          id: schema.shopifyStores.id,
-          paygSpendCapUsdCents: schema.shopifyStores.paygSpendCapUsdCents,
-        });
-      if (!updated) throw new AppError('NOT_FOUND', 404, 'store not found');
-      return updated;
-    },
-  );
+  const RO = requirePermission('shopify_stores.read');
 
   app.get('/admin/shopify-stores', { preHandler: RO }, async () => {
     const stores = await app.db
       .select({
         id: schema.shopifyStores.id,
         shopDomain: schema.shopifyStores.shopDomain,
-        planHandle: schema.shopifyStores.planHandle,
-        subscriptionStatus: schema.shopifyStores.subscriptionStatus,
         installedAt: schema.shopifyStores.installedAt,
         uninstalledAt: schema.shopifyStores.uninstalledAt,
         balance: sql<number>`COALESCE(${schema.shopifyStoreCredits.balance}, 0)`,

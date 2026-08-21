@@ -643,6 +643,49 @@ export default function UsersPage({ onNav, toast }: Props) {
     toast({ title: 'Password reset \u2014 share the new password with the customer' });
   }
 
+  async function assignAdminRole(u: User, role: string) {
+    setAdminActioning(true);
+    try {
+      await apiFetch('/admin/admin-users', {
+        method: 'POST',
+        body: JSON.stringify({ userId: u.id, role }),
+      });
+      setDetail((prev) => prev && { ...prev, isAdmin: true, adminRole: role });
+      setUsers((prev) =>
+        prev.map((x) => (x.id === u.id ? { ...x, isAdmin: true, adminRole: role } : x)),
+      );
+      toast({ title: `${userLabel(u)} set to ${adminRoleLabel(role)}` });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to update admin role',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setAdminActioning(false);
+    }
+  }
+
+  async function revokeAdminRole(u: User) {
+    setAdminActioning(true);
+    try {
+      await apiFetch(`/admin/admin-users/${u.id}`, { method: 'DELETE' });
+      setDetail((prev) => prev && { ...prev, isAdmin: false, adminRole: null });
+      setUsers((prev) =>
+        prev.map((x) => (x.id === u.id ? { ...x, isAdmin: false, adminRole: null } : x)),
+      );
+      toast({ title: `${userLabel(u)} admin access revoked` });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to revoke admin access',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setAdminActioning(false);
+    }
+  }
+
   if (detail) {
     const u = detail;
     const effectiveTierOptions =
@@ -688,62 +731,24 @@ export default function UsersPage({ onNav, toast }: Props) {
             >
               <Icon.Refresh /> Reset Password
             </button>
-            {isSuperAdmin && !u.isAdmin && u.hasPassword && (
-              <button
-                className="btn ghost"
+            {isSuperAdmin && u.adminRole !== 'SUPER_ADMIN' && (u.isAdmin || u.hasPassword) && (
+              <select
+                className="input"
+                value={u.isAdmin ? (u.adminRole ?? 'ADMIN') : 'NONE'}
                 disabled={adminActioning}
-                onClick={async () => {
-                  setAdminActioning(true);
-                  try {
-                    await apiFetch('/admin/admin-users', {
-                      method: 'POST',
-                      body: JSON.stringify({ userId: u.id, role: 'ADMIN' }),
-                    });
-                    setDetail((prev) => prev && { ...prev, isAdmin: true });
-                    setUsers((prev) =>
-                      prev.map((x) => (x.id === u.id ? { ...x, isAdmin: true } : x)),
-                    );
-                    toast({ title: `${userLabel(u)} granted admin access` });
-                  } catch (e) {
-                    toast({
-                      kind: 'error',
-                      title: 'Failed to grant admin access',
-                      body: apiErrorMessage(e, 'Please try again.'),
-                    });
-                  } finally {
-                    setAdminActioning(false);
-                  }
+                onChange={(e) => {
+                  const next = e.target.value;
+                  if (next === 'NONE') void revokeAdminRole(u);
+                  else void assignAdminRole(u, next);
                 }}
+                title="Admin role"
+                style={{ width: 'auto', height: 36 }}
               >
-                <Icon.Check /> Grant admin
-              </button>
-            )}
-            {isSuperAdmin && u.isAdmin && (
-              <button
-                className="btn ghost"
-                disabled={adminActioning}
-                onClick={async () => {
-                  setAdminActioning(true);
-                  try {
-                    await apiFetch(`/admin/admin-users/${u.id}`, { method: 'DELETE' });
-                    setDetail((prev) => prev && { ...prev, isAdmin: false });
-                    setUsers((prev) =>
-                      prev.map((x) => (x.id === u.id ? { ...x, isAdmin: false } : x)),
-                    );
-                    toast({ title: `${userLabel(u)} admin access revoked` });
-                  } catch (e) {
-                    toast({
-                      kind: 'error',
-                      title: 'Failed to revoke admin access',
-                      body: apiErrorMessage(e, 'Please try again.'),
-                    });
-                  } finally {
-                    setAdminActioning(false);
-                  }
-                }}
-              >
-                <Icon.Ban /> Revoke admin
-              </button>
+                <option value="NONE">Not admin</option>
+                <option value="ADMIN">Admin</option>
+                <option value="MODERATOR">Moderator</option>
+                <option value="SUPPORT">Support</option>
+              </select>
             )}
             {!u.isAdmin && (
               <button className="btn danger" onClick={() => setConfirmSuspend(u.id)}>

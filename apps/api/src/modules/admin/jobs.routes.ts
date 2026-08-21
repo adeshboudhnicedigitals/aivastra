@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { refund } from '../credits/ledger.js';
 import { adminStreamHandler } from '../jobs/sse.js';
-import { requireAdmin } from './guard.js';
+import { requirePermission } from './guard.js';
 import { jobTypeSql } from './job-type.js';
 import {
   describeJobsExportFilters,
@@ -43,8 +43,8 @@ const JobsQuery = z.object({
 });
 
 export async function adminJobsRoutes(app: FastifyInstance) {
-  const R = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']);
-  const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
+  const R = requirePermission('jobs.read');
+  const W = requirePermission('jobs.write');
 
   app.get('/admin/jobs/sources', { preHandler: R }, async () => Object.values(JOB_SOURCE));
 

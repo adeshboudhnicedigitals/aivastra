@@ -17,11 +17,19 @@ import { StickyBottomBar } from './StickyBottomBar';
 export function ProductForm({
   subcategoryId,
   initialData,
+  supportsTwoInputMannequin = false,
+  supportsTwoInputDirectTryon = false,
   onSaved,
   onCancel,
 }: {
   subcategoryId: string;
   initialData?: MerchantCatalogItem;
+  // Flat Image's AI-generate step isn't needed for two-input (body+pallu) products — see
+  // ProductModal.tsx (apps/catalogues-web/.../tryon/) for the sibling implementation this
+  // mirrors. Optional/defaulted here because most subcategories aren't two-input-capable
+  // and every existing caller predates this prop.
+  supportsTwoInputMannequin?: boolean;
+  supportsTwoInputDirectTryon?: boolean;
   onSaved: () => void;
   onCancel: () => void;
 }) {
@@ -40,6 +48,10 @@ export function ProductForm({
   const [imageMode, setImageMode] = useState<'catalogue' | 'flat'>('catalogue');
   const [selectedFile, setSelectedFile] = useState<File | undefined>(undefined);
   const [previewUrl, setPreviewUrl] = useState<string | undefined>(undefined);
+  // Pallu — only relevant in 'catalogue' imageMode for a two-input-direct-tryon-capable
+  // subcategory. Mirrors ProductModal.tsx's palluFile/palluPreviewUrl.
+  const [palluFile, setPalluFile] = useState<File | undefined>(undefined);
+  const [palluPreviewUrl, setPalluPreviewUrl] = useState<string | undefined>(undefined);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   // The product row created by the generate+import flow, still awaiting the
@@ -49,8 +61,12 @@ export function ProductForm({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const palluFileInputRef = useRef<HTMLInputElement>(null);
+  const palluCameraInputRef = useRef<HTMLInputElement>(null);
   const previewUrlRef = useRef<string | undefined>(undefined);
   previewUrlRef.current = previewUrl;
+  const palluPreviewUrlRef = useRef<string | undefined>(undefined);
+  palluPreviewUrlRef.current = palluPreviewUrl;
   const generatedItemRef = useRef<MerchantCatalogItem | undefined>(undefined);
   generatedItemRef.current = generatedItem;
 
@@ -58,6 +74,7 @@ export function ProductForm({
   useEffect(() => {
     return () => {
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+      if (palluPreviewUrlRef.current) URL.revokeObjectURL(palluPreviewUrlRef.current);
       if (generatedItemRef.current) void deleteProduct(generatedItemRef.current.id);
     };
   }, []);
@@ -75,6 +92,18 @@ export function ProductForm({
       setGeneratedItem(undefined);
     }
   };
+
+  const handlePalluFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (palluPreviewUrl) URL.revokeObjectURL(palluPreviewUrl);
+    setPalluFile(file);
+    setPalluPreviewUrl(URL.createObjectURL(file));
+    setErrorMsg(undefined);
+  };
+
+  const requiresCataloguePallu = imageMode === 'catalogue' && supportsTwoInputDirectTryon;
 
   const handleGenerate = async () => {
     if (!selectedFile) return;
@@ -112,7 +141,8 @@ export function ProductForm({
   const hasPriceError = offerPriceNum > actualPriceNum;
   const missingImage =
     !isEditing &&
-    ((imageMode === 'catalogue' && !selectedFile) || (imageMode === 'flat' && !generatedItem));
+    ((imageMode === 'catalogue' && (!selectedFile || (requiresCataloguePallu && !palluFile))) ||
+      (imageMode === 'flat' && !generatedItem));
   const isSaveDisabled = hasPriceError || isGenerating || isSaving || missingImage;
 
   const handleSubmit = async () => {
@@ -142,10 +172,21 @@ export function ProductForm({
         });
       } else {
         if (!selectedFile) throw new Error('Upload a product image first.');
+        if (requiresCataloguePallu && !palluFile) throw new Error('Upload the pallu photo first.');
         const [{ r2Key }, { r2Key: thumbnailKey }] = await Promise.all([
           presignAndUpload(selectedFile, 'image'),
           presignAndUpload(selectedFile, 'thumbnail'),
         ]);
+        let secondR2Key: string | undefined;
+        let secondThumbnailKey: string | undefined;
+        if (requiresCataloguePallu) {
+          const [secondUpload, secondThumbUpload] = await Promise.all([
+            presignAndUpload(palluFile as File, 'image'),
+            presignAndUpload(palluFile as File, 'thumbnail'),
+          ]);
+          secondR2Key = secondUpload.r2Key;
+          secondThumbnailKey = secondThumbUpload.r2Key;
+        }
         // MerchantCatalogCreateBody has no isActive field (new items are
         // always active server-side) — a follow-up PATCH is the only way to
         // land the toggle when the merchant switched it off before saving.
@@ -153,6 +194,8 @@ export function ProductForm({
           subcategoryId,
           r2Key,
           thumbnailKey,
+          ...(secondR2Key ? { secondR2Key } : {}),
+          ...(secondThumbnailKey ? { secondThumbnailKey } : {}),
           ...priceFields,
         });
         if (!liveInApp) {
@@ -244,7 +287,6 @@ export function ProductForm({
             }}
           >
             {displayImageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
               // biome-ignore lint/performance/noImgElement: presigned R2 preview
               <img
                 src={displayImageUrl}
@@ -257,162 +299,273 @@ export function ProductForm({
           </div>
         ) : (
           <>
-            <div
-              style={{
-                display: 'flex',
-                borderRadius: 8,
-                border: `1px solid ${LIGHT.border2}`,
-                overflow: 'hidden',
-                background: LIGHT.card,
-              }}
-            >
-              <button
-                type="button"
-                onClick={() => setImageMode('catalogue')}
-                disabled={busy}
+            {/* Flat Image's AI-generate step isn't needed for two-input (body+pallu)
+                products — see ProductModal.tsx for the sibling implementation this
+                mirrors — so it's hidden (not removed) for two-input-capable
+                subcategories; Catalogue Image (direct upload) only. */}
+            {!supportsTwoInputMannequin && (
+              <div
                 style={{
-                  flex: 1,
-                  padding: '12px 16px',
-                  border: 'none',
-                  background:
-                    imageMode === 'catalogue' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
-                  color: imageMode === 'catalogue' ? '#f55c7a' : LIGHT.text,
-                  fontWeight: imageMode === 'catalogue' ? 600 : 500,
-                  fontSize: 14,
-                  fontFamily: 'inherit',
-                  cursor: busy ? 'not-allowed' : 'pointer',
-                  transition: 'all 0.15s ease',
-                  borderRight: `1px solid ${LIGHT.border2}`,
+                  display: 'flex',
+                  borderRadius: 8,
+                  border: `1px solid ${LIGHT.border2}`,
+                  overflow: 'hidden',
+                  background: LIGHT.card,
                 }}
               >
-                Catalogue Image
-              </button>
-              <button
-                type="button"
-                onClick={() => setImageMode('flat')}
-                disabled={busy}
-                style={{
-                  flex: 1,
-                  padding: '12px 16px',
-                  border: 'none',
-                  background: imageMode === 'flat' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
-                  color: imageMode === 'flat' ? '#f55c7a' : LIGHT.text,
-                  fontWeight: imageMode === 'flat' ? 600 : 500,
-                  fontSize: 14,
-                  fontFamily: 'inherit',
-                  cursor: busy ? 'not-allowed' : 'pointer',
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                Flat Image
-              </button>
-            </div>
-
-            {imageMode === 'catalogue' ? (
-              previewUrl ? (
                 <button
                   type="button"
-                  onClick={() => fileInputRef.current?.click()}
+                  onClick={() => setImageMode('catalogue')}
                   disabled={busy}
                   style={{
-                    height: 180,
-                    borderRadius: 8,
-                    border: `1px dashed ${LIGHT.border2}`,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: busy ? 'not-allowed' : 'pointer',
-                    overflow: 'hidden',
-                    position: 'relative',
-                    gap: 8,
-                    background: 'none',
-                    padding: 0,
+                    flex: 1,
+                    padding: '12px 16px',
+                    border: 'none',
+                    background:
+                      imageMode === 'catalogue' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
+                    color: imageMode === 'catalogue' ? '#f55c7a' : LIGHT.text,
+                    fontWeight: imageMode === 'catalogue' ? 600 : 500,
+                    fontSize: 14,
                     fontFamily: 'inherit',
-                    width: '100%',
+                    cursor: busy ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.15s ease',
+                    borderRight: `1px solid ${LIGHT.border2}`,
                   }}
-                  className="hover-surface"
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  {/* biome-ignore lint/performance/noImgElement: local preview */}
-                  <img
-                    src={previewUrl}
-                    alt="Preview"
-                    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                  />
+                  Catalogue Image
                 </button>
-              ) : (
-                <div
+                <button
+                  type="button"
+                  onClick={() => setImageMode('flat')}
+                  disabled={busy}
                   style={{
-                    height: 180,
-                    borderRadius: 8,
-                    border: `1px dashed ${LIGHT.border2}`,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 12,
-                    width: '100%',
+                    flex: 1,
+                    padding: '12px 16px',
+                    border: 'none',
+                    background: imageMode === 'flat' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
+                    color: imageMode === 'flat' ? '#f55c7a' : LIGHT.text,
+                    fontWeight: imageMode === 'flat' ? 600 : 500,
+                    fontSize: 14,
+                    fontFamily: 'inherit',
+                    cursor: busy ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.15s ease',
                   }}
                 >
-                  <div style={{ color: LIGHT.mid }}>
-                    <UploadIcon size={28} />
+                  Flat Image
+                </button>
+              </div>
+            )}
+
+            {imageMode === 'catalogue' ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {previewUrl ? (
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={busy}
+                    style={{
+                      height: 180,
+                      borderRadius: 8,
+                      border: `1px dashed ${LIGHT.border2}`,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: busy ? 'not-allowed' : 'pointer',
+                      overflow: 'hidden',
+                      position: 'relative',
+                      gap: 8,
+                      background: 'none',
+                      padding: 0,
+                      fontFamily: 'inherit',
+                      width: '100%',
+                    }}
+                    className="hover-surface"
+                  >
+                    {/* biome-ignore lint/performance/noImgElement: local preview */}
+                    <img
+                      src={previewUrl}
+                      alt="Preview"
+                      style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                    />
+                  </button>
+                ) : (
+                  <div
+                    style={{
+                      height: 180,
+                      borderRadius: 8,
+                      border: `1px dashed ${LIGHT.border2}`,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 12,
+                      width: '100%',
+                    }}
+                  >
+                    <div style={{ color: LIGHT.mid }}>
+                      <UploadIcon size={28} />
+                    </div>
+                    <div style={{ fontSize: 13, color: LIGHT.mid, fontWeight: 500 }}>
+                      Tap to choose a product photo
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        type="button"
+                        onClick={() => cameraInputRef.current?.click()}
+                        disabled={busy}
+                        className="hover-surface"
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          height: 36,
+                          padding: '0 14px',
+                          borderRadius: 8,
+                          border: `1px solid ${LIGHT.border2}`,
+                          background: 'none',
+                          color: LIGHT.text,
+                          fontFamily: 'inherit',
+                          fontSize: 13,
+                          fontWeight: 600,
+                          cursor: busy ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        <CameraIcon size={16} />
+                        Take Photo
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={busy}
+                        className="hover-surface"
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          height: 36,
+                          padding: '0 14px',
+                          borderRadius: 8,
+                          border: `1px solid ${LIGHT.border2}`,
+                          background: 'none',
+                          color: LIGHT.text,
+                          fontFamily: 'inherit',
+                          fontSize: 13,
+                          fontWeight: 600,
+                          cursor: busy ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        <UploadIcon size={16} />
+                        Choose from Gallery
+                      </button>
+                    </div>
                   </div>
-                  <div style={{ fontSize: 13, color: LIGHT.mid, fontWeight: 500 }}>
-                    Tap to choose a product photo
-                  </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
+                )}
+                {requiresCataloguePallu &&
+                  (palluPreviewUrl ? (
                     <button
                       type="button"
-                      onClick={() => cameraInputRef.current?.click()}
+                      onClick={() => palluFileInputRef.current?.click()}
                       disabled={busy}
-                      className="hover-surface"
                       style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        height: 36,
-                        padding: '0 14px',
+                        height: 180,
                         borderRadius: 8,
-                        border: `1px solid ${LIGHT.border2}`,
-                        background: 'none',
-                        color: LIGHT.text,
-                        fontFamily: 'inherit',
-                        fontSize: 13,
-                        fontWeight: 600,
+                        border: `1px dashed ${LIGHT.border2}`,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
                         cursor: busy ? 'not-allowed' : 'pointer',
+                        overflow: 'hidden',
+                        position: 'relative',
+                        gap: 8,
+                        background: 'none',
+                        padding: 0,
+                        fontFamily: 'inherit',
+                        width: '100%',
+                      }}
+                      className="hover-surface"
+                    >
+                      {/* biome-ignore lint/performance/noImgElement: local preview */}
+                      <img
+                        src={palluPreviewUrl}
+                        alt="Pallu Preview"
+                        style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                      />
+                    </button>
+                  ) : (
+                    <div
+                      style={{
+                        height: 180,
+                        borderRadius: 8,
+                        border: `1px dashed ${LIGHT.border2}`,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 12,
+                        width: '100%',
                       }}
                     >
-                      <CameraIcon size={16} />
-                      Take Photo
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={busy}
-                      className="hover-surface"
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        height: 36,
-                        padding: '0 14px',
-                        borderRadius: 8,
-                        border: `1px solid ${LIGHT.border2}`,
-                        background: 'none',
-                        color: LIGHT.text,
-                        fontFamily: 'inherit',
-                        fontSize: 13,
-                        fontWeight: 600,
-                        cursor: busy ? 'not-allowed' : 'pointer',
-                      }}
-                    >
-                      <UploadIcon size={16} />
-                      Choose from Gallery
-                    </button>
-                  </div>
-                </div>
-              )
+                      <div style={{ color: LIGHT.mid }}>
+                        <UploadIcon size={28} />
+                      </div>
+                      <div style={{ fontSize: 13, color: LIGHT.mid, fontWeight: 500 }}>
+                        Tap to choose the pallu photo
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button
+                          type="button"
+                          onClick={() => palluCameraInputRef.current?.click()}
+                          disabled={busy}
+                          className="hover-surface"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            height: 36,
+                            padding: '0 14px',
+                            borderRadius: 8,
+                            border: `1px solid ${LIGHT.border2}`,
+                            background: 'none',
+                            color: LIGHT.text,
+                            fontFamily: 'inherit',
+                            fontSize: 13,
+                            fontWeight: 600,
+                            cursor: busy ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          <CameraIcon size={16} />
+                          Take Photo
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => palluFileInputRef.current?.click()}
+                          disabled={busy}
+                          className="hover-surface"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            height: 36,
+                            padding: '0 14px',
+                            borderRadius: 8,
+                            border: `1px solid ${LIGHT.border2}`,
+                            background: 'none',
+                            color: LIGHT.text,
+                            fontFamily: 'inherit',
+                            fontSize: 13,
+                            fontWeight: 600,
+                            cursor: busy ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          <UploadIcon size={16} />
+                          Choose from Gallery
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+              </div>
             ) : !previewUrl ? (
               <div
                 style={{
@@ -508,7 +661,6 @@ export function ProductForm({
                     flexShrink: 0,
                   }}
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   {/* biome-ignore lint/performance/noImgElement: local/generated preview */}
                   <img
                     src={generatedItem?.imageUrl ?? previewUrl}
@@ -646,6 +798,23 @@ export function ProductForm({
           type="file"
           ref={cameraInputRef}
           onChange={handleFileChange}
+          accept="image/jpeg,image/png,image/webp"
+          capture="environment"
+          style={{ display: 'none' }}
+          tabIndex={-1}
+        />
+        <input
+          type="file"
+          ref={palluFileInputRef}
+          onChange={handlePalluFileChange}
+          accept="image/jpeg,image/png,image/webp"
+          style={{ display: 'none' }}
+          tabIndex={-1}
+        />
+        <input
+          type="file"
+          ref={palluCameraInputRef}
+          onChange={handlePalluFileChange}
           accept="image/jpeg,image/png,image/webp"
           capture="environment"
           style={{ display: 'none' }}
@@ -799,7 +968,7 @@ export function ProductForm({
               padding: '8px 12px',
               borderRadius: 8,
               background: 'rgba(245,92,122,0.06)',
-              border: `1px solid ${'#f55c7a'}`,
+              border: '1px solid #f55c7a',
               fontSize: 13,
               color: '#f55c7a',
             }}
@@ -814,7 +983,7 @@ export function ProductForm({
               padding: '8px 12px',
               borderRadius: 8,
               background: 'rgba(245,92,122,0.06)',
-              border: `1px solid ${'#f55c7a'}`,
+              border: '1px solid #f55c7a',
               fontSize: 13,
               color: '#f55c7a',
             }}

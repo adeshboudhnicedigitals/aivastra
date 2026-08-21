@@ -3,7 +3,7 @@ import { asc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { requireAdmin } from './guard.js';
+import { requirePermission } from './guard.js';
 
 const RFC3339_DATE_TIME =
   /^(\d{4})-(\d{2})-(\d{2})T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
@@ -56,7 +56,7 @@ const CampaignBody = z.object({
 });
 
 export async function adminSignupCampaignsRoutes(app: FastifyInstance) {
-  const W = requireAdmin(['SUPER_ADMIN']);
+  const W = requirePermission('signup_campaigns.write');
 
   app.get('/admin/signup-campaigns', { preHandler: W }, async () => {
     return app.db

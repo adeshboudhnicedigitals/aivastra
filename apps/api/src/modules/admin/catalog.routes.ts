@@ -13,11 +13,11 @@ import { and, count, eq, ilike, inArray, isNull, ne } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { requireAdmin } from './guard.js';
+import { requirePermission } from './guard.js';
 
 export async function adminCatalogRoutes(app: FastifyInstance) {
-  const RW = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
-  const D = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
+  const RW = requirePermission('catalog.write');
+  const D = requirePermission('catalog.delete');
 
   app.get(
     '/admin/catalog/items',

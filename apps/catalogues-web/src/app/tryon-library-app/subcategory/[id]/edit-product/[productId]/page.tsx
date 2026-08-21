@@ -117,6 +117,8 @@ export default function EditProductScreen() {
       <ProductForm
         subcategoryId={subcategoryId}
         initialData={product}
+        supportsTwoInputMannequin={subcategory?.supportsTwoInputMannequin ?? false}
+        supportsTwoInputDirectTryon={subcategory?.supportsTwoInputDirectTryon ?? false}
         onSaved={handleSaved}
         onCancel={goBackToProducts}
       />

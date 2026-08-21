@@ -13,13 +13,13 @@ import {
 } from '../../lib/catalog-options-cache.js';
 import { AppError } from '../../lib/errors.js';
 import { makeUniqueSlug } from '../../lib/slugify.js';
-import { requireAdmin } from './guard.js';
+import { requirePermission } from './guard.js';
 
 const DEV_SAREE_CONFIG_ID = '00000000-0000-0000-0000-000000000002';
 
 export async function adminDevApiRoutes(app: FastifyInstance) {
-  const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
-  const R = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
+  const W = requirePermission('dev_api.write');
+  const R = requirePermission('dev_api.read');
   const uuidParam = z.object({ id: z.string().uuid() });
 
   // Manual escape hatch for the catalog options cache. The onResponse hook in

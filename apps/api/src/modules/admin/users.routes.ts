@@ -10,7 +10,8 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { hashPassword } from '../auth/service.js';
-import { requireAdmin } from './guard.js';
+import { recordAudit } from './audit.js';
+import { requirePermission } from './guard.js';
 import { jobTypeSql } from './job-type.js';
 import { renderUsersExportPdf } from './users-export-pdf.js';
 import { loadUsersForExport, UsersExportQuery } from './users-export-query.js';
@@ -25,8 +26,8 @@ const PaginatedSearch = z.object({
 });
 
 export async function adminUsersRoutes(app: FastifyInstance) {
-  const ALL = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']);
-  const WRITE = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
+  const ALL = requirePermission('users.read');
+  const WRITE = requirePermission('users.write');
 
   app.get(
     '/admin/users',
@@ -299,12 +300,37 @@ export async function adminUsersRoutes(app: FastifyInstance) {
       if (maxActiveDevices !== undefined) patch.maxActiveDevices = maxActiveDevices;
       if (isBanned !== undefined) patch.isBanned = isBanned;
       if (banReason !== undefined) patch.banReason = banReason;
-      await app.db.update(schema.users).set(patch).where(eq(schema.users.id, id));
-      if (forceLogout)
-        await app.db
-          .update(schema.refreshTokens)
-          .set({ revokedAt: new Date() })
-          .where(eq(schema.refreshTokens.userId, id));
+
+      await app.db.transaction(async (tx) => {
+        const [existing] = await tx
+          .select()
+          .from(schema.users)
+          .where(eq(schema.users.id, id))
+          .for('update');
+        if (!existing) throw new AppError('NOT_FOUND', 404, 'user not found');
+
+        await tx.update(schema.users).set(patch).where(eq(schema.users.id, id));
+
+        if (forceLogout) {
+          await tx
+            .update(schema.refreshTokens)
+            .set({ revokedAt: new Date() })
+            .where(eq(schema.refreshTokens.userId, id));
+        }
+
+        const { passwordHash: _beforeHash, ...beforeSafe } = existing;
+        const { passwordHash: _afterHash, ...afterSafe } = { ...existing, ...patch };
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: isBanned ? 'users.ban' : 'users.update',
+          resourceType: 'user',
+          resourceId: id,
+          before: beforeSafe,
+          after: afterSafe,
+          request: req,
+        });
+      });
+
       return { ok: true };
     },
   );
@@ -317,51 +343,62 @@ export async function adminUsersRoutes(app: FastifyInstance) {
       >;
       const normalizedUsername = username.toLowerCase();
 
-      const [usernameConflict] = await app.db
-        .select({ id: schema.users.id })
-        .from(schema.users)
-        .where(eq(schema.users.username, normalizedUsername))
-        .limit(1);
-      if (usernameConflict) throw new AppError('USERNAME_TAKEN', 409, 'username already taken');
-
-      if (email) {
-        const [emailConflict] = await app.db
+      const user = await app.db.transaction(async (tx) => {
+        const [usernameConflict] = await tx
           .select({ id: schema.users.id })
           .from(schema.users)
-          .where(eq(schema.users.email, email))
+          .where(eq(schema.users.username, normalizedUsername))
           .limit(1);
-        if (emailConflict) throw new AppError('EMAIL_TAKEN', 409, 'email already registered');
-      }
+        if (usernameConflict) throw new AppError('USERNAME_TAKEN', 409, 'username already taken');
 
-      if (phone) {
-        const [phoneConflict] = await app.db
-          .select({ id: schema.users.id })
-          .from(schema.users)
-          .where(eq(schema.users.phone, phone))
-          .limit(1);
-        if (phoneConflict) {
-          throw new AppError('PHONE_TAKEN', 409, 'phone already assigned to another account');
+        if (email) {
+          const [emailConflict] = await tx
+            .select({ id: schema.users.id })
+            .from(schema.users)
+            .where(eq(schema.users.email, email))
+            .limit(1);
+          if (emailConflict) throw new AppError('EMAIL_TAKEN', 409, 'email already registered');
         }
-      }
 
-      const passwordHash = await hashPassword(password);
-      const [user] = await app.db
-        .insert(schema.users)
-        .values({
-          username: normalizedUsername,
-          passwordHash,
-          displayName,
-          email: email ?? null,
-          phone: phone ?? null,
-          companyName: companyName ?? null,
-          tier: 'free',
-          // Admin is vouching for this account directly -- there is no inbox to
-          // verify (may not even have an email), so verification doesn't apply.
-          emailVerified: true,
-        })
-        .returning({ id: schema.users.id });
-      if (!user) throw new AppError('INTERNAL', 500, 'failed to create user');
-      await app.db.insert(schema.userCredits).values({ userId: user.id, balance: 0 });
+        if (phone) {
+          const [phoneConflict] = await tx
+            .select({ id: schema.users.id })
+            .from(schema.users)
+            .where(eq(schema.users.phone, phone))
+            .limit(1);
+          if (phoneConflict) {
+            throw new AppError('PHONE_TAKEN', 409, 'phone already assigned to another account');
+          }
+        }
+
+        const passwordHash = await hashPassword(password);
+        const [created] = await tx
+          .insert(schema.users)
+          .values({
+            username: normalizedUsername,
+            passwordHash,
+            displayName,
+            email: email ?? null,
+            phone: phone ?? null,
+            companyName: companyName ?? null,
+            tier: 'free',
+            emailVerified: true,
+          })
+          .returning({ id: schema.users.id });
+        if (!created) throw new AppError('INTERNAL', 500, 'failed to create user');
+        await tx.insert(schema.userCredits).values({ userId: created.id, balance: 0 });
+
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'users.create',
+          resourceType: 'user',
+          resourceId: created.id,
+          after: { id: created.id, username: normalizedUsername, displayName, email },
+          request: req,
+        });
+
+        return created;
+      });
 
       reply.code(201);
       return { ok: true, userId: user.id };
@@ -408,26 +445,45 @@ export async function adminUsersRoutes(app: FastifyInstance) {
       .where(eq(schema.merchants.userId, id));
     if (merchantRow) return { ok: false, reason: 'cannot erase a merchant account owner' };
 
-    await app.db
-      .update(schema.users)
-      .set({
-        email: sql`'deleted+' || ${id} || '@example.invalid'`,
-        displayName: 'Deleted User',
-        phone: null,
-        companyName: null,
-        username: null,
-        isBanned: true,
-        banReason: 'admin erasure (GDPR)',
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.users.id, id));
+    await app.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(schema.users)
+        .where(eq(schema.users.id, id))
+        .for('update');
+      if (!existing) return;
 
-    await app.db.delete(schema.oauthAccounts).where(eq(schema.oauthAccounts.userId, id));
+      await tx
+        .update(schema.users)
+        .set({
+          email: sql`'deleted+' || ${id} || '@example.invalid'`,
+          displayName: 'Deleted User',
+          phone: null,
+          companyName: null,
+          username: null,
+          isBanned: true,
+          banReason: 'admin erasure (GDPR)',
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.users.id, id));
 
-    await app.db
-      .update(schema.refreshTokens)
-      .set({ revokedAt: new Date() })
-      .where(eq(schema.refreshTokens.userId, id));
+      await tx.delete(schema.oauthAccounts).where(eq(schema.oauthAccounts.userId, id));
+
+      await tx
+        .update(schema.refreshTokens)
+        .set({ revokedAt: new Date() })
+        .where(eq(schema.refreshTokens.userId, id));
+
+      if (adminUserId) {
+        await recordAudit(tx, {
+          actor: { userId: adminUserId, role: 'SUPER_ADMIN' },
+          action: 'users.delete',
+          resourceType: 'user',
+          resourceId: id,
+          before: { id: existing.id, username: existing.username, email: existing.email },
+        });
+      }
+    });
 
     app.log.warn(
       { adminUserId, targetUserId: id, action: 'USER_ERASURE' },
@@ -440,7 +496,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
   app.delete(
     '/admin/users/:id',
     {
-      preHandler: requireAdmin(['SUPER_ADMIN']),
+      preHandler: requirePermission('users.delete'),
       schema: { params: z.object({ id: z.string().uuid() }) },
     },
     async (req) => {
@@ -454,7 +510,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
   app.post(
     '/admin/users/bulk-delete',
     {
-      preHandler: requireAdmin(['SUPER_ADMIN']),
+      preHandler: requirePermission('users.delete'),
       schema: { body: BulkDeleteUsersBody },
     },
     async (req) => {
@@ -476,7 +532,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
   );
 
   // Admin request management (SUPER_ADMIN only)
-  const SUPER = requireAdmin(['SUPER_ADMIN']);
+  const SUPER = requirePermission('admin_users.manage');
 
   app.get('/admin/admin-requests', { preHandler: SUPER }, async () => {
     const rows = await app.db
@@ -502,16 +558,27 @@ export async function adminUsersRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { userId } = req.params as { userId: string };
-      const [userRecord] = await app.db
-        .select({ passwordHash: schema.users.passwordHash })
-        .from(schema.users)
-        .where(eq(schema.users.id, userId));
-      const [row] = await app.db
-        .update(schema.adminUsers)
-        .set({ status: 'active', passwordHash: userRecord?.passwordHash ?? null })
-        .where(and(eq(schema.adminUsers.userId, userId), eq(schema.adminUsers.status, 'pending')))
-        .returning({ userId: schema.adminUsers.userId });
-      if (!row) throw new AppError('NOT_FOUND', 404, 'no pending admin request for this user');
+      await app.db.transaction(async (tx) => {
+        const [userRecord] = await tx
+          .select({ passwordHash: schema.users.passwordHash })
+          .from(schema.users)
+          .where(eq(schema.users.id, userId));
+        const [row] = await tx
+          .update(schema.adminUsers)
+          .set({ status: 'active', passwordHash: userRecord?.passwordHash ?? null })
+          .where(and(eq(schema.adminUsers.userId, userId), eq(schema.adminUsers.status, 'pending')))
+          .returning({ userId: schema.adminUsers.userId });
+        if (!row) throw new AppError('NOT_FOUND', 404, 'no pending admin request for this user');
+
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'admin_users.approve',
+          resourceType: 'admin_user',
+          resourceId: userId,
+          after: { status: 'active' },
+          request: req,
+        });
+      });
       return { ok: true, status: 'active' };
     },
   );
@@ -524,12 +591,23 @@ export async function adminUsersRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { userId } = req.params as { userId: string };
-      const [row] = await app.db
-        .update(schema.adminUsers)
-        .set({ status: 'rejected' })
-        .where(and(eq(schema.adminUsers.userId, userId), eq(schema.adminUsers.status, 'pending')))
-        .returning({ userId: schema.adminUsers.userId });
-      if (!row) throw new AppError('NOT_FOUND', 404, 'no pending admin request for this user');
+      await app.db.transaction(async (tx) => {
+        const [row] = await tx
+          .update(schema.adminUsers)
+          .set({ status: 'rejected' })
+          .where(and(eq(schema.adminUsers.userId, userId), eq(schema.adminUsers.status, 'pending')))
+          .returning({ userId: schema.adminUsers.userId });
+        if (!row) throw new AppError('NOT_FOUND', 404, 'no pending admin request for this user');
+
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'admin_users.reject',
+          resourceType: 'admin_user',
+          resourceId: userId,
+          after: { status: 'rejected' },
+          request: req,
+        });
+      });
       return { ok: true, status: 'rejected' };
     },
   );
@@ -547,18 +625,29 @@ export async function adminUsersRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { userId, role } = req.body as { userId: string; role: string };
-      const [user] = await app.db
-        .select({ id: schema.users.id, passwordHash: schema.users.passwordHash })
-        .from(schema.users)
-        .where(eq(schema.users.id, userId));
-      if (!user) throw new AppError('NOT_FOUND', 404, 'user not found');
-      await app.db
-        .insert(schema.adminUsers)
-        .values({ userId, role, status: 'active', passwordHash: user.passwordHash })
-        .onConflictDoUpdate({
-          target: schema.adminUsers.userId,
-          set: { role, status: 'active', passwordHash: user.passwordHash },
+      await app.db.transaction(async (tx) => {
+        const [user] = await tx
+          .select({ id: schema.users.id, passwordHash: schema.users.passwordHash })
+          .from(schema.users)
+          .where(eq(schema.users.id, userId));
+        if (!user) throw new AppError('NOT_FOUND', 404, 'user not found');
+        await tx
+          .insert(schema.adminUsers)
+          .values({ userId, role, status: 'active', passwordHash: user.passwordHash })
+          .onConflictDoUpdate({
+            target: schema.adminUsers.userId,
+            set: { role, status: 'active', passwordHash: user.passwordHash },
+          });
+
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'admin_users.update_role',
+          resourceType: 'admin_user',
+          resourceId: userId,
+          after: { role, status: 'active' },
+          request: req,
         });
+      });
       return { ok: true, role, status: 'active' };
     },
   );
@@ -574,7 +663,27 @@ export async function adminUsersRoutes(app: FastifyInstance) {
       if (userId === req.userId) {
         throw new AppError('FORBIDDEN', 403, 'cannot revoke your own admin access');
       }
-      await app.db.delete(schema.adminUsers).where(eq(schema.adminUsers.userId, userId));
+      await app.db.transaction(async (tx) => {
+        const [existing] = await tx
+          .select()
+          .from(schema.adminUsers)
+          .where(eq(schema.adminUsers.userId, userId))
+          .for('update');
+        if (!existing) return;
+
+        await tx.delete(schema.adminUsers).where(eq(schema.adminUsers.userId, userId));
+
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'admin_users.revoke',
+          resourceType: 'admin_user',
+          resourceId: userId,
+          // Never persist passwordHash into audit_logs — it's copied onto admin_users
+          // from users.passwordHash at approval time (see schema comment).
+          before: { role: existing.role, status: existing.status },
+          request: req,
+        });
+      });
       return { ok: true };
     },
   );

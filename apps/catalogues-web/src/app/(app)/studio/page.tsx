@@ -571,7 +571,10 @@ export default function StudioPage(): React.ReactElement {
   }, [palluGarmentPreviewUrl]);
   const [palluGarmentKey, setPalluGarmentKey] = useState('');
   const [isUploadingPallu, setIsUploadingPallu] = useState(false);
-  const [sareeUploadMode, setSareeUploadMode] = useState<'single' | 'two_input'>('single');
+  // 'single' (Full Saree) is retained as a value only for garment types that never
+  // reach two-input capability; saree defaults straight to Body & Pallu and the
+  // Full Saree option is no longer user-selectable (see the removed dropdown below).
+  const [sareeUploadMode, setSareeUploadMode] = useState<'single' | 'two_input'>('two_input');
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -2089,7 +2092,7 @@ export default function StudioPage(): React.ReactElement {
                                 setPoseIds([]);
                                 setLowerCatalogId('');
                                 setShoeCatalogId('');
-                                setSareeUploadMode('single');
+                                setSareeUploadMode('two_input');
                                 setPalluGarmentFile(null);
                                 setPalluGarmentKey('');
                               }
@@ -2108,46 +2111,6 @@ export default function StudioPage(): React.ReactElement {
                   subtitle="Upload a clean flat lay garment image"
                   stepNumber={3}
                 />
-                {sareeTwoInputCapable && (
-                  <div style={{ marginBottom: 12 }}>
-                    <label
-                      htmlFor="saree-upload-mode"
-                      style={{
-                        display: 'block',
-                        fontSize: 12,
-                        fontWeight: 500,
-                        color: C.mid,
-                        marginBottom: 6,
-                      }}
-                    >
-                      Upload type
-                    </label>
-                    <select
-                      id="saree-upload-mode"
-                      value={sareeUploadMode}
-                      onChange={(e) => {
-                        const mode = e.target.value as 'single' | 'two_input';
-                        setSareeUploadMode(mode);
-                        if (mode === 'single') {
-                          setPalluGarmentFile(null);
-                          setPalluGarmentKey('');
-                        }
-                      }}
-                      style={{
-                        background: C.field,
-                        color: C.text,
-                        border: `1px solid ${C.border}`,
-                        borderRadius: 8,
-                        padding: '8px 12px',
-                        fontSize: 13,
-                        minWidth: 220,
-                      }}
-                    >
-                      <option value="single">Full Saree</option>
-                      <option value="two_input">Body & Pallu</option>
-                    </select>
-                  </div>
-                )}
                 <div
                   style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}
                 >

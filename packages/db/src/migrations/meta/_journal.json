@@ -1114,6 +1114,69 @@
       "when": 1786972121857,
       "tag": "0158_brief_solo",
       "breakpoints": true
+    },
+    {
+      "idx": 159,
+      "version": "7",
+      "when": 1787058000000,
+      "tag": "0159_shopify_credit_purchases",
+      "breakpoints": true
+    },
+    {
+      "idx": 160,
+      "version": "7",
+      "when": 1787061600000,
+      "tag": "0160_drop_shopify_app_pricing",
+      "breakpoints": true
+    },
+    {
+      "idx": 161,
+      "version": "7",
+      "when": 1787065200000,
+      "tag": "0161_shopify_alerting",
+      "breakpoints": true
+    },
+    {
+      "idx": 162,
+      "version": "7",
+      "when": 1787068800000,
+      "tag": "0162_autorefill_line_item",
+      "breakpoints": true
+    },
+    {
+      "idx": 163,
+      "version": "7",
+      "when": 1787224028811,
+      "tag": "0163_shopify_partner_development",
+      "breakpoints": true
+    },
+    {
+      "idx": 164,
+      "version": "7",
+      "when": 1787227161044,
+      "tag": "0164_autorefill_cap_tracking",
+      "breakpoints": true
+    },
+    {
+      "idx": 165,
+      "version": "7",
+      "when": 1787226397945,
+      "tag": "0165_merchant_catalog_two_input_tryon",
+      "breakpoints": true
+    },
+    {
+      "idx": 166,
+      "version": "7",
+      "when": 1787000000000,
+      "tag": "0166_audit_logs",
+      "breakpoints": true
+    },
+    {
+      "idx": 167,
+      "version": "7",
+      "when": 1787100000000,
+      "tag": "0167_permissions",
+      "breakpoints": true
     }
   ]
 }

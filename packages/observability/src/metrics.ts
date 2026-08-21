@@ -41,6 +41,12 @@ export const creditsRefundedTotal = new Counter({
   registers: [register],
 });
 
+export const auditLogWriteFailuresTotal = new Counter({
+  name: 'audit_log_write_failures_total',
+  help: 'Count of failed audit log write attempts inside admin mutation transactions',
+  registers: [register],
+});
+
 // ── Dispatcher metrics ───────────────────────────────────────────────────────
 
 export const jobsProcessedTotal = new Counter({
