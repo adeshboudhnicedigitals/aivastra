@@ -65,9 +65,14 @@ import aivastra.nice.interactive.ui.theme.PoppinsFamily
 import aivastra.nice.interactive.utils.sdp
 import aivastra.nice.interactive.utils.ssp
 
+// Public web page (apps/catalogues-web/src/app/kiosk-download/page.tsx) that turns a
+// batch of job IDs into a "download all as zip" flow.
+private const val KIOSK_DOWNLOAD_BASE_URL = "https://app.aivastra.com/kiosk-download"
+
 @Composable
 fun DownloadPage(
     resultsList: List<String>,
+    jobIds: List<String> = emptyList(),
     onBack: () -> Unit,
     onDeleteSession: () -> Unit,
     onCreateNew: () -> Unit,
@@ -297,7 +302,14 @@ fun DownloadPage(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(sdp(R.dimen._20sdp))
                 ) {
-                    val allImagesQrUrl = resultsList.joinToString(",")
+                    // Encodes job IDs (short) rather than the presigned result URLs
+                    // (long, and growing per result) so this stays scannable as the
+                    // session accumulates more try-on results.
+                    val allImagesQrUrl = if (jobIds.isNotEmpty()) {
+                        "$KIOSK_DOWNLOAD_BASE_URL?jobs=${jobIds.joinToString(",")}"
+                    } else {
+                        ""
+                    }
                     if (allImagesQrUrl.isNotBlank()) {
                         QrCodeImage(
                             content = allImagesQrUrl,

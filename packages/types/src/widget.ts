@@ -382,6 +382,24 @@ export const PublicUploadSessionPresignResponse = z.object({
 });
 export type PublicUploadSessionPresignResponse = z.infer<typeof PublicUploadSessionPresignResponse>;
 
+// Public "download all" QR flow (kiosk android app): the QR encodes a comma-joined
+// list of job IDs (short, unlike presigned URLs) rather than the images themselves —
+// this endpoint re-mints presigned URLs for them on demand.
+export const KioskDownloadBatchQuery = z.object({
+  jobIds: z.string().min(1),
+});
+export type KioskDownloadBatchQuery = z.infer<typeof KioskDownloadBatchQuery>;
+
+export const KioskDownloadBatchResponse = z.object({
+  items: z.array(
+    z.object({
+      jobId: z.string().uuid(),
+      url: z.string().url(),
+    }),
+  ),
+});
+export type KioskDownloadBatchResponse = z.infer<typeof KioskDownloadBatchResponse>;
+
 export const AdminMerchantCatalogUpdateBody = z
   .object({
     isActive: z.boolean().optional(),
