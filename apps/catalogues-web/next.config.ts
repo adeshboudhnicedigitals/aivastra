@@ -26,10 +26,19 @@ const nextConfig: NextConfig = {
   async redirects() {
     const base = process.env.NEXT_PUBLIC_BASE_PATH || '';
     return [
-      { source: `${base}/dashboard`, destination: `${base}/catalogues`, permanent: true },
-      { source: `${base}/jobs`, destination: `${base}/catalogues`, permanent: true },
+      { source: `${base}/dashboard`, destination: `${base}/catalogs`, permanent: true },
+      { source: `${base}/jobs`, destination: `${base}/catalogs`, permanent: true },
       { source: `${base}/credits`, destination: `${base}/pricing`, permanent: true },
       { source: `${base}/account`, destination: `${base}/settings`, permanent: true },
+      { source: `${base}/catalogues`, destination: `${base}/catalogs`, permanent: true },
+      {
+        source: `${base}/catalogues/:path*`,
+        destination: `${base}/catalogs/:path*`,
+        permanent: true,
+      },
+      // Exact match only — /assets/:path* would shadow the public/assets static
+      // folder, since next.config redirects run before filesystem/public files.
+      { source: `${base}/assets`, destination: `${base}/my-products`, permanent: true },
     ];
   },
   webpack: (config) => {

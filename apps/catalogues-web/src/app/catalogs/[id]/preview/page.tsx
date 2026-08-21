@@ -24,7 +24,7 @@ import {
   FramedShopifyDesktopTemplate,
   FramedShopifyMobileTemplate,
   PhoneShell,
-} from '../../../(app)/catalogues/[id]/preview/templates';
+} from '../../../(app)/catalogs/[id]/preview/templates';
 
 interface Job {
   id: string;
@@ -132,7 +132,7 @@ function PreviewToolbar({
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
         <Link
-          href={`/catalogues/${id}`}
+          href={`/catalogs/${id}`}
           style={{
             width: 36,
             height: 36,
