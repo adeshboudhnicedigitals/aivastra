@@ -107,7 +107,13 @@ export async function jobsRoutes(app: FastifyInstance) {
       // dev API must not trigger it). Never throws, so it can't turn a successful
       // job-creation response into an error; awaited so tests/response ordering
       // stay deterministic, not to gate the response on it succeeding.
-      await updateLastUsedPosePreset(app, req.userId, result.poseIds);
+      await updateLastUsedPosePreset(
+        app,
+        req.userId,
+        result.gender,
+        result.garmentTypeId,
+        result.poseIds,
+      );
       reply.code(201);
       return result;
     },
