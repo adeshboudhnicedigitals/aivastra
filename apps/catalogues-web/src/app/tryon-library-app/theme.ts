@@ -6,7 +6,7 @@ import type { MerchantCatalogCategory as Category } from '@aivastra/types';
 // html.dark and would turn near-white text invisible against the forced white
 // background used throughout this section.
 export const LIGHT = {
-  bg: '#ffffff',
+  bg: '#fafafa',
   card: '#ffffff',
   text: '#141414',
   mid: '#626262',
@@ -36,22 +36,22 @@ export const GENDER_OPTIONS: {
     id: 'men',
     label: 'Men',
     description: "Upload and manage men's wear products.",
-    accent: '#6464f0',
-    tint: 'rgba(100, 100, 240, 0.12)',
+    accent: '#f55c7a',
+    tint: 'rgba(245, 92, 122, 0.12)',
   },
   {
     id: 'girls',
     label: 'Girls',
     description: "Upload and manage girls' wear products.",
-    accent: '#f6b553',
-    tint: 'rgba(246, 181, 83, 0.12)',
+    accent: '#f55c7a',
+    tint: 'rgba(245, 92, 122, 0.12)',
   },
   {
     id: 'boys',
     label: 'Boys',
     description: "Upload and manage boys' wear products.",
-    accent: '#209e46',
-    tint: 'rgba(32, 158, 70, 0.12)',
+    accent: '#f55c7a',
+    tint: 'rgba(245, 92, 122, 0.12)',
   },
 ];
 

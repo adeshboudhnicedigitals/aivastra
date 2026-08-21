@@ -1,7 +1,8 @@
 'use client';
 import { useRef, useState } from 'react';
-import { ArrowLeft, PlusIcon } from '@/components/icons';
+import { ArrowLeft } from '@/components/icons';
 import { C } from '@/components/tokens';
+import { BoldPlusIcon } from './BoldPlusIcon';
 
 // Same stops as the shared `grad` token, different angle — kept local to this
 // app section so it doesn't shift the gradient on other pages that use `grad`.
@@ -62,7 +63,7 @@ function HeaderActions({ actions }: { actions: HeaderAction[] }) {
           cursor: 'pointer',
         }}
       >
-        <PlusIcon size={12} />
+        <BoldPlusIcon size={12} />
         {single.label}
       </button>
     );
@@ -154,7 +155,7 @@ function HeaderActions({ actions }: { actions: HeaderAction[] }) {
           cursor: 'pointer',
         }}
       >
-        <PlusIcon size={14} />
+        <BoldPlusIcon size={14} />
       </button>
     </div>
   );

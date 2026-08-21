@@ -2,16 +2,16 @@
 import type {
   MerchantCatalogCategory as Category,
   MerchantCatalogItem,
-  MerchantCatalogSubcategory,
   MerchantCatalogSubcategoryListResponse,
 } from '@aivastra/types';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
-import { ChevronRight, PlusIcon } from '@/components/icons';
-import { C, grad } from '@/components/tokens';
+import { ChevronRight } from '@/components/icons';
+import { grad } from '@/components/tokens';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { catalogAppApi as api, CatalogAppSessionExpiredError } from './catalog-app-api';
+import { BoldPlusIcon } from './components/BoldPlusIcon';
 import { ScreenHeader } from './components/ScreenHeader';
 import { SubcategoryCard } from './components/SubcategoryCard';
 import { useLoggedOut } from './logged-out-context';
@@ -166,13 +166,25 @@ function SubcategoriesScreenInner() {
   const onLoggedOut = useLoggedOut();
 
   const selectedCategory = searchParams.get('category') as Category | null;
-  const [deleteTarget, setDeleteTarget] = useState<MerchantCatalogSubcategory | undefined>(
-    undefined,
-  );
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
   function selectGender(category: Category) {
     router.push(`/tryon-library-app?category=${category}`);
   }
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [selectedCategory]);
 
   const subcategoriesQuery = useQuery({
     queryKey: ['merchant-catalog-subcategories'],
@@ -217,11 +229,13 @@ function SubcategoriesScreenInner() {
     }),
   );
 
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.del<void>(`/v1/merchant/catalog/subcategories/${id}`),
+  const bulkDeleteMutation = useMutation({
+    mutationFn: (ids: string[]) =>
+      Promise.all(ids.map((id) => api.del<void>(`/v1/merchant/catalog/subcategories/${id}`))),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['merchant-catalog-subcategories'] });
-      setDeleteTarget(undefined);
+      setSelectedIds(new Set());
+      setBulkDeleteOpen(false);
     },
   });
 
@@ -236,9 +250,10 @@ function SubcategoriesScreenInner() {
             alignItems: 'center',
             justifyContent: 'center',
             minHeight: '60vh',
+            background: LIGHT.bg,
           }}
         >
-          <div style={{ color: C.mid, fontSize: 14 }}>Loading catalogue…</div>
+          <div style={{ color: LIGHT.mid, fontSize: 14 }}>Loading catalogue…</div>
         </div>
       </>
     );
@@ -256,12 +271,14 @@ function SubcategoriesScreenInner() {
             flexDirection: 'column',
             alignItems: 'center',
             gap: 12,
+            minHeight: '60vh',
+            background: LIGHT.bg,
           }}
         >
-          <h3 style={{ fontSize: 16, fontWeight: 600, color: C.text, margin: 0 }}>
+          <h3 style={{ fontSize: 16, fontWeight: 600, color: LIGHT.text, margin: 0 }}>
             Merchant account required
           </h3>
-          <p style={{ color: C.light, fontSize: 14, margin: 0, maxWidth: 320 }}>
+          <p style={{ color: LIGHT.mid, fontSize: 14, margin: 0, maxWidth: 320 }}>
             This account isn't enabled for virtual try-on yet. Contact support to get your merchant
             account activated.
           </p>
@@ -303,15 +320,73 @@ function SubcategoriesScreenInner() {
       <ScreenHeader
         variant="back"
         title={categoryLabel}
-        subtitle="Manage subcategories and products"
+        subtitle="Manage categories"
         onBack={() => router.push('/tryon-library-app')}
         actions={[
           {
-            label: 'Add Subcategory',
+            label: 'Add Category',
             onClick: () => router.push(addSubcategoryHref),
           },
         ]}
       />
+
+      {selectedIds.size > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            margin: '12px 16px 0',
+            padding: '10px 14px',
+            borderRadius: 10,
+            background: LIGHT.card,
+            border: `1px solid ${LIGHT.border}`,
+          }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 600, color: LIGHT.text }}>
+            {selectedIds.size} selected
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <button
+              type="button"
+              onClick={() => setSelectedIds(new Set())}
+              className="focus-ring"
+              style={{
+                border: 'none',
+                background: 'none',
+                color: LIGHT.mid,
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => setBulkDeleteOpen(true)}
+              className="focus-ring hover-surface"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                height: 32,
+                padding: '0 14px',
+                borderRadius: 8,
+                border: 'none',
+                background: '#e53939',
+                color: '#fff',
+                fontWeight: 600,
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      )}
 
       {selectedCategorySubs.length === 0 ? (
         <div
@@ -366,7 +441,7 @@ function SubcategoriesScreenInner() {
               }}
             >
               <span style={{ display: 'flex', color: '#BD2587' }}>
-                <PlusIcon size={13} />
+                <BoldPlusIcon size={13} />
               </span>
               <span
                 style={{
@@ -376,7 +451,7 @@ function SubcategoriesScreenInner() {
                   backgroundClip: 'text',
                 }}
               >
-                Add Subcategory
+                Add Category
               </span>
             </button>
           </div>
@@ -408,7 +483,8 @@ function SubcategoriesScreenInner() {
                 subcategory={sub}
                 thumbnailUrl={thumbnailBySubcategoryId.get(sub.id) ?? null}
                 onOpen={() => router.push(`/tryon-library-app/subcategory/${sub.id}`)}
-                onDelete={() => setDeleteTarget(sub)}
+                selected={selectedIds.has(sub.id)}
+                onToggleSelect={() => toggleSelect(sub.id)}
               />
             ))}
           </div>
@@ -416,14 +492,16 @@ function SubcategoriesScreenInner() {
       )}
 
       <ConfirmDialog
-        open={!!deleteTarget}
-        title="Delete Subcategory"
-        message={`Are you sure you want to delete "${deleteTarget?.name}"? All products inside it will also be deleted.`}
+        open={bulkDeleteOpen}
+        title="Delete Subcategories"
+        message={`Are you sure you want to delete ${selectedIds.size} selected ${
+          selectedIds.size === 1 ? 'subcategory' : 'subcategories'
+        }? All products inside ${selectedIds.size === 1 ? 'it' : 'them'} will also be deleted.`}
         confirmLabel="Delete"
         danger
-        busy={deleteMutation.isPending}
-        onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
-        onCancel={() => setDeleteTarget(undefined)}
+        busy={bulkDeleteMutation.isPending}
+        onConfirm={() => bulkDeleteMutation.mutate(Array.from(selectedIds))}
+        onCancel={() => setBulkDeleteOpen(false)}
       />
     </div>
   );
@@ -431,7 +509,7 @@ function SubcategoriesScreenInner() {
 
 export default function SubcategoriesScreen() {
   return (
-    <Suspense fallback={<div style={{ minHeight: '100vh', background: C.white }} />}>
+    <Suspense fallback={<div style={{ minHeight: '100vh', background: LIGHT.bg }} />}>
       <SubcategoriesScreenInner />
     </Suspense>
   );

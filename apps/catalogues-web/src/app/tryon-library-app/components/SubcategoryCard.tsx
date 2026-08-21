@@ -1,18 +1,20 @@
 'use client';
 import type { MerchantCatalogSubcategory } from '@aivastra/types';
-import { ChevronRight, GarmentIcon, TrashIcon } from '@/components/icons';
+import { ChevronRight, GarmentIcon } from '@/components/icons';
 import { categoryAccent, categoryTint, LIGHT } from '../theme';
 
 export function SubcategoryCard({
   subcategory,
   thumbnailUrl,
   onOpen,
-  onDelete,
+  selected,
+  onToggleSelect,
 }: {
   subcategory: MerchantCatalogSubcategory;
   thumbnailUrl: string | null;
   onOpen: () => void;
-  onDelete: () => void;
+  selected: boolean;
+  onToggleSelect: () => void;
 }) {
   const accent = categoryAccent(subcategory.category);
   const tint = categoryTint(subcategory.category);
@@ -21,40 +23,60 @@ export function SubcategoryCard({
     <div
       style={{
         position: 'relative',
-        border: `1px solid ${LIGHT.border}`,
+        border: `1px solid ${selected ? accent : LIGHT.border}`,
         borderRadius: 14,
         background: LIGHT.card,
         overflow: 'hidden',
       }}
     >
-      <button
-        type="button"
+      {/* biome-ignore lint/a11y/useSemanticElements: <input type="checkbox"> would clip to this circular hit target's visual style; role+aria-checked keeps it accessible */}
+      <div
+        role="checkbox"
+        aria-checked={selected}
+        aria-label={selected ? `Deselect ${subcategory.name}` : `Select ${subcategory.name}`}
+        tabIndex={0}
         onClick={(e) => {
           e.stopPropagation();
-          onDelete();
+          onToggleSelect();
         }}
-        aria-label={`Delete ${subcategory.name}`}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            e.stopPropagation();
+            onToggleSelect();
+          }
+        }}
         className="focus-ring"
         style={{
           position: 'absolute',
           top: 8,
           right: 8,
-          width: 30,
-          height: 30,
+          width: 26,
+          height: 26,
           borderRadius: '50%',
-          border: 'none',
-          background: 'rgba(255,255,255,0.85)',
-          color: LIGHT.mid,
+          border: `2px solid ${selected ? accent : 'rgba(255,255,255,0.9)'}`,
+          background: selected ? accent : 'rgba(255,255,255,0.85)',
+          color: '#fff',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           cursor: 'pointer',
           zIndex: 1,
-          boxShadow: '0 1px 4px rgba(0,0,0,0.12)',
+          boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
         }}
       >
-        <TrashIcon />
-      </button>
+        {selected && (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M4 12.5l5 5L20 7"
+              stroke="currentColor"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        )}
+      </div>
 
       {/* biome-ignore lint/a11y/useSemanticElements: contains a nested interactive <button> (delete) — real <button> here would be invalid HTML (no nesting) */}
       <div
