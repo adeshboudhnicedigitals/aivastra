@@ -33,8 +33,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -79,6 +82,7 @@ import aivastra.nice.interactive.utils.sdp
 import aivastra.nice.interactive.utils.ssp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 
 import android.app.Activity
@@ -111,7 +115,9 @@ private val categories = listOf(
 fun CategorySelectionPage(
     onCategorySelected: (categoryId: String) -> Unit = {},
     onProfileClick: () -> Unit = {},
+    onUploadProductsClick: () -> Unit = {},
     onLogoutSuccess: () -> Unit = {},
+    creditsBalance: Int = 0,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -192,43 +198,63 @@ fun CategorySelectionPage(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             AppHeaderLogo()
-                            Box {
-                                Box(
-                                    modifier = Modifier
-                                        .size(sdp(R.dimen._40sdp))
-                                        .clickable { onProfileClick() },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Image(
-                                        painter = painterResource(id = R.drawable.profile_icon),
-                                        contentDescription = "Profile",
-                                        modifier = Modifier.size(sdp(R.dimen._40sdp))
-                                    )
-                                }
-                                DropdownMenu(
-                                    expanded = showProfileMenu,
-                                    onDismissRequest = { showProfileMenu = false },
-                                    modifier = Modifier
-                                        .background(Color(0xFF1E1E1E))
-                                        .border(sdp(R.dimen._1sdp), Color(0xFFD88A18).copy(alpha = 0.5f), RoundedCornerShape(sdp(R.dimen._12sdp)))
-                                        .padding(vertical = sdp(R.dimen._4sdp))
-                                ) {
-                                    DropdownMenuItem(
-                                        text = {
-                                            Column {
-                                                Text("Signed in as", fontSize = ssp(R.dimen._10ssp), color = Color.Gray, fontFamily = PoppinsFamily)
-                                                Text(userEmail, fontSize = ssp(R.dimen._12ssp), fontWeight = FontWeight.SemiBold, color = Color.White, fontFamily = PoppinsFamily)
-                                            }
-                                        },
-                                        onClick = {}, enabled = false,
-                                        leadingIcon = { Icon(Icons.Default.Email, null, tint = Color(0xFFD88A18)) }
-                                    )
-                                    HorizontalDivider(color = Color.White.copy(alpha = 0.15f), modifier = Modifier.padding(vertical = sdp(R.dimen._4sdp)))
-                                    DropdownMenuItem(
-                                        text = { Text("Logout", fontSize = ssp(R.dimen._12ssp), fontWeight = FontWeight.SemiBold, color = Color(0xFFFF5252), fontFamily = PoppinsFamily) },
-                                        onClick = { showProfileMenu = false; showLogoutDialog = true },
-                                        leadingIcon = { Icon(Icons.Default.ExitToApp, "Logout", tint = Color(0xFFFF5252)) }
-                                    )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CreditsPill(credits = creditsBalance)
+                                Spacer(Modifier.width(sdp(R.dimen._8sdp)))
+                                Box {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(sdp(R.dimen._40sdp))
+                                            .clip(CircleShape)
+                                            .background(Color.White.copy(alpha = 0.08f))
+                                            .border(sdp(R.dimen._1sdp), Color.White.copy(alpha = 0.16f), CircleShape)
+                                            .clickable { showProfileMenu = true },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.MoreVert,
+                                            contentDescription = "Menu",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(sdp(R.dimen._22sdp))
+                                        )
+                                    }
+                                    DropdownMenu(
+                                        expanded = showProfileMenu,
+                                        onDismissRequest = { showProfileMenu = false },
+                                        modifier = Modifier
+                                            .width(sdp(R.dimen._240sdp))
+                                            .background(Color(0xFF1B1815))
+                                            .border(sdp(R.dimen._1sdp), Color(0xFFD88A18).copy(alpha = 0.35f), RoundedCornerShape(sdp(R.dimen._16sdp)))
+                                            .padding(vertical = sdp(R.dimen._6sdp))
+                                    ) {
+                                        ProfileMenuItem(
+                                            leadingIcon = {
+                                                Icon(Icons.Default.Person, null, tint = Color(0xFFD88A18), modifier = Modifier.size(sdp(R.dimen._18sdp)))
+                                            },
+                                            title = "My Profile",
+                                            subtitle = "View and edit your profile",
+                                            onClick = { showProfileMenu = false; onProfileClick() }
+                                        )
+                                        ProfileMenuItem(
+                                            leadingIcon = {
+                                                Icon(painterResource(R.drawable.ic_cloud_upload), null, tint = Color(0xFFD88A18), modifier = Modifier.size(sdp(R.dimen._18sdp)))
+                                            },
+                                            title = "Upload Products",
+                                            subtitle = "Add your products",
+                                            onClick = { showProfileMenu = false; onUploadProductsClick() }
+                                        )
+                                        HorizontalDivider(color = Color.White.copy(alpha = 0.12f), modifier = Modifier.padding(vertical = sdp(R.dimen._4sdp)))
+                                        ProfileMenuItem(
+                                            leadingIcon = {
+                                                Icon(Icons.Default.ExitToApp, null, tint = Color(0xFFFF5252), modifier = Modifier.size(sdp(R.dimen._18sdp)))
+                                            },
+                                            title = "Log Out",
+                                            subtitle = "Sign out from your account",
+                                            titleColor = Color(0xFFFF5252),
+                                            showChevron = false,
+                                            onClick = { showProfileMenu = false; showLogoutDialog = true }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -343,6 +369,90 @@ fun CategorySelectionPage(
             }
         }
     }
+}
+
+//──────────────────────────────────────────────────────────────────────────────
+// CREDITS PILL
+//──────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun CreditsPill(credits: Int) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .clip(RoundedCornerShape(sdp(R.dimen._24sdp)))
+            .background(Color.White.copy(alpha = 0.06f))
+            .border(sdp(R.dimen._1sdp), Color(0xFFD88A18).copy(alpha = 0.4f), RoundedCornerShape(sdp(R.dimen._24sdp)))
+            .padding(start = sdp(R.dimen._6sdp), end = sdp(R.dimen._12sdp), top = sdp(R.dimen._6sdp), bottom = sdp(R.dimen._6sdp))
+    ) {
+        Box(
+            modifier = Modifier
+                .size(sdp(R.dimen._22sdp))
+                .clip(CircleShape)
+                .background(ButtonGradient),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Star,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(sdp(R.dimen._12sdp))
+            )
+        }
+        Spacer(Modifier.width(sdp(R.dimen._6sdp)))
+        Text(
+            text = "${formatCredits(credits)} Credits",
+            color = Color.White,
+            fontSize = ssp(R.dimen._11ssp),
+            fontWeight = FontWeight.SemiBold,
+            fontFamily = PoppinsFamily
+        )
+    }
+}
+
+private fun formatCredits(value: Int): String = String.format(Locale.US, "%,d", value)
+
+//──────────────────────────────────────────────────────────────────────────────
+// PROFILE DROPDOWN MENU ITEM
+//──────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun ProfileMenuItem(
+    leadingIcon: @Composable () -> Unit,
+    title: String,
+    subtitle: String,
+    titleColor: Color = Color.White,
+    showChevron: Boolean = true,
+    onClick: () -> Unit
+) {
+    DropdownMenuItem(
+        text = {
+            Column {
+                Text(title, color = titleColor, fontSize = ssp(R.dimen._13ssp), fontWeight = FontWeight.SemiBold, fontFamily = PoppinsFamily)
+                Text(subtitle, color = Color.White.copy(alpha = 0.45f), fontSize = ssp(R.dimen._10ssp), fontFamily = PoppinsFamily, fontWeight = FontWeight.Normal)
+            }
+        },
+        onClick = onClick,
+        leadingIcon = {
+            Box(
+                modifier = Modifier
+                    .size(sdp(R.dimen._34sdp))
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.06f)),
+                contentAlignment = Alignment.Center
+            ) { leadingIcon() }
+        },
+        trailingIcon = if (showChevron) {
+            {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.3f),
+                    modifier = Modifier.size(sdp(R.dimen._18sdp))
+                )
+            }
+        } else null
+    )
 }
 
 //──────────────────────────────────────────────────────────────────────────────
