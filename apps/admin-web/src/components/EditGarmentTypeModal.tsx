@@ -361,6 +361,9 @@ export function EditGarmentTypeModal({
   const [mannequinTwoInputWorkflowTemplateId, setMannequinTwoInputWorkflowTemplateId] = useState(
     garmentType.mannequinTwoInputWorkflowTemplateId ?? '',
   );
+  const [twoInputTryonWorkflowTemplateId, setTwoInputTryonWorkflowTemplateId] = useState(
+    garmentType.twoInputTryonWorkflowTemplateId ?? '',
+  );
   const [publicApiSlug, setPublicApiSlug] = useState(garmentType.publicApiSlug ?? '');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [instructionFile, setInstructionFile] = useState<File | null>(null);
@@ -400,7 +403,9 @@ export function EditGarmentTypeModal({
     requiresMannequinStep !== (garmentType.requiresMannequinStep ?? false) ||
     mannequinWorkflowTemplateId !== (garmentType.mannequinWorkflowTemplateId ?? '') ||
     sareeStep2WorkflowTemplateId !== (garmentType.sareeStep2WorkflowTemplateId ?? '') ||
-    mannequinTwoInputWorkflowTemplateId !== (garmentType.mannequinTwoInputWorkflowTemplateId ?? '');
+    mannequinTwoInputWorkflowTemplateId !==
+      (garmentType.mannequinTwoInputWorkflowTemplateId ?? '') ||
+    twoInputTryonWorkflowTemplateId !== (garmentType.twoInputTryonWorkflowTemplateId ?? '');
 
   const save = async () => {
     setSaving(true);
@@ -475,6 +480,9 @@ export function EditGarmentTypeModal({
         (garmentType.mannequinTwoInputWorkflowTemplateId ?? '')
       ) {
         patchBody.mannequinTwoInputWorkflowTemplateId = mannequinTwoInputWorkflowTemplateId || null;
+      }
+      if (twoInputTryonWorkflowTemplateId !== (garmentType.twoInputTryonWorkflowTemplateId ?? '')) {
+        patchBody.twoInputTryonWorkflowTemplateId = twoInputTryonWorkflowTemplateId || null;
       }
 
       if (Object.keys(patchBody).length > 0) {
@@ -689,6 +697,23 @@ export function EditGarmentTypeModal({
                     <span className="hint">
                       Optional. When set, the studio wizard offers a "Body & Pallu" two-image upload
                       mode for this garment type, using this workflow instead of the one above.
+                    </span>
+                  </div>
+                  <div className="field">
+                    <label>Two-Input Direct Try-On Workflow</label>
+                    <SearchableSelect
+                      options={workflows
+                        .filter((w) => w.workflowType === 'saree_step1_two_input' && w.isActive)
+                        .map((w) => ({ id: w.id, label: `${w.label} (${w.slug})` }))}
+                      value={twoInputTryonWorkflowTemplateId}
+                      disabled={saving}
+                      emptyLabel="— none —"
+                      placeholder="— search workflow —"
+                      onChange={setTwoInputTryonWorkflowTemplateId}
+                    />
+                    <span className="hint">
+                      Used when a customer tries on a merchant catalog item that has a second
+                      (pallu) image — patches the customer's own photo directly, no mannequin step.
                     </span>
                   </div>
                   <div className="field">

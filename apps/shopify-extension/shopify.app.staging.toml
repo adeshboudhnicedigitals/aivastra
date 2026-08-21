@@ -38,3 +38,19 @@ api_version = "2026-07"
   customer_deletion_url = "https://staging-admin.aivastra.com/v1/shopify/webhooks/customers_redact"
   customer_data_request_url = "https://staging-admin.aivastra.com/v1/shopify/webhooks/customers_data_request"
   shop_deletion_url = "https://staging-admin.aivastra.com/v1/shopify/webhooks/shop_redact"
+
+  # Mirrors shopify.app.toml — see that file for why this is declared here
+  # rather than relying solely on the per-shop registration call.
+  [[webhooks.subscriptions]]
+  topics = [ "app_purchases_one_time/update" ]
+  uri = "https://staging-admin.aivastra.com/v1/shopify/webhooks/app_purchases_one_time_update"
+
+  # Mirrors shopify.app.toml — see that file for why this is declared here
+  # rather than relying solely on the per-shop registration call.
+  [[webhooks.subscriptions]]
+  topics = [ "app_subscriptions/update" ]
+  uri = "https://staging-admin.aivastra.com/v1/shopify/webhooks/app_subscriptions_update"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app_subscriptions/approaching_capped_amount" ]
+  uri = "https://staging-admin.aivastra.com/v1/shopify/webhooks/app_subscriptions_approaching_capped_amount"

@@ -98,6 +98,91 @@ async function seedCatalogItem(app: TestApp, merchantId: string, garmentTypeId: 
   return item;
 }
 
+// Two-input (body+pallu) garment type — deliberately has NO tryonCategoryId, mirroring the
+// real saree row (verified via psql during planning: tryon_categories is empty locally and
+// garment_subcategories.tryon_category_id is null for saree). The two-input path must never
+// depend on that lookup — see resolveTryonGarment.ts.
+async function seedTwoInputGarmentType(app: TestApp, opts: { templateActive?: boolean } = {}) {
+  const [template] = await app.db
+    .insert(schema.workflowTemplates)
+    .values({
+      slug: `two-input-template-${randomUUID()}`,
+      label: 'Two-input tryon workflow',
+      jsonContent: {},
+      poseNodeId: 'pose',
+      upperNodeIds: [],
+      garmentPhasePromptNode: 'garment',
+      workflowType: 'saree_step1_two_input',
+      tryonPersonNodeId: '26',
+      tryonGarmentNodeId: '30',
+      tryonGarmentNodeId2: '27',
+      tryonOutputNodeId: '25',
+      isActive: opts.templateActive ?? true,
+    })
+    .returning();
+  const [garmentType] = await app.db
+    .insert(schema.garmentSubcategories)
+    .values({
+      genderSlug: 'women',
+      slug: `saree-${randomUUID()}`,
+      label: 'Saree',
+      twoInputTryonWorkflowTemplateId: template.id,
+    })
+    .returning();
+  return { garmentType, template };
+}
+
+async function seedCatalogItemWithSecondImage(
+  app: TestApp,
+  merchantId: string,
+  garmentTypeId: string,
+) {
+  const [subcategory] = await app.db
+    .insert(schema.merchantCatalogSubcategories)
+    .values({
+      merchantId,
+      category: 'women',
+      name: 'Sarees',
+      garmentSubcategoryId: garmentTypeId,
+    })
+    .returning();
+  const imageKey = `merchant-catalog/${merchantId}/${randomUUID()}/image.jpg`;
+  const thumbKey = `merchant-catalog/${merchantId}/${randomUUID()}/thumb.jpg`;
+  const secondImageKey = `merchant-catalog/${merchantId}/${randomUUID()}/second.jpg`;
+  const secondThumbKey = `merchant-catalog/${merchantId}/${randomUUID()}/second-thumb.jpg`;
+  await app.storage.putObject(imageKey, Buffer.from('body'), 'image/jpeg');
+  await app.storage.putObject(thumbKey, Buffer.from('body-thumb'), 'image/jpeg');
+  await app.storage.putObject(secondImageKey, Buffer.from('pallu'), 'image/jpeg');
+  await app.storage.putObject(secondThumbKey, Buffer.from('pallu-thumb'), 'image/jpeg');
+  const [item] = await app.db
+    .insert(schema.merchantCatalogItems)
+    .values({
+      merchantId,
+      subcategoryId: subcategory.id,
+      label: 'Two-Input Saree',
+      actualPricePaise: 200000,
+      offerPricePaise: 180000,
+      r2Key: imageKey,
+      thumbnailKey: thumbKey,
+      secondR2Key: secondImageKey,
+      secondThumbnailKey: secondThumbKey,
+    })
+    .returning();
+  return item;
+}
+
+async function presignAndUploadCustomerPhoto(app: TestApp, auth: Record<string, string>) {
+  const presigned = await app.inject({
+    method: 'POST',
+    url: '/v1/merchant/tryon/presign',
+    headers: auth,
+    payload: { contentType: 'image/jpeg', contentLength: 1024 },
+  });
+  const { r2Key } = presigned.json() as { r2Key: string };
+  await app.storage.putObject(r2Key, Buffer.from('photo'), 'image/jpeg');
+  return r2Key;
+}
+
 describe('merchant try-on jobs', () => {
   let c: Containers;
   let app: TestApp;
@@ -409,5 +494,100 @@ describe('merchant try-on jobs', () => {
       headers: otherAuth,
     });
     expect(forbidden.statusCode).toBe(403);
+  });
+
+  it('resolves the two-input template and carries the pallu key as thirdGarmentKey when the catalog item has a second image', async () => {
+    const { merchant, merchantUser } = await createMerchant(app, 'tryon-two-input-a@example.com');
+    const auth = await authHeader(merchantUser.id);
+    const { garmentType, template } = await seedTwoInputGarmentType(app);
+    const item = await seedCatalogItemWithSecondImage(app, merchant.id, garmentType.id);
+    const r2Key = await presignAndUploadCustomerPhoto(app, auth);
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/tryon/jobs',
+      headers: auth,
+      payload: { merchantCatalogItemId: item.id, customerPhotoKey: r2Key },
+    });
+    expect(created.statusCode).toBe(201);
+    const { jobId } = created.json() as { jobId: string };
+
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, jobId));
+    expect(inputs.upperGarmentKey).toBe(item.r2Key);
+    expect(inputs.thirdGarmentKey).toBe(item.secondR2Key);
+    expect((inputs.params as { workflowTemplateId: string }).workflowTemplateId).toBe(template.id);
+  });
+
+  it('does not send thirdGarmentKey for a single-image catalog item on a two-input-capable garment type', async () => {
+    const { merchant, merchantUser } = await createMerchant(app, 'tryon-two-input-b@example.com');
+    const auth = await authHeader(merchantUser.id);
+    const { garmentType } = await seedTwoInputGarmentType(app);
+    // Single-image item — same garment type, but no secondR2Key on this particular item.
+    const item = await seedCatalogItem(app, merchant.id, garmentType.id);
+    const r2Key = await presignAndUploadCustomerPhoto(app, auth);
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/tryon/jobs',
+      headers: auth,
+      payload: { merchantCatalogItemId: item.id, customerPhotoKey: r2Key },
+    });
+    // The garment type has no tryonCategoryId (mirrors the real saree row), so a
+    // single-image item on it falls through to the ordinary assertWorkflow check and is
+    // rejected the same way the existing "no tryon category configured" test expects —
+    // this is the guardrail against silently ignoring a configured two-input template.
+    expect(created.statusCode).toBe(400);
+    expect((created.json() as { error: { code: string } }).error.code).toBe('VALIDATION');
+  });
+
+  it('rejects a two-input catalog item when the garment type has no two-input workflow configured', async () => {
+    const { merchant, merchantUser } = await createMerchant(app, 'tryon-two-input-c@example.com');
+    const auth = await authHeader(merchantUser.id);
+    // No twoInputTryonWorkflowTemplateId set at all.
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({ genderSlug: 'women', slug: `unconfigured-saree-${randomUUID()}`, label: 'Saree' })
+      .returning();
+    const item = await seedCatalogItemWithSecondImage(app, merchant.id, garmentType.id);
+    const r2Key = await presignAndUploadCustomerPhoto(app, auth);
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/tryon/jobs',
+      headers: auth,
+      payload: { merchantCatalogItemId: item.id, customerPhotoKey: r2Key },
+    });
+    expect(created.statusCode).toBe(400);
+    const body = created.json() as { error: { code: string; message: string } };
+    expect(body.error.code).toBe('VALIDATION');
+    expect(body.error.message).toBe('garment type has no two-input tryon workflow configured');
+
+    const jobs = await app.db
+      .select({ id: schema.jobs.id })
+      .from(schema.jobs)
+      .where(eq(schema.jobs.merchantId, merchant.id));
+    expect(jobs).toHaveLength(0);
+  });
+
+  it('rejects a two-input catalog item when the two-input workflow template is inactive', async () => {
+    const { merchant, merchantUser } = await createMerchant(app, 'tryon-two-input-d@example.com');
+    const auth = await authHeader(merchantUser.id);
+    const { garmentType } = await seedTwoInputGarmentType(app, { templateActive: false });
+    const item = await seedCatalogItemWithSecondImage(app, merchant.id, garmentType.id);
+    const r2Key = await presignAndUploadCustomerPhoto(app, auth);
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/tryon/jobs',
+      headers: auth,
+      payload: { merchantCatalogItemId: item.id, customerPhotoKey: r2Key },
+    });
+    expect(created.statusCode).toBe(400);
+    const body = created.json() as { error: { code: string; message: string } };
+    expect(body.error.code).toBe('VALIDATION');
+    expect(body.error.message).toBe('two-input tryon workflow is inactive');
   });
 });

@@ -65,8 +65,8 @@ export async function runUploadSweepTick(
 
 const SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 
-/** Call once after `app.listen(...)` — mirrors startBillingScheduler's
- *  "start once, get a stop function back" shape. */
+/** Call once after `app.listen(...)`. Returns a stop function so tests can
+ *  tear the interval down. */
 export function startUploadSweeper(
   app: FastifyInstance,
   intervalMs: number = SWEEP_INTERVAL_MS,

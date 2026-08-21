@@ -78,13 +78,23 @@ export interface ShopifyMe {
     shopDomain: string;
     settings: ShopifyStoreSettings;
     connectedSince: string;
-    planHandle: string | null;
-    subscriptionStatus: string | null;
-    billingMode: 'prepaid' | 'usage';
-    paygSpendCapUsdCents: number | null;
   };
   creditBalance: number;
-  paygSpendThisCycleUsdCents: number;
+  runway: {
+    balance: number;
+    tryOnsRemaining: number;
+    dailyBurnCredits: number;
+    daysRemaining: number | null;
+    level: 'ok' | 'warning' | 'critical' | 'empty';
+  };
+  autorefill: {
+    enabled: boolean;
+    status: 'PENDING' | 'ACTIVE' | 'CANCELLED' | 'DECLINED' | 'CAP_REACHED' | null;
+    packId: string | null;
+    triggerCredits: number | null;
+    cappedAmountUsdCents: number | null;
+    balanceUsedUsdCents: number | null;
+  };
   stats: ShopifyStats;
 }
 

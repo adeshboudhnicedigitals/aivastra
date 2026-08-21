@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { getShopifyPlanCredits, getShopifyTrialCredits } from '../src/lib/resolution-config.js';
+import { getShopifyPackCredits, getShopifyTrialCredits } from '../src/lib/resolution-config.js';
 import { buildTestApp, type TestApp } from './helpers/api.js';
 import { type Containers, startContainers } from './helpers/containers.js';
 
@@ -43,7 +43,7 @@ describe('getShopifyTrialCredits', () => {
   });
 });
 
-describe('getShopifyPlanCredits', () => {
+describe('getShopifyPackCredits', () => {
   let c: Containers;
   let app: TestApp;
 
@@ -61,33 +61,35 @@ describe('getShopifyPlanCredits', () => {
     await app.redis.del(CONFIG_KEY);
   });
 
-  it('falls back to the default amount for each known handle when nothing is stored', async () => {
-    expect(await getShopifyPlanCredits(app, 'starter')).toBe(1925);
-    expect(await getShopifyPlanCredits(app, 'growth')).toBe(5000);
-    expect(await getShopifyPlanCredits(app, 'pro')).toBe(22000);
+  it('falls back to the default amount for each known pack id when nothing is stored', async () => {
+    expect(await getShopifyPackCredits(app, 'pack_10', 'manual')).toBe(800);
+    expect(await getShopifyPackCredits(app, 'pack_25', 'manual')).toBe(2250);
+    expect(await getShopifyPackCredits(app, 'pack_50', 'manual')).toBe(4800);
   });
 
-  it('matches case-insensitively, same as normalizePlanName', async () => {
-    expect(await getShopifyPlanCredits(app, 'Starter')).toBe(1925);
-    expect(await getShopifyPlanCredits(app, '  GROWTH ')).toBe(5000);
+  it('reads the autorefill figure, distinct from the manual one, when nothing is stored', async () => {
+    expect(await getShopifyPackCredits(app, 'pack_10', 'autorefill')).toBe(880);
+    expect(await getShopifyPackCredits(app, 'pack_25', 'autorefill')).toBe(2475);
   });
 
-  it('returns null for an unrecognized plan name', async () => {
-    expect(await getShopifyPlanCredits(app, 'enterprise')).toBeNull();
-    expect(await getShopifyPlanCredits(app, '')).toBeNull();
+  it('returns null for an unrecognized pack id', async () => {
+    expect(await getShopifyPackCredits(app, 'pack_999', 'manual')).toBeNull();
+    expect(await getShopifyPackCredits(app, '', 'manual')).toBeNull();
   });
 
-  it('reads an admin-configured override for one handle, leaving others at default', async () => {
+  it('reads an admin-configured override for one pack, leaving others at default', async () => {
     await app.redis.set(
       CONFIG_KEY,
-      JSON.stringify({ shopify: { planCredits: { starter: 3000 } } }),
+      JSON.stringify({ shopify: { packCredits: { pack_10: { credits: 900 } } } }),
     );
-    expect(await getShopifyPlanCredits(app, 'starter')).toBe(3000);
-    expect(await getShopifyPlanCredits(app, 'growth')).toBe(5000);
+    expect(await getShopifyPackCredits(app, 'pack_10', 'manual')).toBe(900);
+    expect(await getShopifyPackCredits(app, 'pack_25', 'manual')).toBe(2250);
+    // Overriding the manual figure must not affect the separate autorefill one.
+    expect(await getShopifyPackCredits(app, 'pack_10', 'autorefill')).toBe(880);
   });
 
   it('falls back to the default when the stored value is malformed', async () => {
     await app.redis.set(CONFIG_KEY, 'not json');
-    expect(await getShopifyPlanCredits(app, 'pro')).toBe(22000);
+    expect(await getShopifyPackCredits(app, 'pack_50', 'manual')).toBe(4800);
   });
 });

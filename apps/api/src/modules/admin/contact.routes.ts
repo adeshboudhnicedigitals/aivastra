@@ -33,7 +33,7 @@ export async function adminContactRoutes(app: FastifyInstance) {
         ? and(statusCond, sourceCond)
         : (statusCond ?? sourceCond ?? undefined);
 
-    const [rows, [countRow]] = await Promise.all([
+    const [rawRows, [countRow]] = await Promise.all([
       app.db
         .select()
         .from(schema.contactRequests)
@@ -46,6 +46,16 @@ export async function adminContactRoutes(app: FastifyInstance) {
         .from(schema.contactRequests)
         .where(where),
     ]);
+
+    const rows = await Promise.all(
+      rawRows.map(async ({ attachmentKey, ...row }) => ({
+        ...row,
+        attachmentKey,
+        attachmentUrl: attachmentKey
+          ? (await app.storage.presignGet(attachmentKey, 3600)).url
+          : null,
+      })),
+    );
 
     return { rows, total: countRow?.total ?? 0 };
   });
@@ -113,7 +123,14 @@ export async function adminContactRoutes(app: FastifyInstance) {
         .where(eq(schema.contactRequests.id, id))
         .returning();
       if (!row) throw new AppError('NOT_FOUND', 404, 'contact request not found');
-      return row;
+      const { attachmentKey, ...rest } = row;
+      return {
+        ...rest,
+        attachmentKey,
+        attachmentUrl: attachmentKey
+          ? (await app.storage.presignGet(attachmentKey, 3600)).url
+          : null,
+      };
     },
   );
 }

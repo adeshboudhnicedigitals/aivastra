@@ -102,46 +102,66 @@ export const shopifyStores = pgTable('shopify_stores', {
   // watches it reset at 05:30 local time will file a bug. Null for rows that
   // predate this column; those fall back to UTC until the next reinstall.
   ianaTimezone: text('iana_timezone'),
+  // Whether this is a Shopify partner development store (shop.plan.partnerDevelopment).
+  // Shopify bills those in test mode only — no money ever moves — so this
+  // decides both halves of the billing test flag: what we send Shopify on a
+  // charge, and whether a test charge is allowed to grant credits. App Store
+  // reviewers test on exactly such a store, and a grant path that refuses every
+  // test charge reads to them as an app that takes payment and delivers
+  // nothing. Refreshed on every provision, since a store's plan can change.
+  partnerDevelopment: boolean('partner_development').notNull().default(false),
   ownerUserId: uuid('owner_user_id').references(() => users.id, { onDelete: 'set null' }),
   installedAt: timestamp('installed_at', { withTimezone: true }).notNull().defaultNow(),
   uninstalledAt: timestamp('uninstalled_at', { withTimezone: true }),
   settings: jsonb('settings').$type<ShopifyStoreSettings>().notNull().default({}),
   syncCursor: text('sync_cursor'),
-  // Shopify App Pricing state — populated by billing.ts's syncStoreSubscription,
-  // never written from a client-trusted value. Holds the normalized (trimmed +
-  // lowercased) AppSubscription.name, since the Admin API exposes no plan
-  // handle. null means "no plan selected yet" (distinct from "was on a plan,
-  // now cancelled", which is subscriptionStatus === 'cancelled' with
-  // planHandle still set to the last plan).
-  planHandle: text('plan_handle'),
-  // Lowercased AppSubscriptionStatus: 'active' | 'cancelled' | 'declined' |
-  // 'expired' | 'frozen' | 'pending' | null.
-  subscriptionStatus: text('subscription_status'),
-  // The pair that identifies the billing cycle credits were last granted for:
-  // the Admin API's AppSubscription.id and its currentPeriodEnd. When a poll
-  // observes *either* change, a new cycle started — that's the renewal signal,
-  // since Shopify App Pricing sends no renewal webhook. Both are needed because
-  // a plan change may either advance the period end on the same subscription or
-  // replace the subscription with a new id.
-  currentSubscriptionId: text('current_subscription_id'),
-  currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
-  lastBillingSyncAt: timestamp('last_billing_sync_at', { withTimezone: true }),
-  // PAYG billing. 'prepaid' (default) is every existing store — deducts from
-  // shopify_store_credits as today. 'usage' means this store is on the
-  // Pay-as-you-go plan: no credits ledger involvement at all, billed in USD
-  // through Shopify's App Events API instead. Set by syncStoreSubscription
-  // from the synced plan handle, never client-trusted.
-  billingMode: text('billing_mode').notNull().default('prepaid'),
-  // Merchant-set monthly spend ceiling for billingMode='usage' stores, in USD
-  // cents. Enforced entirely app-side — Shopify usage meters have no cap
-  // support. Null until the store first becomes 'usage', at which point
-  // syncStoreSubscription seeds a default.
-  paygSpendCapUsdCents: integer('payg_spend_cap_usd_cents'),
-  // Persists AppSubscription.test, which syncStoreSubscription already reads
-  // but previously discarded. Gates PAYG usage reporting the same way
-  // SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS already gates credit grants — a dev
-  // store's test charges must never be reported as real usage in production.
-  subscriptionIsTest: boolean('subscription_is_test').notNull().default(false),
+  // Auto-refill (phase 3). Written in phase 1's migration so a later phase
+  // doesn't have to ALTER a table that already carries rows. Null pack id
+  // means auto-refill is off, which is every store today.
+  autorefillPackId: text('autorefill_pack_id'),
+  autorefillTriggerCredits: integer('autorefill_trigger_credits'),
+  autorefillSubscriptionId: text('autorefill_subscription_id'),
+  // The AppSubscriptionLineItem GID inside autorefillSubscriptionId. Distinct
+  // from the subscription id and NOT derivable from it: appUsageRecordCreate
+  // addresses the line item, not the subscription. Captured from the
+  // appSubscriptionCreate response so a refill never needs an extra round trip
+  // to re-resolve it.
+  autorefillLineItemId: text('autorefill_line_item_id'),
+  autorefillCappedAmountCents: integer('autorefill_capped_amount_cents'),
+  // The cycle's spend so far against that ceiling, as Shopify last reported it.
+  // A cache of Shopify's own balanceUsed, refreshed by the hourly sweep — never
+  // incremented locally, because Shopify resets it on its own 30-day boundary
+  // and a locally-summed figure would drift permanently the first time we
+  // missed one. Null until the first refresh, or when the subscription has no
+  // usage line item to read it off.
+  autorefillBalanceUsedCents: integer('autorefill_balance_used_cents'),
+  // When the merchant was last emailed that they are near the ceiling, from
+  // Shopify's app_subscriptions/approaching_capped_amount webhook. Shopify may
+  // deliver that topic repeatedly across one cycle; this is what keeps it to
+  // one email. Cleared whenever the cap is raised or the cycle rolls over, so
+  // the next approach warns again.
+  autorefillCapWarnedAt: timestamp('autorefill_cap_warned_at', { withTimezone: true }),
+  // 'PENDING' | 'ACTIVE' | 'CANCELLED' | 'DECLINED' | 'CAP_REACHED'.
+  // CAP_REACHED is ours, not Shopify's: it records that a refill was refused
+  // because the cycle's capped amount was exhausted, so the UI can say
+  // something specific instead of silently falling back to manual.
+  autorefillStatus: text('autorefill_status'),
+  // The shop owner's contact email, from shop.email at install. Already
+  // fetched by SHOP_DETAILS and previously discarded. This is the only address
+  // we can reach a merchant on: owner_user_id is nullable and ON DELETE SET
+  // NULL, so it cannot be the basis for a billing notification.
+  shopEmail: text('shop_email'),
+  // The worst alert level we have already emailed this store about. The
+  // scheduler emails only when the current level ranks worse than this, so a
+  // merchant sitting at 'warning' for a week gets one email rather than 168.
+  // Rewritten on recovery (down to 'ok') unconditionally, so a store that
+  // tops up is automatically eligible to be alerted again later — but NOT
+  // advanced past a worse level unless a notification was actually sent
+  // (e.g. no shop_email on record yet): see runAlertTick in
+  // alert-scheduler.ts for why stamping this on a send that never happened
+  // would permanently suppress that level for the store.
+  lastAlertLevel: text('last_alert_level'),
+  lastAlertAt: timestamp('last_alert_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -171,33 +191,45 @@ export const shopifyCreditLedger = pgTable('shopify_credit_ledger', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-// One row per successfully COMPLETED job for a billingMode='usage' store.
-// A job that fails is never inserted here — for a postpaid model, "don't
-// report" achieves the same effect as a prepaid refund, with no separate
-// mechanism needed. Written by the dispatcher (job/processor.ts) on the
-// same COMPLETED transition every other job type already goes through;
-// reported to Shopify's App Events API asynchronously by usage-scheduler.ts.
-export const shopifyUsageEvents = pgTable(
-  'shopify_usage_events',
+/**
+ * One row per purchase attempt, on either purchase path. Separate from
+ * shopify_credit_ledger because a purchase has state *before* any credits
+ * exist — the ledger only ever records grants that already happened.
+ *
+ * `credits` is snapshotted at INSERT and the grant reads THAT column, never
+ * config and never Shopify's response (Shopify knows the price, not the
+ * credits). This is load-bearing: pack credits are admin-editable while a
+ * purchase can sit unconfirmed indefinitely, so re-reading config at confirm
+ * time would let an admin edit silently change what an already-paying merchant
+ * receives, with no record of the number they agreed to pay for. The row is
+ * that record.
+ */
+export const shopifyCreditPurchases = pgTable(
+  'shopify_credit_purchases',
   {
     id: uuid('id').primaryKey().defaultRandom(),
     storeId: uuid('store_id')
       .notNull()
       .references(() => shopifyStores.id, { onDelete: 'cascade' }),
-    jobId: uuid('job_id').notNull().unique(),
-    // Snapshotted from PAYG_PRICE_PER_TRYON_USD at insert time — never
-    // re-derived later, same "the row is the record of what was promised"
-    // reasoning the superseded top-up spec used for its credits column.
+    // The AppPurchaseOneTime GID. Null between our INSERT and the mutation
+    // returning — a window in which the row exists but no charge does.
+    shopifyChargeId: text('shopify_charge_id'),
+    // 'manual' | 'autorefill'. Also decides which credit figure applied.
+    source: text('source').notNull().default('manual'),
+    packId: text('pack_id').notNull(),
+    credits: integer('credits').notNull(),
     priceUsdCents: integer('price_usd_cents').notNull(),
-    status: text('status').notNull().default('PENDING'), // 'PENDING' | 'REPORTED'
+    // 'PENDING' | 'ACTIVE' | 'DECLINED' | 'EXPIRED' | 'FAILED'.
+    // FAILED is ours and means the charge was never created at Shopify.
+    // Deliberately distinct from DECLINED, which means the merchant saw the
+    // charge and said no — conflating them makes the two indistinguishable
+    // when reconciling against Shopify payouts later.
+    status: text('status').notNull().default('PENDING'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    reportedAt: timestamp('reported_at', { withTimezone: true }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    storeCreatedIdx: index('shopify_usage_events_store_created_idx').on(
-      table.storeId,
-      table.createdAt,
-    ),
+    storeIdx: index('shopify_credit_purchases_store_idx').on(table.storeId),
   }),
 );
 

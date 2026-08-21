@@ -4,18 +4,13 @@ import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../lib/api';
 
 /**
- * Shopify sends the merchant here after they approve a plan (the Redirect URL
- * configured per-plan in Partner Dashboard). Confirming is what actually grants
- * the credits they just paid for, so this page is the one place in the app
- * where a silent failure is least acceptable.
- *
- * It used to swallow the error and navigate to the dashboard regardless,
- * reasoning that billing-scheduler.ts would reconcile on its next tick. That
- * tick is hourly: a merchant who had just been charged saw no credits, no
- * error, and no reason to think anything had gone wrong, for up to an hour. The
- * scheduler is the right safety net for renewals and cancellations that happen
- * while nobody is looking — it is not a substitute for telling someone standing
- * right here that their purchase did not land.
+ * Shopify sends the merchant here after they approve a one-time charge for a
+ * credit pack (the `confirmationUrl` returned from `POST
+ * /v1/shopify/billing/purchase`). Confirming is what actually grants the
+ * credits they just paid for, so this page is the one place in the app
+ * where a silent failure is least acceptable — there is no background
+ * scheduler reconciling purchases, so a swallowed error here means the
+ * merchant was charged and never finds out the credits didn't land.
  */
 
 // A confirm is one Admin API round-trip behind Shopify's own redirect, so a
@@ -29,12 +24,26 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export default function BillingCallbackPage() {
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
+  const [declined, setDeclined] = useState(false);
 
   const confirm = useCallback(async () => {
     setError(null);
     for (let attempt = 1; attempt <= CONFIRM_ATTEMPTS; attempt++) {
       try {
-        await apiFetch('/v1/shopify/billing/confirm');
+        const purchase = new URLSearchParams(window.location.search).get('purchase') ?? '';
+        const result = await apiFetch<{
+          status: string;
+          creditsGranted: number;
+          creditBalance: number;
+        }>(`/v1/shopify/billing/purchase/confirm?purchase=${encodeURIComponent(purchase)}`);
+        // A DECLINED purchase is a normal outcome, not a failure — the merchant
+        // looked at the charge and said no. Sending them to the dashboard with
+        // no comment would be confusing, but so would an error banner about a
+        // charge that deliberately never happened.
+        if (result.status === 'DECLINED' || result.status === 'EXPIRED') {
+          setDeclined(true);
+          return;
+        }
         navigate('/', { replace: true });
         return;
       } catch (err) {
@@ -57,19 +66,35 @@ export default function BillingCallbackPage() {
     void confirm();
   }, [confirm]);
 
+  if (declined) {
+    return (
+      <Page>
+        <Banner
+          title="No charge was made"
+          tone="info"
+          action={{ content: 'Back to credits', onAction: () => navigate('/pricing') }}
+        >
+          <Text as="p">
+            You didn't approve the charge, so nothing was billed and no credits were added.
+          </Text>
+        </Banner>
+      </Page>
+    );
+  }
+
   if (error) {
     return (
       <Page>
         <Banner
-          title="We couldn't confirm your plan"
+          title="We couldn't confirm your purchase"
           tone="critical"
           action={{ content: 'Try again', onAction: () => void confirm() }}
           secondaryAction={{ content: 'Go to dashboard', onAction: () => navigate('/') }}
         >
           <BlockStack gap="200">
             <Text as="p">
-              Your plan may have been charged, but we haven't been able to add the credits to your
-              account yet. Retrying is safe — credits are only ever granted once per billing period.
+              You may have been charged, but we haven't been able to add the credits to your account
+              yet. Retrying is safe — credits are only ever granted once per purchase.
             </Text>
             <Text as="p" tone="subdued">
               {error}
@@ -86,7 +111,7 @@ export default function BillingCallbackPage() {
 
   return (
     <Page>
-      <Spinner accessibilityLabel="Confirming your plan" size="large" />
+      <Spinner accessibilityLabel="Confirming your purchase" size="large" />
     </Page>
   );
 }
