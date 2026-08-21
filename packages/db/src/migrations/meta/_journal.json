@@ -1184,6 +1184,13 @@
       "when": 1787298039600,
       "tag": "0168_user_pose_presets",
       "breakpoints": true
+    },
+    {
+      "idx": 169,
+      "version": "7",
+      "when": 1787307613827,
+      "tag": "0169_slow_gamma_corps",
+      "breakpoints": true
     }
   ]
 }
