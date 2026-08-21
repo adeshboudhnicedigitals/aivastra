@@ -20,6 +20,7 @@ import aivastra.nice.interactive.data.models.SubcategoryResponse
 import aivastra.nice.interactive.data.models.CreateUploadSessionResponse
 import aivastra.nice.interactive.data.models.PresignRequest
 import aivastra.nice.interactive.data.models.PresignResponse
+import aivastra.nice.interactive.data.models.TryOnHistoryResponse
 import aivastra.nice.interactive.data.models.UploadSessionStatusResponse
 import retrofit2.Response
 import retrofit2.http.Body
@@ -129,4 +130,16 @@ interface ApiService {
     /** Submits a contact/support inquiry. Returns 204 No Content on success. */
     @POST("v1/contact")
     suspend fun sendContactMessage(@Body request: ContactRequest): Response<Unit>
+
+    /**
+     * Per-day summary of distinct input photos vs completed (generated) jobs
+     * for this merchant. Paginated newest-first; pass `before` (the previous
+     * response's nextCursor) to fetch older days. nextCursor is null on the
+     * last page.
+     */
+    @GET("v1/merchant/tryon/history")
+    suspend fun getTryOnHistory(
+        @Query("before") before: String? = null,
+        @Query("limit") limit: Int = 30
+    ): Response<TryOnHistoryResponse>
 }
