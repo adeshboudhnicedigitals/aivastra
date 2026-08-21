@@ -18,7 +18,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import aivastra.nice.interactive.R
+import aivastra.nice.interactive.ui.components.AppLoadingIndicator
+import aivastra.nice.interactive.utils.sdp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
@@ -27,6 +31,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import aivastra.nice.interactive.ui.screens.ProfilePage
+import aivastra.nice.interactive.ui.screens.WebViewPage
 import aivastra.nice.interactive.ui.screens.CategorySelectionPage
 import aivastra.nice.interactive.utils.CrashReporter
 import aivastra.nice.interactive.ui.screens.OnboardingPage
@@ -64,6 +69,7 @@ sealed class Screen(val route: String) {
     object PendingActivation  : Screen("pending_activation")
     object CategorySelection  : Screen("category_selection")
     object Profile            : Screen("profile")
+    object TryOnLibrary       : Screen("tryon_library")
     object OutfitSelection    : Screen("outfit_selection/{category}") {
         fun createRoute(category: String) = "outfit_selection/$category"
     }
@@ -294,8 +300,62 @@ fun AppNavGraph(
                     navController.navigate(Screen.SignIn.route) {
                         popUpTo(0) { inclusive = true }
                     }
+                },
+                onOpenTryOnLibrary = {
+                    navController.navigate(Screen.TryOnLibrary.route)
                 }
             )
+        }
+
+        // ── Try-On Library (in-app webview) ───────────────────────────────
+        composable(
+            route = Screen.TryOnLibrary.route,
+            enterTransition = { EnterTransition.None },
+            exitTransition  = { ExitTransition.None }
+        ) {
+            val tryOnLibraryBaseUrl = "https://app.aivastra.com/tryon-library-app"
+            var libraryUrl by remember { mutableStateOf<String?>(null) }
+
+            // Exchanges the device session for a short-lived SSO code so the WebView
+            // logs in as the same user instead of showing its own sign-in page. On
+            // any failure, falls back to the plain URL so the user can still log in
+            // manually rather than being stuck on a blank screen.
+            LaunchedEffect(Unit) {
+                libraryUrl = try {
+                    val response = ApiClient.apiService.getCatalogAppDeviceCode()
+                    val code = response.body()?.code
+                    if (response.isSuccessful && !code.isNullOrBlank()) {
+                        "$tryOnLibraryBaseUrl?code=$code"
+                    } else {
+                        tryOnLibraryBaseUrl
+                    }
+                } catch (e: Exception) {
+                    CrashReporter.recordException(e, "NavGraph")
+                    tryOnLibraryBaseUrl
+                }
+            }
+
+            val currentLibraryUrl = libraryUrl
+            if (currentLibraryUrl == null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black),
+                    contentAlignment = Alignment.Center
+                ) {
+                    AppLoadingIndicator(size = sdp(R.dimen._32sdp), color = Color(0xFFE7A52C))
+                }
+            } else {
+                WebViewPage(
+                    url = currentLibraryUrl,
+                    onExit = {
+                        navController.navigate(Screen.CategorySelection.route) {
+                            popUpTo(Screen.CategorySelection.route) { inclusive = false }
+                            launchSingleTop = true
+                        }
+                    }
+                )
+            }
         }
 
         composable(

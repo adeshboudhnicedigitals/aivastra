@@ -24,6 +24,7 @@
     "db:verify": "pnpm --filter @aivastra/db run verify",
     "db:verify:prod": "pnpm --filter @aivastra/db run verify:prod",
     "db:seed": "pnpm --filter @aivastra/db run seed",
+    "check:billing": "tsx --env-file=.env apps/api/scripts/check-billing-api-enabled.mts",
     "docker:up": "docker compose -f infra/docker-compose.yml --env-file .env up -d",
     "docker:down": "docker compose -f infra/docker-compose.yml --env-file .env down",
     "docker:logs": "docker compose -f infra/docker-compose.yml --env-file .env logs -f",

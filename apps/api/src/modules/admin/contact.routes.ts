@@ -3,11 +3,11 @@ import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { requireAdmin } from './guard.js';
+import { requirePermission } from './guard.js';
 
 export async function adminContactRoutes(app: FastifyInstance) {
-  const R = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN', 'SUPPORT']);
-  const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
+  const R = requirePermission('contact.read');
+  const W = requirePermission('contact.write');
 
   // GET /admin/contact-requests?status=new|read|done|all&source=<value>|__null__|all&limit=50&offset=0
   app.get('/admin/contact-requests', { preHandler: R }, async (req) => {
@@ -33,7 +33,7 @@ export async function adminContactRoutes(app: FastifyInstance) {
         ? and(statusCond, sourceCond)
         : (statusCond ?? sourceCond ?? undefined);
 
-    const [rows, [countRow]] = await Promise.all([
+    const [rawRows, [countRow]] = await Promise.all([
       app.db
         .select()
         .from(schema.contactRequests)
@@ -46,6 +46,16 @@ export async function adminContactRoutes(app: FastifyInstance) {
         .from(schema.contactRequests)
         .where(where),
     ]);
+
+    const rows = await Promise.all(
+      rawRows.map(async ({ attachmentKey, ...row }) => ({
+        ...row,
+        attachmentKey,
+        attachmentUrl: attachmentKey
+          ? (await app.storage.presignGet(attachmentKey, 3600)).url
+          : null,
+      })),
+    );
 
     return { rows, total: countRow?.total ?? 0 };
   });
@@ -113,7 +123,14 @@ export async function adminContactRoutes(app: FastifyInstance) {
         .where(eq(schema.contactRequests.id, id))
         .returning();
       if (!row) throw new AppError('NOT_FOUND', 404, 'contact request not found');
-      return row;
+      const { attachmentKey, ...rest } = row;
+      return {
+        ...rest,
+        attachmentKey,
+        attachmentUrl: attachmentKey
+          ? (await app.storage.presignGet(attachmentKey, 3600)).url
+          : null,
+      };
     },
   );
 }

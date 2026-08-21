@@ -11,12 +11,12 @@ import { and, asc, eq, gt, gte, ilike, inArray, isNull, lt, lte, ne, sql } from 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { requireAdmin } from './guard.js';
+import { requirePermission } from './guard.js';
 import { resolveForGarmentTypeShotType, resolveForMapping } from './shot-type-resolve.js';
 
 export async function adminGarmentTypesRoutes(app: FastifyInstance) {
-  const RW = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
-  const D = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
+  const RW = requirePermission('subcategories.write');
+  const D = requirePermission('subcategories.delete');
   const uuidParam = z.object({ id: z.string().uuid() });
 
   app.get('/admin/assets/garment-types', { preHandler: RW }, async () => {

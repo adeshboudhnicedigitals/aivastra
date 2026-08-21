@@ -4,8 +4,8 @@ import { eq } from 'drizzle-orm';
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import { encryptToken } from '../../lib/crypto.js';
 import { AppError } from '../../lib/errors.js';
-import { grantShopifyTrialCredits } from './billing.js';
 import { writeWidgetKeyMetafield } from './metafields.js';
+import { grantShopifyTrialCredits } from './purchase.js';
 import { numericIdFromGid, shopifyGraphQL, verifyQueryHmac } from './service.js';
 import { type TokenGrant, toTokenGrant } from './token.js';
 import { markWidgetConfigUnsynced, publishLatestConfig } from './widget-config.routes.js';
@@ -21,6 +21,8 @@ export interface ShopDetails {
   phone?: string;
   address?: string;
   ianaTimezone?: string;
+  /** shop.plan.partnerDevelopment — see the column comment in the db schema. */
+  partnerDevelopment: boolean;
 }
 
 export async function upsertShopifyStore(
@@ -61,7 +63,13 @@ export async function upsertShopifyStore(
           ...refreshCols,
           scope,
           ianaTimezone: shop.ianaTimezone ?? null,
+          shopEmail: shop.email,
           allowedOrigins: origins,
+          // Refreshed rather than left at the install-time value: a store can
+          // stop being a development store (a partner transfers it to a real
+          // merchant), and continuing to treat it as one would keep issuing
+          // test charges that never collect money.
+          partnerDevelopment: shop.partnerDevelopment,
           uninstalledAt: null,
           updatedAt: new Date(),
         })
@@ -79,15 +87,37 @@ export async function upsertShopifyStore(
         ...refreshCols,
         scope,
         ianaTimezone: shop.ianaTimezone ?? null,
+        shopEmail: shop.email,
         allowedOrigins: origins,
+        partnerDevelopment: shop.partnerDevelopment,
       })
       .returning();
     return store;
   });
 }
 
+// Where apps/shopify's own router (src/main.tsx's BrowserRouter basename)
+// picks up routes — NOT `application_url`'s `/shopify-admin/embedded` suffix;
+// that `/embedded` segment is only a one-time landing redirect to `/` (see
+// App.tsx), not a routing prefix. Verified live on staging 2026-08-21: for a
+// bare `/apps/{apiKey}` (empty `path` below) Shopify embeds `application_url`
+// correctly, but for `/apps/{apiKey}{path}` with a non-empty `path` it does
+// NOT append that path onto `application_url` — it appends onto the app's
+// bare origin instead, silently dropping the whole `/shopify-admin/embedded`
+// prefix. A purchase return that passed bare `/billing/callback` landed the
+// iframe at `staging-admin.aivastra.com/billing/callback`, which nginx's
+// catch-all sent to the wrong app entirely (admin-web), rendered by the
+// browser as an `X-Frame-Options` block that looks identical to a connection
+// refusal. Any non-empty `path` passed to buildPostInstallRedirect must
+// include this prefix itself — never rely on Shopify reconstructing it from
+// `application_url`.
+export const EMBEDDED_SPA_PATH = '/shopify-admin';
+
 /**
- * Where to send the merchant once OAuth completes.
+ * Where to send the merchant once OAuth completes — or, via the optional
+ * `path` param, back into a specific SPA route after a Shopify billing
+ * approval redirect (see purchase.routes.ts / autorefill.routes.ts's `/return`
+ * routes, which must prefix their `path` with `EMBEDDED_SPA_PATH`).
  *
  * This must hand control back to Shopify rather than point at our own SPA. Only
  * Shopify can mint the `host` and `id_token` query params that App Bridge needs
@@ -97,9 +127,9 @@ export async function upsertShopifyStore(
  * forever: no resolve, no reject, no console error, just a permanent loading
  * spinner for the merchant.
  */
-export function buildPostInstallRedirect(shop: string, apiKey: string): string {
+export function buildPostInstallRedirect(shop: string, apiKey: string, path = ''): string {
   const storeHandle = shop.replace(/\.myshopify\.com$/, '');
-  return `https://admin.shopify.com/store/${storeHandle}/apps/${apiKey}`;
+  return `https://admin.shopify.com/store/${storeHandle}/apps/${apiKey}${path}`;
 }
 
 const SHOP_DETAILS = `
@@ -113,6 +143,7 @@ const SHOP_DETAILS = `
       shopOwnerName
       billingAddress { phone address1 city country }
       ianaTimezone
+      plan { partnerDevelopment }
     }
   }
 `;
@@ -132,6 +163,7 @@ interface ShopDetailsData {
       country?: string | null;
     } | null;
     ianaTimezone?: string | null;
+    plan?: { partnerDevelopment?: boolean | null } | null;
   };
 }
 
@@ -171,6 +203,10 @@ export async function provisionShopifyStore(
       .filter(Boolean)
       .join(', '),
     ianaTimezone: s.ianaTimezone ?? undefined,
+    // Defaults to false when the field is absent for any reason: a missing
+    // answer must never be read as "test charges are fine here", because that
+    // is the reading that gives credits away.
+    partnerDevelopment: s.plan?.partnerDevelopment === true,
   };
 
   const store = await upsertShopifyStore(app, details, accessToken, scope, grant);

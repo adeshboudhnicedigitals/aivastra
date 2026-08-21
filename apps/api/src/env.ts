@@ -76,28 +76,17 @@ const Env = z.object({
   SHOPIFY_SCOPES: z.string().default('read_products'),
   // 32-byte key, base64-encoded (44 chars). Required only when Shopify is enabled.
   SHOPIFY_TOKEN_ENC_KEY: z.string().optional(),
-  // The app's handle as configured in Partner Dashboard, used to build the
-  // Shopify-hosted plan-selection page URL:
-  // https://admin.shopify.com/store/:store_handle/charges/:app_handle/pricing_plans
-  SHOPIFY_APP_HANDLE: z.string().optional(),
-  // Grant subscription credits for Shopify *test* charges (AppSubscription.test),
+  // Grant credits for Shopify *test* one-time charges (AppPurchaseOneTime.test),
   // which is what every development store produces — Shopify never bills them.
   // Off unless the value is exactly 'true', so production grants only against
   // money that actually moved; set it on staging/dev so the paid flow stays
-  // testable there. See syncStoreSubscription in modules/shopify/billing.ts.
+  // testable there.
   //
   // Deliberately not z.coerce.boolean() like R2_FORCE_PATH_STYLE above:
   // coercion follows JS truthiness, so the string 'false' — the obvious way to
   // write "off" in a .env — coerces to true. That failure mode is silent and
   // hands out free product, so this one accepts only the literal 'true'.
   SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS: z.preprocess((v) => v === 'true', z.boolean()).default(false),
-  // App Events API (PAYG usage reporting) credentials. NOT assumed to be the
-  // same as SHOPIFY_API_KEY/SHOPIFY_API_SECRET — the App Events docs describe
-  // these as generated separately in the Dev Dashboard. Confirm which is
-  // correct before setting these in any real environment; see the plan's
-  // Global Constraints for why this isn't resolved here.
-  SHOPIFY_APP_EVENTS_CLIENT_ID: z.string().optional(),
-  SHOPIFY_APP_EVENTS_CLIENT_SECRET: z.string().optional(),
   // Comma-separated email allowlist for the Catalog Video (PixVerse) feature.
   // Unset = open to everyone (dev default). Set in production to restrict the
   // feature to a soft-launch cohort without a code change.

@@ -4,9 +4,9 @@ import { and, desc, eq, ilike, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { requireAdmin } from './guard.js';
+import { requirePermission } from './guard.js';
 
-const LIVE = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN', 'SUPPORT']);
+const LIVE = requirePermission('chatbot.read');
 
 async function adminRowId(userId: string, app: FastifyInstance) {
   const [a] = await app.db
@@ -47,7 +47,7 @@ async function systemMessage(convId: string, content: string, app: FastifyInstan
 }
 
 export async function adminChatbotRoutes(app: FastifyInstance) {
-  const QNA = requireAdmin(['SUPER_ADMIN', 'ADMIN']);
+  const QNA = requirePermission('chatbot.manage');
 
   app.get('/admin/chatbot/qna', { preHandler: QNA }, async (req) => {
     const { active = 'all', q = '' } = req.query as Record<string, string>;

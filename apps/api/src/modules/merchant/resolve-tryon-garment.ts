@@ -5,6 +5,7 @@ import { AppError } from '../../lib/errors.js';
 
 export interface ResolvedTryonGarment {
   r2Key: string;
+  secondR2Key?: string;
   workflowTemplateId: string;
   isDemo: boolean;
 }
@@ -25,8 +26,10 @@ export async function resolveTryonGarment(
     .select({
       merchantId: schema.merchantCatalogItems.merchantId,
       r2Key: schema.merchantCatalogItems.r2Key,
+      secondR2Key: schema.merchantCatalogItems.secondR2Key,
       isActive: schema.merchantCatalogItems.isActive,
       moderationStatus: schema.merchantCatalogItems.moderationStatus,
+      twoInputTryonWorkflowTemplateId: schema.garmentSubcategories.twoInputTryonWorkflowTemplateId,
       workflowTemplateId: schema.tryonCategories.workflowTemplateId,
       tryonCategoryIsActive: schema.tryonCategories.isActive,
       workflowTemplateIsActive: schema.workflowTemplates.isActive,
@@ -58,6 +61,36 @@ export async function resolveTryonGarment(
     if (!own.isActive || own.moderationStatus !== 'approved') {
       throw new AppError('FORBIDDEN', 403, 'catalog item is not available');
     }
+
+    // A catalog item with a second (pallu) image bypasses the normal tryon-category
+    // lookup entirely and goes through the garment type's dedicated two-input template —
+    // see garmentSubcategories.twoInputTryonWorkflowTemplateId. Falling back to the
+    // single-image template here would silently ignore the pallu image rather than fail
+    // loud, so this is a hard config error, not a soft fallback.
+    if (own.secondR2Key) {
+      if (!own.twoInputTryonWorkflowTemplateId) {
+        throw new AppError(
+          'VALIDATION',
+          400,
+          'garment type has no two-input tryon workflow configured',
+        );
+      }
+      const [twoInputTemplate] = await app.db
+        .select({ isActive: schema.workflowTemplates.isActive })
+        .from(schema.workflowTemplates)
+        .where(eq(schema.workflowTemplates.id, own.twoInputTryonWorkflowTemplateId))
+        .limit(1);
+      if (!twoInputTemplate?.isActive) {
+        throw new AppError('VALIDATION', 400, 'two-input tryon workflow is inactive');
+      }
+      return {
+        r2Key: own.r2Key,
+        secondR2Key: own.secondR2Key,
+        workflowTemplateId: own.twoInputTryonWorkflowTemplateId,
+        isDemo: false,
+      };
+    }
+
     assertWorkflow(own);
     return { r2Key: own.r2Key, workflowTemplateId: own.workflowTemplateId, isDemo: false };
   }

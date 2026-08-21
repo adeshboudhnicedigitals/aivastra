@@ -8,7 +8,7 @@ import {
   jobsProcessedTotal,
 } from '@aivastra/observability';
 import { keys, type StorageProvider } from '@aivastra/storage';
-import { PAYG_PRICE_PER_TRYON_USD_CENTS, WORKER_POOL } from '@aivastra/types';
+import { WORKER_POOL } from '@aivastra/types';
 import type { S3Client } from '@aws-sdk/client-s3';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { and, eq, sql } from 'drizzle-orm';
@@ -1839,6 +1839,7 @@ async function processWidgetJob(
     .select({
       jsonContent: schema.workflowTemplates.jsonContent,
       tryonGarmentNodeId: schema.workflowTemplates.tryonGarmentNodeId,
+      tryonGarmentNodeId2: schema.workflowTemplates.tryonGarmentNodeId2,
       tryonPersonNodeId: schema.workflowTemplates.tryonPersonNodeId,
       tryonOutputNodeId: schema.workflowTemplates.tryonOutputNodeId,
     })
@@ -1868,6 +1869,7 @@ async function processWidgetJob(
   }
 
   const garmentNodeId = templateRow.tryonGarmentNodeId;
+  const garmentNodeId2 = templateRow.tryonGarmentNodeId2;
   const customerPhotoNodeId = templateRow.tryonPersonNodeId;
   const outputNodeId = templateRow.tryonOutputNodeId;
 
@@ -1876,6 +1878,27 @@ async function processWidgetJob(
       { workflowTemplateId },
       'resolved tryon workflow template is missing node ID mappings',
     );
+    await markWidgetFailed(
+      cfg,
+      jobId,
+      merchantId,
+      creditsCharged,
+      stream,
+      messageId,
+      'TRYON_NODES_NOT_CONFIGURED',
+      jobLog,
+      startedAt,
+      job.source,
+    );
+    return;
+  }
+
+  // A template with a second garment node requires a second garment key on the job, and
+  // vice versa — a mismatch means resolveTryonGarment and this template disagree about
+  // whether this is a two-input job, which should never happen if Task 5's config
+  // validation ran correctly. Fail loud rather than silently dropping the pallu image.
+  if (garmentNodeId2 && !inputs.thirdGarmentKey) {
+    jobLog.error({ workflowTemplateId }, 'two-input template but job has no thirdGarmentKey');
     await markWidgetFailed(
       cfg,
       jobId,
@@ -1951,11 +1974,18 @@ async function processWidgetJob(
     }
 
     jobLog.info('uploading merchant widget inputs to ComfyUI');
-    const [garmentFilename, customerPhotoFilename] = await Promise.all([
+    const uploads = await Promise.all([
       uploadToComfy(upperGarmentKey, 'merchant_garment'),
       uploadToComfy(customerPhotoKey, 'merchant_customer'),
+      ...(garmentNodeId2 && inputs.thirdGarmentKey
+        ? [uploadToComfy(inputs.thirdGarmentKey, 'merchant_garment2')]
+        : []),
     ]);
-    jobLog.info({ garmentFilename, customerPhotoFilename }, 'merchant widget inputs uploaded');
+    const [garmentFilename, customerPhotoFilename, secondGarmentFilename] = uploads;
+    jobLog.info(
+      { garmentFilename, customerPhotoFilename, secondGarmentFilename },
+      'merchant widget inputs uploaded',
+    );
 
     // Clone and patch workflow using node IDs from DB
     const workflow = structuredClone(templateRow.jsonContent) as Record<
@@ -1967,6 +1997,9 @@ async function processWidgetJob(
     if (workflow[customerPhotoNodeId]?.inputs)
       // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
       workflow[customerPhotoNodeId].inputs!.image = customerPhotoFilename;
+    if (garmentNodeId2 && secondGarmentFilename && workflow[garmentNodeId2]?.inputs)
+      // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
+      workflow[garmentNodeId2].inputs!.image = secondGarmentFilename;
 
     await transitionJob(db, pub, jobId, '', 'GENERATING', { workerId: w.id }, jobLog);
     const clientUuid = randomUUID();
@@ -1982,7 +2015,14 @@ async function processWidgetJob(
         workerId: w.id,
         workerUrl: w.url,
         workflowTemplateId,
-        inputs: { customerPhotoKey, upperGarmentKey, customerPhotoFilename, garmentFilename },
+        inputs: {
+          customerPhotoKey,
+          upperGarmentKey,
+          thirdGarmentKey: inputs.thirdGarmentKey ?? null,
+          customerPhotoFilename,
+          garmentFilename,
+          secondGarmentFilename: secondGarmentFilename ?? null,
+        },
       },
     });
 
@@ -2317,25 +2357,6 @@ async function processShopifyJob(
       jobLog,
     });
 
-    // billingMode is pinned into params at creation time (same reasoning as
-    // workflowTemplateId above) — never re-queried here, so a plan change
-    // mid-flight can't change how a job already in progress gets billed.
-    // Best-effort: a failed insert here logs but must not prevent the
-    // already-COMPLETED job from being ack'd — the merchant already got
-    // their result either way, and a missed usage row is a lost-revenue
-    // risk, not a correctness one.
-    if (params.billingMode === 'usage') {
-      try {
-        await db.insert(schema.shopifyUsageEvents).values({
-          storeId: shopifyStoreId,
-          jobId,
-          priceUsdCents: PAYG_PRICE_PER_TRYON_USD_CENTS,
-        });
-      } catch (err) {
-        jobLog.error({ err, jobId, shopifyStoreId }, 'PAYG usage_events insert failed');
-      }
-    }
-
     await redis.xack(stream, 'dispatcher-cg', messageId);
     await setWorkerStatus(redis, w.id, 'IDLE');
     recordJobOutcome('success', startedAt, job.source);
@@ -2448,13 +2469,13 @@ async function markShopifyFailed(
 ): Promise<void> {
   const { db, redis, pub } = cfg;
 
-  // PAYG jobs always have creditsCharged === 0 — nothing was ever deducted
-  // from shopify_store_credits, so there is nothing to refund. Skipping the
+  // tryon.creditCost is admin-tunable and can legitimately be 0 — skipping the
   // ledger write entirely (not just writing a zero-delta row) keeps the
-  // plan's invariant that PAYG stores never touch shopify_credit_ledger at
-  // all; a zero-delta JOB_FAIL_REFUND row would otherwise pollute the admin
-  // ledger view with phantom refunds on every failed PAYG job. The status
-  // transition below still runs unconditionally regardless.
+  // ledger free of phantom JOB_FAIL_REFUND rows with a zero delta, which
+  // would otherwise pollute the admin ledger view on every failed job billed
+  // at zero cost. The status transition below still runs unconditionally
+  // regardless. Mirrors the equivalent guard on the non-Shopify refund path
+  // (terminateJob, below).
   if (creditsCharged > 0) {
     await db.transaction(async (tx) => {
       const existing = await tx

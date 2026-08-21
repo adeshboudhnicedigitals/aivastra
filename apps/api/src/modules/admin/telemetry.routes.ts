@@ -1,7 +1,7 @@
 import { schema } from '@aivastra/db';
 import { count, gte, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { requireAdmin } from './guard.js';
+import { requirePermission } from './guard.js';
 
 // Mirrors JOB_STREAMS in apps/dispatcher/src/worker/health-monitor.ts — the same
 // four Redis Streams the dispatcher's queue_depth gauge reports via XLEN.
@@ -32,18 +32,15 @@ export async function adminTelemetryRoutes(app: FastifyInstance) {
   // started_at (GENERATING transition) -> completed_at; it excludes
   // queue-wait/worker-selection time that the Prometheus histogram includes,
   // so the two won't match exactly.
-  app.get(
-    '/admin/telemetry',
-    { preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']) },
-    async (req) => {
-      const query = req.query as { days?: string };
-      const days = parseInt(query.days || '7', 10);
-      const validDays = Number.isNaN(days) || days < 1 ? 7 : days > 90 ? 90 : days;
-      const sinceDate = new Date(Date.now() - validDays * 86400000);
-      const since = sinceDate.toISOString();
+  app.get('/admin/telemetry', { preHandler: requirePermission('telemetry.read') }, async (req) => {
+    const query = req.query as { days?: string };
+    const days = parseInt(query.days || '7', 10);
+    const validDays = Number.isNaN(days) || days < 1 ? 7 : days > 90 ? 90 : days;
+    const sinceDate = new Date(Date.now() - validDays * 86400000);
+    const since = sinceDate.toISOString();
 
-      const [rows, queueDepthByStream, outcomeRows] = await Promise.all([
-        app.db.execute<TelemetryRow>(sql`
+    const [rows, queueDepthByStream, outcomeRows] = await Promise.all([
+      app.db.execute<TelemetryRow>(sql`
         SELECT
           COALESCE(source, 'unknown') AS job_type,
           count(*) FILTER (WHERE started_at IS NOT NULL AND completed_at IS NOT NULL)::int
@@ -70,37 +67,36 @@ export async function adminTelemetryRoutes(app: FastifyInstance) {
         GROUP BY source
         ORDER BY sample_count DESC
       `),
-        Promise.all(
-          JOB_STREAMS.map(async (stream) => ({ stream, depth: await app.redis.xlen(stream) })),
-        ),
-        app.db
-          .select({ status: schema.jobs.status, c: count() })
-          .from(schema.jobs)
-          .where(gte(schema.jobs.createdAt, sinceDate))
-          .groupBy(schema.jobs.status),
-      ]);
+      Promise.all(
+        JOB_STREAMS.map(async (stream) => ({ stream, depth: await app.redis.xlen(stream) })),
+      ),
+      app.db
+        .select({ status: schema.jobs.status, c: count() })
+        .from(schema.jobs)
+        .where(gte(schema.jobs.createdAt, sinceDate))
+        .groupBy(schema.jobs.status),
+    ]);
 
-      const completed = outcomeRows.find((r) => r.status === 'COMPLETED')?.c ?? 0;
-      const failed = outcomeRows.find((r) => r.status === 'FAILED')?.c ?? 0;
-      const terminal = completed + failed;
+    const completed = outcomeRows.find((r) => r.status === 'COMPLETED')?.c ?? 0;
+    const failed = outcomeRows.find((r) => r.status === 'FAILED')?.c ?? 0;
+    const terminal = completed + failed;
 
-      return {
-        days: validDays,
-        jobTypes: rows.map((r) => ({
-          jobType: r.job_type,
-          sampleCount: r.sample_count,
-          processingP50Ms: r.processing_p50_ms === null ? null : Math.round(r.processing_p50_ms),
-          processingP95Ms: r.processing_p95_ms === null ? null : Math.round(r.processing_p95_ms),
-          e2eP50Ms: r.e2e_p50_ms === null ? null : Math.round(r.e2e_p50_ms),
-          e2eP95Ms: r.e2e_p95_ms === null ? null : Math.round(r.e2e_p95_ms),
-          comfySampleCount: r.comfy_sample_count,
-          comfyP50Ms: r.comfy_p50_ms === null ? null : Math.round(r.comfy_p50_ms),
-          comfyP95Ms: r.comfy_p95_ms === null ? null : Math.round(r.comfy_p95_ms),
-        })),
-        queueDepthByStream,
-        outcomes: outcomeRows.map((r) => ({ status: r.status, count: r.c })),
-        successRate: terminal > 0 ? completed / terminal : null,
-      };
-    },
-  );
+    return {
+      days: validDays,
+      jobTypes: rows.map((r) => ({
+        jobType: r.job_type,
+        sampleCount: r.sample_count,
+        processingP50Ms: r.processing_p50_ms === null ? null : Math.round(r.processing_p50_ms),
+        processingP95Ms: r.processing_p95_ms === null ? null : Math.round(r.processing_p95_ms),
+        e2eP50Ms: r.e2e_p50_ms === null ? null : Math.round(r.e2e_p50_ms),
+        e2eP95Ms: r.e2e_p95_ms === null ? null : Math.round(r.e2e_p95_ms),
+        comfySampleCount: r.comfy_sample_count,
+        comfyP50Ms: r.comfy_p50_ms === null ? null : Math.round(r.comfy_p50_ms),
+        comfyP95Ms: r.comfy_p95_ms === null ? null : Math.round(r.comfy_p95_ms),
+      })),
+      queueDepthByStream,
+      outcomes: outcomeRows.map((r) => ({ status: r.status, count: r.c })),
+      successRate: terminal > 0 ? completed / terminal : null,
+    };
+  });
 }

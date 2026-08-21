@@ -53,7 +53,23 @@ describe('shopify webhooks', () => {
     expect(res.statusCode).toBe(401);
   });
 
-  it('processes app/uninstalled: deactivates store', async () => {
+  it('processes app/uninstalled: deactivates store and clears auto-refill', async () => {
+    // Shopify cancels the subscription itself on uninstall and our
+    // app_subscriptions/update subscription dies with the install, so nothing
+    // else would ever clear these — a reinstall would show auto-refill ACTIVE
+    // against a subscription that no longer exists.
+    await app.db
+      .update(schema.shopifyStores)
+      .set({
+        autorefillPackId: 'pack_10',
+        autorefillTriggerCredits: 160,
+        autorefillSubscriptionId: 'gid://shopify/AppSubscription/1',
+        autorefillLineItemId: 'gid://shopify/AppSubscriptionLineItem/1',
+        autorefillCappedAmountCents: 5000,
+        autorefillStatus: 'ACTIVE',
+      })
+      .where(eq(schema.shopifyStores.id, storeId));
+
     const raw = '{"id":999}';
     const res = await app.inject({
       method: 'POST',
@@ -71,6 +87,12 @@ describe('shopify webhooks', () => {
       .from(schema.shopifyStores)
       .where(eq(schema.shopifyStores.id, storeId));
     expect(store.uninstalledAt).not.toBeNull();
+    expect(store.autorefillStatus).toBeNull();
+    expect(store.autorefillSubscriptionId).toBeNull();
+    expect(store.autorefillLineItemId).toBeNull();
+    expect(store.autorefillPackId).toBeNull();
+    expect(store.autorefillTriggerCredits).toBeNull();
+    expect(store.autorefillCappedAmountCents).toBeNull();
   });
 
   it('processes products/update: enqueues a sync task', async () => {

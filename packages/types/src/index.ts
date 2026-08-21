@@ -10,7 +10,6 @@ export * from './demo-catalog.js';
 export * from './dev.js';
 export * from './job-taxonomy.js';
 export * from './jobs.js';
-export * from './payg-constants.js';
 export * from './rate-limits.js';
 export * from './saree.js';
 export * from './tryon.js';

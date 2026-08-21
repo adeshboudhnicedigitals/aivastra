@@ -151,37 +151,6 @@ describe('GET /v1/shopify/me store.connectedSince', () => {
   });
 });
 
-describe('GET /v1/shopify/me store.planHandle and store.subscriptionStatus', () => {
-  it('includes plan handle and subscription status in the store object', async () => {
-    const planStore = await upsertShopifyStore(
-      app,
-      {
-        shopifyShopId: 777,
-        shopDomain: 'plan-test.myshopify.com',
-        myshopifyDomain: 'plan-test.myshopify.com',
-        name: 'Plan Test Store',
-        email: 'plan@test.com',
-      },
-      'tok',
-      'read_products',
-    );
-    const planToken = signSessionToken('plan-test.myshopify.com', API_SECRET, API_KEY);
-
-    await app.db
-      .update(schema.shopifyStores)
-      .set({ planHandle: 'growth', subscriptionStatus: 'active' })
-      .where(eq(schema.shopifyStores.id, planStore.id));
-
-    const res = await app.inject({
-      method: 'GET',
-      url: '/v1/shopify/me',
-      headers: { authorization: `Bearer ${planToken}` },
-    });
-    expect(res.json().store.planHandle).toBe('growth');
-    expect(res.json().store.subscriptionStatus).toBe('active');
-  });
-});
-
 describe('GET /v1/shopify/me stats — daily cap & captured emails', () => {
   it('reports today usage against the store cap and the captured email count', async () => {
     // Isolated store: the shared `storeId` already has 3 same-day jobs from this file's beforeAll,

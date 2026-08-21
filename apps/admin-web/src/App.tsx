@@ -6,6 +6,7 @@ import { Topbar } from './components/Topbar';
 import { useAuth } from './context/AuthContext';
 import { apiErrorMessage, apiFetch, patchAdminPreferences } from './lib/data';
 import AssetsPage from './pages/AssetsPage';
+import AuditLogsPage from './pages/AuditLogsPage';
 import ChatbotQnaPage from './pages/ChatbotQnaPage';
 import ChatInboxPage from './pages/ChatInboxPage';
 import ContactRequestsPage from './pages/ContactRequestsPage';
@@ -52,6 +53,7 @@ const PATH_LABELS: Record<string, string> = {
   payments: 'Payments',
   'shopify-stores': 'Shopify Stores',
   telemetry: 'Telemetry',
+  'audit-logs': 'Activity Logs',
 };
 
 function readStoredTheme(): Theme {
@@ -253,6 +255,7 @@ export default function App() {
             <Route path="/recycle-bin" element={<RecycleBinPage {...pageProps} />} />
             <Route path="/settings" element={<SettingsPage {...settingsProps} />} />
             <Route path="/workers" element={<WorkersPage {...pageProps} />} />
+            <Route path="/audit-logs" element={<AuditLogsPage {...pageProps} />} />
             <Route path="*" element={<DashboardPage {...pageProps} />} />
           </Routes>
         </main>

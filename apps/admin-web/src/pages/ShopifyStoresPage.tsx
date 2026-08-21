@@ -5,8 +5,6 @@ import { apiErrorMessage, apiFetch } from '../lib/data';
 interface ShopifyStore {
   id: string;
   shopDomain: string;
-  planHandle: string | null;
-  subscriptionStatus: string | null;
   balance: number;
   installedAt: string;
   uninstalledAt: string | null;
@@ -104,10 +102,6 @@ export default function ShopifyStoresPage({ toast }: Props) {
               <Icon.Back /> Back to Shopify Stores
             </button>
             <h1 style={{ marginTop: 8 }}>{selectedStore.shopDomain}</h1>
-            <p className="lede">
-              {selectedStore.planHandle ?? 'No plan'} &middot;{' '}
-              {selectedStore.subscriptionStatus ?? 'No subscription'}
-            </p>
           </div>
         </div>
 
@@ -191,7 +185,7 @@ export default function ShopifyStoresPage({ toast }: Props) {
       <div>
         <h2 style={{ margin: 0, fontSize: '1.125rem', fontWeight: 600 }}>Shopify Stores</h2>
         <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
-          Read-only store subscriptions, credit balances, and credit activity.
+          Read-only store credit balances and credit activity.
         </p>
       </div>
 
@@ -220,8 +214,6 @@ export default function ShopifyStoresPage({ toast }: Props) {
             <thead>
               <tr>
                 <th>Shop domain</th>
-                <th>Plan</th>
-                <th>Subscription status</th>
                 <th style={{ textAlign: 'right' }}>Balance</th>
                 <th>Installed</th>
                 <th>Uninstalled</th>
@@ -236,8 +228,6 @@ export default function ShopifyStoresPage({ toast }: Props) {
                   title={`View ${store.shopDomain} credit activity`}
                 >
                   <td style={{ fontWeight: 500 }}>{store.shopDomain}</td>
-                  <td>{store.planHandle ?? '—'}</td>
-                  <td>{store.subscriptionStatus ?? '—'}</td>
                   <td style={{ textAlign: 'right' }}>{store.balance.toLocaleString()}</td>
                   <td>{formatDate(store.installedAt)}</td>
                   <td>{formatDate(store.uninstalledAt)}</td>

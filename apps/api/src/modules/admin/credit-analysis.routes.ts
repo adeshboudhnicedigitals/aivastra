@@ -4,7 +4,7 @@ import { and, desc, eq, exists, gte, inArray, isNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { requireAdmin } from './guard.js';
+import { requirePermission } from './guard.js';
 
 const SOURCES = [
   JOB_SOURCE.CATALOG,
@@ -58,7 +58,7 @@ function sourceCondition(source: SourceFilter) {
 const rankedUserId = sql<string>`COALESCE(${schema.jobs.userId}, ${schema.merchants.userId})`;
 
 export async function adminCreditAnalysisRoutes(app: FastifyInstance) {
-  const ALL = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']);
+  const ALL = requirePermission('credit_analysis.read');
 
   app.get(
     '/admin/credit-analysis/users',
