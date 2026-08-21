@@ -1163,6 +1163,20 @@
       "when": 1787226397945,
       "tag": "0165_merchant_catalog_two_input_tryon",
       "breakpoints": true
+    },
+    {
+      "idx": 166,
+      "version": "7",
+      "when": 1787000000000,
+      "tag": "0166_audit_logs",
+      "breakpoints": true
+    },
+    {
+      "idx": 167,
+      "version": "7",
+      "when": 1787100000000,
+      "tag": "0167_permissions",
+      "breakpoints": true
     }
   ]
 }

@@ -21,11 +21,11 @@ import sharp from 'sharp';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
-import { requireAdmin } from './guard.js';
+import { requirePermission } from './guard.js';
 
 export async function adminAssetsRoutes(app: FastifyInstance) {
-  const RW = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
-  const D = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
+  const RW = requirePermission('assets.write');
+  const D = requirePermission('assets.delete');
   const uuidParam = z.object({ id: z.string().uuid() });
 
   // ── Faces ─────────────────────────────────────────────────────────────────

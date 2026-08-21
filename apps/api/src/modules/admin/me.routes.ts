@@ -3,41 +3,42 @@ import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { requireAdmin } from './guard.js';
+import { getRolePermissions, requirePermission } from './guard.js';
 
 const ThemePreference = z.object({
   theme: z.enum(['light', 'dark', 'system']).optional(),
 });
 
 export async function adminMeRoutes(app: FastifyInstance) {
-  app.get(
-    '/admin/me',
-    { preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']) },
-    async (req) => {
-      const [user] = await app.db
-        .select({ email: schema.users.email })
-        .from(schema.users)
-        .where(eq(schema.users.id, req.userId));
-      if (!user) throw new AppError('NOT_FOUND', 404, 'user not found');
+  const GUARD = requirePermission('admin.me');
 
-      const [adminUser] = await app.db
-        .select({ preferences: schema.adminUsers.preferences })
-        .from(schema.adminUsers)
-        .where(eq(schema.adminUsers.userId, req.userId));
+  app.get('/admin/me', { preHandler: GUARD }, async (req) => {
+    const [user] = await app.db
+      .select({ email: schema.users.email })
+      .from(schema.users)
+      .where(eq(schema.users.id, req.userId));
+    if (!user) throw new AppError('NOT_FOUND', 404, 'user not found');
 
-      return {
-        userId: req.userId,
-        email: user.email,
-        role: req.adminRole,
-        preferences: adminUser?.preferences ?? {},
-      };
-    },
-  );
+    const [adminUser] = await app.db
+      .select({ preferences: schema.adminUsers.preferences })
+      .from(schema.adminUsers)
+      .where(eq(schema.adminUsers.userId, req.userId));
+
+    const perms = await getRolePermissions(app, req.adminRole!);
+
+    return {
+      userId: req.userId,
+      email: user.email,
+      role: req.adminRole,
+      permissions: Array.from(perms),
+      preferences: adminUser?.preferences ?? {},
+    };
+  });
 
   app.patch(
     '/admin/me/preferences',
     {
-      preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']),
+      preHandler: GUARD,
       schema: { body: ThemePreference },
     },
     async (req) => {

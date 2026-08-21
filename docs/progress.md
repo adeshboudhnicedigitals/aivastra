@@ -1,3 +1,12 @@
+## 2026-08-20 — Admin Role-Permission Matrix (API, Settings Tab, Sidebar & Recycle Bin fixes)
+
+**Done**
+- Implemented `GET` and `PATCH /admin/role-permissions` API (`apps/api/src/modules/admin/role-permissions.routes.ts`) gated by existing `admin_users.manage` permission. Reads existing `permissions` and `role_permissions` tables to return the matrix of role grants, and updates grants transactionally with audit logging (`role_permissions.grant` / `role_permissions.revoke`). `SUPER_ADMIN` is strictly excluded from editing via the zod request body enum (`EDITABLE_ROLES = ['ADMIN', 'MODERATOR', 'SUPPORT']`).
+- Registered `adminRolePermissionsRoutes` in `apps/api/src/server.ts` and added integration tests in `apps/api/test/integration/role-permissions.test.ts` (verified matrix fetching, idempotent granting/revoking, audit log writes, rejection of `SUPER_ADMIN` edits, and 403 authorization gating for non-super admins).
+- Created "Roles & Permissions" matrix settings tab (`apps/admin-web/src/pages/settings/RolesPermissionsTab.tsx`) and integrated it into `SettingsPage.tsx`. Features optimistic updates, in-flight state tracking per cell, disabled checkboxes for `SUPER_ADMIN`, and error rollback with toast alerts.
+- Updated `Sidebar.tsx` to gate 20 navigation items on real permission keys (`hasPermission`) rather than hard-coded role arrays, fixing drifts for `shopify-funnels`, `users`, and `credit-analysis` per `0160_permissions.sql` seed data. Preserved hardcoded roles for `payments` as intentional holdout since no permission key exists for it yet. Settings gear is now gated on `hasPermission('admin_users.manage')`.
+- Updated `RecycleBinPage.tsx`'s `canHardDelete` check to use `hasPermission('assets.delete')` instead of `role === 'SUPER_ADMIN' || role === 'MODERATOR'`.
+
 ## 2026-08-20 — Merchant Catalog Two-Input (Body + Pallu) Direct Try-On
 
 **Done**
@@ -416,6 +425,52 @@ implemented here):**
   load) do not get the auto-popup — only already-logged-in visitors and the
   login/Google-OAuth round trip are covered. Documented as a deliberate scope
   boundary in the design spec, not a gap.
+
+## 2026-08-17 — Implemented Admin Identity, Capability Authorization & Audit Trail
+
+**Done**
+- **Phase 0 & 1:** Documented break-glass attribution model. Extracted and unified admin access resolution via `resolveAdminAccess(app, userId)` in `guard.ts`, unifying `/results/login` and `/admin/*` routes. Verified with passing integration test `test/integration/results-auth.test.ts`.
+- **Phase 2 (`audit_logs`):**
+  - Hand-crafted migration `0159_audit_logs.sql` (journal idx 159; renumbered from the original `0157` after merging `dev`, which had independently claimed indices 157–158 — see "Migration Index Conflicts" in `docs/version-control.md`) defining append-only `audit_logs` table with PostgreSQL trigger `audit_logs_prevent_mutation` rejecting `UPDATE`/`DELETE`.
+  - Added Prometheus counter `audit_log_write_failures_total` via `@aivastra/observability`.
+  - Implemented transactional, fail-closed `recordAudit(tx, params)` helper in `apps/api/src/modules/admin/audit.ts`.
+  - Wired audit logging into high-risk administrative mutations (workers create/patch/delete, workflows create/patch/reassign/delete, users patch/erase/admin role changes, credits grant/deduct).
+  - Implemented `GET /admin/audit-logs` endpoint with action/resourceType/resourceId filters and pagination in `apps/api/src/modules/admin/audit.routes.ts`.
+  - Verified with comprehensive integration tests in `test/integration/admin-audit-logs.test.ts` (3/3 pass: append-only trigger rejection, fail-closed rollback + metric, and full mutation lifecycle).
+- **Phase 3 (Capability Permissions Model):**
+  - Hand-crafted migration `0160_permissions.sql` (journal idx 160; also renumbered from `0158`, same collision) with `permissions` & `role_permissions` schema and exact role capability seed data. Added `admin_users_role_check` constraint.
+  - Implemented `requirePermission`, `requireAnyPermission`, and `getRolePermissions` in `apps/api/src/modules/admin/guard.ts`.
+  - Migrated all 27 admin route files and 64 route handler sites from legacy role-list checks to granular capability permissions (zero legacy `requireAdmin(` call sites remaining in route definitions, aside from one write route on `dev`'s `shopify-stores.routes.ts` reconciled during this merge — no matching capability permission exists yet, left on `requireAdmin(['SUPER_ADMIN'])` pending a follow-up).
+  - Wired user capabilities into `GET /admin/me` (`permissions: Array<string>`).
+  - Created and ran comprehensive parity test suite (`test/integration/permissions-parity.test.ts`) validating 100% matrix parity across all 4 admin roles (`SUPER_ADMIN`, `ADMIN`, `MODERATOR`, `SUPPORT`).
+- **Phase 4 (Frontend Gating & Activity Trail):**
+  - Extended `AuthContext.tsx` with `permissions` state and `hasPermission(perm)` helper.
+  - Added Activity Logs (`/audit-logs`) page with action/resource filters, pagination, and expandable Before/After payload JSON diff viewer in `apps/admin-web/src/pages/AuditLogsPage.tsx`.
+  - Wired `/audit-logs` into `Sidebar.tsx` and `App.tsx`.
+  - All workspace packages typechecked and built cleanly (`pnpm typecheck`, `pnpm --filter @aivastra/admin build`).
+
+**Failed / Not Done**
+- All 5 phases from the design plan (`docs/superpowers/plans/2026-08-17-admin-identity-authz-audit-trail.md`)
+  are implemented and verified — but that plan deliberately scoped one piece of work
+  *out* of Phase 2 rather than skipping it silently:
+
+**Open Questions / Decisions**
+- **`audit_logs` append-only enforcement is trigger-based, not privilege-based, and
+  that's a known, tracked gap, not an oversight.** `POSTGRES_USER=tryon` is a Postgres
+  superuser in every environment (dev/staging/prod — verified against
+  `infra/docker-compose*.yml` and `.env.production.example`, no second role exists
+  anywhere), so `REVOKE UPDATE, DELETE` would be inert against it. The
+  `audit_logs_prevent_mutation` trigger (migration `0159`) stops accidental
+  `UPDATE`/`DELETE` but not a superuser who explicitly disables the trigger first —
+  which is exactly the failure mode this whole initiative exists to reduce (shared,
+  over-privileged credentials). The real fix — a genuinely non-superuser runtime DB
+  role, plus a *separate*, more-privileged credential for `db:migrate:prod` since
+  `tryon` currently does both — is real infra work (new role, new secret(s),
+  `docker-compose`/CI wiring across all three environments) and was explicitly left
+  unscheduled by design rather than attempted inline. Not started yet; needs its own
+  task when prioritized.
+
+---
 
 ## 2026-08-17 — Removed the orphaned kiosk_devices pairing feature
 
