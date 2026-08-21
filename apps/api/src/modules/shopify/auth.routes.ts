@@ -96,11 +96,28 @@ export async function upsertShopifyStore(
   });
 }
 
+// Where apps/shopify's own router (src/main.tsx's BrowserRouter basename)
+// picks up routes — NOT `application_url`'s `/shopify-admin/embedded` suffix;
+// that `/embedded` segment is only a one-time landing redirect to `/` (see
+// App.tsx), not a routing prefix. Verified live on staging 2026-08-21: for a
+// bare `/apps/{apiKey}` (empty `path` below) Shopify embeds `application_url`
+// correctly, but for `/apps/{apiKey}{path}` with a non-empty `path` it does
+// NOT append that path onto `application_url` — it appends onto the app's
+// bare origin instead, silently dropping the whole `/shopify-admin/embedded`
+// prefix. A purchase return that passed bare `/billing/callback` landed the
+// iframe at `staging-admin.aivastra.com/billing/callback`, which nginx's
+// catch-all sent to the wrong app entirely (admin-web), rendered by the
+// browser as an `X-Frame-Options` block that looks identical to a connection
+// refusal. Any non-empty `path` passed to buildPostInstallRedirect must
+// include this prefix itself — never rely on Shopify reconstructing it from
+// `application_url`.
+export const EMBEDDED_SPA_PATH = '/shopify-admin';
+
 /**
  * Where to send the merchant once OAuth completes — or, via the optional
  * `path` param, back into a specific SPA route after a Shopify billing
  * approval redirect (see purchase.routes.ts / autorefill.routes.ts's `/return`
- * routes).
+ * routes, which must prefix their `path` with `EMBEDDED_SPA_PATH`).
  *
  * This must hand control back to Shopify rather than point at our own SPA. Only
  * Shopify can mint the `host` and `id_token` query params that App Bridge needs
@@ -108,10 +125,7 @@ export async function upsertShopifyStore(
  * app itself. Redirecting straight at the SPA leaves App Bridge with no parent
  * coordinates, and every call into it — `idToken()` included — then hangs
  * forever: no resolve, no reject, no console error, just a permanent loading
- * spinner for the merchant. Shopify forwards whatever comes after
- * `/apps/{apiKey}` straight through to the app's own URL, so `path` (e.g.
- * `/billing/callback?purchase=...`) lands the merchant on that exact SPA
- * route, still embedded.
+ * spinner for the merchant.
  */
 export function buildPostInstallRedirect(shop: string, apiKey: string, path = ''): string {
   const storeHandle = shop.replace(/\.myshopify\.com$/, '');

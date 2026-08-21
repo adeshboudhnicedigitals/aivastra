@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { buildPostInstallRedirect } from './auth.routes.js';
+import { buildPostInstallRedirect, EMBEDDED_SPA_PATH } from './auth.routes.js';
 import {
   confirmAutorefill,
   defaultTriggerCredits,
@@ -59,7 +59,11 @@ export async function shopifyAutorefillRoutes(app: FastifyInstance) {
       const storeHandle = shop.replace(/\.myshopify\.com$/, '');
       return reply.redirect(
         apiKey
-          ? buildPostInstallRedirect(shop, apiKey, '/billing/autorefill-callback')
+          ? buildPostInstallRedirect(
+              shop,
+              apiKey,
+              `${EMBEDDED_SPA_PATH}/billing/autorefill-callback`,
+            )
           : `https://admin.shopify.com/store/${storeHandle}/apps`,
       );
     },
