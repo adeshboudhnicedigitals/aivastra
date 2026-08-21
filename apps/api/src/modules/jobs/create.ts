@@ -971,13 +971,18 @@ export async function createJob(
   }
 
   // gender isn't part of CreateTryOnJobRequest — derived from the resolved
-  // pose(s) themselves (the reliable source; a job's poses are always one
-  // gender since the studio picker only ever queries one gender at a time),
-  // not trusted from client input. A separate, single lookup rather than
-  // threading gender through resolveTryonPlan/TryonPlanLook, which stays
-  // untouched. null when there are no looks (shouldn't happen in practice,
-  // but keeps this defensive).
-  const firstPoseId = plan.looks[0]?.poseId;
+  // pose(s) themselves (the reliable source), not trusted from client input.
+  // Assumes a job's poses are all one gender — the studio picker only ever
+  // queries one gender at a time, but nothing here enforces that server-side,
+  // so a hand-rolled request with mixed-gender looks would silently take the
+  // first look's gender. Harmless: only last-used tracking reads this, and
+  // activePoseIds (pose-presets/routes.ts) filters mismatched poses out at
+  // GET time regardless. A separate, single lookup rather than threading
+  // gender through resolveTryonPlan/TryonPlanLook, which stays untouched.
+  // Skipped when garmentTypeId is absent (optional on CreateTryOnJobRequest)
+  // since updateLastUsedPosePreset no-ops without it anyway — no point
+  // paying the round trip for regenerate.ts/dev API callers that never use it.
+  const firstPoseId = garmentTypeId ? plan.looks[0]?.poseId : undefined;
   const [firstPoseRow] = firstPoseId
     ? await app.db
         .select({ genderSlug: schema.modelPoseAssets.genderSlug })

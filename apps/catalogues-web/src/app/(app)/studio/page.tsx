@@ -3895,7 +3895,9 @@ export default function StudioPage(): React.ReactElement {
                           <button
                             type="button"
                             onClick={handleSavePosePreset}
-                            disabled={isSavingPosePreset || !presetNameInput.trim()}
+                            disabled={
+                              isSavingPosePreset || !presetNameInput.trim() || !garmentTypeId
+                            }
                             style={{
                               fontSize: 12,
                               fontWeight: 600,

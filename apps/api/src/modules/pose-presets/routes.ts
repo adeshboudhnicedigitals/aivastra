@@ -81,6 +81,24 @@ export async function posePresetsRoutes(app: FastifyInstance) {
         typeof CreatePosePresetRequest
       >;
 
+      // garmentTypeId is client-chosen and FK-constrained, but unvalidated
+      // input reaching that FK would 500 instead of 400 — and without this,
+      // gender is trusted from the client with nothing tying it to the
+      // garment type actually being saved under, weakening the per-scope cap
+      // this table relies on (see schema comment on user_pose_presets).
+      const [garmentType] = await app.db
+        .select({ genderSlug: schema.garmentSubcategories.genderSlug })
+        .from(schema.garmentSubcategories)
+        .where(
+          and(
+            eq(schema.garmentSubcategories.id, garmentTypeId),
+            eq(schema.garmentSubcategories.isActive, true),
+          ),
+        );
+      if (!garmentType || garmentType.genderSlug !== gender) {
+        throw new AppError('VALIDATION', 400, 'garment type is not valid for this gender');
+      }
+
       const valid = await activePoseIds(app, poseIds, gender);
       if (valid.length !== poseIds.length) {
         throw new AppError(

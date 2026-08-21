@@ -341,7 +341,7 @@ describe('pose presets', () => {
       if (realHeadObject) app.storage.headObject = realHeadObject;
     });
 
-    async function seedFaceAndLook(suffix: string, garmentTypeId: string) {
+    async function seedFaceAndLook(suffix: string, garmentTypeId: string | undefined) {
       const [face] = await app.db
         .insert(schema.modelFaces)
         .values({
@@ -373,7 +373,7 @@ describe('pose presets', () => {
       token: string,
       userId: string,
       suffix: string,
-      garmentTypeId: string,
+      garmentTypeId: string | undefined,
     ) {
       const { faceId, backgroundId, poseId } = await seedFaceAndLook(suffix, garmentTypeId);
       // INPUT_GARMENT_KEY (packages/types/src/jobs.ts) only accepts the exact
@@ -390,7 +390,7 @@ describe('pose presets', () => {
           inputs: {
             upperGarmentKey: garmentKey,
             faceId,
-            garmentTypeId,
+            ...(garmentTypeId ? { garmentTypeId } : {}),
             looks: [{ poseId, backgroundId }],
           },
           aspectRatio: '1:1',
@@ -490,6 +490,28 @@ describe('pose presets', () => {
       const byGarmentType = new Map(rows.map((r) => [r.garmentTypeId, r.poseIds]));
       expect(byGarmentType.get(garmentTypeA)).toEqual([first.poseId]);
       expect(byGarmentType.get(garmentTypeB)).toEqual([second.poseId]);
+    });
+
+    it('does not write a last-used row when the job omits garmentTypeId', async () => {
+      const { token, userId } = await getToken('preset-last-used-no-garment-type@x.com');
+      await app.db
+        .insert(schema.userCredits)
+        .values({ userId, balance: 100 })
+        .onConflictDoUpdate({ target: schema.userCredits.userId, set: { balance: 100 } });
+
+      const submitted = await submitTryonJob(token, userId, 'e', undefined);
+      expect(submitted.res.statusCode).toBe(201);
+
+      const rows = await app.db
+        .select()
+        .from(schema.userPosePresets)
+        .where(
+          and(
+            eq(schema.userPosePresets.userId, userId),
+            eq(schema.userPosePresets.isLastUsed, true),
+          ),
+        );
+      expect(rows).toHaveLength(0);
     });
   });
 });
