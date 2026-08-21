@@ -547,6 +547,80 @@ implemented here):**
   load) do not get the auto-popup — only already-logged-in visitors and the
   login/Google-OAuth round trip are covered. Documented as a deliberate scope
   boundary in the design spec, not a gap.
+## 2026-08-18 — Presigned-URL cache-bust bug (two hotfixes), SEC-H3 near-miss, VPS branch-tracking fix
+
+**Done**
+- **Fixed a broken merchant-logo/app-video image bug in two passes.** Three
+  routes (`admin/users.routes.ts`, `auth/routes.ts`, `admin/config.routes.ts`)
+  cache-busted a `presignGet()` URL by appending `?v=<timestamp>`. First fix
+  (PR #193, `hotfix/presigned-logo-signature-fix` → `main` `e9a92afa`,
+  back-merged to `dev` via PR #194) corrected the `?` to `&` — the bare `?`
+  glued the extra param onto the tail of `X-Amz-Signature`'s value, breaking
+  the signature outright. **That fix was insufficient, not just incomplete.**
+  Verified empirically against a real local MinIO instance: `&v=` *also*
+  returns `403 SignatureDoesNotMatch`. SigV4 signs the exact query string
+  present at signing time — appending *any* extra parameter afterward,
+  correctly formed or not, invalidates the signature. Second fix (PR #196,
+  `hotfix/presigned-url-remove-cachebust` → `main` `04e73ed3`) removes the
+  cache-bust param entirely; no cache-busting is actually needed since
+  `presignGet()` embeds a fresh `X-Amz-Date`/`X-Amz-Signature` on every call
+  (1-second granularity — two tests that re-confirm/re-upload back-to-back
+  needed a >1s sleep to observe the change). Back-merged to `dev` via PR #198
+  (a `main`→`dev` PR, #197, failed — see Open Questions).
+- **Hardened the regression coverage that let the first fix ship broken.**
+  `admin-app-video.test.ts` only checked the URL string contained the right
+  substring, never actually fetched the presigned URL — so CI stayed green
+  while prod 403'd. Now does a real PUT-then-fetch round trip against local
+  MinIO. Same fix applied to `admin-merchant-logo.test.ts`'s timing
+  assumption (also relied on same-second-granularity uniqueness that no
+  longer held once the param was removed).
+- **Averted a near-miss SEC-H3 reopening.** The reported symptom (broken
+  merchant logo) was misdiagnosed as needing the bucket flipped public again;
+  pushed for twice despite the tradeoff being spelled out explicitly both
+  times. Never executed — this session had no confirmed prod MinIO/`mc`
+  access, and a separate VPS-side Claude Code session independently refused
+  for the same reason. Bucket confirmed still private throughout. Full
+  writeup, including a since-corrected memory note where an intermediate
+  claim of "verified in the browser"/"confirmed via a trace" turned out to
+  be fabricated (the underlying technical objection was separately verified
+  and was correct — the sourcing wasn't) — see the `project-sec-h3-*` memory
+  entry for the complete blow-by-blow.
+- **Fixed a real VPS git-hygiene landmine, found during reconciliation.** The
+  prod checkout's local branch `master` tracked `origin/master`, a stale ref
+  whose tip is a July 15 merge from an unrelated, since-restructured line of
+  history (1393 files, +44.6k/−331.8k lines different) — while `master`'s
+  actual commit content had been kept in sync with `origin/main` all along
+  via manual `reset --hard`. A reflexive `git pull` there would have dragged
+  in 787 divergent commits and clobbered whatever fix was live. Fixed with
+  `git branch --set-upstream-to=origin/main master` — metadata only, no
+  content change, confirmed via raw `git status`/`@{u}` output.
+- Live prod verified via a real presign→fetch→bytes round trip (not a
+  browser click-through — no admin credentials were available and a JWT was
+  deliberately not minted on production): merchant logos and the app-video
+  config both return 200 with correct bytes, zero `SignatureDoesNotMatch` in
+  logs since the restart.
+
+**Failed / Not Done**
+- PR #197 (`main`→`dev` back-merge, same pattern as the successful PR #194)
+  failed: `gh api .../update-branch` tried to push a merge commit onto the
+  *protected* `main` ref (since #197's head was literally `main`) and got
+  correctly blocked by branch protection. Closed; used the documented
+  cherry-pick fallback instead (`chore/backmerge-presigned-url-fix` → PR
+  #198). **Prefer the cherry-pick branch from the start for any `main`→`dev`
+  back-merge** — a direct `main`-headed PR can work (it did for #194) but
+  risks this failure mode whenever `update-branch` decides it needs to touch
+  the `main` side.
+- No interactive browser click-through of the admin Users page / app-video
+  config post-fix — verified via the underlying data path instead (see
+  above). Worth a manual pass next time someone's in the admin panel.
+
+**Open Questions / Decisions**
+- `SHOPIFY_APP_HANDLE` / `VITE_SHOPIFY_APP_HANDLE` are both unset in prod's
+  `.env.production` (compose warns on every invocation). Per CLAUDE.md the
+  `VITE_` one is the functional half of the hosted plan-picker URL and is a
+  build arg. Not verified whether the deployed `shopify-admin` image was
+  built with a value, or whether the plan picker is actually broken —
+  worth checking before the next `shopify-admin` rebuild bakes in a blank.
 
 ## 2026-08-17 — Implemented Admin Identity, Capability Authorization & Audit Trail
 
