@@ -846,10 +846,10 @@ export default function StudioPage(): React.ReactElement {
 
   async function handleSavePosePreset() {
     const name = presetNameInput.trim();
-    if (!name || poseIds.length === 0 || isSavingPosePreset) return;
+    if (!name || poseIds.length === 0 || isSavingPosePreset || !garmentTypeId) return;
     setIsSavingPosePreset(true);
     try {
-      await api.post('/v1/pose-presets', { name, poseIds });
+      await api.post('/v1/pose-presets', { name, gender, garmentTypeId, poseIds });
       await refetchPosePresets();
       setPresetNameInput('');
       setPresetNameModalOpen(false);
@@ -981,12 +981,17 @@ export default function StudioPage(): React.ReactElement {
     refetchOnWindowFocus: true,
   });
 
+  // Scoped to gender+garmentTypeId — poses are gender-partitioned and have
+  // per-garment-type active/inactive overrides, so a preset saved under one
+  // context is meaningless under another. Only fetches once both are known
+  // (catalogueTemplateId === 'custom' is when the chip row can render at all).
   const { data: posePresets, refetch: refetchPosePresets } = useQuery<{
     lastUsed: { id: string; name: string | null; poseIds: string[] } | null;
     named: { id: string; name: string | null; poseIds: string[] }[];
   }>({
-    queryKey: ['pose-presets'],
-    queryFn: () => api.get('/v1/pose-presets'),
+    queryKey: ['pose-presets', gender, garmentTypeId],
+    queryFn: () => api.get(`/v1/pose-presets?gender=${gender}&garmentTypeId=${garmentTypeId}`),
+    enabled: catalogueTemplateId === 'custom' && !!gender && !!garmentTypeId,
   });
 
   const selectedPoses = poses?.items.filter((p) => poseIds.includes(p.id)) ?? [];
