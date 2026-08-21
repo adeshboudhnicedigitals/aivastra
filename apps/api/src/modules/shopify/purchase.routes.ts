@@ -1,7 +1,7 @@
 import type { schema } from '@aivastra/db';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { buildPostInstallRedirect } from './auth.routes.js';
+import { buildPostInstallRedirect, EMBEDDED_SPA_PATH } from './auth.routes.js';
 import { confirmPurchase, createPurchase } from './purchase.js';
 
 const PurchaseBody = z.object({ packId: z.string().min(1).max(64) });
@@ -39,7 +39,7 @@ export async function shopifyPurchaseRoutes(app: FastifyInstance) {
     { schema: { querystring: ReturnQuery } },
     async (req, reply) => {
       const { purchase, shop, charge_id: chargeId } = req.query as z.infer<typeof ReturnQuery>;
-      const path = `/billing/callback?purchase=${purchase}${chargeId ? `&charge_id=${chargeId}` : ''}`;
+      const path = `${EMBEDDED_SPA_PATH}/billing/callback?purchase=${purchase}${chargeId ? `&charge_id=${chargeId}` : ''}`;
       const apiKey = app.env.SHOPIFY_API_KEY;
       const storeHandle = shop.replace(/\.myshopify\.com$/, '');
       // SHOPIFY_API_KEY is optional in the env schema — see appLinkFor's
