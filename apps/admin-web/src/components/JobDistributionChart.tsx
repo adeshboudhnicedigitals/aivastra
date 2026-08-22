@@ -1,4 +1,4 @@
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis } from 'recharts';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 export interface DistributionPoint {
   jobId: string;
@@ -25,32 +25,20 @@ export interface DistributionBucket {
   points: DistributionPoint[];
 }
 
-interface BoxStats {
-  q1: number;
-  median: number;
-  q3: number;
-  whiskerLow: number;
-  whiskerHigh: number;
-  count: number;
-  points: DistributionPoint[];
-}
-
-// One chart row per time bucket; each job type contributes a `[low, high]`
-// range under its own key so recharts renders and offsets one Bar series per
-// type automatically — that offset is what encodes job type positionally.
-interface ChartRow {
-  bucketMs: number;
-  label: string;
-  stats: Record<string, BoxStats>;
-  [jobTypeKey: string]: unknown;
-}
-
 interface Props {
   buckets: DistributionBucket[];
-  jobTypeOrder: string[];
   bucketSeconds: number;
+  jobTypeOrder: string[];
+  /** Currently visible time range. Controlled by the parent so it can refetch. */
+  viewFrom: number;
+  viewTo: number;
+  /** Hard limits pan/zoom can't escape — the window the day selector chose. */
+  boundsFrom: number;
+  boundsTo: number;
+  onViewChange: (from: number, to: number) => void;
   onPointClick: (p: DistributionPoint) => void;
   selectedJobId: string | null;
+  loading?: boolean;
 }
 
 // Hue encodes the phase, not the job type — the phases are what you compare
@@ -67,7 +55,70 @@ export const PHASE_LABELS = {
   overhead: 'Dispatch + I/O',
 } as const;
 
-const BOX_COLOR = 'var(--muted)';
+const HEIGHT = 340;
+const MARGIN = { top: 10, right: 10, bottom: 42, left: 56 };
+const MIN_SPAN_MS = 5 * 60_000;
+// Pointer travel below this on release still counts as a click, not a drag.
+const DRAG_SLOP_PX = 4;
+// A bucket narrower than this is unreadable and unclickable, so widen it even
+// though that slightly overstates its time span.
+const MIN_COLUMN_PX = 5;
+
+/* ---------- scales & ticks (hand-rolled: the chart owns its own geometry, so
+   nothing in a charting library can fight us over bucketing or colour parsing) */
+
+function niceStep(rough: number): number {
+  const mag = 10 ** Math.floor(Math.log10(rough));
+  const norm = rough / mag;
+  const step = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
+  return step * mag;
+}
+
+function valueTicks(max: number, count = 5): number[] {
+  if (max <= 0) return [0];
+  const step = niceStep(max / count);
+  const out: number[] = [];
+  for (let v = 0; v <= max + step / 2; v += step) out.push(v);
+  return out;
+}
+
+const TIME_STEPS_MS = [
+  1_000, 5_000, 15_000, 30_000, 60_000, 300_000, 900_000, 1_800_000, 3_600_000, 10_800_000,
+  21_600_000, 43_200_000, 86_400_000, 604_800_000,
+];
+
+function timeTicks(from: number, to: number, count = 6): number[] {
+  const rough = (to - from) / count;
+  const step = TIME_STEPS_MS.find((s) => s >= rough) ?? TIME_STEPS_MS[TIME_STEPS_MS.length - 1];
+  // Align to local midnight rather than the epoch so day/hour ticks land on
+  // round clock values in the viewer's timezone.
+  const tzOffset = new Date(from).getTimezoneOffset() * 60_000;
+  const start = Math.ceil((from - tzOffset) / step) * step + tzOffset;
+  const out: number[] = [];
+  for (let t = start; t <= to; t += step) out.push(t);
+  return out;
+}
+
+function formatTimeTick(ms: number, spanMs: number): string {
+  const d = new Date(ms);
+  if (spanMs <= 6 * 3_600_000) {
+    return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  }
+  if (spanMs <= 4 * 86_400_000) {
+    return d.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function fmtDuration(ms: number | null): string {
+  if (ms === null) return '—';
+  return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
 
 /**
  * Splits a job into three non-overlapping segments that sum exactly to E2E.
@@ -85,10 +136,9 @@ function phaseSegments(p: DistributionPoint): { queue: number; comfy: number; ov
 }
 
 /**
- * Deterministic [-0.5, 0.5] offset from a job id. Bars at identical durations
- * would otherwise stack into one mark; jittering spreads them so density is
- * readable. Derived from the id rather than Math.random so a bar doesn't hop
- * around between renders.
+ * Deterministic [-0.5, 0.5] offset from a job id, so bars at identical
+ * durations don't collapse onto one mark — and don't hop between renders the
+ * way Math.random would.
  */
 function jitterFor(jobId: string): number {
   let h = 0;
@@ -96,226 +146,332 @@ function jitterFor(jobId: string): number {
   return ((h >>> 0) % 1000) / 1000 - 0.5;
 }
 
-function formatBucketLabel(ms: number, bucketSeconds: number): string {
-  const d = new Date(ms);
-  // A daily bucket labelled with an hour reads as false precision.
-  return bucketSeconds >= 86400
-    ? d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-    : d.toLocaleString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-}
-
-function tickSeconds(v: number): string {
-  return v < 1 ? `${Math.round(v * 1000)}ms` : `${v.toFixed(1)}s`;
-}
-
-function fmt(ms: number | null): string {
-  if (ms === null) return '—';
-  return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
-}
-
-/**
- * Renders one column: a faint Q1–Q3 box for reference, plus a stacked bar per
- * job rising from zero to that job's E2E, split into its three phases.
- *
- * The Bar this replaces spans 0..whiskerHigh, so `y`/`height` give a
- * value->pixel scale without needing recharts' axis internals.
- */
-function PhaseStackShape(props: {
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  payload?: ChartRow;
-  jobType: string;
-  onPointClick: (p: DistributionPoint) => void;
-  selectedJobId: string | null;
-}) {
-  const { x, y, width, height, payload, jobType, onPointClick, selectedJobId } = props;
-  const s = payload?.stats?.[jobType];
-  if (s === undefined || x === undefined || y === undefined || width === undefined) return null;
-  if (height === undefined) return null;
-
-  // The bar spans 0..whiskerHigh, so pixels-per-ms falls out of its geometry.
-  const pxPerMs = s.whiskerHigh > 0 && height > 0 ? height / s.whiskerHigh : 0;
-  const yZero = y + height;
-  const yFor = (valueMs: number) => yZero - valueMs * pxPerMs;
-
-  const cx = x + width / 2;
-  const jitterSpread = Math.max(width * 0.75, 2);
-  const barW = Math.max(1, Math.min(3, width / Math.max(s.points.length, 1)));
-
-  const yQ1 = yFor(s.q1);
-  const yQ3 = yFor(s.q3);
-  const yMed = yFor(s.median);
-
-  return (
-    <g>
-      {/* Q1-Q3 reference box, behind the bars */}
-      <rect
-        x={x}
-        y={Math.min(yQ1, yQ3)}
-        width={Math.max(width, 1)}
-        height={Math.max(Math.abs(yQ1 - yQ3), 1)}
-        fill={BOX_COLOR}
-        fillOpacity={0.1}
-        stroke={BOX_COLOR}
-        strokeOpacity={0.35}
-        strokeWidth={1}
-      />
-      <line
-        x1={x}
-        x2={x + width}
-        y1={yMed}
-        y2={yMed}
-        stroke={BOX_COLOR}
-        strokeOpacity={0.7}
-        strokeWidth={1.5}
-      />
-      {/* one stacked bar per job: queue at the bottom, then ComfyUI, then the
-          remaining dispatch/upload/download overhead up to E2E */}
-      {s.points.map((p) => {
-        const seg = phaseSegments(p);
-        const bx = cx + jitterFor(p.jobId) * jitterSpread - barW / 2;
-        const selected = p.jobId === selectedJobId;
-        const yQueueTop = yFor(seg.queue);
-        const yComfyTop = yFor(seg.queue + seg.comfy);
-        const yTop = yFor(p.e2eMs);
-        const rect = (yA: number, yB: number, fill: string) =>
-          Math.abs(yB - yA) < 0.4 ? null : (
-            <rect
-              x={bx}
-              y={Math.min(yA, yB)}
-              width={barW}
-              height={Math.abs(yB - yA)}
-              fill={fill}
-              fillOpacity={selected ? 1 : 0.85}
-            />
-          );
-        return (
-          <g
-            key={p.jobId}
-            style={{ cursor: 'pointer' }}
-            onClick={() => onPointClick(p)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') onPointClick(p);
-            }}
-          >
-            {rect(yZero, yQueueTop, PHASE_COLORS.queue)}
-            {rect(yQueueTop, yComfyTop, PHASE_COLORS.comfy)}
-            {rect(yComfyTop, yTop, PHASE_COLORS.overhead)}
-            {/* outliers get a cap so they're findable without relying on height */}
-            {p.isOutlier ? (
-              <rect x={bx - 1} y={yTop - 2} width={barW + 2} height={2} fill="var(--danger)" />
-            ) : null}
-            {selected ? (
-              <rect
-                x={bx - 1.5}
-                y={yTop - 2}
-                width={barW + 3}
-                height={yZero - yTop + 2}
-                fill="none"
-                stroke="var(--text)"
-                strokeWidth={1}
-              />
-            ) : null}
-            <title>
-              {`${p.jobType}${p.workerId ? ` · ${p.workerId}` : ''}\nE2E ${fmt(p.e2eMs)} = queue ${fmt(p.queueMs)} + ComfyUI ${fmt(p.comfyMs)} + overhead ${fmt(seg.overhead)}${p.isOutlier ? '\noutlier' : ''}`}
-            </title>
-          </g>
-        );
-      })}
-    </g>
-  );
-}
-
 export default function JobDistributionChart({
   buckets,
-  jobTypeOrder,
   bucketSeconds,
+  jobTypeOrder,
+  viewFrom,
+  viewTo,
+  boundsFrom,
+  boundsTo,
+  onViewChange,
   onPointClick,
   selectedJobId,
+  loading = false,
 }: Props) {
-  // Pivot the flat (bucket, jobType) rows into one row per bucket.
-  const byBucket = new Map<number, ChartRow>();
-  for (const b of buckets) {
-    let row = byBucket.get(b.bucketMs);
-    if (!row) {
-      row = {
-        bucketMs: b.bucketMs,
-        label: formatBucketLabel(b.bucketMs, bucketSeconds),
-        stats: {},
-      };
-      byBucket.set(b.bucketMs, row);
-    }
-    row.stats[b.jobType] = {
-      q1: b.q1,
-      median: b.median,
-      q3: b.q3,
-      whiskerLow: b.whiskerLow,
-      whiskerHigh: b.whiskerHigh,
-      count: b.count,
-      points: b.points,
-    };
-    // Bars are anchored at zero because the stack is a decomposition of E2E,
-    // not a floating range — so the series spans 0..whiskerHigh.
-    row[b.jobType] = b.whiskerHigh / 1000;
-  }
-  const data = [...byBucket.values()].sort((a, b) => a.bucketMs - b.bucketMs);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [width, setWidth] = useState(800);
 
-  // Domain must cover outliers too — they rise above the whisker range the bars
-  // themselves declare, so autoscale alone would clip them.
-  let maxSec = 0;
-  for (const b of buckets) {
-    maxSec = Math.max(maxSec, b.whiskerHigh / 1000);
-    for (const p of b.points) maxSec = Math.max(maxSec, p.e2eMs / 1000);
+  useLayoutEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => {
+      if (entry) setWidth(entry.contentRect.width);
+    });
+    ro.observe(el);
+    setWidth(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
+
+  const plotW = Math.max(width - MARGIN.left - MARGIN.right, 10);
+  const plotH = HEIGHT - MARGIN.top - MARGIN.bottom;
+  const span = Math.max(viewTo - viewFrom, 1);
+
+  const xScale = useCallback(
+    (t: number) => MARGIN.left + ((t - viewFrom) / span) * plotW,
+    [viewFrom, span, plotW],
+  );
+
+  /** Clamp a proposed range to the outer bounds without changing its span. */
+  const commitRange = useCallback(
+    (from: number, to: number) => {
+      let s = Math.min(Math.max(to - from, MIN_SPAN_MS), boundsTo - boundsFrom);
+      let f = from;
+      if (f < boundsFrom) f = boundsFrom;
+      if (f + s > boundsTo) f = boundsTo - s;
+      if (f < boundsFrom) {
+        f = boundsFrom;
+        s = boundsTo - boundsFrom;
+      }
+      onViewChange(f, f + s);
+    },
+    [boundsFrom, boundsTo, onViewChange],
+  );
+
+  // Wheel must be a non-passive listener or the browser scrolls the page
+  // instead of letting us zoom; React's onWheel can't guarantee that.
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = svg.getBoundingClientRect();
+      const px = e.clientX - rect.left;
+      // Anchor the zoom on the timestamp under the cursor so it stays put.
+      const frac = Math.min(Math.max((px - MARGIN.left) / plotW, 0), 1);
+      const anchor = viewFrom + frac * span;
+      const factor = e.deltaY > 0 ? 1.25 : 0.8;
+      const newSpan = span * factor;
+      commitRange(anchor - frac * newSpan, anchor + (1 - frac) * newSpan);
+    };
+    svg.addEventListener('wheel', onWheel, { passive: false });
+    return () => svg.removeEventListener('wheel', onWheel);
+  }, [viewFrom, span, plotW, commitRange]);
+
+  // Drag-to-pan. `moved` also gates bar clicks so a drag that ends over a bar
+  // doesn't open its detail panel.
+  const drag = useRef({ active: false, lastX: 0, moved: 0 });
+  const suppressClick = useRef(false);
+
+  const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    drag.current = { active: true, lastX: e.clientX, moved: 0 };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (!drag.current.active) return;
+    const dx = e.clientX - drag.current.lastX;
+    if (dx === 0) return;
+    drag.current.lastX = e.clientX;
+    drag.current.moved += Math.abs(dx);
+    const dt = -(dx / plotW) * span;
+    commitRange(viewFrom + dt, viewTo + dt);
+  };
+  const endDrag = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (drag.current.active && drag.current.moved > DRAG_SLOP_PX) suppressClick.current = true;
+    drag.current.active = false;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+  };
+
+  const handlePointClick = (p: DistributionPoint) => {
+    if (suppressClick.current) {
+      suppressClick.current = false;
+      return;
+    }
+    onPointClick(p);
+  };
+
+  // Only buckets intersecting the view drive the y-domain, so zooming into a
+  // quiet stretch rescales instead of staying squashed by a distant spike.
+  const bucketMs = bucketSeconds * 1000;
+  const visible = buckets.filter((b) => b.bucketMs + bucketMs >= viewFrom && b.bucketMs <= viewTo);
+  let yMax = 0;
+  for (const b of visible) {
+    yMax = Math.max(yMax, b.whiskerHigh);
+    for (const p of b.points) yMax = Math.max(yMax, p.e2eMs);
   }
+  yMax = yMax > 0 ? yMax * 1.05 : 1000;
+  const yScale = (ms: number) => MARGIN.top + plotH - (ms / yMax) * plotH;
 
   const typesPresent = jobTypeOrder.filter((t) => buckets.some((b) => b.jobType === t));
+  const clipId = 'jdc-plot-clip';
+  const atFullExtent = viewFrom <= boundsFrom && viewTo >= boundsTo;
 
   return (
-    <ResponsiveContainer width="100%" height={340}>
-      <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 40 }}>
-        <CartesianGrid stroke="var(--border)" vertical={false} />
-        <XAxis
-          dataKey="label"
-          stroke="var(--muted)"
-          fontSize={10}
-          tickLine={false}
-          axisLine={false}
-          angle={-35}
-          textAnchor="end"
-          height={60}
-          interval="preserveStartEnd"
-        />
-        <YAxis
-          stroke="var(--muted)"
-          fontSize={11}
-          tickLine={false}
-          axisLine={false}
-          tickFormatter={tickSeconds}
-          width={52}
-          domain={[0, Math.ceil(maxSec * 1.05)]}
-        />
-        {typesPresent.map((t) => (
-          <Bar
-            key={t}
-            dataKey={t}
-            isAnimationActive={false}
-            shape={
-              <PhaseStackShape
-                jobType={t}
-                onPointClick={onPointClick}
-                selectedJobId={selectedJobId}
-              />
-            }
-          />
+    <div ref={wrapRef} style={{ position: 'relative', width: '100%' }}>
+      <svg
+        ref={svgRef}
+        width={width}
+        height={HEIGHT}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onDoubleClick={() => onViewChange(boundsFrom, boundsTo)}
+        style={{ touchAction: 'none', cursor: drag.current.active ? 'grabbing' : 'grab' }}
+        role="img"
+        aria-label="Job time breakdown over time. Scroll to zoom, drag to pan."
+      >
+        <title>Job time breakdown</title>
+        <defs>
+          <clipPath id={clipId}>
+            <rect x={MARGIN.left} y={MARGIN.top} width={plotW} height={plotH} />
+          </clipPath>
+        </defs>
+
+        {/* y grid + labels */}
+        {valueTicks(yMax).map((v) => (
+          <g key={v}>
+            <line
+              x1={MARGIN.left}
+              x2={MARGIN.left + plotW}
+              y1={yScale(v)}
+              y2={yScale(v)}
+              stroke="var(--border)"
+            />
+            <text
+              x={MARGIN.left - 8}
+              y={yScale(v)}
+              textAnchor="end"
+              dominantBaseline="middle"
+              fontSize={11}
+              fill="var(--muted)"
+            >
+              {fmtDuration(v)}
+            </text>
+          </g>
         ))}
-      </BarChart>
-    </ResponsiveContainer>
+
+        {/* x labels */}
+        {timeTicks(viewFrom, viewTo).map((t) => (
+          <text
+            key={t}
+            x={xScale(t)}
+            y={MARGIN.top + plotH + 16}
+            textAnchor="middle"
+            fontSize={10}
+            fill="var(--muted)"
+          >
+            {formatTimeTick(t, span)}
+          </text>
+        ))}
+
+        <g clipPath={`url(#${clipId})`}>
+          {visible.map((b) => {
+            const x0 = xScale(b.bucketMs);
+            const x1 = xScale(b.bucketMs + bucketMs);
+            const colCount = Math.max(typesPresent.length, 1);
+            // Floor the column so a bucket is never a sub-pixel sliver — at wide
+            // zoom levels a busy bucket must still be visible and clickable.
+            const colW = Math.max((x1 - x0) / colCount, MIN_COLUMN_PX);
+            const idx = Math.max(typesPresent.indexOf(b.jobType), 0);
+            // Inset slightly so neighbouring buckets stay visually separate.
+            const bx = x0 + idx * colW + colW * 0.06;
+            const bw = Math.max(colW * 0.88, 1);
+            const cx = bx + bw / 2;
+            const barW = Math.max(1, Math.min(3, bw / Math.max(b.points.length, 1)));
+            const yZero = MARGIN.top + plotH;
+
+            return (
+              <g key={`${b.bucketMs}-${b.jobType}`}>
+                {/* Q1–Q3 reference box + median, behind the bars */}
+                <rect
+                  x={bx}
+                  y={yScale(b.q3)}
+                  width={bw}
+                  height={Math.max(yScale(b.q1) - yScale(b.q3), 1)}
+                  fill="var(--muted)"
+                  fillOpacity={0.1}
+                  stroke="var(--muted)"
+                  strokeOpacity={0.35}
+                />
+                <line
+                  x1={bx}
+                  x2={bx + bw}
+                  y1={yScale(b.median)}
+                  y2={yScale(b.median)}
+                  stroke="var(--muted)"
+                  strokeOpacity={0.7}
+                  strokeWidth={1.5}
+                />
+                {/* whisker spine */}
+                <line
+                  x1={cx}
+                  x2={cx}
+                  y1={yScale(b.whiskerHigh)}
+                  y2={yScale(b.whiskerLow)}
+                  stroke="var(--muted)"
+                  strokeOpacity={0.4}
+                />
+                {/* one stacked bar per job: queue, then ComfyUI, then the
+                    remaining dispatch/IO overhead, totalling E2E */}
+                {b.points.map((p) => {
+                  const seg = phaseSegments(p);
+                  const px = cx + jitterFor(p.jobId) * (bw * 0.8) - barW / 2;
+                  const selected = p.jobId === selectedJobId;
+                  const yQueue = yScale(seg.queue);
+                  const yComfy = yScale(seg.queue + seg.comfy);
+                  const yTop = yScale(p.e2eMs);
+                  const band = (a: number, bb: number, fill: string) =>
+                    Math.abs(bb - a) < 0.4 ? null : (
+                      <rect
+                        x={px}
+                        y={Math.min(a, bb)}
+                        width={barW}
+                        height={Math.abs(bb - a)}
+                        fill={fill}
+                        fillOpacity={selected ? 1 : 0.85}
+                      />
+                    );
+                  return (
+                    <g
+                      key={p.jobId}
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => handlePointClick(p)}
+                    >
+                      {band(yZero, yQueue, PHASE_COLORS.queue)}
+                      {band(yQueue, yComfy, PHASE_COLORS.comfy)}
+                      {band(yComfy, yTop, PHASE_COLORS.overhead)}
+                      {p.isOutlier ? (
+                        <rect
+                          x={px - 1}
+                          y={yTop - 2}
+                          width={barW + 2}
+                          height={2}
+                          fill="var(--danger)"
+                        />
+                      ) : null}
+                      {selected ? (
+                        <rect
+                          x={px - 1.5}
+                          y={yTop - 2}
+                          width={barW + 3}
+                          height={yZero - yTop + 2}
+                          fill="none"
+                          stroke="var(--text)"
+                        />
+                      ) : null}
+                      <title>
+                        {`${p.jobType}${p.workerId ? ` · ${p.workerId}` : ''}\n${new Date(p.createdAt).toLocaleString()}\nE2E ${fmtDuration(p.e2eMs)} = queue ${fmtDuration(p.queueMs)} + ComfyUI ${fmtDuration(p.comfyMs)} + overhead ${fmtDuration(seg.overhead)}${p.isOutlier ? '\noutlier' : ''}`}
+                      </title>
+                    </g>
+                  );
+                })}
+              </g>
+            );
+          })}
+        </g>
+
+        {/* axis lines last so they sit above the clipped plot */}
+        <line
+          x1={MARGIN.left}
+          x2={MARGIN.left + plotW}
+          y1={MARGIN.top + plotH}
+          y2={MARGIN.top + plotH}
+          stroke="var(--border)"
+        />
+      </svg>
+
+      {loading ? (
+        <div
+          style={{
+            position: 'absolute',
+            top: 8,
+            right: 10,
+            fontSize: 11,
+            color: 'var(--muted)',
+            background: 'var(--surface-2)',
+            border: '1px solid var(--border)',
+            borderRadius: 6,
+            padding: '2px 8px',
+          }}
+        >
+          refining…
+        </div>
+      ) : null}
+
+      {!atFullExtent ? (
+        <button
+          type="button"
+          className="btn"
+          onClick={() => onViewChange(boundsFrom, boundsTo)}
+          style={{ position: 'absolute', top: 8, left: MARGIN.left + 8, fontSize: 11 }}
+        >
+          Show full window
+        </button>
+      ) : null}
+    </div>
   );
 }
