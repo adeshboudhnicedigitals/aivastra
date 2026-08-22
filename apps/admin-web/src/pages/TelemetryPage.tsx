@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Bar,
   BarChart,
@@ -53,11 +53,35 @@ interface TelemetryResponse {
 
 interface DistributionResponse {
   days: number;
+  fromMs: number;
+  toMs: number;
   bucketSeconds: number;
   totalJobs: number;
   shownJobs: number;
   sampled: boolean;
   buckets: DistributionBucket[];
+}
+
+// Zoom re-queries the visible range, so the fetch has to wait for the gesture to
+// settle — otherwise every wheel notch fires a request.
+const ZOOM_REFETCH_DEBOUNCE_MS = 350;
+
+// If the jobs in the window occupy less than this fraction of it, open zoomed to
+// where they actually are. On a real time axis a quiet week renders its one busy
+// hour as a ~10px sliver — technically honest, but it reads as an empty chart.
+const AUTOFIT_THRESHOLD = 0.6;
+
+/** Time range actually covered by the returned buckets, padded slightly. */
+function dataExtent(d: DistributionResponse): { from: number; to: number } | null {
+  if (d.buckets.length === 0) return null;
+  let lo = Number.POSITIVE_INFINITY;
+  let hi = Number.NEGATIVE_INFINITY;
+  for (const b of d.buckets) {
+    lo = Math.min(lo, b.bucketMs);
+    hi = Math.max(hi, b.bucketMs + d.bucketSeconds * 1000);
+  }
+  const pad = Math.max((hi - lo) * 0.08, 60_000);
+  return { from: Math.max(lo - pad, d.fromMs), to: Math.min(hi + pad, d.toMs) };
 }
 
 interface Props {
@@ -87,6 +111,14 @@ function fmtMs(ms: number | null): string {
 
 function tickSeconds(v: number): string {
   return v < 1 ? `${Math.round(v * 1000)}ms` : `${v.toFixed(1)}s`;
+}
+
+// Bucket width now spans 15s to 1 week, since zooming refines it.
+function formatBucketWidth(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${seconds / 60} min`;
+  if (seconds < 86400) return `${seconds / 3600}h`;
+  return seconds === 86400 ? '1 day' : `${seconds / 86400} days`;
 }
 
 function PointDetail({ point, onClose }: { point: DistributionPoint; onClose: () => void }) {
@@ -209,9 +241,23 @@ export default function TelemetryPage({ toast }: Props) {
   const [dist, setDist] = useState<DistributionResponse | null>(null);
   const [selectedPoint, setSelectedPoint] = useState<DistributionPoint | null>(null);
   const [loading, setLoading] = useState(true);
+  const [zooming, setZooming] = useState(false);
+
+  // The outer window the day selector picked; pan/zoom can't escape it.
+  const [bounds, setBounds] = useState(() => {
+    const to = Date.now();
+    return { from: to - 7 * 86_400_000, to };
+  });
+  // The currently visible slice — updated on every wheel/drag frame for
+  // immediate feedback, then refetched once the gesture settles.
+  const [view, setView] = useState(bounds);
 
   const load = useCallback(async () => {
     setLoading(true);
+    const to = Date.now();
+    const from = to - days * 86_400_000;
+    setBounds({ from, to });
+    setView({ from, to });
     try {
       const [res, distRes] = await Promise.all([
         apiFetch<TelemetryResponse>(`/admin/telemetry?days=${days}`),
@@ -220,6 +266,14 @@ export default function TelemetryPage({ toast }: Props) {
       setData(res);
       setDist(distRes);
       setSelectedPoint(null);
+
+      // Open on the data rather than on a mostly-empty window. This changes the
+      // view, which triggers the range refetch below and refines the buckets —
+      // exactly what a manual zoom to the same place would do.
+      const extent = dataExtent(distRes);
+      if (extent && extent.to - extent.from < (to - from) * AUTOFIT_THRESHOLD) {
+        setView(extent);
+      }
     } catch (e) {
       toast({
         kind: 'error',
@@ -234,6 +288,47 @@ export default function TelemetryPage({ toast }: Props) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Refetch the distribution for whatever range is visible. Narrowing the range
+  // refines the buckets and cuts the job count, so a deep zoom drops below the
+  // sampling budget and every job in view becomes visible — the reason zoom
+  // re-queries instead of just scaling pixels.
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const initialRangeRef = useRef(true);
+
+  useEffect(() => {
+    // The full-extent range is already covered by load(); don't duplicate it.
+    if (initialRangeRef.current) {
+      initialRangeRef.current = false;
+      return;
+    }
+    const { from, to } = view;
+    setZooming(true);
+    const timer = setTimeout(() => {
+      apiFetch<DistributionResponse>(
+        `/admin/telemetry/distribution?from=${Math.round(from)}&to=${Math.round(to)}`,
+      )
+        .then((res) => {
+          // A slower earlier request must not overwrite a newer view.
+          const cur = viewRef.current;
+          if (cur.from === from && cur.to === to) setDist(res);
+        })
+        .catch((e) => {
+          toast({
+            kind: 'error',
+            title: 'Failed to load range',
+            body: apiErrorMessage(e, 'Please try again.'),
+          });
+        })
+        .finally(() => setZooming(false));
+    }, ZOOM_REFETCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [view, toast]);
+
+  const handleViewChange = useCallback((from: number, to: number) => {
+    setView((prev) => (prev.from === from && prev.to === to ? prev : { from, to }));
+  }, []);
 
   // p50/p95 share the same SQL FILTER predicate per metric (see telemetry.routes.ts),
   // so within one metric they're always both null or both present together.
@@ -448,8 +543,14 @@ export default function TelemetryPage({ toast }: Props) {
                       buckets={dist.buckets}
                       jobTypeOrder={jobTypeOrder}
                       bucketSeconds={dist.bucketSeconds}
+                      viewFrom={view.from}
+                      viewTo={view.to}
+                      boundsFrom={bounds.from}
+                      boundsTo={bounds.to}
+                      onViewChange={handleViewChange}
                       onPointClick={setSelectedPoint}
                       selectedJobId={selectedPoint?.jobId ?? null}
+                      loading={zooming}
                     />
                     <div
                       style={{
@@ -496,17 +597,16 @@ export default function TelemetryPage({ toast }: Props) {
                       the three phases that compose it — so bar height is E2E, and the coloured
                       sections show where that time went. Click any bar for its worker, exact
                       timings and error. The grey box behind is Q1–Q3 of E2E with the median line;
-                      bars capped red are outliers past the 1.5×IQR fence. Buckets are{' '}
-                      {dist.bucketSeconds >= 86400
-                        ? '1 day'
-                        : `${dist.bucketSeconds / 3600} hour${dist.bucketSeconds > 3600 ? 's' : ''}`}{' '}
-                      wide.{' '}
+                      bars capped red are outliers past the 1.5×IQR fence. Scroll to zoom, drag to
+                      pan, double-click to reset — zooming re-queries that range, so buckets get
+                      finer as you go in (currently {formatBucketWidth(dist.bucketSeconds)}).{' '}
                       {dist.sampled ? (
                         <strong>
                           Showing {dist.shownJobs.toLocaleString()} of{' '}
                           {dist.totalJobs.toLocaleString()} jobs — dots are sampled evenly across
                           buckets, but every outlier is shown and the box statistics use all{' '}
-                          {dist.totalJobs.toLocaleString()}. Narrow the window to plot every job.
+                          {dist.totalJobs.toLocaleString()}. Zoom in to drop below the cap and plot
+                          every job in view.
                         </strong>
                       ) : (
                         <>All {dist.totalJobs.toLocaleString()} jobs in this window are plotted.</>

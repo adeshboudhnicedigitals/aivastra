@@ -64,14 +64,26 @@ const POINT_BUDGET = 1500;
 // each bucket rather than one lonely dot.
 const MIN_POINTS_PER_BUCKET = 8;
 
-// Hold the bucket count near ~60 across every window: the panel has no zoom, so
-// box width is what limits readability, not payload size.
-function bucketSecondsForDays(days: number): number {
-  if (days <= 2) return 3600; // hourly
-  if (days <= 7) return 10800; // 3-hourly  -> 56 @ 7d
-  if (days <= 14) return 21600; // 6-hourly  -> 56 @ 14d
-  if (days <= 30) return 43200; // 12-hourly -> 60 @ 30d
-  return 86400; // daily
+// Zooming in narrows the span, which refines the buckets AND cuts the job count
+// — so a deep enough zoom drops below POINT_BUDGET and stops sampling entirely.
+// That's the point of re-querying on zoom rather than magnifying pixels.
+const TARGET_BUCKETS = 60;
+
+// Human-readable bucket widths. Picking the nearest of these to span/60 keeps
+// bucket boundaries on round clock values at every zoom level.
+const BUCKET_STEPS_SECONDS = [
+  15, 30, 60, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400, 604800,
+] as const;
+
+const MIN_SPAN_MS = 5 * 60_000; // 5 minutes — below this the panel shows noise
+const MAX_SPAN_MS = 90 * 86_400_000; // 90 days, matching the old day cap
+
+function bucketSecondsForSpan(spanMs: number): number {
+  const ideal = spanMs / 1000 / TARGET_BUCKETS;
+  return (
+    BUCKET_STEPS_SECONDS.find((s) => s >= ideal) ??
+    BUCKET_STEPS_SECONDS[BUCKET_STEPS_SECONDS.length - 1]
+  );
 }
 
 export async function adminTelemetryRoutes(app: FastifyInstance) {
@@ -171,11 +183,29 @@ export async function adminTelemetryRoutes(app: FastifyInstance) {
     '/admin/telemetry/distribution',
     { preHandler: requirePermission('telemetry.read') },
     async (req) => {
-      const query = req.query as { days?: string };
+      const query = req.query as { days?: string; from?: string; to?: string };
+
+      // `from`/`to` drive the zoomable view; `days` remains the entry point for
+      // the initial load and is just a shorthand for a window ending now.
       const days = parseInt(query.days || '7', 10);
       const validDays = Number.isNaN(days) || days < 1 ? 7 : days > 90 ? 90 : days;
-      const since = new Date(Date.now() - validDays * 86400000).toISOString();
-      const bucketSeconds = bucketSecondsForDays(validDays);
+
+      const rawTo = Number(query.to);
+      const rawFrom = Number(query.from);
+      const hasRange = Number.isFinite(rawFrom) && Number.isFinite(rawTo) && rawTo > rawFrom;
+
+      const toMs = hasRange ? Math.min(rawTo, Date.now()) : Date.now();
+      const fromMs = hasRange
+        ? Math.min(
+            Math.max(rawFrom, toMs - MAX_SPAN_MS),
+            // Guarantee a usable span even if the client sends a degenerate one.
+            toMs - MIN_SPAN_MS,
+          )
+        : toMs - validDays * 86_400_000;
+
+      const since = new Date(fromMs).toISOString();
+      const until = new Date(toMs).toISOString();
+      const bucketSeconds = bucketSecondsForSpan(toMs - fromMs);
 
       // Box statistics and the outlier fence are computed on E2E: it's the
       // total the other two phases sit inside, so "slow job" means slow E2E.
@@ -197,7 +227,7 @@ export async function adminTelemetryRoutes(app: FastifyInstance) {
             comfy_duration_ms AS comfy_ms,
             EXTRACT(EPOCH FROM (started_at - created_at)) * 1000 AS queue_ms
           FROM jobs
-          WHERE created_at >= ${since} AND completed_at IS NOT NULL
+          WHERE created_at >= ${since} AND created_at < ${until} AND completed_at IS NOT NULL
         )
       `;
 
@@ -298,6 +328,10 @@ export async function adminTelemetryRoutes(app: FastifyInstance) {
 
       return {
         days: validDays,
+        // Echoed back so the client can reconcile its view with what the server
+        // actually clamped the range to, rather than assuming its request stood.
+        fromMs,
+        toMs,
         bucketSeconds,
         totalJobs: total,
         // Lets the UI say "showing N of M" rather than implying the dots are
