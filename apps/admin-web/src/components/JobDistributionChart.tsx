@@ -166,11 +166,15 @@ export default function JobDistributionChart({
   useLayoutEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(([entry]) => {
-      if (entry) setWidth(entry.contentRect.width);
-    });
+    // Only ever accept a positive measurement. A zero — from measuring before
+    // layout settles, or inside a collapsed ancestor — would otherwise render
+    // a zero-width SVG, which looks exactly like the chart having vanished.
+    const apply = (w: number) => {
+      if (w > 0) setWidth(w);
+    };
+    const ro = new ResizeObserver(([entry]) => apply(entry?.contentRect.width ?? 0));
     ro.observe(el);
-    setWidth(el.clientWidth);
+    apply(el.clientWidth);
     return () => ro.disconnect();
   }, []);
 
@@ -184,8 +188,8 @@ export default function JobDistributionChart({
   );
 
   /** Clamp a proposed range to the outer bounds without changing its span. */
-  const commitRange = useCallback(
-    (from: number, to: number) => {
+  const clampRange = useCallback(
+    (from: number, to: number): [number, number] => {
       let s = Math.min(Math.max(to - from, MIN_SPAN_MS), boundsTo - boundsFrom);
       let f = from;
       if (f < boundsFrom) f = boundsFrom;
@@ -194,9 +198,17 @@ export default function JobDistributionChart({
         f = boundsFrom;
         s = boundsTo - boundsFrom;
       }
-      onViewChange(f, f + s);
+      return [f, f + s];
     },
-    [boundsFrom, boundsTo, onViewChange],
+    [boundsFrom, boundsTo],
+  );
+
+  const commitRange = useCallback(
+    (from: number, to: number) => {
+      const [f, t] = clampRange(from, to);
+      onViewChange(f, t);
+    },
+    [clampRange, onViewChange],
   );
 
   // Wheel must be a non-passive listener or the browser scrolls the page
@@ -219,31 +231,81 @@ export default function JobDistributionChart({
     return () => svg.removeEventListener('wheel', onWheel);
   }, [viewFrom, span, plotW, commitRange]);
 
-  // Drag-to-pan. `moved` also gates bar clicks so a drag that ends over a bar
-  // doesn't open its detail panel.
-  const drag = useRef({ active: false, lastX: 0, moved: 0 });
+  // Drag-to-pan.
+  //
+  // The plot is moved by writing a transform straight onto the SVG group, with
+  // no React state involved. Committing the range on every pointermove instead
+  // would re-render the whole telemetry page — three recharts charts and the
+  // tables — 60+ times a second, which is what made panning feel heavy. The
+  // range is committed once, on release; the debounced refetch then runs a
+  // single time rather than being restarted every frame.
+  const panGroupRef = useRef<SVGGElement>(null);
+  const drag = useRef({ active: false, startX: 0, offset: 0, moved: 0 });
   const suppressClick = useRef(false);
+  const [dragging, setDragging] = useState(false);
+
+  /** How far the plot may slide before it would expose time outside `bounds`. */
+  const panLimits = useCallback(() => {
+    const pxPerMs = plotW / span;
+    return {
+      max: (viewFrom - boundsFrom) * pxPerMs, // drag right → earlier time
+      min: -(boundsTo - viewTo) * pxPerMs, // drag left → later time
+    };
+  }, [plotW, span, viewFrom, viewTo, boundsFrom, boundsTo]);
+
+  const applyPan = (offset: number) => {
+    panGroupRef.current?.setAttribute('transform', `translate(${offset} 0)`);
+  };
 
   const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
-    drag.current = { active: true, lastX: e.clientX, moved: 0 };
+    drag.current = { active: true, startX: e.clientX, offset: 0, moved: 0 };
+    setDragging(true);
     e.currentTarget.setPointerCapture(e.pointerId);
   };
+
   const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
     if (!drag.current.active) return;
-    const dx = e.clientX - drag.current.lastX;
-    if (dx === 0) return;
-    drag.current.lastX = e.clientX;
-    drag.current.moved += Math.abs(dx);
-    const dt = -(dx / plotW) * span;
-    commitRange(viewFrom + dt, viewTo + dt);
+    const { min, max } = panLimits();
+    // Measured from the gesture start, not the previous event, so rounding
+    // can't accumulate drift over a long drag.
+    const raw = e.clientX - drag.current.startX;
+    const offset = Math.min(Math.max(raw, min), max);
+    drag.current.moved = Math.max(drag.current.moved, Math.abs(raw));
+    drag.current.offset = offset;
+    applyPan(offset);
   };
+
   const endDrag = (e: React.PointerEvent<SVGSVGElement>) => {
-    if (drag.current.active && drag.current.moved > DRAG_SLOP_PX) suppressClick.current = true;
+    if (!drag.current.active) return;
+    const { offset, moved } = drag.current;
     drag.current.active = false;
+    setDragging(false);
+    if (moved > DRAG_SLOP_PX) suppressClick.current = true;
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
     }
+    if (offset === 0) return;
+    const dt = -(offset / plotW) * span;
+    const [nextFrom, nextTo] = clampRange(viewFrom + dt, viewTo + dt);
+    if (nextFrom === viewFrom && nextTo === viewTo) {
+      // Nothing to commit means no re-render, so nothing would clear the
+      // transform — snap it back here instead of leaving the plot offset.
+      applyPan(0);
+      return;
+    }
+    // Otherwise the layout effect clears it once the new range has rendered, so
+    // the plot never flashes back to its pre-drag position.
+    onViewChange(nextFrom, nextTo);
   };
+
+  // Re-render for a new range means the transform has done its job. viewFrom/
+  // viewTo are the trigger rather than values the body reads — dropping them,
+  // as the rule suggests, would run this once on mount and leave the plot stuck
+  // at its dragged offset.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: range change is the trigger
+  useLayoutEffect(() => {
+    if (!drag.current.active) panGroupRef.current?.removeAttribute('transform');
+  }, [viewFrom, viewTo]);
 
   const handlePointClick = (p: DistributionPoint) => {
     if (suppressClick.current) {
@@ -268,6 +330,7 @@ export default function JobDistributionChart({
   const typesPresent = jobTypeOrder.filter((t) => buckets.some((b) => b.jobType === t));
   const clipId = 'jdc-plot-clip';
   const atFullExtent = viewFrom <= boundsFrom && viewTo >= boundsTo;
+  const canPan = !atFullExtent;
 
   return (
     <div ref={wrapRef} style={{ position: 'relative', width: '100%' }}>
@@ -280,14 +343,28 @@ export default function JobDistributionChart({
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
         onDoubleClick={() => onViewChange(boundsFrom, boundsTo)}
-        style={{ touchAction: 'none', cursor: drag.current.active ? 'grabbing' : 'grab' }}
+        // width/height MUST be inline styles, not just attributes: tokens.css
+        // has a global `svg { width: 1em; height: 1em }` for icons, and a
+        // stylesheet rule outranks a presentation attribute — so attributes
+        // alone render this chart as a 16px square. Recharts hid this by
+        // setting inline styles of its own.
+        style={{
+          width,
+          height: HEIGHT,
+          touchAction: 'none',
+          // At full extent there is nothing outside the view to pan to, so
+          // don't advertise a grab handle the drag can't honour.
+          cursor: canPan ? (dragging ? 'grabbing' : 'grab') : 'default',
+        }}
         role="img"
         aria-label="Job time breakdown over time. Scroll to zoom, drag to pan."
       >
         <title>Job time breakdown</title>
         <defs>
+          {/* Covers the plot plus the x-label strip, so both can slide together
+              under one clip while panning. */}
           <clipPath id={clipId}>
-            <rect x={MARGIN.left} y={MARGIN.top} width={plotW} height={plotH} />
+            <rect x={MARGIN.left} y={MARGIN.top} width={plotW} height={plotH + 22} />
           </clipPath>
         </defs>
 
@@ -314,21 +391,22 @@ export default function JobDistributionChart({
           </g>
         ))}
 
-        {/* x labels */}
-        {timeTicks(viewFrom, viewTo).map((t) => (
-          <text
-            key={t}
-            x={xScale(t)}
-            y={MARGIN.top + plotH + 16}
-            textAnchor="middle"
-            fontSize={10}
-            fill="var(--muted)"
-          >
-            {formatTimeTick(t, span)}
-          </text>
-        ))}
+        {/* Everything that moves with the time axis lives in this one group, so
+            a drag is a single transform write rather than a React re-render. */}
+        <g ref={panGroupRef} clipPath={`url(#${clipId})`}>
+          {timeTicks(viewFrom, viewTo).map((t) => (
+            <text
+              key={t}
+              x={xScale(t)}
+              y={MARGIN.top + plotH + 16}
+              textAnchor="middle"
+              fontSize={10}
+              fill="var(--muted)"
+            >
+              {formatTimeTick(t, span)}
+            </text>
+          ))}
 
-        <g clipPath={`url(#${clipId})`}>
           {visible.map((b) => {
             const x0 = xScale(b.bucketMs);
             const x1 = xScale(b.bucketMs + bucketMs);
