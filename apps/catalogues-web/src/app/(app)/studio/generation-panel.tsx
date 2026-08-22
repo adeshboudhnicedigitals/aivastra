@@ -2,7 +2,14 @@
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { DownloadIcon, DriveIcon, FullscreenIcon, SpinnerIcon, XIcon } from '@/components/icons';
+import {
+  CheckIcon,
+  DownloadIcon,
+  DriveIcon,
+  FullscreenIcon,
+  SpinnerIcon,
+  XIcon,
+} from '@/components/icons';
 import { C } from '@/components/tokens';
 import { useGoogleDriveStatus } from '@/hooks/use-google-drive-status';
 import { useJobStream } from '@/hooks/use-job-stream';
@@ -57,12 +64,27 @@ const steps = [
   { label: 'Studio Lighting & Shadow', threshold: 100 },
 ];
 
+const PROCESSING_MESSAGES = ['Analyzing garment details', ...steps.map((step) => step.label)];
+
+function getJobStepInfo(status: string) {
+  const progress = STATUS_PROGRESS[status] ?? 10;
+  const currentStepIndex = steps.findIndex((step) => progress < step.threshold);
+  const stepIndex = currentStepIndex === -1 ? steps.length - 1 : currentStepIndex;
+  const currentStep = steps[stepIndex] ?? steps[0];
+  return {
+    progress,
+    stepIndex: stepIndex + 1,
+    totalSteps: steps.length,
+    stepLabel: currentStep?.label ?? 'Generating',
+  };
+}
+
 export function GenerationPanel({
   catalogueId,
   jobs,
   garmentPreviewUrl,
   onAllSettled,
-  onCancel,
+  onCancel: _onCancel,
   onUseImage,
   hideCatalogueLink,
   hideDownload,
@@ -79,6 +101,7 @@ export function GenerationPanel({
   const [favorites, setFavorites] = useState<string[]>([]);
   const [zoomUrl, setZoomUrl] = useState<string | null>(null);
   const [zoomVisible, setZoomVisible] = useState(false);
+  const [activeMessageIndex, setActiveMessageIndex] = useState(0);
 
   // Reset local status map + selection whenever a new batch of jobs arrives.
   useEffect(() => {
@@ -164,6 +187,18 @@ export function GenerationPanel({
 
   const allSettled =
     jobs.length > 0 && jobs.every((j) => TERMINAL_STATUSES.has(statuses[j.id] ?? 'QUEUED'));
+
+  // Rotate processing microcopy every 2.5s while active (Section 6)
+  useEffect(() => {
+    if (allSettled) return;
+    const interval = setInterval(() => {
+      setActiveMessageIndex((prev) => (prev + 1) % PROCESSING_MESSAGES.length);
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [allSettled]);
+
+  const completedCount = jobs.filter((j) => statuses[j.id] === 'COMPLETED').length;
+  const totalCount = jobs.length;
 
   // Notify the parent once every job in this batch has reached a terminal
   // status, so it can re-enable the Generate button while results still render.
@@ -291,7 +326,9 @@ export function GenerationPanel({
                 <h3 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: C.text }}>
                   AI Processing
                 </h3>
-                <span style={{ fontSize: 13, color: C.mid }}>Our AI is working its magic</span>
+                <span style={{ fontSize: 13, color: C.mid }}>
+                  {allSettled ? 'Your images are ready' : PROCESSING_MESSAGES[activeMessageIndex]}
+                </span>
               </div>
             </div>
 
@@ -486,16 +523,25 @@ export function GenerationPanel({
                     style={{
                       display: 'flex',
                       justifyContent: 'space-between',
+                      alignItems: 'baseline',
                       fontSize: 12,
                       fontWeight: 500,
                     }}
                   >
-                    <span style={{ color: C.mid }}>
-                      {progressPercent === 100
-                        ? 'Rendering Final Output....'
-                        : 'Rendering Final Output....'}
-                    </span>
-                    <span style={{ color: C.text }}>{progressPercent}%</span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <span style={{ color: C.text, fontWeight: 600 }}>
+                        {allSettled
+                          ? 'Catalogue Ready'
+                          : (steps.find((s) => progressPercent < s.threshold)?.label ??
+                            'Studio Lighting & Shadow')}
+                      </span>
+                      <span style={{ fontSize: 11, color: C.mid }}>
+                        {allSettled
+                          ? 'All stages completed'
+                          : `Stage ${steps.findIndex((s) => progressPercent < s.threshold) === -1 ? steps.length : steps.findIndex((s) => progressPercent < s.threshold) + 1} of ${steps.length}`}
+                      </span>
+                    </div>
+                    <span style={{ color: '#521D9C', fontWeight: 600 }}>{progressPercent}%</span>
                   </div>
                   <div
                     style={{
@@ -510,7 +556,7 @@ export function GenerationPanel({
                       style={{
                         width: `${progressPercent}%`,
                         height: '100%',
-                        background: 'linear-gradient(180deg, #521D9C 0%, #754AB0 100%)',
+                        background: 'linear-gradient(90deg, #521D9C 0%, #754AB0 100%)',
                         borderRadius: 3,
                         transition: 'width 0.4s ease-out',
                       }}
@@ -667,30 +713,104 @@ export function GenerationPanel({
                       <img
                         src={garmentPreviewUrl || current.thumbnailUrl}
                         alt="Loading Preview"
+                        className={
+                          !currentFailed && currentStatus !== 'QUEUED'
+                            ? 'garment-deblur processing-pulse'
+                            : ''
+                        }
                         style={{
                           width: '100%',
                           height: '100%',
                           objectFit: 'cover',
                           objectPosition: 'top center',
-                          filter: currentFailed ? 'none' : 'blur(6px)',
-                          opacity: 0.6,
+                          filter: currentFailed
+                            ? 'grayscale(60%)'
+                            : currentStatus === 'QUEUED'
+                              ? 'blur(4px)'
+                              : undefined,
+                          opacity: currentFailed ? 0.4 : 0.65,
                         }}
                       />
+                      {!currentFailed && currentStatus !== 'QUEUED' && (
+                        <>
+                          <div className="scan-line" aria-hidden="true" />
+                          <div className="shimmer" aria-hidden="true" />
+                        </>
+                      )}
                       <div
                         style={{
                           position: 'absolute',
                           inset: 0,
                           display: 'flex',
+                          flexDirection: 'column',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          background: 'rgba(0,0,0,0.1)',
+                          background: currentFailed
+                            ? 'rgba(43, 20, 78, 0.5)'
+                            : 'rgba(43, 20, 78, 0.18)',
+                          padding: 16,
+                          gap: 8,
+                          textAlign: 'center',
                         }}
                       >
                         {currentFailed ? (
-                          <XIcon size={24} color={C.pink} />
+                          <>
+                            <div
+                              style={{
+                                width: 36,
+                                height: 36,
+                                borderRadius: '50%',
+                                background:
+                                  currentStatus === 'FAILED'
+                                    ? 'rgba(239, 68, 68, 0.2)'
+                                    : 'rgba(156, 163, 175, 0.2)',
+                                border: `1px solid ${
+                                  currentStatus === 'FAILED'
+                                    ? 'rgba(239, 68, 68, 0.5)'
+                                    : 'rgba(156, 163, 175, 0.5)'
+                                }`,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: currentStatus === 'FAILED' ? '#EF4444' : '#9CA3AF',
+                              }}
+                            >
+                              <XIcon size={20} color="currentColor" />
+                            </div>
+                            <span style={{ color: '#fff', fontSize: 12, fontWeight: 600 }}>
+                              {currentStatus === 'FAILED'
+                                ? 'Generation failed'
+                                : 'Generation cancelled'}
+                            </span>
+                          </>
                         ) : (
-                          <div style={{ color: C.pink }}>
-                            <SpinnerIcon size={24} />
+                          <div
+                            style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              gap: 6,
+                              background: 'rgba(43, 20, 78, 0.62)',
+                              backdropFilter: 'blur(8px)',
+                              padding: '10px 14px',
+                              borderRadius: 10,
+                              border: '1px solid rgba(255, 255, 255, 0.15)',
+                              maxWidth: '85%',
+                            }}
+                          >
+                            <div style={{ color: '#754AB0' }}>
+                              <SpinnerIcon size={20} />
+                            </div>
+                            <span style={{ color: '#fff', fontSize: 12, fontWeight: 600 }}>
+                              {currentStatus === 'QUEUED'
+                                ? 'Waiting in queue'
+                                : getJobStepInfo(currentStatus).stepLabel}
+                            </span>
+                            {currentStatus !== 'QUEUED' && (
+                              <span style={{ color: 'rgba(255, 255, 255, 0.75)', fontSize: 11 }}>
+                                {`Stage ${getJobStepInfo(currentStatus).stepIndex} of ${steps.length} • ${STATUS_PROGRESS[currentStatus] ?? 10}%`}
+                              </span>
+                            )}
                           </div>
                         )}
                       </div>
@@ -721,13 +841,30 @@ export function GenerationPanel({
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <h3 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: C.text }}>
-                {allSettled ? 'Generated Results' : 'Generating Results'}
-              </h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <h3 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: C.text }}>
+                  {allSettled ? 'Generated Results' : 'Generating Results'}
+                </h3>
+                {!allSettled && (
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      padding: '2px 8px',
+                      borderRadius: 12,
+                      background: 'rgba(82, 29, 156, 0.08)',
+                      color: '#521D9C',
+                      border: '1px solid rgba(82, 29, 156, 0.2)',
+                    }}
+                  >
+                    {completedCount} of {totalCount} ready
+                  </span>
+                )}
+              </div>
               <span style={{ fontSize: 13, color: C.mid }}>
                 {allSettled
                   ? `${jobs.length} stunning variations generated for you`
-                  : 'Your studio-quality images are on the way'}
+                  : PROCESSING_MESSAGES[activeMessageIndex]}
               </span>
             </div>
             {!hideDownload && (
@@ -762,6 +899,47 @@ export function GenerationPanel({
             )}
           </div>
 
+          {/* Batch-level progress bar ONLY when embedded (hideProcessingPreview = true) and not all settled (Section 3) */}
+          {hideProcessingPreview && !allSettled && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  fontSize: 12,
+                  fontWeight: 500,
+                }}
+              >
+                <span style={{ color: C.mid }}>
+                  {completedCount} of {totalCount} images ready
+                </span>
+                <span style={{ color: '#521D9C', fontWeight: 600 }}>
+                  {totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0}%
+                </span>
+              </div>
+              <div
+                style={{
+                  width: '100%',
+                  height: 6,
+                  background: C.lighter,
+                  borderRadius: 3,
+                  overflow: 'hidden',
+                }}
+              >
+                <div
+                  style={{
+                    width: `${totalCount > 0 ? (completedCount / totalCount) * 100 : 0}%`,
+                    height: '100%',
+                    background: 'linear-gradient(90deg, #521D9C 0%, #754AB0 100%)',
+                    borderRadius: 3,
+                    transition: 'width 0.4s ease-out',
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
           {/* Variations Grid */}
           <div
             style={{
@@ -774,10 +952,15 @@ export function GenerationPanel({
             {jobs.map((job, idx) => {
               const status = statuses[job.id] ?? 'QUEUED';
               const isCompleted = status === 'COMPLETED';
-              const isFailed = status === 'FAILED' || status === 'CANCELLED';
+              const isFailed = status === 'FAILED';
+              const isCancelled = status === 'CANCELLED';
+              const isTerminalFailed = isFailed || isCancelled;
+              const isQueued = status === 'QUEUED';
+              const isProcessing = !isCompleted && !isTerminalFailed && !isQueued;
+              const cardProgress = STATUS_PROGRESS[status] ?? 10;
+              const cardStep = getJobStepInfo(status);
               const resultUrl = resultQueries[idx]?.data?.url;
               const isSelected = selected === idx;
-              const isBestMatch = idx === 0;
 
               return (
                 <div
@@ -810,22 +993,51 @@ export function GenerationPanel({
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
+                      overflow: 'hidden',
                     }}
                   >
                     {isCompleted && resultUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={resultUrl}
-                        alt={job.label}
-                        style={{
-                          width: '100%',
-                          height: '100%',
-                          objectFit: 'cover',
-                          objectPosition: 'top center',
-                        }}
-                      />
-                    ) : (
                       <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={resultUrl}
+                          alt={job.label}
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover',
+                            objectPosition: 'top center',
+                          }}
+                        />
+                        {/* Completion Badge (Section 7) */}
+                        <div
+                          className="completion-pop"
+                          aria-hidden="true"
+                          style={{
+                            position: 'absolute',
+                            top: 8,
+                            left: 8,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            background: 'rgba(16, 185, 129, 0.92)',
+                            color: '#FFFFFF',
+                            padding: '3px 7px',
+                            borderRadius: 6,
+                            fontSize: 10,
+                            fontWeight: 600,
+                            backdropFilter: 'blur(4px)',
+                            boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                            zIndex: 2,
+                          }}
+                        >
+                          <CheckIcon size={11} color="#FFFFFF" />
+                          <span>Ready</span>
+                        </div>
+                      </>
+                    ) : isTerminalFailed ? (
+                      <>
+                        {/* Terminal Failed or Cancelled state (Section 8) */}
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={garmentPreviewUrl || job.thumbnailUrl}
@@ -835,37 +1047,197 @@ export function GenerationPanel({
                             height: '100%',
                             objectFit: 'cover',
                             objectPosition: 'top center',
-                            filter: isFailed ? 'none' : 'blur(4px)',
-                            opacity: isFailed ? 0.5 : 0.7,
+                            filter: 'grayscale(60%)',
+                            opacity: 0.35,
                           }}
                         />
-                        {!isFailed && (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            inset: 0,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: 12,
+                            gap: 6,
+                            background: 'rgba(43, 20, 78, 0.5)',
+                            textAlign: 'center',
+                          }}
+                        >
                           <div
                             style={{
-                              position: 'absolute',
-                              inset: 0,
+                              width: 32,
+                              height: 32,
+                              borderRadius: '50%',
+                              background: isFailed
+                                ? 'rgba(239, 68, 68, 0.2)'
+                                : 'rgba(156, 163, 175, 0.2)',
+                              border: `1px solid ${
+                                isFailed ? 'rgba(239, 68, 68, 0.5)' : 'rgba(156, 163, 175, 0.5)'
+                              }`,
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'center',
-                              background: 'rgba(0,0,0,0.15)',
+                              color: isFailed ? '#EF4444' : '#9CA3AF',
                             }}
                           >
-                            <div style={{ color: C.pink }}>
-                              <SpinnerIcon size={24} />
-                            </div>
+                            <XIcon size={18} color="currentColor" />
                           </div>
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 600,
+                              color: '#FFFFFF',
+                              textShadow: '0 1px 3px rgba(0,0,0,0.8)',
+                            }}
+                          >
+                            {isFailed ? 'Generation failed' : 'Generation cancelled'}
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        {/* Non-terminal loading state: Queued or Processing (Sections 1, 2, 4, 5) */}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={garmentPreviewUrl || job.thumbnailUrl}
+                          alt={job.label}
+                          className={isProcessing ? 'garment-deblur processing-pulse' : ''}
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover',
+                            objectPosition: 'top center',
+                            filter: isQueued ? 'blur(4px)' : undefined,
+                            opacity: 0.65,
+                          }}
+                        />
+                        {isProcessing && (
+                          <>
+                            <div className="scan-line" aria-hidden="true" />
+                            <div className="shimmer" aria-hidden="true" />
+                          </>
                         )}
+                        <div
+                          style={{
+                            position: 'absolute',
+                            inset: 0,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'space-between',
+                            padding: 8,
+                            background:
+                              'linear-gradient(180deg, rgba(43,20,78,0.04) 0%, rgba(43,20,78,0.4) 100%)',
+                            pointerEvents: 'none',
+                          }}
+                        >
+                          {/* Top badge */}
+                          <div
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <span
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 600,
+                                padding: '2px 6px',
+                                borderRadius: 4,
+                                background: isQueued
+                                  ? 'rgba(82, 29, 156, 0.35)'
+                                  : 'rgba(82, 29, 156, 0.8)',
+                                color: '#FFFFFF',
+                                backdropFilter: 'blur(4px)',
+                                border: '1px solid rgba(255, 255, 255, 0.15)',
+                              }}
+                            >
+                              {isQueued
+                                ? 'Queued'
+                                : `Stage ${cardStep.stepIndex}/${cardStep.totalSteps}`}
+                            </span>
+                            {isProcessing && (
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  color: '#FFFFFF',
+                                  textShadow: '0 1px 2px rgba(0,0,0,0.7)',
+                                }}
+                              >
+                                {cardProgress}%
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Bottom stage info and mini progress bar */}
+                          <div
+                            style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 5,
+                              background: 'rgba(43, 20, 78, 0.6)',
+                              backdropFilter: 'blur(8px)',
+                              padding: '6px 8px',
+                              borderRadius: 8,
+                              border: '1px solid rgba(255, 255, 255, 0.12)',
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                              }}
+                            >
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  color: '#FFFFFF',
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                }}
+                              >
+                                {isQueued ? 'Waiting…' : cardStep.stepLabel}
+                              </span>
+                            </div>
+                            {isProcessing && (
+                              <div
+                                style={{
+                                  width: '100%',
+                                  height: 4,
+                                  background: 'rgba(255, 255, 255, 0.2)',
+                                  borderRadius: 2,
+                                  overflow: 'hidden',
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    width: `${cardProgress}%`,
+                                    height: '100%',
+                                    background: 'linear-gradient(90deg, #754AB0 0%, #BD2587 100%)',
+                                    borderRadius: 2,
+                                    transition: 'width 0.4s ease-out',
+                                  }}
+                                />
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </>
                     )}
 
-                    {/* Download icon on top right */}
-                    {!hideDownload && (
+                    {/* Download icon on top right — only once a result actually exists */}
+                    {!hideDownload && isCompleted && resultUrl && (
                       <button
                         type="button"
-                        disabled={!isCompleted || !resultUrl}
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (resultUrl) downloadImage(resultUrl, job.id);
+                          downloadImage(resultUrl, job.id);
                         }}
                         style={{
                           position: 'absolute',
@@ -880,8 +1252,7 @@ export function GenerationPanel({
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          cursor: isCompleted && resultUrl ? 'pointer' : 'not-allowed',
-                          opacity: isCompleted && resultUrl ? 1 : 0.45,
+                          cursor: 'pointer',
                           color: '#141414',
                           boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
                           zIndex: 2,
@@ -890,13 +1261,13 @@ export function GenerationPanel({
                         <DownloadIcon size={14} />
                       </button>
                     )}
-                    {!hideGoogleDrive && (
+                    {!hideGoogleDrive && isCompleted && resultUrl && (
                       <button
                         type="button"
-                        disabled={!isCompleted || !resultUrl || exportingToDrive === job.id}
+                        disabled={exportingToDrive === job.id}
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (resultUrl) saveToDrive(job.id);
+                          saveToDrive(job.id);
                         }}
                         title={
                           driveStatus.data?.status === 'CONNECTED'
@@ -916,11 +1287,8 @@ export function GenerationPanel({
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          cursor:
-                            isCompleted && resultUrl && exportingToDrive !== job.id
-                              ? 'pointer'
-                              : 'not-allowed',
-                          opacity: isCompleted && resultUrl ? 1 : 0.45,
+                          cursor: exportingToDrive === job.id ? 'not-allowed' : 'pointer',
+                          opacity: exportingToDrive === job.id ? 0.45 : 1,
                           color: '#141414',
                           boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
                           zIndex: 2,
@@ -965,6 +1333,27 @@ export function GenerationPanel({
               );
             })}
           </div>
+        </div>
+
+        {/* Batch-level accessibility announcement (Section 14) */}
+        <div
+          aria-live="polite"
+          aria-atomic="true"
+          style={{
+            position: 'absolute',
+            width: 1,
+            height: 1,
+            padding: 0,
+            margin: -1,
+            overflow: 'hidden',
+            clip: 'rect(0, 0, 0, 0)',
+            whiteSpace: 'nowrap',
+            border: 0,
+          }}
+        >
+          {allSettled
+            ? `${completedCount} of ${totalCount} images ready.`
+            : `Generating catalogue images. ${completedCount} of ${totalCount} images ready. ${PROCESSING_MESSAGES[activeMessageIndex]}.`}
         </div>
         {!hideCatalogueLink && (
           <Link
