@@ -11,6 +11,12 @@ import {
   YAxis,
 } from 'recharts';
 import { Icon } from '../components/Icons';
+import JobDistributionChart, {
+  type DistributionBucket,
+  type DistributionPoint,
+  PHASE_COLORS,
+  PHASE_LABELS,
+} from '../components/JobDistributionChart';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 
 type DayRange = 7 | 14 | 30;
@@ -45,6 +51,15 @@ interface TelemetryResponse {
   successRate: number | null;
 }
 
+interface DistributionResponse {
+  days: number;
+  bucketSeconds: number;
+  totalJobs: number;
+  shownJobs: number;
+  sampled: boolean;
+  buckets: DistributionBucket[];
+}
+
 interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
@@ -72,6 +87,59 @@ function fmtMs(ms: number | null): string {
 
 function tickSeconds(v: number): string {
   return v < 1 ? `${Math.round(v * 1000)}ms` : `${v.toFixed(1)}s`;
+}
+
+function PointDetail({ point, onClose }: { point: DistributionPoint; onClose: () => void }) {
+  const rows: [string, string][] = [
+    ['Job ID', point.jobId],
+    ['Type', point.jobType],
+    ['Worker', point.workerId ?? '—'],
+    ['Started', new Date(point.createdAt).toLocaleString()],
+    ['Queue wait', fmtMs(point.queueMs)],
+    ['ComfyUI', fmtMs(point.comfyMs)],
+    ['End-to-end', fmtMs(point.e2eMs)],
+    ['Attempts', String(point.attempts)],
+    ['Error', point.errorCode ?? '—'],
+  ];
+  return (
+    <div
+      style={{
+        marginTop: 12,
+        padding: '10px 12px',
+        border: '1px solid var(--border)',
+        borderRadius: 8,
+        background: 'var(--surface-2)',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 8,
+        }}
+      >
+        <strong style={{ fontSize: 13 }}>Job detail{point.isOutlier ? ' · outlier' : ''}</strong>
+        <button className="btn" type="button" onClick={onClose} style={{ fontSize: 12 }}>
+          Close
+        </button>
+      </div>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: '6px 16px',
+        }}
+      >
+        {rows.map(([k, v]) => (
+          <div key={k} style={{ fontSize: 12 }}>
+            <span style={{ color: 'var(--muted)' }}>{k}: </span>
+            <span className="mono">{v}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function DurationChart({ title, data }: { title: string; data: ChartPoint[] }) {
@@ -138,13 +206,20 @@ function DurationChart({ title, data }: { title: string; data: ChartPoint[] }) {
 export default function TelemetryPage({ toast }: Props) {
   const [days, setDays] = useState<DayRange>(7);
   const [data, setData] = useState<TelemetryResponse | null>(null);
+  const [dist, setDist] = useState<DistributionResponse | null>(null);
+  const [selectedPoint, setSelectedPoint] = useState<DistributionPoint | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiFetch<TelemetryResponse>(`/admin/telemetry?days=${days}`);
+      const [res, distRes] = await Promise.all([
+        apiFetch<TelemetryResponse>(`/admin/telemetry?days=${days}`),
+        apiFetch<DistributionResponse>(`/admin/telemetry/distribution?days=${days}`),
+      ]);
       setData(res);
+      setDist(distRes);
+      setSelectedPoint(null);
     } catch (e) {
       toast({
         kind: 'error',
@@ -196,6 +271,8 @@ export default function TelemetryPage({ toast }: Props) {
         p50: r.comfyP50Ms / 1000,
         p95: r.comfyP95Ms / 1000,
       })) ?? [];
+
+  const jobTypeOrder = data?.jobTypes.map((r) => r.jobType) ?? [];
 
   return (
     <>
@@ -360,6 +437,84 @@ export default function TelemetryPage({ toast }: Props) {
               <div style={{ marginTop: 16 }}>
                 <DurationChart title="ComfyUI round-trip by job type" data={comfyData} />
               </div>
+
+              {dist && dist.buckets.length > 0 && (
+                <div className="card" style={{ marginTop: 16 }}>
+                  <div className="card-head">
+                    <h3>Job time breakdown</h3>
+                  </div>
+                  <div className="card-body">
+                    <JobDistributionChart
+                      buckets={dist.buckets}
+                      jobTypeOrder={jobTypeOrder}
+                      bucketSeconds={dist.bucketSeconds}
+                      onPointClick={setSelectedPoint}
+                      selectedJobId={selectedPoint?.jobId ?? null}
+                    />
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: 16,
+                        flexWrap: 'wrap',
+                        marginTop: 8,
+                        alignItems: 'center',
+                      }}
+                    >
+                      {(Object.keys(PHASE_LABELS) as (keyof typeof PHASE_LABELS)[]).map((k) => (
+                        <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span
+                            style={{
+                              width: 10,
+                              height: 10,
+                              borderRadius: 2,
+                              background: PHASE_COLORS[k],
+                              display: 'inline-block',
+                            }}
+                          />
+                          <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                            {PHASE_LABELS[k]}
+                          </span>
+                        </div>
+                      ))}
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                        · outlier capped in <span style={{ color: 'var(--danger)' }}>red</span>
+                      </span>
+                    </div>
+                    {jobTypeOrder.length > 1 ? (
+                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                        Columns within each bucket, left to right:{' '}
+                        <span className="semi">{jobTypeOrder.join(' · ')}</span>
+                      </div>
+                    ) : null}
+
+                    {selectedPoint ? (
+                      <PointDetail point={selectedPoint} onClose={() => setSelectedPoint(null)} />
+                    ) : null}
+
+                    <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 8 }}>
+                      Every bar is one job, rising from zero to its end-to-end time and split into
+                      the three phases that compose it — so bar height is E2E, and the coloured
+                      sections show where that time went. Click any bar for its worker, exact
+                      timings and error. The grey box behind is Q1–Q3 of E2E with the median line;
+                      bars capped red are outliers past the 1.5×IQR fence. Buckets are{' '}
+                      {dist.bucketSeconds >= 86400
+                        ? '1 day'
+                        : `${dist.bucketSeconds / 3600} hour${dist.bucketSeconds > 3600 ? 's' : ''}`}{' '}
+                      wide.{' '}
+                      {dist.sampled ? (
+                        <strong>
+                          Showing {dist.shownJobs.toLocaleString()} of{' '}
+                          {dist.totalJobs.toLocaleString()} jobs — dots are sampled evenly across
+                          buckets, but every outlier is shown and the box statistics use all{' '}
+                          {dist.totalJobs.toLocaleString()}. Narrow the window to plot every job.
+                        </strong>
+                      ) : (
+                        <>All {dist.totalJobs.toLocaleString()} jobs in this window are plotted.</>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              )}
             </>
           )}
 
