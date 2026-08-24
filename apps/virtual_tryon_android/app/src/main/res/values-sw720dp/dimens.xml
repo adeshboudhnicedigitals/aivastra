@@ -87,7 +87,7 @@
     <dimen name="_180sdp">180dp</dimen>
     <dimen name="_200sdp">200dp</dimen>
     <dimen name="_220sdp">220dp</dimen>
-    <dimen name="_240sdp">620dp</dimen>
+    <dimen name="_240sdp">320dp</dimen>
     <dimen name="_250sdp">250dp</dimen>
     <dimen name="_280sdp">280dp</dimen>
     <dimen name="_300sdp">300dp</dimen>
@@ -113,4 +113,10 @@
     <dimen name="_camera_control_button_size">66dp</dimen>
     <dimen name="_camera_control_icon_size">46dp</dimen>
     <dimen name="_camera_control_timer_icon_size">34dp</dimen>
+
+    <!-- Profile menu item title/subtitle gap (kiosk) -->
+    <dimen name="_menu_item_text_gap">4dp</dimen>
+
+    <!-- Profile menu row vertical padding (kiosk) -->
+    <dimen name="_menu_item_row_padding">16dp</dimen>
 </resources>

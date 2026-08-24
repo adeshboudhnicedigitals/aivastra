@@ -107,4 +107,10 @@
     <dimen name="_camera_control_button_size">58dp</dimen>
     <dimen name="_camera_control_icon_size">40dp</dimen>
     <dimen name="_camera_control_timer_icon_size">30dp</dimen>
+
+    <!-- Profile menu item title/subtitle gap (tablet) -->
+    <dimen name="_menu_item_text_gap">3dp</dimen>
+
+    <!-- Profile menu row vertical padding (tablet) -->
+    <dimen name="_menu_item_row_padding">12dp</dimen>
 </resources>

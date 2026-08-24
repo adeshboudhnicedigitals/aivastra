@@ -224,7 +224,7 @@ fun WebViewPage(
             Row(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .clip(RoundedCornerShape(sdp(R.dimen._20sdp)))
+                    .clip(RoundedCornerShape(sdp(R.dimen._8sdp)))
                     .background(
                         Brush.linearGradient(listOf(Color(0xFFE7A52C), Color(0xFF9B5100)))
                     )
@@ -237,7 +237,7 @@ fun WebViewPage(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Go to App",
+                    text = "Go to Virtual Try-on",
                     color = Color.White,
                     fontFamily = PoppinsFamily,
                     fontWeight = FontWeight.SemiBold,
