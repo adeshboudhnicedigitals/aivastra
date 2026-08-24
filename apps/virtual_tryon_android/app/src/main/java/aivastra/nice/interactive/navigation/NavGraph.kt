@@ -31,6 +31,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import aivastra.nice.interactive.ui.screens.ProfilePage
+import aivastra.nice.interactive.ui.screens.ReportsPage
 import aivastra.nice.interactive.ui.screens.WebViewPage
 import aivastra.nice.interactive.ui.screens.CategorySelectionPage
 import aivastra.nice.interactive.utils.CrashReporter
@@ -69,6 +70,7 @@ sealed class Screen(val route: String) {
     object PendingActivation  : Screen("pending_activation")
     object CategorySelection  : Screen("category_selection")
     object Profile            : Screen("profile")
+    object Reports            : Screen("reports")
     object TryOnLibrary       : Screen("tryon_library")
     object OutfitSelection    : Screen("outfit_selection/{category}") {
         fun createRoute(category: String) = "outfit_selection/$category"
@@ -283,12 +285,27 @@ fun AppNavGraph(
                 onProfileClick = {
                     navController.navigate(Screen.Profile.route)
                 },
+                onUploadProductsClick = {
+                    navController.navigate(Screen.TryOnLibrary.route)
+                },
+                onReportsClick = {
+                    navController.navigate(Screen.Reports.route)
+                },
                 onLogoutSuccess = {
                     navController.navigate(Screen.SignIn.route) {
                         popUpTo(0) { inclusive = true }
                     }
                 }
             )
+        }
+
+        // ── Reports (try-on history) ─────────────────────────────────────
+        composable(
+            route = Screen.Reports.route,
+            enterTransition = { EnterTransition.None },
+            exitTransition  = { ExitTransition.None }
+        ) {
+            ReportsPage(onBack = { safePopBackStack() })
         }
 
         // ── Dedicated Profile Page ───────────────────────────────────────
@@ -303,9 +320,6 @@ fun AppNavGraph(
                     navController.navigate(Screen.SignIn.route) {
                         popUpTo(0) { inclusive = true }
                     }
-                },
-                onOpenTryOnLibrary = {
-                    navController.navigate(Screen.TryOnLibrary.route)
                 }
             )
         }
@@ -383,6 +397,9 @@ fun AppNavGraph(
                     fromTryMoreOutfits = false
                     activeSubcategoryProductList = productList
                     navController.navigate(Screen.OutfitDetail.route)
+                },
+                onUploadProductsClick = {
+                    navController.navigate(Screen.TryOnLibrary.route)
                 }
             )
         }
@@ -480,12 +497,7 @@ fun AppNavGraph(
                 PhotoReviewPage(
                     photoUri = uri,
                     onBack = handleBackToUpload,
-                    onRetake = {
-                        val route = Screen.OutfitSelection.createRoute(selectedCategory)
-                        if (!navController.popBackStack(route, inclusive = false)) {
-                            navController.navigate(route)
-                        }
-                    },
+                    onRetake = handleBackToUpload,
                     onProceed = {
                         if (hasEnteredTryMoreFlow) {
                             navController.navigate(Screen.TryMoreOutfits.route) {
@@ -498,6 +510,18 @@ fun AppNavGraph(
                                 tryOnViewModel.startTryOn(garmentId, photoKey)
                                 navController.navigate(Screen.TryOnProcessing.route)
                             }
+                        }
+                    },
+                    // Reached here from TryMoreOutfits (reusing an existing photo) rather than
+                    // a fresh PhotoUpload — there's no upload step to go "back" to, so the top
+                    // button is Home instead, guarded by PhotoReviewPage's own confirmation.
+                    cameFromTryMoreOutfits = hasEnteredTryMoreFlow,
+                    onGoHome = {
+                        hasEnteredTryMoreFlow = false
+                        sessionTryOnResults.clear()
+                        tryOnViewModel.resetState()
+                        navController.navigate(Screen.CategorySelection.route) {
+                            popUpTo(Screen.CategorySelection.route) { inclusive = true }
                         }
                     }
                 )
@@ -615,23 +639,30 @@ fun AppNavGraph(
                 initialProduct = selectedProduct,
                 resultImageUrl = tryOnUiState.shareUrl,
                 sessionHistory = sessionTryOnResults,
-                onBack = {
-                    hasEnteredTryMoreFlow = true
-                    val now = android.os.SystemClock.uptimeMillis()
-                    if (now - lastNavTime >= 350L) {
-                        lastNavTime = now
-                        if (!navController.popBackStack(Screen.PhotoReview.route, inclusive = false)) {
-                            navController.navigate(Screen.PhotoReview.route)
-                        }
-                    }
-                },
                 onUnauthorized = {
                     navController.navigate(Screen.SignIn.route) {
                         popUpTo(0) { inclusive = true }
                     }
                 },
+                onGoHome = {
+                    hasEnteredTryMoreFlow = false
+                    sessionTryOnResults.clear()
+                    tryOnViewModel.resetState()
+                    navController.navigate(Screen.CategorySelection.route) {
+                        popUpTo(Screen.CategorySelection.route) { inclusive = true }
+                    }
+                },
                 onGoToDownloads = {
                     navController.navigate(Screen.Download.route)
+                },
+                onRetake = {
+                    val now = android.os.SystemClock.uptimeMillis()
+                    if (now - lastNavTime >= 350L) {
+                        lastNavTime = now
+                        if (!navController.popBackStack(Screen.PhotoUpload.route, inclusive = false)) {
+                            navController.navigate(Screen.PhotoUpload.route)
+                        }
+                    }
                 },
                 onSelectOutfitDetail = { product, subcategoryList ->
                     selectedProduct = product
@@ -670,9 +701,19 @@ fun AppNavGraph(
                 },
                 onCreateNew = {
                     hasEnteredTryMoreFlow = false
+                    sessionTryOnResults.clear()
                     tryOnViewModel.resetState()
                     navController.navigate(Screen.CategorySelection.route) {
                         popUpTo(Screen.CategorySelection.route) { inclusive = true }
+                    }
+                },
+                onRetake = {
+                    val now = android.os.SystemClock.uptimeMillis()
+                    if (now - lastNavTime >= 350L) {
+                        lastNavTime = now
+                        if (!navController.popBackStack(Screen.PhotoUpload.route, inclusive = false)) {
+                            navController.navigate(Screen.PhotoUpload.route)
+                        }
                     }
                 }
             )

@@ -278,7 +278,7 @@ fun TryOnProcessingContent(
                 // Headline & Subtitle
                 Text(
                     "Generating Your AI Try-On...",
-                    color = Color(0xB3F3C65E),
+                    color = Color.White,
                     fontSize = ssp(R.dimen._20ssp),
                     fontWeight = FontWeight.Bold,
                     fontFamily = PoppinsFamily,

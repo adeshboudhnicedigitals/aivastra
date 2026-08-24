@@ -102,9 +102,20 @@
 
     <!-- Download page QR cards (tablet) -->
     <dimen name="_download_card_height">320dp</dimen>
+    <dimen name="_download_qr_size">150dp</dimen>
+    <dimen name="_download_image_height">220dp</dimen>
+    <dimen name="_download_section_gap">20dp</dimen>
+    <dimen name="_download_divider_padding">18dp</dimen>
+    <dimen name="_download_bottom_gap">28dp</dimen>
 
     <!-- Camera view bottom-bar control icons (tablet) -->
     <dimen name="_camera_control_button_size">58dp</dimen>
     <dimen name="_camera_control_icon_size">40dp</dimen>
     <dimen name="_camera_control_timer_icon_size">30dp</dimen>
+
+    <!-- Profile menu item title/subtitle gap (tablet) -->
+    <dimen name="_menu_item_text_gap">3dp</dimen>
+
+    <!-- Profile menu row vertical padding (tablet) -->
+    <dimen name="_menu_item_row_padding">12dp</dimen>
 </resources>

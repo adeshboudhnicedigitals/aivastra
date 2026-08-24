@@ -2,10 +2,13 @@ package aivastra.nice.interactive.api
 
 import aivastra.nice.interactive.data.models.AppVideoConfigResponse
 import aivastra.nice.interactive.data.models.CatalogAppDeviceCodeResponse
+import aivastra.nice.interactive.data.models.ContactRequest
 import aivastra.nice.interactive.data.models.DeviceLoginRequest
 import aivastra.nice.interactive.data.models.DeviceLoginResponse
 import aivastra.nice.interactive.data.models.ForceLoginRequest
 import aivastra.nice.interactive.data.models.GoogleLoginRequest
+import aivastra.nice.interactive.data.models.KioskDownloadBatchResponse
+import aivastra.nice.interactive.data.models.MerchantMeResponse
 import aivastra.nice.interactive.data.models.MerchantOnboardingRequest
 import aivastra.nice.interactive.data.models.MerchantOnboardingResponse
 import aivastra.nice.interactive.data.models.OnboardingStatusResponse
@@ -105,6 +108,10 @@ interface ApiService {
     @POST("v1/auth/device-logout")
     suspend fun logoutDevice(@Body request: LogoutRequest): Response<LogoutResponse>
 
+    /** Current merchant profile + credit balance/usage, for the logged-in merchant. */
+    @GET("v1/merchant/me")
+    suspend fun getMerchantMe(): Response<MerchantMeResponse>
+
     /** Current merchantStatus + prefill data. Guarded by requireDeviceUser (device-login session, not requireMerchant). */
     @GET("v1/merchant/onboarding")
     suspend fun getOnboardingStatus(): Response<OnboardingStatusResponse>
@@ -121,6 +128,10 @@ interface ApiService {
     @POST("v1/auth/catalog-app-device-code")
     suspend fun getCatalogAppDeviceCode(): Response<CatalogAppDeviceCodeResponse>
 
+    /** Submits a contact/support inquiry. Returns 204 No Content on success. */
+    @POST("v1/contact")
+    suspend fun sendContactMessage(@Body request: ContactRequest): Response<Unit>
+
     /**
      * Per-day summary of distinct input photos vs completed (generated) jobs
      * for this merchant. Paginated newest-first; pass `before` (the previous
@@ -132,4 +143,15 @@ interface ApiService {
         @Query("before") before: String? = null,
         @Query("limit") limit: Int = 30
     ): Response<TryOnHistoryResponse>
+
+    /**
+     * Public route (no auth) backing the "Download All" kiosk QR — mints fresh 24h
+     * presigned URLs for a batch of job IDs. Only jobs that are COMPLETED, have a
+     * result image, and completed within the last 24h are returned; anything else
+     * (expired/failed/invalid) is silently omitted rather than erroring.
+     */
+    @GET("v1/kiosk-download/batch")
+    suspend fun getKioskDownloadBatch(
+        @Query("jobIds") jobIds: String
+    ): Response<KioskDownloadBatchResponse>
 }
