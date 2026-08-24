@@ -436,11 +436,14 @@ export type AdminMerchantUpdateBody = z.infer<typeof AdminMerchantUpdateBody>;
 
 export const ShopifyCustomerPresignRequest = z.object({
   contentType: z.string(),
+  // Matches the storefront widget's own MAX_PHOTO_BYTES check
+  // (tryon-widget.js) so a shopper never gets a presigned URL for a photo the
+  // widget would have already rejected client-side.
   contentLength: z
     .number()
     .int()
     .positive()
-    .max(20 * 1024 * 1024),
+    .max(15 * 1024 * 1024),
   clientId: z.string().uuid().optional(),
 });
 export type ShopifyCustomerPresignRequest = z.infer<typeof ShopifyCustomerPresignRequest>;
