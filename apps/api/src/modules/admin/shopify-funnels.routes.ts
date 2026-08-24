@@ -3,7 +3,7 @@ import { asc, count, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { requireAdmin } from './guard.js';
+import { requirePermission } from './guard.js';
 
 type FunnelTemplatesTx = Parameters<Parameters<DB['transaction']>[0]>[0];
 
@@ -23,27 +23,22 @@ const CreateFunnelTemplateBody = z.object({
     .string()
     .min(1)
     .max(80)
-    .regex(/^[a-z0-9-]+$/, 'slug must be lowercase alphanumeric with hyphens'),
+    .regex(/^[a-z0-9-]+$/, 'slug must be lowercase letters, numbers, hyphens only'),
   label: z.string().min(1).max(120),
   workflowTemplateId: z.string().uuid(),
   sortOrder: z.number().int().default(0),
   isDefault: z.boolean().default(false),
+  isActive: z.boolean().default(true),
 });
 
-const PatchFunnelTemplateBody = z.object({
-  label: z.string().min(1).max(120).optional(),
-  workflowTemplateId: z.string().uuid().optional(),
-  isActive: z.boolean().optional(),
-  sortOrder: z.number().int().optional(),
-  isDefault: z.boolean().optional(),
-});
+const PatchFunnelTemplateBody = CreateFunnelTemplateBody.partial();
 
 const ReassignFunnelTemplateBody = z.object({
   targetId: z.string().uuid(),
 });
 
 export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
-  const RW = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
+  const RW = requirePermission('shopify_funnels.write');
   const uuidParam = z.object({ id: z.string().uuid() });
 
   app.get('/admin/shopify/funnel-templates', { preHandler: RW }, async () => {

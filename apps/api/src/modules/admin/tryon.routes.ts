@@ -11,11 +11,11 @@ import { and, asc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { requireAdmin } from './guard.js';
+import { requirePermission } from './guard.js';
 
 export async function adminTryonRoutes(app: FastifyInstance) {
-  const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
-  const R = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
+  const W = requirePermission('tryon.write');
+  const R = requirePermission('tryon.read');
   const uuidParam = z.object({ id: z.string().uuid() });
 
   // GET /admin/tryon-categories — list with workflow label + samples

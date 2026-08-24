@@ -18,7 +18,8 @@ interface NavItem {
   k: string;
   label: string;
   icon: () => ReactElement;
-  roles: string[];
+  perm?: string | null; // null = always visible to any active admin (dashboard-style items use 'admin.me' instead)
+  roles?: string[]; // present only on the one item still gated by hard-coded roles — see `payments` below
   count?: number;
   alert?: boolean;
 }
@@ -36,7 +37,7 @@ const groups: NavGroup[] = [
         k: 'dashboard',
         label: 'Dashboard',
         icon: Icon.Dashboard,
-        roles: ['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN'],
+        perm: 'admin.me',
       },
     ],
   },
@@ -47,43 +48,43 @@ const groups: NavGroup[] = [
         k: 'assets',
         label: 'Assets',
         icon: Icon.Image,
-        roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN'],
+        perm: 'assets.read',
       },
       {
         k: 'workflows',
         label: 'Workflows',
         icon: Icon.Workflow,
-        roles: ['SUPER_ADMIN', 'MODERATOR'],
+        perm: 'workflows.write',
       },
       {
         k: 'tryon',
         label: 'Try-on',
         icon: Icon.Replace,
-        roles: ['SUPER_ADMIN', 'MODERATOR'],
+        perm: 'tryon.write',
       },
       {
         k: 'demo-catalog',
         label: 'Kiosk Demo Data',
         icon: Icon.Image,
-        roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN'],
+        perm: 'demo_catalog.read',
       },
       {
         k: 'dev-api',
         label: 'Dev API',
         icon: Icon.Workflow,
-        roles: ['SUPER_ADMIN', 'MODERATOR'],
+        perm: 'dev_api.write',
       },
       {
         k: 'saree',
         label: 'Saree',
         icon: Icon.Workflow,
-        roles: ['SUPER_ADMIN', 'MODERATOR'],
+        perm: 'saree.write',
       },
       {
         k: 'shopify-funnels',
         label: 'Shopify',
         icon: Icon.Workflow,
-        roles: ['SUPER_ADMIN', 'MODERATOR'],
+        perm: 'shopify_funnels.write',
       },
     ],
   },
@@ -94,7 +95,7 @@ const groups: NavGroup[] = [
         k: 'users',
         label: 'Users',
         icon: Icon.Users,
-        roles: ['SUPER_ADMIN', 'SUPPORT', 'ADMIN'],
+        perm: 'users.read',
       },
     ],
   },
@@ -105,49 +106,58 @@ const groups: NavGroup[] = [
         k: 'jobs',
         label: 'Jobs',
         icon: Icon.Jobs,
-        roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN'],
+        perm: 'jobs.write',
       },
       {
         k: 'held-batches',
         label: 'Held Batches',
         icon: Icon.Jobs,
-        roles: ['SUPER_ADMIN', 'ADMIN'],
+        perm: 'held_jobs.manage',
       },
       {
         k: 'workers',
         label: 'Workers',
         icon: Icon.Server,
-        roles: ['SUPER_ADMIN'],
+        perm: 'workers.write',
       },
       {
         k: 'recycle-bin',
         label: 'Recycle bin',
         icon: Icon.Trash,
-        roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN'],
+        perm: 'assets.read',
       },
       {
         k: 'credit-analysis',
         label: 'Credit Analysis',
         icon: Icon.Coin,
-        roles: ['SUPER_ADMIN', 'SUPPORT', 'ADMIN'],
+        perm: 'credit_analysis.read',
       },
       {
         k: 'payments',
         label: 'Payments',
         icon: Icon.Credit,
+        // Not migrated to a permission key yet — payments.routes.ts still uses
+        // requireAdmin([...]) directly (see docs/superpowers/plans/2026-08-20-admin-role-permission-matrix.md,
+        // Context). Revisit once that route is migrated to requirePermission.
         roles: ['SUPER_ADMIN', 'SUPPORT', 'ADMIN'],
       },
       {
         k: 'telemetry',
         label: 'Telemetry',
         icon: Icon.Clock,
-        roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN'],
+        perm: 'telemetry.read',
       },
       {
         k: 'shopify-stores',
         label: 'Shopify Stores',
         icon: Icon.Coin,
-        roles: ['SUPER_ADMIN', 'SUPPORT', 'ADMIN'],
+        perm: 'shopify_stores.read',
+      },
+      {
+        k: 'audit-logs',
+        label: 'Team Activity',
+        icon: Icon.Clock,
+        perm: 'audit.read',
       },
     ],
   },
@@ -158,19 +168,19 @@ const groups: NavGroup[] = [
         k: 'chat-inbox',
         label: 'Chat Inbox',
         icon: Icon.MessageSquare,
-        roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN', 'SUPPORT'],
+        perm: 'chatbot.read',
       },
       {
         k: 'contacts',
         label: 'Contacts',
         icon: Icon.Bell,
-        roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN', 'SUPPORT'],
+        perm: 'contact.read',
       },
       {
         k: 'chatbot-qna',
         label: 'Chatbot Q&A',
         icon: Icon.MessageSquare,
-        roles: ['SUPER_ADMIN', 'ADMIN'],
+        perm: 'chatbot.manage',
       },
     ],
   },
@@ -185,7 +195,7 @@ export function Sidebar({
   mobileOpen,
   onCloseMobile,
 }: SidebarProps) {
-  const { token } = useAuth();
+  const { token, hasPermission } = useAuth();
   const [contactBadge, setContactBadge] = useState(0);
 
   useEffect(() => {
@@ -198,14 +208,18 @@ export function Sidebar({
     const t = setInterval(fetchCount, 5_000);
     return () => clearInterval(t);
   }, [token]);
+
+  const isVisible = (item: NavItem) =>
+    item.perm ? hasPermission(item.perm) : (item.roles ?? []).includes(role);
+
   // Flat list for collapsed view; grouped for expanded view
   const allItems = groups.flatMap((g) => g.items);
-  const visible = allItems.filter((item) => item.roles.includes(role));
+  const visible = allItems.filter(isVisible);
   const visibleGroups = groups
-    .map((g) => ({ ...g, items: g.items.filter((item) => item.roles.includes(role)) }))
+    .map((g) => ({ ...g, items: g.items.filter(isVisible) }))
     .filter((g) => g.items.length > 0);
 
-  const showSettings = ['SUPER_ADMIN'].includes(role);
+  const showSettings = hasPermission('admin_users.manage');
 
   if (collapsed) {
     return (

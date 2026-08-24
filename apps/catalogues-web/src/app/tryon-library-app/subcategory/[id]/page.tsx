@@ -7,14 +7,13 @@ import type {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { GarmentIcon } from '@/components/icons';
-import { C } from '@/components/tokens';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { catalogAppApi as api, CatalogAppSessionExpiredError } from '../../catalog-app-api';
 import { reconcileHeldProducts } from '../../catalog-app-helpers';
 import { ProductCard } from '../../components/ProductCard';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import { useLoggedOut } from '../../logged-out-context';
+import { LIGHT } from '../../theme';
 
 export default function ProductsScreen() {
   const params = useParams<{ id: string }>();
@@ -33,18 +32,6 @@ export default function ProductsScreen() {
       ),
   });
   const subcategory = subcategoriesQuery.data?.items.find((s) => s.id === subcategoryId);
-
-  const garmentTypesQuery = useQuery({
-    queryKey: ['garment-types', subcategory?.category],
-    queryFn: () =>
-      api.get<{ items: { id: string; label: string }[] }>(
-        `/v1/models/garment-types?gender=${subcategory?.category}`,
-      ),
-    enabled: !!subcategory,
-  });
-  const garmentTypeLabel =
-    garmentTypesQuery.data?.items.find((g) => g.id === subcategory?.garmentSubcategoryId)?.label ??
-    'Unknown';
 
   const productsQuery = useQuery({
     queryKey: ['merchant-catalog-products', subcategoryId],
@@ -91,11 +78,13 @@ export default function ProductsScreen() {
   });
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div
+      style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: LIGHT.bg }}
+    >
       <ScreenHeader
         variant="back"
         title={subcategory?.name ?? 'Products'}
-        subtitle={garmentTypeLabel}
+        subtitle={`${products.length} ${products.length === 1 ? 'Product' : 'Products'}`}
         onBack={() =>
           router.push(
             subcategory
@@ -110,16 +99,9 @@ export default function ProductsScreen() {
               router.push(`/tryon-library-app/subcategory/${subcategoryId}/add-product`),
           },
           {
-            label: 'Bulk Upload — Catalogue Image',
+            label: 'Bulk Upload',
             onClick: () =>
-              router.push(
-                `/tryon-library-app/subcategory/${subcategoryId}/bulk-upload?mode=catalogue`,
-              ),
-          },
-          {
-            label: 'Bulk Upload — Flat Image',
-            onClick: () =>
-              router.push(`/tryon-library-app/subcategory/${subcategoryId}/bulk-upload?mode=flat`),
+              router.push(`/tryon-library-app/subcategory/${subcategoryId}/bulk-upload`),
           },
         ]}
       />
@@ -131,9 +113,9 @@ export default function ProductsScreen() {
             padding: '8px 12px',
             borderRadius: 8,
             background: 'rgba(245,92,122,0.06)',
-            border: `1px solid ${C.pink}`,
+            border: '1px solid #f55c7a',
             fontSize: 13,
-            color: C.pink,
+            color: '#f55c7a',
           }}
         >
           {reconcileFailedCount > 0
@@ -152,7 +134,7 @@ export default function ProductsScreen() {
             minHeight: '40vh',
           }}
         >
-          <div style={{ color: C.mid, fontSize: 14 }}>Loading products…</div>
+          <div style={{ color: LIGHT.mid, fontSize: 14 }}>Loading products…</div>
         </div>
       ) : products.length === 0 ? (
         <div
@@ -165,14 +147,19 @@ export default function ProductsScreen() {
             gap: 12,
           }}
         >
-          <div style={{ color: C.pink, opacity: 0.8 }}>
-            <GarmentIcon size={44} />
-          </div>
-          <h3 style={{ fontSize: 15, fontWeight: 600, color: C.text, margin: 0 }}>
-            No products yet
+          {/* biome-ignore lint/performance/noImgElement: standalone page not using next/image */}
+          <img
+            src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/assets/empty-subcategories.png`}
+            alt=""
+            width={120}
+            height={122}
+            style={{ marginBottom: 4 }}
+          />
+          <h3 style={{ fontSize: 17, fontWeight: 700, color: LIGHT.text, margin: 0 }}>
+            No Products Yet
           </h3>
-          <p style={{ color: C.light, fontSize: 13, margin: 0, maxWidth: 280 }}>
-            Tap "Add Product" above to add your first one.
+          <p style={{ color: LIGHT.mid, fontSize: 14, margin: 0, maxWidth: 280 }}>
+            Add your first product to start building this subcategory.
           </p>
         </div>
       ) : (

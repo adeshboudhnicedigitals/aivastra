@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { C } from '@/components/tokens';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { PremiumSelect } from '@/components/ui/premium-select';
@@ -8,6 +8,25 @@ export interface GarmentType {
   id: string;
   label: string;
 }
+
+// Varies the name placeholder's color word so every category doesn't suggest
+// "Blue X" — re-picked whenever the garment type changes.
+const PLACEHOLDER_COLORS = [
+  'Blue',
+  'Red',
+  'Black',
+  'White',
+  'Green',
+  'Yellow',
+  'Pink',
+  'Grey',
+  'Maroon',
+  'Navy',
+  'Beige',
+  'Purple',
+  'Orange',
+  'Teal',
+];
 
 export interface SubcategoryEditData {
   id: string;
@@ -35,6 +54,13 @@ export function SubcategoryModal({
   const [name, setName] = useState('');
   const [garmentSubcategoryId, setGarmentSubcategoryId] = useState('');
   const dialogRef = useRef<HTMLDivElement>(null);
+  // Re-rolled on garment type change, not derived from it — the dependency
+  // exists purely to pick a new color each time, not to compute from the id.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional recompute trigger, not a derived value
+  const placeholderColor = useMemo(
+    () => PLACEHOLDER_COLORS[Math.floor(Math.random() * PLACEHOLDER_COLORS.length)],
+    [garmentSubcategoryId],
+  );
 
   // Reset state when opened
   useEffect(() => {
@@ -94,6 +120,10 @@ export function SubcategoryModal({
   };
 
   const garmentOptions = garmentTypes.map((g) => ({ value: g.id, label: g.label }));
+  const selectedGarmentLabel = garmentTypes.find((g) => g.id === garmentSubcategoryId)?.label;
+  const namePlaceholder = selectedGarmentLabel
+    ? `e.g. ${placeholderColor} ${selectedGarmentLabel}`
+    : 'e.g. Summer Collection';
 
   return (
     <div
@@ -126,7 +156,7 @@ export function SubcategoryModal({
       >
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           <h3 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>
-            {initialData ? 'Edit Subcategory' : 'Add Subcategory'}
+            {initialData ? 'Edit Category' : 'Add Category'}
           </h3>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -137,7 +167,7 @@ export function SubcategoryModal({
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Summer Collection"
+              placeholder={namePlaceholder}
               style={{
                 width: '100%',
                 height: 40,
