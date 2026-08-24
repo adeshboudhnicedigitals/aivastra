@@ -1,5 +1,5 @@
 (() => {
-  const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
+  const MAX_PHOTO_BYTES = 15 * 1024 * 1024;
   const SSE_MAX_WAIT_MS = 6 * 60 * 1000;
   const SSE_RECONNECT_DELAY_MS = 1000;
 
@@ -234,6 +234,18 @@
         if (steps[key]) steps[key].hidden = key !== name;
       }
       syncHeaderButton();
+    }
+
+    // Overrides the merchant-configured error copy with a specific reason.
+    // Used for client-side validation failures (bad file type, oversized
+    // photo) as well as the 402 "try-on unavailable" case below.
+    function showErrorWithMessage(message) {
+      showStep('error');
+      const errorStep = steps.error;
+      if (errorStep) {
+        const p = errorStep.querySelector('p');
+        if (p) p.textContent = message;
+      }
     }
 
     function getHistory() {
@@ -555,12 +567,7 @@
         }),
       });
       if (res.status === 402) {
-        showStep('error');
-        const errorStep = steps.error;
-        if (errorStep) {
-          errorStep.querySelector('p').textContent =
-            'Try-on is temporarily unavailable, please check back later.';
-        }
+        showErrorWithMessage('Try-on is temporarily unavailable, please check back later.');
         throw new Error('try-on unavailable');
       }
       if (res.status === 403) {
@@ -726,8 +733,12 @@
     function handlePickedFile(input) {
       const file = input.files?.[0];
       if (!file) return;
-      if (!file.type.startsWith('image/') || file.size > MAX_PHOTO_BYTES) {
-        showStep('error');
+      if (!file.type.startsWith('image/')) {
+        showErrorWithMessage('Please choose an image file.');
+        return;
+      }
+      if (file.size > MAX_PHOTO_BYTES) {
+        showErrorWithMessage('That photo is too large. Please choose one under 15MB.');
         return;
       }
       showReady({ file });
