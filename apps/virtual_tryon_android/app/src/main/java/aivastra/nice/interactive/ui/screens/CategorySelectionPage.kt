@@ -339,7 +339,7 @@ fun CategorySelectionPage(
                                                     leadingIcon = {
                                                         Icon(Icons.Default.Star, null, tint = Color(0xFFD88A18), modifier = Modifier.size(sdp(R.dimen._18sdp)))
                                                     },
-                                                    title = "Top Up Credits",
+                                                    title = "Manage Credits",
                                                     subtitle = "View plans & Add credits",
                                                     onClick = {
                                                         showProfileMenu = false
