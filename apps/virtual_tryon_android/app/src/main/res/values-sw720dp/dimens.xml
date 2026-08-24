@@ -108,6 +108,11 @@
 
     <!-- Download page QR cards (kiosk) -->
     <dimen name="_download_card_height">360dp</dimen>
+    <dimen name="_download_qr_size">150dp</dimen>
+    <dimen name="_download_image_height">220dp</dimen>
+    <dimen name="_download_section_gap">20dp</dimen>
+    <dimen name="_download_divider_padding">18dp</dimen>
+    <dimen name="_download_bottom_gap">28dp</dimen>
 
     <!-- Camera view bottom-bar control icons (kiosk) -->
     <dimen name="_camera_control_button_size">66dp</dimen>

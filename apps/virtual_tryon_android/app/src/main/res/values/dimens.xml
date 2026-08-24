@@ -116,7 +116,12 @@
     <dimen name="_bottom_action_button_height">52dp</dimen>
 
     <!-- Download page QR cards (scaled up per device in values-sw600dp / values-sw720dp) -->
-    <dimen name="_download_card_height">280dp</dimen>
+    <dimen name="_download_card_height">190dp</dimen>
+    <dimen name="_download_qr_size">115dp</dimen>
+    <dimen name="_download_image_height">130dp</dimen>
+    <dimen name="_download_section_gap">14dp</dimen>
+    <dimen name="_download_divider_padding">10dp</dimen>
+    <dimen name="_download_bottom_gap">14dp</dimen>
 
     <!-- Camera view bottom-bar control icons (Timer / Settings / Flip) -->
     <dimen name="_camera_control_button_size">44dp</dimen>

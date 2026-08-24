@@ -1,14 +1,5 @@
 package aivastra.nice.interactive.ui.screens
 
-import android.content.ContentValues
-import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.drawable.BitmapDrawable
-import android.os.Build
-import android.os.Environment
-import android.provider.MediaStore
-import android.widget.Toast
-import aivastra.nice.interactive.utils.CrashReporter
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -58,7 +49,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -67,19 +57,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import coil.imageLoader
-import coil.request.ImageRequest
-import coil.request.SuccessResult
 import aivastra.nice.interactive.R
 import aivastra.nice.interactive.ui.theme.AiVastraTheme
 import aivastra.nice.interactive.ui.theme.PoppinsFamily
 import aivastra.nice.interactive.utils.sdp
 import aivastra.nice.interactive.utils.ssp
 import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 @Composable
 fun TryOnResultPage(
@@ -89,7 +72,6 @@ fun TryOnResultPage(
     onDownload: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
     val isPreview = LocalInspectionMode.current
     val statusBarH: Dp = (if (isPreview) sdp(R.dimen._28sdp) else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()) + sdp(R.dimen._10sdp)
     val navBarH: Dp = if (isPreview) 14.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -245,10 +227,7 @@ fun TryOnResultPage(
                                 listOf(Color(0xFFE7A52C), Color(0xFF9B5100))
                             )
                         )
-                        .clickable {
-                            downloadResultImage(context, resultImageUrl)
-                            onDownload()
-                        },
+                        .clickable(onClick = onDownload),
                     contentAlignment = Alignment.Center
                 ) {
                     Row(
@@ -288,58 +267,6 @@ private fun DownloadIcon(tint: Color, modifier: Modifier = Modifier) {
 
         // Bottom horizontal tray line
         drawLine(color = tint, start = Offset(w * 0.2f, h * 0.82f), end = Offset(w * 0.8f, h * 0.82f), strokeWidth = strokeWidth)
-    }
-}
-
-private fun downloadResultImage(context: Context, imageUrl: String) {
-    val appContext = context.applicationContext
-    CoroutineScope(Dispatchers.IO).launch {
-        try {
-            val request = ImageRequest.Builder(appContext)
-                .data(imageUrl)
-                .allowHardware(false)
-                .build()
-            val result = (appContext.imageLoader.execute(request) as? SuccessResult)?.drawable
-            val bitmap = (result as? BitmapDrawable)?.bitmap
-
-            if (bitmap != null) {
-                saveBitmapToGallery(appContext, bitmap)
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(appContext, "Image saved to gallery", Toast.LENGTH_SHORT).show()
-                }
-            } else {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(appContext, "Unable to download image", Toast.LENGTH_SHORT).show()
-                }
-            }
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            CrashReporter.recordException(e, "TryOnResultPage")
-            withContext(Dispatchers.Main) {
-                Toast.makeText(appContext, "Download notice: ${e.message}", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-}
-
-private fun saveBitmapToGallery(context: Context, bitmap: Bitmap) {
-    try {
-        val filename = "AiVastra_TryOn_${System.currentTimeMillis()}.jpg"
-        val contentValues = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
-            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/AiVastra")
-            }
-        }
-        val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
-        uri?.let {
-            context.contentResolver.openOutputStream(it)?.use { out ->
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
-            }
-        }
-    } catch (e: Exception) {
-        CrashReporter.recordException(e, "TryOnResultPage")
     }
 }
 

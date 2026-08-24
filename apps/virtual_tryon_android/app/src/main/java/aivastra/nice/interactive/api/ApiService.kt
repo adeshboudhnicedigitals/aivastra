@@ -7,6 +7,7 @@ import aivastra.nice.interactive.data.models.DeviceLoginRequest
 import aivastra.nice.interactive.data.models.DeviceLoginResponse
 import aivastra.nice.interactive.data.models.ForceLoginRequest
 import aivastra.nice.interactive.data.models.GoogleLoginRequest
+import aivastra.nice.interactive.data.models.KioskDownloadBatchResponse
 import aivastra.nice.interactive.data.models.MerchantMeResponse
 import aivastra.nice.interactive.data.models.MerchantOnboardingRequest
 import aivastra.nice.interactive.data.models.MerchantOnboardingResponse
@@ -142,4 +143,15 @@ interface ApiService {
         @Query("before") before: String? = null,
         @Query("limit") limit: Int = 30
     ): Response<TryOnHistoryResponse>
+
+    /**
+     * Public route (no auth) backing the "Download All" kiosk QR — mints fresh 24h
+     * presigned URLs for a batch of job IDs. Only jobs that are COMPLETED, have a
+     * result image, and completed within the last 24h are returned; anything else
+     * (expired/failed/invalid) is silently omitted rather than erroring.
+     */
+    @GET("v1/kiosk-download/batch")
+    suspend fun getKioskDownloadBatch(
+        @Query("jobIds") jobIds: String
+    ): Response<KioskDownloadBatchResponse>
 }

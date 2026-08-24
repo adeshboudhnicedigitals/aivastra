@@ -5,8 +5,11 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,6 +34,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -65,7 +70,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalInspectionMode
@@ -704,17 +711,23 @@ private fun SessionGalleryOverlay(
     statusBarH: Dp,
     navBarH: Dp
 ) {
-    // Pinch-to-zoom / pan / double-tap-to-reset, same as TryOnResultPage's result image.
-    // Pan is clamped to the overflow the current zoom level actually produces so the image
-    // can never be dragged off past its own edge, and resets whenever the user browses to
-    // a different session result.
-    var imageScale by remember { mutableFloatStateOf(1f) }
-    var imageOffset by remember { mutableStateOf(Offset.Zero) }
-    var imageContainerSize by remember { mutableStateOf(IntSize.Zero) }
+    // Backs both the arrow buttons and finger-swipe with the same page state so they can
+    // never disagree about which result is showing. Swipe is disabled while the current
+    // image is pinch-zoomed in, so a horizontal pan-to-inspect never gets mistaken for a
+    // page-change swipe — mirrors how Photos/Instagram gate swipe behind zoom state.
+    val pagerState = rememberPagerState(initialPage = currentIndex) { images.size }
+    var isCurrentPageZoomed by remember { mutableStateOf(false) }
 
     LaunchedEffect(currentIndex) {
-        imageScale = 1f
-        imageOffset = Offset.Zero
+        if (pagerState.currentPage != currentIndex) {
+            pagerState.animateScrollToPage(currentIndex)
+        }
+    }
+    LaunchedEffect(pagerState.currentPage) {
+        isCurrentPageZoomed = false
+        if (pagerState.currentPage != currentIndex) {
+            onIndexChange(pagerState.currentPage)
+        }
     }
 
     Box(
@@ -722,40 +735,20 @@ private fun SessionGalleryOverlay(
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        AsyncImage(
-            model = images[currentIndex],
-            contentDescription = "Session result ${currentIndex + 1} of ${images.size}",
-            contentScale = ContentScale.Crop,
-            alignment = Alignment.TopCenter,
-            modifier = Modifier
-                .fillMaxSize()
-                .clipToBounds()
-                .onGloballyPositioned { imageContainerSize = it.size }
-                .pointerInput(Unit) {
-                    detectTapGestures(onDoubleTap = {
-                        imageScale = 1f
-                        imageOffset = Offset.Zero
-                    })
+        HorizontalPager(
+            state = pagerState,
+            userScrollEnabled = !isCurrentPageZoomed,
+            modifier = Modifier.fillMaxSize()
+        ) { page ->
+            ZoomableSessionImage(
+                url = images[page],
+                contentDescription = "Session result ${page + 1} of ${images.size}",
+                page = page,
+                onZoomedChange = { zoomed ->
+                    if (page == pagerState.currentPage) isCurrentPageZoomed = zoomed
                 }
-                .pointerInput(Unit) {
-                    detectTransformGestures { _, pan, zoom, _ ->
-                        val newScale = (imageScale * zoom).coerceIn(1f, 4f)
-                        val maxPanX = (imageContainerSize.width * (newScale - 1f) / 2f).coerceAtLeast(0f)
-                        val maxPanY = (imageContainerSize.height * (newScale - 1f) / 2f).coerceAtLeast(0f)
-                        imageOffset = Offset(
-                            x = (imageOffset.x + pan.x).coerceIn(-maxPanX, maxPanX),
-                            y = (imageOffset.y + pan.y).coerceIn(-maxPanY, maxPanY)
-                        )
-                        imageScale = newScale
-                    }
-                }
-                .graphicsLayer {
-                    scaleX = imageScale
-                    scaleY = imageScale
-                    translationX = imageOffset.x
-                    translationY = imageOffset.y
-                }
-        )
+            )
+        }
 
         // Close button
         Box(
@@ -848,6 +841,93 @@ private fun SessionGalleryOverlay(
             }
         }
     }
+}
+
+// Reimplements just enough of [detectTransformGestures] to gate event consumption on
+// [isZoomed] — a plain single-finger drag is left completely unconsumed (and thus never
+// even marked as "past touch slop") so the enclosing HorizontalPager sees an untouched
+// gesture and can claim it for page-swiping. Only an actual pinch (2+ pointers) or a pan
+// while already zoomed in is consumed here. detectTransformGestures itself has no such
+// escape hatch — it swallows every single-finger drag unconditionally — which is why
+// swipe silently did nothing before this.
+private suspend fun PointerInputScope.detectZoomPanGestures(
+    isZoomed: () -> Boolean,
+    onGesture: (pan: Offset, zoom: Float) -> Unit
+) {
+    awaitEachGesture {
+        awaitFirstDown(requireUnconsumed = false)
+        do {
+            val event = awaitPointerEvent()
+            val canceled = event.changes.any { it.isConsumed }
+            if (!canceled) {
+                val multitouch = event.changes.size > 1
+                if (multitouch || isZoomed()) {
+                    val zoomChange = event.calculateZoom()
+                    val panChange = event.calculatePan()
+                    if (zoomChange != 1f || panChange != Offset.Zero) {
+                        onGesture(panChange, zoomChange)
+                    }
+                    event.changes.forEach { change ->
+                        if (change.positionChanged()) change.consume()
+                    }
+                }
+            }
+        } while (!canceled && event.changes.any { it.pressed })
+    }
+}
+
+// Pinch-to-zoom / pan / double-tap-to-reset, same as TryOnResultPage's result image. Pan is
+// clamped to the overflow the current zoom level actually produces so the image can never be
+// dragged off past its own edge. Zoom state resets per page automatically ([remember] keyed
+// on [page]), and only consumes horizontal drags itself once zoomed past 1x — at 1x, drags
+// fall through untouched to the enclosing HorizontalPager so swipe-to-change-image works.
+@Composable
+private fun ZoomableSessionImage(
+    url: String,
+    contentDescription: String,
+    page: Int = 0,
+    onZoomedChange: (Boolean) -> Unit = {}
+) {
+    var imageScale by remember(page) { mutableFloatStateOf(1f) }
+    var imageOffset by remember(page) { mutableStateOf(Offset.Zero) }
+    var imageContainerSize by remember(page) { mutableStateOf(IntSize.Zero) }
+
+    AsyncImage(
+        model = url,
+        contentDescription = contentDescription,
+        contentScale = ContentScale.Crop,
+        alignment = Alignment.TopCenter,
+        modifier = Modifier
+            .fillMaxSize()
+            .clipToBounds()
+            .onGloballyPositioned { imageContainerSize = it.size }
+            .pointerInput(Unit) {
+                detectTapGestures(onDoubleTap = {
+                    imageScale = 1f
+                    imageOffset = Offset.Zero
+                    onZoomedChange(false)
+                })
+            }
+            .pointerInput(Unit) {
+                detectZoomPanGestures(isZoomed = { imageScale > 1.01f }) { pan, zoom ->
+                    val newScale = (imageScale * zoom).coerceIn(1f, 4f)
+                    val maxPanX = (imageContainerSize.width * (newScale - 1f) / 2f).coerceAtLeast(0f)
+                    val maxPanY = (imageContainerSize.height * (newScale - 1f) / 2f).coerceAtLeast(0f)
+                    imageOffset = Offset(
+                        x = (imageOffset.x + pan.x).coerceIn(-maxPanX, maxPanX),
+                        y = (imageOffset.y + pan.y).coerceIn(-maxPanY, maxPanY)
+                    )
+                    imageScale = newScale
+                    onZoomedChange(newScale > 1.01f)
+                }
+            }
+            .graphicsLayer {
+                scaleX = imageScale
+                scaleY = imageScale
+                translationX = imageOffset.x
+                translationY = imageOffset.y
+            }
+    )
 }
 
 @Preview(name = "Try More Outfits - Phone", showBackground = true, widthDp = 375, heightDp = 667)
