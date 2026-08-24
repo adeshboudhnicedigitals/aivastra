@@ -31,6 +31,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import aivastra.nice.interactive.ui.screens.ProfilePage
+import aivastra.nice.interactive.ui.screens.ReportsPage
 import aivastra.nice.interactive.ui.screens.WebViewPage
 import aivastra.nice.interactive.ui.screens.CategorySelectionPage
 import aivastra.nice.interactive.utils.CrashReporter
@@ -69,6 +70,7 @@ sealed class Screen(val route: String) {
     object PendingActivation  : Screen("pending_activation")
     object CategorySelection  : Screen("category_selection")
     object Profile            : Screen("profile")
+    object Reports            : Screen("reports")
     object TryOnLibrary       : Screen("tryon_library")
     object OutfitSelection    : Screen("outfit_selection/{category}") {
         fun createRoute(category: String) = "outfit_selection/$category"
@@ -286,12 +288,24 @@ fun AppNavGraph(
                 onUploadProductsClick = {
                     navController.navigate(Screen.TryOnLibrary.route)
                 },
+                onReportsClick = {
+                    navController.navigate(Screen.Reports.route)
+                },
                 onLogoutSuccess = {
                     navController.navigate(Screen.SignIn.route) {
                         popUpTo(0) { inclusive = true }
                     }
                 }
             )
+        }
+
+        // ── Reports (try-on history) ─────────────────────────────────────
+        composable(
+            route = Screen.Reports.route,
+            enterTransition = { EnterTransition.None },
+            exitTransition  = { ExitTransition.None }
+        ) {
+            ReportsPage(onBack = { safePopBackStack() })
         }
 
         // ── Dedicated Profile Page ───────────────────────────────────────

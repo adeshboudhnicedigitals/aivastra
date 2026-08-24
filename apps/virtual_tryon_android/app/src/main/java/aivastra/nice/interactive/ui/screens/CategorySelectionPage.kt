@@ -95,7 +95,6 @@ import java.util.Locale
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
-import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import androidx.activity.compose.BackHandler
 import aivastra.nice.interactive.utils.CrashReporter
@@ -127,6 +126,7 @@ fun CategorySelectionPage(
     onCategorySelected: (categoryId: String) -> Unit = {},
     onProfileClick: () -> Unit = {},
     onUploadProductsClick: () -> Unit = {},
+    onReportsClick: () -> Unit = {},
     onLogoutSuccess: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -332,11 +332,8 @@ fun CategorySelectionPage(
                                                         Icon(Icons.AutoMirrored.Filled.List, null, tint = Color(0xFFD88A18), modifier = Modifier.size(sdp(R.dimen._18sdp)))
                                                     },
                                                     title = "Reports",
-                                                    subtitle = "Coming soon",
-                                                    onClick = {
-                                                        showProfileMenu = false
-                                                        Toast.makeText(context, "Reports coming soon", Toast.LENGTH_SHORT).show()
-                                                    }
+                                                    subtitle = "View daily activity",
+                                                    onClick = { showProfileMenu = false; onReportsClick() }
                                                 )
                                                 ProfileMenuItem(
                                                     leadingIcon = {
