@@ -122,4 +122,12 @@
     <dimen name="_camera_control_button_size">44dp</dimen>
     <dimen name="_camera_control_icon_size">30dp</dimen>
     <dimen name="_camera_control_timer_icon_size">22dp</dimen>
+
+    <!-- Profile menu item title/subtitle gap (scaled up per device in values-sw600dp / values-sw720dp
+         so it stays visible next to the larger tablet/kiosk text sizes) -->
+    <dimen name="_menu_item_text_gap">2dp</dimen>
+
+    <!-- Profile menu row vertical padding, separates consecutive menu items
+         (scaled up per device in values-sw600dp / values-sw720dp) -->
+    <dimen name="_menu_item_row_padding">8dp</dimen>
 </resources>

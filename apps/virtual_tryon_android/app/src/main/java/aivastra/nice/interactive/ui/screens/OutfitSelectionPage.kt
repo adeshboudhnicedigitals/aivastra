@@ -69,6 +69,7 @@ fun OutfitSelectionPage(
     onBack: () -> Unit = {},
     onUnauthorized: () -> Unit = {},
     onOutfitSelected: (CatalogProduct, List<CatalogProduct>) -> Unit = { _, _ -> },
+    onUploadProductsClick: () -> Unit = {},
     viewModel: OutfitSelectionViewModel = viewModel(),
     modifier: Modifier = Modifier
 ) {
@@ -257,7 +258,9 @@ fun OutfitSelectionPage(
                             uiState.visibleProducts.isEmpty() -> CatalogMessage(
                                 message = "No outfits available in this category.",
                                 actionLabel = "Refresh Catalog",
-                                onAction = viewModel::retry
+                                onAction = viewModel::retry,
+                                secondaryActionLabel = "Upload Product",
+                                onSecondaryAction = onUploadProductsClick
                             )
 
                             else -> LazyVerticalGrid(
@@ -293,7 +296,9 @@ fun OutfitSelectionPage(
 private fun CatalogMessage(
     message: String,
     actionLabel: String? = null,
-    onAction: () -> Unit = {}
+    onAction: () -> Unit = {},
+    secondaryActionLabel: String? = null,
+    onSecondaryAction: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -323,6 +328,20 @@ private fun CatalogMessage(
                         RoundedCornerShape(sdp(R.dimen._50sdp))
                     )
                     .clickable(onClick = onAction)
+                    .padding(horizontal = sdp(R.dimen._20sdp), vertical = sdp(R.dimen._8sdp))
+            )
+        }
+        if (secondaryActionLabel != null) {
+            Spacer(Modifier.height(sdp(R.dimen._12sdp)))
+            Text(
+                text = secondaryActionLabel,
+                color = Color.Black,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = PoppinsFamily,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(sdp(R.dimen._50sdp)))
+                    .background(Color.White)
+                    .clickable(onClick = onSecondaryAction)
                     .padding(horizontal = sdp(R.dimen._20sdp), vertical = sdp(R.dimen._8sdp))
             )
         }

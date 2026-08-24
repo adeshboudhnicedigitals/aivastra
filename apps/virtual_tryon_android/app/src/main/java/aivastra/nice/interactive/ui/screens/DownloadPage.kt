@@ -60,6 +60,7 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import aivastra.nice.interactive.R
 import aivastra.nice.interactive.ui.components.AppDialog
+import aivastra.nice.interactive.ui.components.ExitSessionDialog
 import aivastra.nice.interactive.ui.theme.AiVastraTheme
 import aivastra.nice.interactive.ui.theme.PoppinsFamily
 import aivastra.nice.interactive.utils.sdp
@@ -71,6 +72,7 @@ fun DownloadPage(
     onBack: () -> Unit,
     onDeleteSession: () -> Unit,
     onCreateNew: () -> Unit,
+    onRetake: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val isPreview = LocalInspectionMode.current
@@ -78,6 +80,10 @@ fun DownloadPage(
     val navBarH: Dp = if (isPreview) 14.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     var currentIndex by remember { mutableIntStateOf(0) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    // "Create New" opens the same multi-way exit dialog used elsewhere in the try-on flow
+    // (minus "Go to Downloads" — we're already on that screen) instead of jumping straight
+    // to CategorySelection, since the customer may actually want to retake instead.
+    var showExitDialog by remember { mutableStateOf(false) }
     val currentImageUrl = resultsList.getOrNull(currentIndex) ?: ""
 
     Box(
@@ -398,7 +404,7 @@ fun DownloadPage(
                                 listOf(Color(0xFFE7A52C), Color(0xFF9B5100))
                             )
                         )
-                        .clickable(onClick = onCreateNew),
+                        .clickable { showExitDialog = true },
                     contentAlignment = Alignment.Center
                 ) {
                     Row(
@@ -442,6 +448,16 @@ fun DownloadPage(
             onDismiss = {
                 showDeleteDialog = false
             }
+        )
+    }
+
+    // ── "Create New" Exit Dialog (no Downloads option — already here) ──────
+    if (showExitDialog) {
+        ExitSessionDialog(
+            onGoHome = { showExitDialog = false; onCreateNew() },
+            onGoToDownloads = null,
+            onRetake = { showExitDialog = false; onRetake() },
+            onDismiss = { showExitDialog = false }
         )
     }
 }

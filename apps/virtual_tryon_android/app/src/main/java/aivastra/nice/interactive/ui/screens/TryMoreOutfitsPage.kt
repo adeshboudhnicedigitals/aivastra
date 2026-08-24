@@ -34,10 +34,10 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -81,6 +81,7 @@ import aivastra.nice.interactive.data.models.CatalogProduct
 import aivastra.nice.interactive.data.models.GarmentSubcategory
 import aivastra.nice.interactive.data.repository.CatalogRepository
 import aivastra.nice.interactive.data.repository.CatalogResult
+import aivastra.nice.interactive.ui.components.ExitSessionDialog
 import aivastra.nice.interactive.ui.theme.AiVastraTheme
 import aivastra.nice.interactive.ui.theme.PoppinsFamily
 import aivastra.nice.interactive.utils.sdp
@@ -93,17 +94,22 @@ fun TryMoreOutfitsPage(
     initialProduct: CatalogProduct?,
     resultImageUrl: String? = null,
     sessionHistory: List<String> = emptyList(),
-    onBack: () -> Unit,
     onUnauthorized: () -> Unit = {},
+    onGoHome: () -> Unit = {},
     onGoToDownloads: () -> Unit,
+    onRetake: () -> Unit = {},
     onSelectOutfitDetail: (CatalogProduct, List<CatalogProduct>) -> Unit,
     onTryLook: (CatalogProduct) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var showSessionGallery by remember { mutableStateOf(false) }
+    // Top-left is Home (not Back) on this screen — there's no single "back" destination that
+    // makes sense once the customer is browsing outfits, so every exit path (button tap or the
+    // system back gesture) goes through the same confirmation dialog instead.
+    var showExitDialog by remember { mutableStateOf(false) }
 
     BackHandler(enabled = showSessionGallery) { showSessionGallery = false }
-    BackHandler(enabled = !showSessionGallery, onBack = onBack)
+    BackHandler(enabled = !showSessionGallery) { showExitDialog = true }
 
     val isPreview = LocalInspectionMode.current
     val statusBarH: Dp = (if (isPreview) sdp(R.dimen._28sdp) else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()) + sdp(R.dimen._10sdp)
@@ -124,6 +130,19 @@ fun TryMoreOutfitsPage(
                 ?: (sessionHistory.size - 1).coerceAtLeast(0)
         )
     }
+
+    // Hoisted so both the featured-image card and the expand-to-fullscreen trigger below
+    // read the exact same "what's currently shown" value instead of recomputing it twice.
+    val displayUrl = if (sessionHistory.isNotEmpty()) {
+        sessionHistory.getOrNull(historyIndex) ?: resultImageUrl
+    } else if (!userHasChangedProduct && !resultImageUrl.isNullOrBlank()) {
+        resultImageUrl
+    } else {
+        selectedProduct?.imageUrl ?: selectedProduct?.thumbnailUrl ?: resultImageUrl
+    }
+    // Full-screen gallery falls back to just the single currently-displayed image when there's
+    // no multi-result session history yet (e.g. viewing the very first generated result).
+    val overlayImages = sessionHistory.ifEmpty { listOfNotNull(displayUrl) }
 
     var isLoading by remember { mutableStateOf(true) }
     var isDropdownExpanded by remember { mutableStateOf(false) }
@@ -197,13 +216,13 @@ fun TryMoreOutfitsPage(
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
-                            onClick = onBack
+                            onClick = { showExitDialog = true }
                         ),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
+                        Icons.Default.Home,
+                        contentDescription = "Home",
                         tint = Color.White,
                         modifier = Modifier.size(sdp(R.dimen._20sdp))
                     )
@@ -262,14 +281,6 @@ fun TryMoreOutfitsPage(
                                     }
                                 }
                         ) {
-                            val displayUrl = if (sessionHistory.isNotEmpty()) {
-                                sessionHistory.getOrNull(historyIndex) ?: resultImageUrl
-                            } else if (!userHasChangedProduct && !resultImageUrl.isNullOrBlank()) {
-                                resultImageUrl
-                            } else {
-                                selectedProduct?.imageUrl ?: selectedProduct?.thumbnailUrl ?: resultImageUrl
-                            }
-
                             if (displayUrl != null) {
                                 AsyncImage(
                                     model = displayUrl,
@@ -278,6 +289,29 @@ fun TryMoreOutfitsPage(
                                     alignment = Alignment.TopCenter,
                                     modifier = Modifier.fillMaxSize()
                                 )
+                            }
+
+                            // Expand-to-fullscreen — top-right corner, clear of the bottom-start
+                            // session history controls (prev/next arrow + dot indicators).
+                            if (displayUrl != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .padding(top = sdp(R.dimen._10sdp), end = sdp(R.dimen._12sdp))
+                                        .size(sdp(R.dimen._32sdp))
+                                        .align(Alignment.TopEnd)
+                                        .clip(CircleShape)
+                                        .background(Color.Black.copy(alpha = 0.55f))
+                                        .border(sdp(R.dimen._1sdp), Color.White.copy(alpha = 0.35f), CircleShape)
+                                        .clickable { showSessionGallery = true },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_expand),
+                                        contentDescription = "View full screen",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(sdp(R.dimen._16sdp))
+                                    )
+                                }
                             }
 
                             // Session history navigation: previous/next generated result + dot indicators
@@ -639,14 +673,23 @@ fun TryMoreOutfitsPage(
         }
     }
 
-        if (showSessionGallery && sessionHistory.isNotEmpty()) {
+        if (showSessionGallery && overlayImages.isNotEmpty()) {
             SessionGalleryOverlay(
-                images = sessionHistory,
-                currentIndex = historyIndex.coerceIn(0, sessionHistory.lastIndex),
+                images = overlayImages,
+                currentIndex = historyIndex.coerceIn(0, overlayImages.lastIndex),
                 onIndexChange = { historyIndex = it },
                 onClose = { showSessionGallery = false },
                 statusBarH = statusBarH,
                 navBarH = navBarH
+            )
+        }
+
+        if (showExitDialog) {
+            ExitSessionDialog(
+                onGoHome = { showExitDialog = false; onGoHome() },
+                onGoToDownloads = { showExitDialog = false; onGoToDownloads() },
+                onRetake = { showExitDialog = false; onRetake() },
+                onDismiss = { showExitDialog = false }
             )
         }
     }
@@ -813,7 +856,6 @@ private fun TryMoreOutfitsPagePreview() {
     AiVastraTheme {
         TryMoreOutfitsPage(
             initialProduct = null,
-            onBack = {},
             onGoToDownloads = {},
             onSelectOutfitDetail = { _, _ -> },
             onTryLook = {}
