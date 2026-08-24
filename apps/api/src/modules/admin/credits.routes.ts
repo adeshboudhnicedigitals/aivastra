@@ -4,18 +4,41 @@ import { desc, eq, sql, sum } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { adminGrant } from '../credits/ledger.js';
-import { requireAdmin } from './guard.js';
+import { recordAudit } from './audit.js';
+import { requirePermission } from './guard.js';
 
 export async function adminCreditsRoutes(app: FastifyInstance) {
-  const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
+  const W = requirePermission('credits.write');
 
   app.post(
     '/admin/credits/grant',
     { preHandler: W, schema: { body: GrantCreditsBody } },
     async (req) => {
       const { userId, amount, reason } = req.body as z.infer<typeof GrantCreditsBody>;
-      await adminGrant(app.db, userId, amount, reason || 'Manual credit grant', req.userId);
+      const grantReason = reason || 'Manual credit grant';
+      await app.db.transaction(async (tx) => {
+        await tx
+          .insert(schema.userCredits)
+          .values({ userId, balance: amount })
+          .onConflictDoUpdate({
+            target: schema.userCredits.userId,
+            set: { balance: sql`${schema.userCredits.balance} + ${amount}`, updatedAt: new Date() },
+          });
+        await tx.insert(schema.creditLedger).values({
+          userId,
+          delta: amount,
+          reason: grantReason,
+          adminId: req.userId,
+        });
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'credits.grant',
+          resourceType: 'user_credits',
+          resourceId: userId,
+          after: { amount, reason: grantReason },
+          request: req,
+        });
+      });
       return { ok: true };
     },
   );
@@ -25,11 +48,39 @@ export async function adminCreditsRoutes(app: FastifyInstance) {
     { preHandler: W, schema: { body: BulkGrantBody } },
     async (req) => {
       const { tier, amount, reason } = req.body as z.infer<typeof BulkGrantBody>;
+      const grantReason = reason || `Bulk grant to tier: ${tier}`;
       const targets = await app.db
         .select({ id: schema.users.id })
         .from(schema.users)
         .where(eq(schema.users.tier, tier));
-      for (const t of targets) await adminGrant(app.db, t.id, amount, reason, req.userId);
+      for (const t of targets) {
+        await app.db.transaction(async (tx) => {
+          await tx
+            .insert(schema.userCredits)
+            .values({ userId: t.id, balance: amount })
+            .onConflictDoUpdate({
+              target: schema.userCredits.userId,
+              set: {
+                balance: sql`${schema.userCredits.balance} + ${amount}`,
+                updatedAt: new Date(),
+              },
+            });
+          await tx.insert(schema.creditLedger).values({
+            userId: t.id,
+            delta: amount,
+            reason: grantReason,
+            adminId: req.userId,
+          });
+          await recordAudit(tx, {
+            actor: { userId: req.userId, role: req.adminRole! },
+            action: 'credits.grant',
+            resourceType: 'user_credits',
+            resourceId: t.id,
+            after: { amount, reason: grantReason, tier },
+            request: req,
+          });
+        });
+      }
       return { ok: true, count: targets.length };
     },
   );
@@ -39,6 +90,7 @@ export async function adminCreditsRoutes(app: FastifyInstance) {
     { preHandler: W, schema: { body: DeductCreditsBody } },
     async (req) => {
       const { userId, amount, reason } = req.body as z.infer<typeof DeductCreditsBody>;
+      const deductReason = reason || 'Manual credit deduction';
       await app.db.transaction(async (tx) => {
         const res = await tx
           .update(schema.userCredits)
@@ -51,8 +103,16 @@ export async function adminCreditsRoutes(app: FastifyInstance) {
         await tx.insert(schema.creditLedger).values({
           userId,
           delta: -amount,
-          reason: reason || 'Manual credit deduction',
+          reason: deductReason,
           adminId: req.userId,
+        });
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'credits.deduct',
+          resourceType: 'user_credits',
+          resourceId: userId,
+          after: { amount, reason: deductReason },
+          request: req,
         });
       });
       return { ok: true };
@@ -62,7 +122,7 @@ export async function adminCreditsRoutes(app: FastifyInstance) {
   app.get(
     '/admin/credits/ledger/:userId',
     {
-      preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']),
+      preHandler: requirePermission('credits.read'),
       schema: { params: z.object({ userId: z.string().uuid() }) },
     },
     async (req) => {
@@ -79,7 +139,7 @@ export async function adminCreditsRoutes(app: FastifyInstance) {
   app.get(
     '/admin/credits/stats',
     {
-      preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']),
+      preHandler: requirePermission('credits.read'),
     },
     async () => {
       const [issued] = await app.db

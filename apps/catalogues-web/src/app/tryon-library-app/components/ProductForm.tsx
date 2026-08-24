@@ -2,7 +2,6 @@
 import type { MerchantCatalogItem } from '@aivastra/types';
 import { useEffect, useRef, useState } from 'react';
 import { CameraIcon, SpinnerIcon, UploadIcon } from '@/components/icons';
-import { C } from '@/components/tokens';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { catalogAppApi as api } from '../catalog-app-api';
 import {
@@ -11,6 +10,7 @@ import {
   pollGenerateJob,
   presignAndUpload,
 } from '../catalog-app-helpers';
+import { LIGHT } from '../theme';
 import { useSessionExpiryMessage } from '../use-session-expiry-message';
 import { StickyBottomBar } from './StickyBottomBar';
 
@@ -40,6 +40,10 @@ export function ProductForm({
   const [sku, setSku] = useState(initialData?.sku ?? '');
   const [actualPrice, setActualPrice] = useState(initialData?.actualPrice.toString() ?? '');
   const [offerPrice, setOfferPrice] = useState(initialData?.offerPrice.toString() ?? '');
+  // Server default for a newly created item is active — mirror that here.
+  // "Live in App" was a visibility toggle in the UI; the control is hidden
+  // now but the field still round-trips through the save calls below.
+  const liveInApp = initialData?.isActive ?? true;
   const [errorMsg, setErrorMsg] = useState<string | undefined>(undefined);
 
   const [imageMode, setImageMode] = useState<'catalogue' | 'flat'>('catalogue');
@@ -143,7 +147,7 @@ export function ProductForm({
   const isSaveDisabled = hasPriceError || isGenerating || isSaving || missingImage;
 
   const handleSubmit = async () => {
-    if (!label.trim() || !sku.trim() || !actualPrice || !offerPrice) return;
+    if (!label.trim()) return;
     if (isSaveDisabled) return;
 
     setIsSaving(true);
@@ -157,10 +161,16 @@ export function ProductForm({
       };
 
       if (isEditing && initialData) {
-        await api.patch(`/v1/merchant/catalog/${initialData.id}`, priceFields);
+        await api.patch(`/v1/merchant/catalog/${initialData.id}`, {
+          ...priceFields,
+          isActive: liveInApp,
+        });
       } else if (imageMode === 'flat') {
         if (!generatedItem) throw new Error('Generate the catalogue image first.');
-        await api.patch(`/v1/merchant/catalog/${generatedItem.id}`, priceFields);
+        await api.patch(`/v1/merchant/catalog/${generatedItem.id}`, {
+          ...priceFields,
+          isActive: liveInApp,
+        });
       } else {
         if (!selectedFile) throw new Error('Upload a product image first.');
         if (requiresCataloguePallu && !palluFile) throw new Error('Upload the pallu photo first.');
@@ -178,7 +188,10 @@ export function ProductForm({
           secondR2Key = secondUpload.r2Key;
           secondThumbnailKey = secondThumbUpload.r2Key;
         }
-        await api.post('/v1/merchant/catalog', {
+        // MerchantCatalogCreateBody has no isActive field (new items are
+        // always active server-side) — a follow-up PATCH is the only way to
+        // land the toggle when the merchant switched it off before saving.
+        const created = await api.post<MerchantCatalogItem>('/v1/merchant/catalog', {
           subcategoryId,
           r2Key,
           thumbnailKey,
@@ -186,6 +199,9 @@ export function ProductForm({
           ...(secondThumbnailKey ? { secondThumbnailKey } : {}),
           ...priceFields,
         });
+        if (!liveInApp) {
+          await api.patch(`/v1/merchant/catalog/${created.id}`, { isActive: false });
+        }
       }
 
       setGeneratedItem(undefined); // saved — don't clean it up on unmount
@@ -208,8 +224,8 @@ export function ProductForm({
             style={{
               height: 200,
               borderRadius: 8,
-              border: `1px solid ${C.border2}`,
-              background: C.field,
+              border: `1px solid ${LIGHT.border2}`,
+              background: LIGHT.field,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -217,7 +233,6 @@ export function ProductForm({
             }}
           >
             {displayImageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
               // biome-ignore lint/performance/noImgElement: presigned R2 preview
               <img
                 src={displayImageUrl}
@@ -239,9 +254,9 @@ export function ProductForm({
                 style={{
                   display: 'flex',
                   borderRadius: 8,
-                  border: `1px solid ${C.border2}`,
+                  border: `1px solid ${LIGHT.border2}`,
                   overflow: 'hidden',
-                  background: C.white,
+                  background: LIGHT.card,
                 }}
               >
                 <button
@@ -254,13 +269,13 @@ export function ProductForm({
                     border: 'none',
                     background:
                       imageMode === 'catalogue' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
-                    color: imageMode === 'catalogue' ? C.pink : C.text,
+                    color: imageMode === 'catalogue' ? '#f55c7a' : LIGHT.text,
                     fontWeight: imageMode === 'catalogue' ? 600 : 500,
                     fontSize: 14,
                     fontFamily: 'inherit',
                     cursor: busy ? 'not-allowed' : 'pointer',
                     transition: 'all 0.15s ease',
-                    borderRight: `1px solid ${C.border2}`,
+                    borderRight: `1px solid ${LIGHT.border2}`,
                   }}
                 >
                   Catalogue Image
@@ -274,7 +289,7 @@ export function ProductForm({
                     padding: '12px 16px',
                     border: 'none',
                     background: imageMode === 'flat' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
-                    color: imageMode === 'flat' ? C.pink : C.text,
+                    color: imageMode === 'flat' ? '#f55c7a' : LIGHT.text,
                     fontWeight: imageMode === 'flat' ? 600 : 500,
                     fontSize: 14,
                     fontFamily: 'inherit',
@@ -297,7 +312,7 @@ export function ProductForm({
                     style={{
                       height: 180,
                       borderRadius: 8,
-                      border: `1px dashed ${C.border2}`,
+                      border: `1px dashed ${LIGHT.border2}`,
                       display: 'flex',
                       flexDirection: 'column',
                       alignItems: 'center',
@@ -313,7 +328,6 @@ export function ProductForm({
                     }}
                     className="hover-surface"
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     {/* biome-ignore lint/performance/noImgElement: local preview */}
                     <img
                       src={previewUrl}
@@ -326,7 +340,7 @@ export function ProductForm({
                     style={{
                       height: 180,
                       borderRadius: 8,
-                      border: `1px dashed ${C.border2}`,
+                      border: `1px dashed ${LIGHT.border2}`,
                       display: 'flex',
                       flexDirection: 'column',
                       alignItems: 'center',
@@ -335,10 +349,10 @@ export function ProductForm({
                       width: '100%',
                     }}
                   >
-                    <div style={{ color: C.mid }}>
+                    <div style={{ color: LIGHT.mid }}>
                       <UploadIcon size={28} />
                     </div>
-                    <div style={{ fontSize: 13, color: C.mid, fontWeight: 500 }}>
+                    <div style={{ fontSize: 13, color: LIGHT.mid, fontWeight: 500 }}>
                       Tap to choose a product photo
                     </div>
                     <div style={{ display: 'flex', gap: 8 }}>
@@ -354,9 +368,9 @@ export function ProductForm({
                           height: 36,
                           padding: '0 14px',
                           borderRadius: 8,
-                          border: `1px solid ${C.border2}`,
+                          border: `1px solid ${LIGHT.border2}`,
                           background: 'none',
-                          color: C.text,
+                          color: LIGHT.text,
                           fontFamily: 'inherit',
                           fontSize: 13,
                           fontWeight: 600,
@@ -378,9 +392,9 @@ export function ProductForm({
                           height: 36,
                           padding: '0 14px',
                           borderRadius: 8,
-                          border: `1px solid ${C.border2}`,
+                          border: `1px solid ${LIGHT.border2}`,
                           background: 'none',
-                          color: C.text,
+                          color: LIGHT.text,
                           fontFamily: 'inherit',
                           fontSize: 13,
                           fontWeight: 600,
@@ -402,7 +416,7 @@ export function ProductForm({
                       style={{
                         height: 180,
                         borderRadius: 8,
-                        border: `1px dashed ${C.border2}`,
+                        border: `1px dashed ${LIGHT.border2}`,
                         display: 'flex',
                         flexDirection: 'column',
                         alignItems: 'center',
@@ -418,7 +432,6 @@ export function ProductForm({
                       }}
                       className="hover-surface"
                     >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       {/* biome-ignore lint/performance/noImgElement: local preview */}
                       <img
                         src={palluPreviewUrl}
@@ -431,7 +444,7 @@ export function ProductForm({
                       style={{
                         height: 180,
                         borderRadius: 8,
-                        border: `1px dashed ${C.border2}`,
+                        border: `1px dashed ${LIGHT.border2}`,
                         display: 'flex',
                         flexDirection: 'column',
                         alignItems: 'center',
@@ -440,10 +453,10 @@ export function ProductForm({
                         width: '100%',
                       }}
                     >
-                      <div style={{ color: C.mid }}>
+                      <div style={{ color: LIGHT.mid }}>
                         <UploadIcon size={28} />
                       </div>
-                      <div style={{ fontSize: 13, color: C.mid, fontWeight: 500 }}>
+                      <div style={{ fontSize: 13, color: LIGHT.mid, fontWeight: 500 }}>
                         Tap to choose the pallu photo
                       </div>
                       <div style={{ display: 'flex', gap: 8 }}>
@@ -459,9 +472,9 @@ export function ProductForm({
                             height: 36,
                             padding: '0 14px',
                             borderRadius: 8,
-                            border: `1px solid ${C.border2}`,
+                            border: `1px solid ${LIGHT.border2}`,
                             background: 'none',
-                            color: C.text,
+                            color: LIGHT.text,
                             fontFamily: 'inherit',
                             fontSize: 13,
                             fontWeight: 600,
@@ -483,9 +496,9 @@ export function ProductForm({
                             height: 36,
                             padding: '0 14px',
                             borderRadius: 8,
-                            border: `1px solid ${C.border2}`,
+                            border: `1px solid ${LIGHT.border2}`,
                             background: 'none',
-                            color: C.text,
+                            color: LIGHT.text,
                             fontFamily: 'inherit',
                             fontSize: 13,
                             fontWeight: 600,
@@ -504,7 +517,7 @@ export function ProductForm({
                 style={{
                   height: 180,
                   borderRadius: 8,
-                  border: `1px dashed ${C.border2}`,
+                  border: `1px dashed ${LIGHT.border2}`,
                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: 'center',
@@ -513,10 +526,10 @@ export function ProductForm({
                   width: '100%',
                 }}
               >
-                <div style={{ color: C.mid }}>
+                <div style={{ color: LIGHT.mid }}>
                   <UploadIcon size={28} />
                 </div>
-                <div style={{ fontSize: 13, color: C.mid, fontWeight: 500 }}>
+                <div style={{ fontSize: 13, color: LIGHT.mid, fontWeight: 500 }}>
                   Upload flat garment photo
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
@@ -532,9 +545,9 @@ export function ProductForm({
                       height: 36,
                       padding: '0 14px',
                       borderRadius: 8,
-                      border: `1px solid ${C.border2}`,
+                      border: `1px solid ${LIGHT.border2}`,
                       background: 'none',
-                      color: C.text,
+                      color: LIGHT.text,
                       fontFamily: 'inherit',
                       fontSize: 13,
                       fontWeight: 600,
@@ -556,9 +569,9 @@ export function ProductForm({
                       height: 36,
                       padding: '0 14px',
                       borderRadius: 8,
-                      border: `1px solid ${C.border2}`,
+                      border: `1px solid ${LIGHT.border2}`,
                       background: 'none',
-                      color: C.text,
+                      color: LIGHT.text,
                       fontFamily: 'inherit',
                       fontSize: 13,
                       fontWeight: 600,
@@ -578,7 +591,7 @@ export function ProductForm({
                   alignItems: 'center',
                   padding: 16,
                   borderRadius: 8,
-                  border: `1px solid ${C.border2}`,
+                  border: `1px solid ${LIGHT.border2}`,
                   background: 'transparent',
                 }}
               >
@@ -587,14 +600,13 @@ export function ProductForm({
                     width: 96,
                     height: 120,
                     borderRadius: 8,
-                    border: `1px solid ${C.border2}`,
-                    background: C.field,
+                    border: `1px solid ${LIGHT.border2}`,
+                    background: LIGHT.field,
                     position: 'relative',
                     overflow: 'hidden',
                     flexShrink: 0,
                   }}
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   {/* biome-ignore lint/performance/noImgElement: local/generated preview */}
                   <img
                     src={generatedItem?.imageUrl ?? previewUrl}
@@ -607,8 +619,8 @@ export function ProductForm({
                         position: 'absolute',
                         top: 6,
                         right: 6,
-                        background: C.pink,
-                        color: C.white,
+                        background: '#f55c7a',
+                        color: LIGHT.card,
                         fontSize: 10,
                         fontWeight: 700,
                         padding: '2px 6px',
@@ -651,7 +663,7 @@ export function ProductForm({
                           background: 'none',
                           border: 'none',
                           padding: 0,
-                          color: C.mid,
+                          color: LIGHT.mid,
                           fontSize: 13,
                           fontFamily: 'inherit',
                           fontWeight: 500,
@@ -664,7 +676,7 @@ export function ProductForm({
                     </>
                   ) : (
                     <>
-                      <div style={{ fontSize: 13, color: C.text, fontWeight: 500 }}>
+                      <div style={{ fontSize: 13, color: LIGHT.text, fontWeight: 500 }}>
                         Ready to use!
                       </div>
                       <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
@@ -676,7 +688,7 @@ export function ProductForm({
                             background: 'none',
                             border: 'none',
                             padding: 0,
-                            color: C.text,
+                            color: LIGHT.text,
                             fontSize: 13,
                             fontFamily: 'inherit',
                             fontWeight: 600,
@@ -686,7 +698,7 @@ export function ProductForm({
                         >
                           Regenerate
                         </button>
-                        <span style={{ color: C.border2 }}>|</span>
+                        <span style={{ color: LIGHT.border2 }}>|</span>
                         <button
                           type="button"
                           onClick={() => {
@@ -701,7 +713,7 @@ export function ProductForm({
                             background: 'none',
                             border: 'none',
                             padding: 0,
-                            color: C.mid,
+                            color: LIGHT.mid,
                             fontSize: 13,
                             fontFamily: 'inherit',
                             fontWeight: 500,
@@ -756,8 +768,11 @@ export function ProductForm({
         />
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <label htmlFor="product-name" style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
-            Product Name <span style={{ color: C.pink }}>*</span>
+          <label
+            htmlFor="product-name"
+            style={{ fontSize: 13, fontWeight: 600, color: LIGHT.text }}
+          >
+            Product Name <span style={{ color: '#f55c7a' }}>*</span>
           </label>
           <input
             id="product-name"
@@ -769,23 +784,22 @@ export function ProductForm({
               width: '100%',
               height: 48,
               borderRadius: 8,
-              border: `1px solid ${C.border2}`,
+              border: `1px solid ${LIGHT.border2}`,
               padding: '0 14px',
               fontSize: 15,
               fontFamily: 'inherit',
-              background: C.field,
-              color: C.text,
+              background: LIGHT.field,
+              color: LIGHT.text,
             }}
           />
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <label htmlFor="product-sku" style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
-            SKU <span style={{ color: C.pink }}>*</span>
+          <label htmlFor="product-sku" style={{ fontSize: 13, fontWeight: 600, color: LIGHT.text }}>
+            SKU
           </label>
           <input
             id="product-sku"
-            required
             value={sku}
             onChange={(e) => setSku(e.target.value)}
             placeholder="e.g. SH-COT-BLU-S"
@@ -793,12 +807,12 @@ export function ProductForm({
               width: '100%',
               height: 48,
               borderRadius: 8,
-              border: `1px solid ${C.border2}`,
+              border: `1px solid ${LIGHT.border2}`,
               padding: '0 14px',
               fontSize: 15,
               fontFamily: 'inherit',
-              background: C.field,
-              color: C.text,
+              background: LIGHT.field,
+              color: LIGHT.text,
             }}
           />
         </div>
@@ -806,9 +820,9 @@ export function ProductForm({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <label
             htmlFor="product-actual-price"
-            style={{ fontSize: 13, fontWeight: 600, color: C.text }}
+            style={{ fontSize: 13, fontWeight: 600, color: LIGHT.text }}
           >
-            Actual Price <span style={{ color: C.pink }}>*</span>
+            Actual Price
           </label>
           <div style={{ position: 'relative' }}>
             <span
@@ -818,7 +832,7 @@ export function ProductForm({
                 top: '50%',
                 transform: 'translateY(-50%)',
                 fontSize: 15,
-                color: C.mid,
+                color: LIGHT.mid,
                 fontWeight: 600,
               }}
             >
@@ -826,7 +840,6 @@ export function ProductForm({
             </span>
             <input
               id="product-actual-price"
-              required
               type="number"
               min="0"
               step="1"
@@ -837,12 +850,12 @@ export function ProductForm({
                 width: '100%',
                 height: 48,
                 borderRadius: 8,
-                border: `1px solid ${C.border2}`,
+                border: `1px solid ${LIGHT.border2}`,
                 padding: '0 14px 0 28px',
                 fontSize: 15,
                 fontFamily: 'inherit',
-                background: C.field,
-                color: C.text,
+                background: LIGHT.field,
+                color: LIGHT.text,
               }}
             />
           </div>
@@ -851,9 +864,9 @@ export function ProductForm({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <label
             htmlFor="product-offer-price"
-            style={{ fontSize: 13, fontWeight: 600, color: C.text }}
+            style={{ fontSize: 13, fontWeight: 600, color: LIGHT.text }}
           >
-            Offer Price <span style={{ color: C.pink }}>*</span>
+            Offer Price
           </label>
           <div style={{ position: 'relative' }}>
             <span
@@ -863,7 +876,7 @@ export function ProductForm({
                 top: '50%',
                 transform: 'translateY(-50%)',
                 fontSize: 15,
-                color: C.mid,
+                color: LIGHT.mid,
                 fontWeight: 600,
               }}
             >
@@ -871,7 +884,6 @@ export function ProductForm({
             </span>
             <input
               id="product-offer-price"
-              required
               type="number"
               min="0"
               step="1"
@@ -882,12 +894,12 @@ export function ProductForm({
                 width: '100%',
                 height: 48,
                 borderRadius: 8,
-                border: `1px solid ${hasPriceError ? C.pink : C.border2}`,
+                border: `1px solid ${hasPriceError ? '#f55c7a' : LIGHT.border2}`,
                 padding: '0 14px 0 28px',
                 fontSize: 15,
                 fontFamily: 'inherit',
-                background: C.field,
-                color: C.text,
+                background: LIGHT.field,
+                color: LIGHT.text,
               }}
             />
           </div>
@@ -899,9 +911,9 @@ export function ProductForm({
               padding: '8px 12px',
               borderRadius: 8,
               background: 'rgba(245,92,122,0.06)',
-              border: `1px solid ${C.pink}`,
+              border: '1px solid #f55c7a',
               fontSize: 13,
-              color: C.pink,
+              color: '#f55c7a',
             }}
           >
             Offer price cannot be greater than the actual price.
@@ -914,9 +926,9 @@ export function ProductForm({
               padding: '8px 12px',
               borderRadius: 8,
               background: 'rgba(245,92,122,0.06)',
-              border: `1px solid ${C.pink}`,
+              border: '1px solid #f55c7a',
               fontSize: 13,
-              color: C.pink,
+              color: '#f55c7a',
             }}
           >
             {errorMsg}
@@ -933,9 +945,9 @@ export function ProductForm({
             flex: 1,
             height: 48,
             borderRadius: 8,
-            border: `1px solid ${C.border2}`,
-            background: C.white,
-            color: C.text,
+            border: `1px solid ${LIGHT.border2}`,
+            background: LIGHT.card,
+            color: LIGHT.text,
             fontFamily: 'inherit',
             fontSize: 15,
             fontWeight: 600,
@@ -951,7 +963,7 @@ export function ProductForm({
             disabled={isSaveDisabled}
             style={{ width: '100%', height: 48 }}
           >
-            {isSaving ? 'Saving…' : 'Save'}
+            {isSaving ? 'Saving…' : 'Save Product'}
           </GradBtn>
         </div>
       </StickyBottomBar>

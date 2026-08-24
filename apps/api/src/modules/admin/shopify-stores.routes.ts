@@ -2,7 +2,7 @@ import { schema } from '@aivastra/db';
 import { desc, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { requireAdmin } from './guard.js';
+import { requirePermission } from './guard.js';
 
 const LedgerQuery = z.object({
   cursor: z.string().datetime().optional(),
@@ -10,7 +10,7 @@ const LedgerQuery = z.object({
 });
 
 export async function adminShopifyStoresRoutes(app: FastifyInstance) {
-  const RO = requireAdmin(['SUPER_ADMIN', 'SUPPORT', 'ADMIN']);
+  const RO = requirePermission('shopify_stores.read');
 
   app.get('/admin/shopify-stores', { preHandler: RO }, async () => {
     const stores = await app.db

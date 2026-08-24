@@ -114,6 +114,9 @@ fun AppNavGraph(
     var hasEnteredTryMoreFlow by remember { mutableStateOf(false) }
 
     val sessionTryOnResults = remember { mutableStateListOf<String>() }
+    // Parallel to sessionTryOnResults (same index = same result) — job IDs are short
+    // enough to fit in the "download all" QR, unlike the presigned result URLs.
+    val sessionTryOnJobIds = remember { mutableStateListOf<String>() }
 
     val tryOnUiState by tryOnViewModel.uiState.collectAsState()
 
@@ -448,6 +451,7 @@ fun AppNavGraph(
                     // person's Download page. (No-op if there's nothing to clear yet, e.g. a
                     // retake before any try-on completed.)
                     sessionTryOnResults.clear()
+                    sessionTryOnJobIds.clear()
                     tryOnViewModel.resetState()
                     capturedPhotoUri = photoUri
                     customerPhotoR2Key = r2Key
@@ -513,9 +517,11 @@ fun AppNavGraph(
         ) { entry ->
             LaunchedEffect(tryOnUiState.state, tryOnUiState.shareUrl) {
                 val url = tryOnUiState.shareUrl
+                val jobId = tryOnUiState.jobId
                 if (tryOnUiState.state == TryOnState.COMPLETED && url != null) {
                     if (!sessionTryOnResults.contains(url)) {
                         sessionTryOnResults.add(url)
+                        if (jobId != null) sessionTryOnJobIds.add(jobId)
                     }
                     if (entry.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
                         // Collapse everything back to PhotoReview so TryOnResult always sits
@@ -651,10 +657,12 @@ fun AppNavGraph(
         ) {
             DownloadPage(
                 resultsList = sessionTryOnResults,
+                jobIds = sessionTryOnJobIds,
                 onBack = { safePopBackStack() },
                 onDeleteSession = {
                     hasEnteredTryMoreFlow = false
                     sessionTryOnResults.clear()
+                    sessionTryOnJobIds.clear()
                     tryOnViewModel.resetState()
                     navController.navigate(Screen.CategorySelection.route) {
                         popUpTo(Screen.CategorySelection.route) { inclusive = true }

@@ -7,6 +7,8 @@ interface AuthState {
   token: string | null;
   role: AdminRole | null;
   email: string | null;
+  permissions: string[];
+  hasPermission: (permission: string) => boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -18,25 +20,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setTokenState] = useState<string | null>(null);
   const [role, setRole] = useState<AdminRole | null>(null);
   const [email, setEmail] = useState<string | null>(null);
+  const [permissions, setPermissions] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const handleAuthFailure = useCallback(() => {
     setTokenState(null);
     setRole(null);
+    setPermissions([]);
   }, []);
 
   useEffect(() => {
     initAuthFailureHandler(handleAuthFailure);
   }, [handleAuthFailure]);
 
+  const hasPermission = useCallback(
+    (permission: string) => {
+      if (role === 'SUPER_ADMIN') return true;
+      return permissions.includes(permission);
+    },
+    [role, permissions],
+  );
+
   const fetchRole = useCallback(async () => {
     const me = await apiFetch<{
       userId: string;
       email: string;
       role: AdminRole;
+      permissions?: string[];
     }>('/admin/me');
     setRole(me.role);
     setEmail(me.email);
+    setPermissions(me.permissions ?? []);
   }, []);
 
   useEffect(() => {
@@ -93,6 +107,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setTokenState(null);
     setRole(null);
     setEmail(null);
+    setPermissions([]);
   }, []);
 
   return (
@@ -101,6 +116,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         token,
         role,
         email,
+        permissions,
+        hasPermission,
         isLoading,
         login,
         logout,

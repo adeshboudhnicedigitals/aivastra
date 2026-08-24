@@ -6,8 +6,14 @@ import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { refund } from '../credits/ledger.js';
 import { adminStreamHandler } from '../jobs/sse.js';
-import { requireAdmin } from './guard.js';
+import { requirePermission } from './guard.js';
 import { jobTypeSql } from './job-type.js';
+import {
+  describeJobsExportFilters,
+  JobsExportQuery,
+  loadJobsForExport,
+} from './jobs-export-query.js';
+import { renderJobsExportXlsx } from './jobs-export-xlsx.js';
 
 const JobsQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -37,10 +43,33 @@ const JobsQuery = z.object({
 });
 
 export async function adminJobsRoutes(app: FastifyInstance) {
-  const R = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']);
-  const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
+  const R = requirePermission('jobs.read');
+  const W = requirePermission('jobs.write');
 
   app.get('/admin/jobs/sources', { preHandler: R }, async () => Object.values(JOB_SOURCE));
+
+  // Full (unpaginated) filtered export for developers to see how a user's
+  // jobs and credit balance evolved over time — same filters as the Jobs
+  // table above. Excel only, no PDF (a wide time-series/credit table reads
+  // far better as a spreadsheet than a printable page).
+  app.get(
+    '/admin/jobs/export.xlsx',
+    { preHandler: R, schema: { querystring: JobsExportQuery } },
+    async (req, reply) => {
+      const query = req.query as JobsExportQuery;
+      const rows = await loadJobsForExport(app, query);
+      const xlsx = await renderJobsExportXlsx(rows, {
+        generatedAt: new Date(),
+        filterDescription: describeJobsExportFilters(query),
+      });
+
+      const filename = `jobs-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      return reply
+        .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        .header('Content-Disposition', `attachment; filename="${filename}"`)
+        .send(xlsx);
+    },
+  );
 
   app.get('/admin/jobs', { preHandler: R, schema: { querystring: JobsQuery } }, async (req) => {
     const query =

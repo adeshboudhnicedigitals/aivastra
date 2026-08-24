@@ -298,7 +298,7 @@ export function BatchMode({
         ...(params ? { params } : {}),
         rows: payloadRows,
       });
-      router.push(`/catalogues?batch=${result.batchId}`);
+      router.push(`/catalogs?batch=${result.batchId}`);
     } catch (e) {
       // The API attributes row-scoped rejections with error.rowIndex (see
       // withRowIndex in apps/api/src/lib/errors.ts). Light up that row with the

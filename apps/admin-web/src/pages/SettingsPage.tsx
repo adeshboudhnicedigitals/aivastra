@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext';
 import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import JobCostsTab from './settings/JobCostsTab';
 import PurchasablePlansTab from './settings/PurchasablePlansTab';
+import RolesPermissionsTab from './settings/RolesPermissionsTab';
 import ShopifyCreditsTab from './settings/ShopifyCreditsTab';
 
 function uploadFile(url: string, file: Blob, contentType: string): Promise<void> {
@@ -34,6 +35,7 @@ type SettingsSection =
   | 'notifications'
   | 'credit-plans'
   | 'signup-campaigns'
+  | 'roles-permissions'
   | 'system'
   | 'session';
 
@@ -42,6 +44,7 @@ const SETTING_SECTIONS: { k: SettingsSection; label: string }[] = [
   { k: 'notifications', label: 'Notifications' },
   { k: 'credit-plans', label: 'Credit Plans' },
   { k: 'signup-campaigns', label: 'Signup Campaigns' },
+  { k: 'roles-permissions', label: 'Roles & Permissions' },
   { k: 'system', label: 'System' },
   { k: 'session', label: 'Session' },
 ];
@@ -798,6 +801,9 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
           )}
         </>
       )}
+
+      {/* Roles & Permissions */}
+      {section === 'roles-permissions' && <RolesPermissionsTab toast={toast} />}
 
       {/* System */}
       {section === 'system' && (

@@ -4,7 +4,7 @@ import { and, desc, eq, ilike } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { requireAdmin } from './guard.js';
+import { requirePermission } from './guard.js';
 
 type MerchantCatalogRow = typeof schema.merchantCatalogItems.$inferSelect;
 
@@ -24,38 +24,36 @@ async function serializeCatalogItem(app: FastifyInstance, item: MerchantCatalogR
 }
 
 export async function adminMerchantCatalogRoutes(app: FastifyInstance) {
-  app.get(
-    '/admin/merchant-catalog',
-    { preHandler: requireAdmin(['SUPER_ADMIN', 'ADMIN']) },
-    async (req) => {
-      const { merchantId, search = '' } = req.query as {
-        merchantId?: string;
-        search?: string;
-      };
+  const GUARD = requirePermission('merchant_catalog.manage');
 
-      const filters = [];
-      if (merchantId) {
-        filters.push(eq(schema.merchantCatalogItems.merchantId, merchantId));
-      }
-      if (search.trim()) {
-        filters.push(ilike(schema.merchantCatalogItems.label, `%${search.trim()}%`));
-      }
+  app.get('/admin/merchant-catalog', { preHandler: GUARD }, async (req) => {
+    const { merchantId, search = '' } = req.query as {
+      merchantId?: string;
+      search?: string;
+    };
 
-      const items = await app.db
-        .select()
-        .from(schema.merchantCatalogItems)
-        .where(filters.length > 1 ? and(...filters) : filters[0])
-        .orderBy(desc(schema.merchantCatalogItems.createdAt))
-        .limit(200);
+    const filters = [];
+    if (merchantId) {
+      filters.push(eq(schema.merchantCatalogItems.merchantId, merchantId));
+    }
+    if (search.trim()) {
+      filters.push(ilike(schema.merchantCatalogItems.label, `%${search.trim()}%`));
+    }
 
-      return { items: await Promise.all(items.map((item) => serializeCatalogItem(app, item))) };
-    },
-  );
+    const items = await app.db
+      .select()
+      .from(schema.merchantCatalogItems)
+      .where(filters.length > 1 ? and(...filters) : filters[0])
+      .orderBy(desc(schema.merchantCatalogItems.createdAt))
+      .limit(200);
+
+    return { items: await Promise.all(items.map((item) => serializeCatalogItem(app, item))) };
+  });
 
   app.patch(
     '/admin/merchant-catalog/:id',
     {
-      preHandler: requireAdmin(['SUPER_ADMIN', 'ADMIN']),
+      preHandler: GUARD,
       schema: {
         params: z.object({ id: z.string().uuid() }),
         body: AdminMerchantCatalogUpdateBody,

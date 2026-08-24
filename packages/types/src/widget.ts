@@ -328,6 +328,27 @@ export const MerchantTryonJobDetailResponse = z.object({
   completedAt: z.string().nullable(),
 });
 export type MerchantTryonJobDetailResponse = z.infer<typeof MerchantTryonJobDetailResponse>;
+
+export const MerchantTryonHistoryQuery = z.object({
+  before: z.string().date().optional(),
+  limit: z.coerce.number().int().min(1).max(90).default(30),
+});
+export type MerchantTryonHistoryQuery = z.infer<typeof MerchantTryonHistoryQuery>;
+
+export const MerchantTryonHistoryDay = z.object({
+  date: z.string(),
+  inputCount: z.number().int(),
+  generatedCount: z.number().int(),
+  failedCount: z.number().int(),
+});
+export type MerchantTryonHistoryDay = z.infer<typeof MerchantTryonHistoryDay>;
+
+export const MerchantTryonHistoryResponse = z.object({
+  days: z.array(MerchantTryonHistoryDay),
+  nextCursor: z.string().nullable(),
+});
+export type MerchantTryonHistoryResponse = z.infer<typeof MerchantTryonHistoryResponse>;
+
 export const MerchantUploadSessionCreateResponse = z.object({
   token: z.string(),
   qrUrl: z.string().url(),
@@ -360,6 +381,24 @@ export const PublicUploadSessionPresignResponse = z.object({
   expiresIn: z.number().int(),
 });
 export type PublicUploadSessionPresignResponse = z.infer<typeof PublicUploadSessionPresignResponse>;
+
+// Public "download all" QR flow (kiosk android app): the QR encodes a comma-joined
+// list of job IDs (short, unlike presigned URLs) rather than the images themselves —
+// this endpoint re-mints presigned URLs for them on demand.
+export const KioskDownloadBatchQuery = z.object({
+  jobIds: z.string().min(1),
+});
+export type KioskDownloadBatchQuery = z.infer<typeof KioskDownloadBatchQuery>;
+
+export const KioskDownloadBatchResponse = z.object({
+  items: z.array(
+    z.object({
+      jobId: z.string().uuid(),
+      url: z.string().url(),
+    }),
+  ),
+});
+export type KioskDownloadBatchResponse = z.infer<typeof KioskDownloadBatchResponse>;
 
 export const AdminMerchantCatalogUpdateBody = z
   .object({

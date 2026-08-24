@@ -47,8 +47,8 @@ function Thumb({ thumbnailUrl, label }: { thumbnailUrl: string | null; label: st
 }
 
 export default function RecycleBinPage({ toast }: Props) {
-  const { role } = useAuth();
-  const canHardDelete = role === 'SUPER_ADMIN' || role === 'MODERATOR';
+  const { hasPermission } = useAuth();
+  const canHardDelete = hasPermission('assets.delete');
   const [loading, setLoading] = useState(false);
   const [faces, setFaces] = useState<ModelFace[]>([]);
   const [backgrounds, setBackgrounds] = useState<ModelBackground[]>([]);

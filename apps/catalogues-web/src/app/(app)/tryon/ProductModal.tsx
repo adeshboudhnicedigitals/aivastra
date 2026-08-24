@@ -207,7 +207,7 @@ export function ProductModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!label.trim() || !sku.trim() || !actualPrice || !offerPrice) return;
+    if (!label.trim()) return;
     if (isSaveDisabled || !subcategoryId) return;
 
     setIsSaving(true);
@@ -753,11 +753,8 @@ export function ProductModal({
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <label style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
-              SKU <span style={{ color: C.pink }}>*</span>
-            </label>
+            <label style={{ fontSize: 13, fontWeight: 600, color: C.text }}>SKU</label>
             <input
-              required
               value={sku}
               onChange={(e) => setSku(e.target.value)}
               placeholder="e.g. SH-COT-BLU-S"
@@ -778,9 +775,7 @@ export function ProductModal({
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <label style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
-                Actual Price <span style={{ color: C.pink }}>*</span>
-              </label>
+              <label style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Actual Price</label>
               <div style={{ position: 'relative' }}>
                 <span
                   style={{
@@ -796,7 +791,6 @@ export function ProductModal({
                   ₹
                 </span>
                 <input
-                  required
                   type="number"
                   min="0"
                   step="1"
@@ -820,9 +814,7 @@ export function ProductModal({
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <label style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
-                Offer Price <span style={{ color: C.pink }}>*</span>
-              </label>
+              <label style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Offer Price</label>
               <div style={{ position: 'relative' }}>
                 <span
                   style={{
@@ -838,7 +830,6 @@ export function ProductModal({
                   ₹
                 </span>
                 <input
-                  required
                   type="number"
                   min="0"
                   step="1"

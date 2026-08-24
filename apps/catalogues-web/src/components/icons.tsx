@@ -112,6 +112,17 @@ export const DownloadIcon = ({ size = 24 }: { size?: number }) => (
     <path d="m7 10 5 5 5-5" />
   </svg>
 );
+export const DriveIcon = ({ size = 14 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path
+      d="M8 3h8l6 10.5-4 7H6l-4-7L8 3z"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinejoin="round"
+    />
+    <path d="M8 3l8 14M16 3l-8 14M4 13.5h16" stroke="currentColor" strokeWidth="1.6" />
+  </svg>
+);
 export const SearchIcon = ({ size = 16 }: { size?: number }) => (
   <svg
     aria-hidden="true"

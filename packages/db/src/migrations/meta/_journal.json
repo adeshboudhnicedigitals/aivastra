@@ -1163,6 +1163,48 @@
       "when": 1787226397945,
       "tag": "0165_merchant_catalog_two_input_tryon",
       "breakpoints": true
+    },
+    {
+      "idx": 166,
+      "version": "7",
+      "when": 1787000000000,
+      "tag": "0166_audit_logs",
+      "breakpoints": true
+    },
+    {
+      "idx": 167,
+      "version": "7",
+      "when": 1787100000000,
+      "tag": "0167_permissions",
+      "breakpoints": true
+    },
+    {
+      "idx": 168,
+      "version": "7",
+      "when": 1787298039600,
+      "tag": "0168_user_pose_presets",
+      "breakpoints": true
+    },
+    {
+      "idx": 169,
+      "version": "7",
+      "when": 1787307613827,
+      "tag": "0169_slow_gamma_corps",
+      "breakpoints": true
+    },
+    {
+      "idx": 170,
+      "version": "7",
+      "when": 1787297026950,
+      "tag": "0170_google_drive_connections",
+      "breakpoints": true
+    },
+    {
+      "idx": 171,
+      "version": "7",
+      "when": 1787318313567,
+      "tag": "0171_clean_paibok",
+      "breakpoints": true
     }
   ]
 }

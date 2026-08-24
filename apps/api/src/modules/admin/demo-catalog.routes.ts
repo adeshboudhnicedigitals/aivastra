@@ -16,7 +16,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { assertDemoUploadKey } from './demo-upload-guard.js';
-import { requireAdmin } from './guard.js';
+import { requirePermission } from './guard.js';
 
 type DemoObjectField = 'r2Key' | 'thumbnailKey';
 
@@ -25,21 +25,18 @@ interface DemoObjectTarget {
   key: string;
 }
 
-function serializeStorageError(reason: unknown): { name: string; message: string; code?: string } {
-  if (!(reason instanceof Error)) {
-    return { name: 'UnknownError', message: String(reason) };
-  }
-  const code = 'code' in reason && typeof reason.code === 'string' ? reason.code : undefined;
+function serializeStorageError(error: unknown) {
+  const reason = error instanceof Error ? error : new Error(String(error));
+  const code = 'code' in reason ? String(reason.code) : undefined;
   return {
-    name: reason.name,
     message: reason.message,
     ...(code ? { code } : {}),
   };
 }
 
 export async function adminDemoCatalogRoutes(app: FastifyInstance): Promise<void> {
-  const RW = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
-  const D = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
+  const RW = requirePermission('demo_catalog.write');
+  const D = requirePermission('demo_catalog.delete');
   const uuidParam = z.object({ id: z.string().uuid() });
   type DemoItemRow = typeof schema.demoCatalogItems.$inferSelect;
 
