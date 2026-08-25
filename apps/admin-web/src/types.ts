@@ -82,15 +82,19 @@ export interface WorkflowOption {
   id: string; // UUID from workflow_templates table
   slug: string;
   label: string;
-  workflowType: 'regular' | 'tryon' | 'saree_step1' | 'saree_step1_two_input';
+  workflowType: 'regular' | 'tryon' | 'saree_step1' | 'saree_step1_two_input' | 'two_stage';
   isActive: boolean;
   poseCount: number;
   defaultFacePhasePrompt: string;
   defaultGarmentPhasePrompt: string;
   facePhasePromptNode: string | null;
-  ksamplerSteps: number | null;
-  ksamplerCfg: number | null;
-  ksamplerDenoise: number | null;
+  ksamplerNodes: {
+    nodeId: string;
+    steps: number | null;
+    cfg: number | null;
+    denoise: number | null;
+    seed: number | null;
+  }[];
   lowerNodeId: string | null;
   shoeNodeId: string | null;
   thirdNodeId: string | null;
