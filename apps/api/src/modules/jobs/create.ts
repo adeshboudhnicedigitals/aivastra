@@ -9,6 +9,7 @@ import {
   type CreateTryOnJobRequest,
   JOB_SOURCE,
   type JobSource,
+  type PixverseQuality,
   type Resolution,
   resolutionFromDims,
   type SareeStep2Inputs,
@@ -1161,8 +1162,6 @@ export async function createCatalogVideoJob(
   userId: string,
   body: z.infer<typeof CreateCatalogVideoJobRequest>,
 ) {
-  const cost = await getPixverseVideoCreditCost(app);
-
   // Exactly one of sourceJobId or sourceImageKey is present — enforced by
   // CreateCatalogVideoJobRequest's XOR refine. sourceImageKey lets the caller
   // animate any image they own, not required to be an AI Vastra generation;
@@ -1208,6 +1207,13 @@ export async function createCatalogVideoJob(
   if (!isCatalogVideoAllowed(app.env, user.email)) {
     throw new AppError('FORBIDDEN', 403, 'catalog video is not enabled for this account');
   }
+  // Priced by this specific sample video's own duration/quality — not a flat
+  // cost — since PixVerse's real cost varies by both.
+  const cost = await getPixverseVideoCreditCost(
+    app,
+    sample.duration,
+    sample.quality as PixverseQuality,
+  );
   const [job] = await app.db.transaction(async (tx) => {
     const [newJob] = await tx
       .insert(schema.jobs)
@@ -1232,6 +1238,11 @@ export async function createCatalogVideoJob(
         sourceImageKey: resolvedSourceImageKey,
         sampleVideoId: body.sampleVideoId,
         prompt: sample.prompt,
+        // Snapshotted at creation time — same immutable-input pattern as
+        // `prompt` above — so the dispatcher forwards exactly what this job
+        // was priced and created with, even if the template is edited later.
+        duration: sample.duration,
+        quality: sample.quality,
       },
     });
     return [newJob];

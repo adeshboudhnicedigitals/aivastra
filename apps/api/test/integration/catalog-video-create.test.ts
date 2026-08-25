@@ -67,6 +67,20 @@ describe('POST /v1/jobs/catalog-video', () => {
       .returning();
     return row.id;
   }
+  async function activeSampleWithPricing(duration: number, quality: string) {
+    const [row] = await app.db
+      .insert(schema.sampleVideos)
+      .values({
+        title: 'Custom',
+        videoR2Key: 'sample-videos/custom.mp4',
+        thumbnailR2Key: 'sample-videos/custom.thumb.jpg',
+        prompt: 'model turns slowly',
+        duration,
+        quality,
+      })
+      .returning();
+    return row.id;
+  }
   it('happy path: deducts default 150 credits, sets params.kind=video, enqueues', async () => {
     const { token, userId } = await registerUser('cv-happy@x.com');
     await grantCredits(userId, 200);
@@ -299,5 +313,33 @@ describe('POST /v1/jobs/catalog-video', () => {
       payload: { sampleVideoId: await activeSample() },
     });
     expect(res.statusCode).toBe(400);
+  });
+  it('charges the formula-computed cost for the sample video own duration/quality, and snapshots both onto job_inputs.params', async () => {
+    const { token, userId } = await registerUser('cv-formula@x.com');
+    await grantCredits(userId, 500);
+    const sourceJobId = await sourceJob(userId);
+    const sampleVideoId = await activeSampleWithPricing(15, '1080p');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/catalog-video',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { sourceJobId, sampleVideoId },
+    });
+    expect(res.statusCode).toBe(201);
+    const { jobId } = res.json();
+    const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+    // Default pricing config: qualityBase=150 for every tier, perSecondRate=0
+    // -> cost is 150 regardless of duration/quality until an admin tunes it.
+    // This asserts the *lookup* is per-sample now, not that the number differs
+    // from the flat default (see the JobCostsTab-driven test in Task 10 for
+    // an admin-tuned, differing cost).
+    expect(job.creditsCharged).toBe(150);
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, jobId));
+    const params = inputs.params as Record<string, unknown>;
+    expect(params.duration).toBe(15);
+    expect(params.quality).toBe('1080p');
   });
 });
