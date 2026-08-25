@@ -1,8 +1,10 @@
 import { schema } from '@aivastra/db';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { signAccess } from '../../src/modules/auth/service.js';
 import { buildTestApp, type TestApp } from '../helpers/api.js';
 import { type Containers, startContainers } from '../helpers/containers.js';
+
+const CONFIG_KEY = 'config:system';
 
 describe('GET /v1/models/sample-videos', () => {
   let c: Containers;
@@ -14,6 +16,12 @@ describe('GET /v1/models/sample-videos', () => {
   afterAll(async () => {
     await app?.close();
     await c?.stop();
+  });
+  // Prevent the custom pricing config seeded below from leaking into any
+  // other test that shares this Redis instance (same pattern as
+  // admin-config.test.ts).
+  afterEach(async () => {
+    await app.redis.del(CONFIG_KEY);
   });
   async function authHeader() {
     const [user] = await app.db
@@ -60,6 +68,25 @@ describe('GET /v1/models/sample-videos', () => {
       prompt: 'p',
       isActive: false,
     });
+    // Seed a non-default pricing config with distinct per-tier bases and a
+    // non-zero perSecondRate. Under the default config (qualityBase=150 flat,
+    // perSecondRate=0) every tier resolves to the same 150 regardless of
+    // duration/quality, so a test asserting against those defaults couldn't
+    // tell correct per-row wiring apart from a bug that hoists/swaps/hardcodes
+    // a single duration+quality across all items — every tier would still
+    // coincidentally cost 150. Distinct bases + a per-second rate force
+    // active1 (8s/720p) and active2 (15s/1080p) to distinct, independently
+    // computed costs, so the assertions below actually prove each item's cost
+    // is derived from its own row.
+    await app.redis.set(
+      CONFIG_KEY,
+      JSON.stringify({
+        pixverseVideoPricing: {
+          perSecondRate: 5,
+          qualityBase: { '360p': 10, '540p': 20, '720p': 30, '1080p': 50 },
+        },
+      }),
+    );
     const res = await app.inject({
       method: 'GET',
       url: '/v1/models/sample-videos',
@@ -75,10 +102,13 @@ describe('GET /v1/models/sample-videos', () => {
       creditCost: number;
     }>;
     expect(items.map((i) => i.id)).toEqual([active2.id, active1.id]);
-    // Default pricing config: qualityBase=150 for every tier, perSecondRate=0,
-    // so cost is 150 regardless of duration until an admin tunes the formula.
-    expect(items[0].creditCost).toBe(150);
-    expect(items[1].creditCost).toBe(150);
+    // active1: duration 8, quality '720p' -> 30 + 8*5 = 70
+    // active2: duration 15, quality '1080p' -> 50 + 15*5 = 125
+    // Distinct, exactly-computed values per item — this is what actually
+    // proves creditCost is driven by each row's own duration/quality rather
+    // than a shared or hoisted value.
+    expect(items[0].creditCost).toBe(125);
+    expect(items[1].creditCost).toBe(70);
     expect(items[0].thumbnailUrl).toContain('sample-videos/b.thumb.jpg');
     expect(items[0].previewVideoUrl).toContain('sample-videos/b.mp4');
     expect(items[0].thumbnailUrl).toContain('X-Amz-Signature');
