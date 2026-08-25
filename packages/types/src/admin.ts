@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PIXVERSE_DURATION_MAX, PIXVERSE_DURATION_MIN, PIXVERSE_QUALITIES } from './jobs.js';
 export const AdminRole = z.enum(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT']);
 export const GrantCreditsBody = z.object({
   userId: z.string().uuid(),
@@ -342,12 +343,16 @@ export const ConfirmSampleVideoBody = z.object({
   thumbnailR2Key: z.string().min(1),
   prompt: z.string().min(1).max(5000),
   sortOrder: z.number().int().default(0),
+  duration: z.number().int().min(PIXVERSE_DURATION_MIN).max(PIXVERSE_DURATION_MAX),
+  quality: z.enum(PIXVERSE_QUALITIES),
 });
 export const PatchSampleVideoBody = z.object({
   title: z.string().min(1).max(120).optional(),
   prompt: z.string().min(1).max(5000).optional(),
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
+  duration: z.number().int().min(PIXVERSE_DURATION_MIN).max(PIXVERSE_DURATION_MAX).optional(),
+  quality: z.enum(PIXVERSE_QUALITIES).optional(),
 });
 
 export const PresignAppVideoBody = z.object({

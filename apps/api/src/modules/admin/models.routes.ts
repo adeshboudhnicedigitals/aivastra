@@ -509,6 +509,8 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         thumbnailR2Key: string;
         prompt: string;
         sortOrder: number;
+        duration: number;
+        quality: string;
       };
       const [row] = await app.db
         .insert(schema.sampleVideos)
@@ -518,6 +520,8 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           thumbnailR2Key: body.thumbnailR2Key,
           prompt: body.prompt,
           sortOrder: body.sortOrder,
+          duration: body.duration,
+          quality: body.quality,
         })
         .returning();
       const [video, thumbnail] = await Promise.all([
