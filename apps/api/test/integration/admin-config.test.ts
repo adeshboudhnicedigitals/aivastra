@@ -75,9 +75,11 @@ describe('admin config', () => {
     });
     expect(patchRes.statusCode).toBe(200);
 
-    // A partial PATCH's qualityBase merges into the stored config rather than
-    // replacing it wholesale — the untouched tiers (360p/540p/1080p) still
-    // default-fill from DEFAULT_PIXVERSE_VIDEO_PRICING, same pattern as the
+    // PATCH replaces the stored pixverseVideoPricing object wholesale (shallow
+    // top-level replace in config.routes.ts) — it does not merge qualityBase.
+    // The untouched tiers (360p/540p/1080p) only reappear here because GET
+    // (and getPixverseVideoCreditCost) default-fill missing tiers from
+    // DEFAULT_PIXVERSE_VIDEO_PRICING on READ, same pattern as the
     // uploadLimits/seller partial-override tests above and below.
     const getRes2 = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
     expect(getRes2.json().pixverseVideoPricing).toEqual({

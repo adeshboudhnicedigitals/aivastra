@@ -108,7 +108,7 @@ describe('admin sample videos CRUD', () => {
     expect(listRes2.json().items.map((r: { id: string }) => r.id)).not.toContain(created.id);
   });
 
-  it('accepts duration/quality on create, defaults to 8/720p if omitted, and allows patching both', async () => {
+  it('accepts explicit duration/quality on create and allows patching both', async () => {
     const confirmRes = await app.inject({
       method: 'POST',
       url: '/admin/assets/sample-videos',
@@ -141,6 +141,22 @@ describe('admin sample videos CRUD', () => {
       .where(eq(schema.sampleVideos.id, created.id));
     expect(afterPatch.duration).toBe(5);
     expect(afterPatch.quality).toBe('360p');
+  });
+
+  it('rejects create without duration/quality — they are required fields, not defaulted', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/assets/sample-videos',
+      headers: { ...adminAuth, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        title: 'No duration/quality',
+        videoR2Key: 'sample-videos/nodq.mp4',
+        thumbnailR2Key: 'sample-videos/nodq.thumb.gif',
+        prompt: 'p',
+        sortOrder: 0,
+      }),
+    });
+    expect(res.statusCode).toBe(400);
   });
 
   it('rejects duration outside 1-15 on create', async () => {

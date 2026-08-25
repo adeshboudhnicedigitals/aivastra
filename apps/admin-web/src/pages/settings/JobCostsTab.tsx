@@ -1,3 +1,4 @@
+import { PIXVERSE_QUALITIES, type PixverseVideoPricingConfig } from '@aivastra/types';
 import { useEffect, useState } from 'react';
 import { Icon } from '../../components/Icons';
 import { Switch } from '../../components/Switch';
@@ -17,10 +18,7 @@ export default function JobCostsTab({ toast }: Props) {
   });
   const [tryonCreditCost, setTryonCreditCost] = useState(5);
   const [sareeMannequinDevCreditCost, setSareeMannequinDevCreditCost] = useState(10);
-  const [pixverseVideoPricing, setPixverseVideoPricing] = useState<{
-    perSecondRate: number;
-    qualityBase: Record<'360p' | '540p' | '720p' | '1080p', number>;
-  }>({
+  const [pixverseVideoPricing, setPixverseVideoPricing] = useState<PixverseVideoPricingConfig>({
     perSecondRate: 0,
     qualityBase: { '360p': 150, '540p': 150, '720p': 150, '1080p': 150 },
   });
@@ -32,10 +30,7 @@ export default function JobCostsTab({ toast }: Props) {
       resolutions?: Record<string, { enabled: boolean; creditCost: number }>;
       tryon?: { creditCost: number };
       sareeMannequinDev?: { creditCost: number };
-      pixverseVideoPricing?: {
-        perSecondRate: number;
-        qualityBase: Record<'360p' | '540p' | '720p' | '1080p', number>;
-      };
+      pixverseVideoPricing?: PixverseVideoPricingConfig;
     }>('/admin/config')
       .then((cfg) => {
         if (cfg.resolutions) setResolutions(cfg.resolutions);
@@ -278,7 +273,7 @@ export default function JobCostsTab({ toast }: Props) {
                     </span>
                   </div>
                 </div>
-                {(['360p', '540p', '720p', '1080p'] as const).map((tier) => (
+                {PIXVERSE_QUALITIES.map((tier) => (
                   <div
                     key={tier}
                     style={{

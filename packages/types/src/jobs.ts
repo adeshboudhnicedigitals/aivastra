@@ -140,7 +140,10 @@ export function computePixverseVideoCost(
   config: PixverseVideoPricingConfig,
 ): number {
   const raw = config.qualityBase[quality] + duration * config.perSecondRate;
-  return Math.max(1, Math.ceil(raw));
+  // A malformed/incomplete config (e.g. qualityBase missing the requested
+  // tier) makes raw NaN — floor to 1 instead of letting NaN reach
+  // atomicDeduct on the money path.
+  return Number.isFinite(raw) ? Math.max(1, Math.ceil(raw)) : 1;
 }
 
 export const CreateSimpleTryonRequest = z.object({

@@ -33,4 +33,12 @@ describe('computePixverseVideoCost', () => {
     expect(computePixverseVideoCost(1, '540p', config)).toBe(40 + 1 * 10);
     expect(computePixverseVideoCost(15, '540p', config)).toBe(40 + 15 * 10);
   });
+
+  it('falls back to 1 credit instead of NaN when qualityBase is missing the requested tier', () => {
+    const malformed: PixverseVideoPricingConfig = {
+      perSecondRate: 0,
+      qualityBase: {} as PixverseVideoPricingConfig['qualityBase'],
+    };
+    expect(computePixverseVideoCost(8, '720p', malformed)).toBe(1);
+  });
 });
