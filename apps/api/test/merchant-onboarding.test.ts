@@ -139,7 +139,7 @@ describe('POST /v1/merchant/onboarding', () => {
       businessAddress: 'Not Provided',
       phone: '9876543210',
       isActive: true,
-      demoData: true,
+      demoData: false,
       signupSource: 'android_google',
     });
 
@@ -420,7 +420,7 @@ describe('GET /admin/users signupSource', () => {
 });
 
 describe('merchant demoData defaults and admin toggle', () => {
-  it('defaults admin-created merchants to demoData=true and lets admins disable it', async () => {
+  it('defaults admin-created merchants to demoData=false and lets admins enable it', async () => {
     const adminHeaders = await adminAuthHeader(app, 'SUPER_ADMIN');
     const email = `merchant-demo-data-${randomUUID()}@example.com`;
 
@@ -445,16 +445,16 @@ describe('merchant demoData defaults and admin toggle', () => {
       headers: adminHeaders,
     });
     expect(detail.statusCode).toBe(200);
-    expect(detail.json().demoData).toBe(true);
+    expect(detail.json().demoData).toBe(false);
 
     const patched = await app.inject({
       method: 'PATCH',
       url: `/admin/merchants/${merchantId}`,
       headers: adminHeaders,
-      payload: { demoData: false },
+      payload: { demoData: true },
     });
     expect(patched.statusCode).toBe(200);
-    expect(patched.json().demoData).toBe(false);
+    expect(patched.json().demoData).toBe(true);
   });
 });
 
@@ -525,7 +525,7 @@ describe('demo catalog auto-assignment on demoData', () => {
     ).toBeDefined();
   });
 
-  it('a merchant created via POST /admin/merchants (demoData defaults true) is auto-assigned', async () => {
+  it('a merchant created via POST /admin/merchants (demoData defaults false) is not auto-visible until enabled', async () => {
     const adminHeaders = await adminAuthHeader(app, 'SUPER_ADMIN');
     const demo = await seedActiveDemoSet();
 
@@ -558,6 +558,6 @@ describe('demo catalog auto-assignment on demoData', () => {
     });
     expect(
       subs.json().items.find((s: { id: string }) => s.id === demo.subcategoryId),
-    ).toBeDefined();
+    ).toBeUndefined();
   });
 });
