@@ -117,13 +117,16 @@ export default function App() {
     };
   }, [token, isLoading]);
 
-  const toast = useCallback((t: { kind?: 'error'; title: string; body?: string }) => {
-    const id = ++idRef.current;
-    setToasts((prev) => [...prev, { id, kind: t.kind, title: t.title, body: t.body }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((x) => x.id !== id));
-    }, 4000);
-  }, []);
+  const toast = useCallback(
+    (t: { kind?: 'error' | 'warning' | 'success'; title: string; body?: string }) => {
+      const id = ++idRef.current;
+      setToasts((prev) => [...prev, { id, kind: t.kind, title: t.title, body: t.body }]);
+      setTimeout(() => {
+        setToasts((prev) => prev.filter((x) => x.id !== id));
+      }, 4000);
+    },
+    [],
+  );
 
   const updateTheme = useCallback(
     (nextTheme: Theme) => {

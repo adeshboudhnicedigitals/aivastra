@@ -1141,6 +1141,10 @@ textarea.input {
   background: var(--danger-soft);
   color: var(--danger);
 }
+.toast.warning .ic {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
 .toast .body {
   flex: 1;
 }

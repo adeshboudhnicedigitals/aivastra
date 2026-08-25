@@ -1,3 +1,18 @@
+## 2026-08-25 — Admin panel password desync general fix & reset-password audit logging
+
+**Done**
+- **Admin Password Resync Endpoint**: Added `POST /admin/admin-users/:userId/sync-password` in `apps/api/src/modules/admin/users.routes.ts` (gated by `SUPER_ADMIN` / `admin_users.manage`). Resyncs `admin_users.passwordHash` from `users.passwordHash` for any active admin account (including `SUPER_ADMIN` rows), transactionally recording an audit log (`admin_users.sync_password`) without exposing credentials in the audit payload.
+- **Reset Password Transaction & Audit Log**: Wrapped `POST /admin/users/:id/reset-password` mutating operations (`users.passwordHash` update and `refreshTokens` revocation) in `app.db.transaction` with audit logging (`users.reset_password`).
+- **Admin UI Warning & Sync Button**: In `apps/admin-web/src/pages/UsersPage.tsx`:
+  - Added "Sync Admin Password" action button in `head-tools`, strictly gated on `isSuperAdmin && u.isAdmin`.
+  - Added warning toast on customer password reset when the user is also an active admin, alerting operators to sync their admin panel credentials.
+  - Added `warning` kind support to `ToastItem`, `App.tsx`, `ToastStack.tsx`, and `tokens.css`.
+- **Historical Context & Desync Resolution**:
+  - **2026-06-12** (`12868615`): Admin/web credential isolation design shipped (`admin_users.passwordHash` separated from `users.passwordHash`).
+  - **2026-08-05** (entry at line ~1244): First known casualty of resulting desync (bootstrap-admin) fixed for that single instance.
+  - **2026-08-25**: General case fully resolved via explicit resync for `SUPER_ADMIN` / active admins, preserved role-grant sync for non-super admins, and warning toast on customer password reset.
+- **Integration & Unit Tests**: Added integration tests in `apps/api/test/integration/admin-approval.test.ts` covering 403 gating for non-super callers, 404 for non-existent / non-admin / pending / rejected rows, successful resync for active SUPER_ADMIN with audit log verification, and reset-password transactional audit logging. All 20 integration tests and 584 unit tests passing cleanly.
+
 ## 2026-08-22 — Studio Generation Loading UX Enhancement
 
 **Done**

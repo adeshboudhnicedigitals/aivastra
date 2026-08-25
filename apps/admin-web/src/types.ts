@@ -404,7 +404,7 @@ export type AdminRole = 'SUPER_ADMIN' | 'MODERATOR' | 'SUPPORT';
 
 export interface ToastItem {
   id: number;
-  kind?: 'error' | 'success';
+  kind?: 'error' | 'warning' | 'success';
   title: string;
   body?: string;
 }
