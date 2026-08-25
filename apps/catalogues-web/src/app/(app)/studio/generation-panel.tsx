@@ -15,6 +15,7 @@ import { useGoogleDriveStatus } from '@/hooks/use-google-drive-status';
 import { useJobStream } from '@/hooks/use-job-stream';
 import { api } from '@/lib/api';
 import { downloadErrorMessage } from '@/lib/errors';
+import { GOOGLE_DRIVE_ENABLED } from '@/lib/feature-flags';
 
 export interface GenerationJob {
   id: string;
@@ -1261,7 +1262,7 @@ export function GenerationPanel({
                         <DownloadIcon size={14} />
                       </button>
                     )}
-                    {!hideGoogleDrive && isCompleted && resultUrl && (
+                    {GOOGLE_DRIVE_ENABLED && !hideGoogleDrive && isCompleted && resultUrl && (
                       <button
                         type="button"
                         disabled={exportingToDrive === job.id}
