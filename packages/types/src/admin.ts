@@ -143,7 +143,20 @@ export const SystemConfigBody = z.object({
       creditCost: z.number().int().positive().max(1_000),
     })
     .optional(),
-  pixverse: z.object({ creditCost: z.number().int().positive().max(1_000) }).optional(),
+  pixverseVideoPricing: z
+    .object({
+      // Credits per second of video, added on top of the quality base below.
+      perSecondRate: z.number().min(0).max(100),
+      qualityBase: z
+        .object({
+          '360p': z.number().int().positive().max(1_000),
+          '540p': z.number().int().positive().max(1_000),
+          '720p': z.number().int().positive().max(1_000),
+          '1080p': z.number().int().positive().max(1_000),
+        })
+        .partial(),
+    })
+    .optional(),
   shopify: z
     .object({
       trialCredits: z.number().int().min(0).max(1000).optional(),

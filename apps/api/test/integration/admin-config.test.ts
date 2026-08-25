@@ -54,21 +54,29 @@ describe('admin config', () => {
     expect(getRes2.json().uploadLimits.merchantCatalogMaxBytes).toBe(20 * 1024 * 1024);
   });
 
-  it('GET /admin/config default-fills pixverse cost, and PATCH persists an override', async () => {
+  it('GET /admin/config default-fills pixverse video pricing, and PATCH persists an override', async () => {
     const getRes = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
     expect(getRes.statusCode).toBe(200);
-    expect(getRes.json().pixverse.creditCost).toBe(150);
+    expect(getRes.json().pixverseVideoPricing).toEqual({
+      perSecondRate: 0,
+      qualityBase: { '360p': 150, '540p': 150, '720p': 150, '1080p': 150 },
+    });
 
     const patchRes = await app.inject({
       method: 'PATCH',
       url: '/admin/config',
       headers: { ...adminAuth, 'content-type': 'application/json' },
-      payload: JSON.stringify({ pixverse: { creditCost: 35 } }),
+      payload: JSON.stringify({
+        pixverseVideoPricing: { perSecondRate: 5, qualityBase: { '720p': 35 } },
+      }),
     });
     expect(patchRes.statusCode).toBe(200);
 
     const getRes2 = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
-    expect(getRes2.json().pixverse.creditCost).toBe(35);
+    expect(getRes2.json().pixverseVideoPricing).toEqual({
+      perSecondRate: 5,
+      qualityBase: { '720p': 35 },
+    });
   });
 
   it('GET /admin/config default-fills shopify trial credits, and PATCH persists an override', async () => {

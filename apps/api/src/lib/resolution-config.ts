@@ -1,5 +1,8 @@
 import {
+  computePixverseVideoCost,
   PIXVERSE_VIDEO_COST,
+  type PixverseQuality,
+  type PixverseVideoPricingConfig,
   RESOLUTION_COSTS,
   type Resolution,
   SAREE_MANNEQUIN_DEV_COST,
@@ -29,7 +32,15 @@ export const DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG: { creditCost: number } = {
   creditCost: SAREE_MANNEQUIN_DEV_COST,
 };
 
-export const DEFAULT_PIXVERSE_CONFIG: { creditCost: number } = { creditCost: PIXVERSE_VIDEO_COST };
+export const DEFAULT_PIXVERSE_VIDEO_PRICING: PixverseVideoPricingConfig = {
+  perSecondRate: 0,
+  qualityBase: {
+    '360p': PIXVERSE_VIDEO_COST,
+    '540p': PIXVERSE_VIDEO_COST,
+    '720p': PIXVERSE_VIDEO_COST,
+    '1080p': PIXVERSE_VIDEO_COST,
+  },
+};
 
 export const DEFAULT_SHOPIFY_TRIAL_CONFIG: { trialCredits: number } = { trialCredits: 25 };
 
@@ -122,14 +133,19 @@ export async function getSareeMannequinDevCreditCost(app: FastifyInstance): Prom
   }
 }
 
-export async function getPixverseCreditCost(app: FastifyInstance): Promise<number> {
+export async function getPixverseVideoCreditCost(
+  app: FastifyInstance,
+  duration: number,
+  quality: PixverseQuality,
+): Promise<number> {
   try {
     const raw = await app.redis.get(CONFIG_KEY);
     const cfg = raw ? JSON.parse(raw) : {};
-    const cost = cfg.pixverse?.creditCost;
-    return typeof cost === 'number' ? cost : PIXVERSE_VIDEO_COST;
+    const pricing: PixverseVideoPricingConfig =
+      cfg.pixverseVideoPricing ?? DEFAULT_PIXVERSE_VIDEO_PRICING;
+    return computePixverseVideoCost(duration, quality, pricing);
   } catch {
-    return PIXVERSE_VIDEO_COST;
+    return computePixverseVideoCost(duration, quality, DEFAULT_PIXVERSE_VIDEO_PRICING);
   }
 }
 

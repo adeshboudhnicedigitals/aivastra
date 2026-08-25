@@ -21,7 +21,7 @@ import { AppError } from '../../lib/errors.js';
 import { assertQueueCapacity } from '../../lib/queue-capacity-config.js';
 import {
   getMaxOutputPx,
-  getPixverseCreditCost,
+  getPixverseVideoCreditCost,
   getResolutionCreditCost,
   getTryonCreditCost,
 } from '../../lib/resolution-config.js';
@@ -1161,7 +1161,7 @@ export async function createCatalogVideoJob(
   userId: string,
   body: z.infer<typeof CreateCatalogVideoJobRequest>,
 ) {
-  const cost = await getPixverseCreditCost(app);
+  const cost = await getPixverseVideoCreditCost(app);
 
   // Exactly one of sourceJobId or sourceImageKey is present — enforced by
   // CreateCatalogVideoJobRequest's XOR refine. sourceImageKey lets the caller

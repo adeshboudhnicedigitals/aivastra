@@ -10,7 +10,7 @@ import { and, count, countDistinct, eq, gte, lt, lte, sql, sum } from 'drizzle-o
 import type { FastifyInstance } from 'fastify';
 import {
   DEFAULT_MAX_OUTPUT_PX,
-  DEFAULT_PIXVERSE_CONFIG,
+  DEFAULT_PIXVERSE_VIDEO_PRICING,
   DEFAULT_RESOLUTION_CONFIG,
   DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG,
   DEFAULT_SELLER_CONFIG,
@@ -54,7 +54,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
     cfg.maxQueueDepth = cfg.maxQueueDepth ?? DEFAULT_MAX_QUEUE_DEPTH;
     cfg.tryon = cfg.tryon ?? DEFAULT_TRYON_CONFIG;
     cfg.sareeMannequinDev = cfg.sareeMannequinDev ?? DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG;
-    cfg.pixverse = cfg.pixverse ?? DEFAULT_PIXVERSE_CONFIG;
+    cfg.pixverseVideoPricing = cfg.pixverseVideoPricing ?? DEFAULT_PIXVERSE_VIDEO_PRICING;
     cfg.shopify = {
       trialCredits: cfg.shopify?.trialCredits ?? DEFAULT_SHOPIFY_TRIAL_CONFIG.trialCredits,
       packCredits: Object.fromEntries(

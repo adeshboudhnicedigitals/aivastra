@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
-import { getPixverseCreditCost } from '../../lib/resolution-config.js';
+import { getPixverseVideoCreditCost } from '../../lib/resolution-config.js';
 
 export async function modelsRoutes(app: FastifyInstance) {
   app.get(
@@ -79,7 +79,7 @@ export async function modelsRoutes(app: FastifyInstance) {
       .from(schema.sampleVideos)
       .where(and(eq(schema.sampleVideos.isActive, true), isNull(schema.sampleVideos.deletedAt)))
       .orderBy(asc(schema.sampleVideos.sortOrder));
-    const creditCost = await getPixverseCreditCost(app);
+    const creditCost = await getPixverseVideoCreditCost(app);
     return {
       creditCost,
       items: await Promise.all(

@@ -113,7 +113,7 @@ export const SIMPLE_TRYON_COST = 5;
 
 /** Fallback default — the actual charged cost is admin-configurable, see getSareeMannequinDevCreditCost(). */
 export const SAREE_MANNEQUIN_DEV_COST = 10;
-/** Fallback default — the actual charged cost is admin-configurable, see getPixverseCreditCost(). */
+/** Fallback default — the actual charged cost is admin-configurable, see getPixverseVideoCreditCost(). */
 export const PIXVERSE_VIDEO_COST = 150;
 
 export const PIXVERSE_DURATION_MIN = 1;
