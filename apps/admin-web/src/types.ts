@@ -88,6 +88,11 @@ export interface WorkflowOption {
   defaultFacePhasePrompt: string;
   defaultGarmentPhasePrompt: string;
   facePhasePromptNode: string | null;
+  // two_stage only — stage 1's own prompt pair (stage 2's reuses the fields above)
+  stage1PositivePromptNode: string | null;
+  stage1NegativePromptNode: string | null;
+  defaultStage1PositivePrompt: string;
+  defaultStage1NegativePrompt: string;
   ksamplerNodes: {
     nodeId: string;
     steps: number | null;

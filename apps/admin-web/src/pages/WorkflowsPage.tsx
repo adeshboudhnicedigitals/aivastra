@@ -64,6 +64,8 @@ export default function WorkflowsPage({ toast }: Props) {
     slug: '',
     garmentPhasePrompt: '',
     facePhasePrompt: '',
+    stage1PositivePrompt: '',
+    stage1NegativePrompt: '',
     ksamplerOverrides: [] as {
       nodeId: string;
       steps: string;
@@ -201,6 +203,12 @@ export default function WorkflowsPage({ toast }: Props) {
       if (editingWf.facePhasePromptNode) {
         patch.facePhasePrompt = editForm.facePhasePrompt.trim();
       }
+      if (editingWf.stage1PositivePromptNode) {
+        patch.stage1PositivePrompt = editForm.stage1PositivePrompt.trim();
+      }
+      if (editingWf.stage1NegativePromptNode) {
+        patch.stage1NegativePrompt = editForm.stage1NegativePrompt.trim();
+      }
       const ksamplerOverrides = editForm.ksamplerOverrides
         .map((o) => {
           const steps = Number(o.steps);
@@ -237,6 +245,12 @@ export default function WorkflowsPage({ toast }: Props) {
                 defaultGarmentPhasePrompt: editForm.garmentPhasePrompt.trim(),
                 ...(editingWf.facePhasePromptNode
                   ? { defaultFacePhasePrompt: editForm.facePhasePrompt.trim() }
+                  : {}),
+                ...(editingWf.stage1PositivePromptNode
+                  ? { defaultStage1PositivePrompt: editForm.stage1PositivePrompt.trim() }
+                  : {}),
+                ...(editingWf.stage1NegativePromptNode
+                  ? { defaultStage1NegativePrompt: editForm.stage1NegativePrompt.trim() }
                   : {}),
                 ksamplerNodes: w.ksamplerNodes.map((n) => {
                   const form = editForm.ksamplerOverrides.find((o) => o.nodeId === n.nodeId);
@@ -466,6 +480,8 @@ export default function WorkflowsPage({ toast }: Props) {
                                 slug: wf.slug,
                                 garmentPhasePrompt: wf.defaultGarmentPhasePrompt,
                                 facePhasePrompt: wf.defaultFacePhasePrompt,
+                                stage1PositivePrompt: wf.defaultStage1PositivePrompt,
+                                stage1NegativePrompt: wf.defaultStage1NegativePrompt,
                                 ksamplerOverrides: ksamplerOverridesFromWf(wf),
                               });
                             }}
@@ -721,6 +737,8 @@ export default function WorkflowsPage({ toast }: Props) {
                               slug: wf.slug,
                               garmentPhasePrompt: wf.defaultGarmentPhasePrompt,
                               facePhasePrompt: wf.defaultFacePhasePrompt,
+                              stage1PositivePrompt: wf.defaultStage1PositivePrompt,
+                              stage1NegativePrompt: wf.defaultStage1NegativePrompt,
                               ksamplerOverrides: ksamplerOverridesFromWf(wf),
                             });
                           }}
@@ -1074,6 +1092,7 @@ export default function WorkflowsPage({ toast }: Props) {
             !editForm.label.trim() ||
             !editForm.slug.trim() ||
             !editForm.garmentPhasePrompt.trim() ||
+            (!!editingWf?.stage1PositivePromptNode && !editForm.stage1PositivePrompt.trim()) ||
             editForm.ksamplerOverrides.some(
               (o) =>
                 Number.isNaN(Number(o.steps)) ||
@@ -1132,6 +1151,34 @@ export default function WorkflowsPage({ toast }: Props) {
                   value={editForm.facePhasePrompt}
                   disabled={editSaving}
                   onChange={(e) => setEditForm((f) => ({ ...f, facePhasePrompt: e.target.value }))}
+                />
+              </div>
+            )}
+            {editingWf?.stage1PositivePromptNode && (
+              <div className="field">
+                <label>Stage 1 positive prompt (build-person pass)</label>
+                <textarea
+                  className="input"
+                  rows={4}
+                  value={editForm.stage1PositivePrompt}
+                  disabled={editSaving}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, stage1PositivePrompt: e.target.value }))
+                  }
+                />
+              </div>
+            )}
+            {editingWf?.stage1NegativePromptNode && (
+              <div className="field">
+                <label>Stage 1 negative prompt (build-person pass)</label>
+                <textarea
+                  className="input"
+                  rows={4}
+                  value={editForm.stage1NegativePrompt}
+                  disabled={editSaving}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, stage1NegativePrompt: e.target.value }))
+                  }
                 />
               </div>
             )}

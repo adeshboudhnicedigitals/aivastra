@@ -829,6 +829,8 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         tryonOutputNodeId?: string | null;
         stage1PositivePromptNode?: string;
         stage1NegativePromptNode?: string;
+        stage1PositivePrompt?: string;
+        stage1NegativePrompt?: string;
       };
 
       const [existing] = await app.db
@@ -917,6 +919,8 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
 
       const newNegNode = body.facePhasePromptNode ?? existing.facePhasePromptNode;
       const newPosNode = body.garmentPhasePromptNode ?? existing.garmentPhasePromptNode;
+      const newStage1PosNode = body.stage1PositivePromptNode ?? existing.stage1PositivePromptNode;
+      const newStage1NegNode = body.stage1NegativePromptNode ?? existing.stage1NegativePromptNode;
 
       if (body.garmentPhasePrompt !== undefined) {
         if (!body.garmentPhasePrompt.trim()) {
@@ -938,6 +942,33 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         }
         writePromptText(json, newNegNode, body.facePhasePrompt);
       }
+      if (body.stage1PositivePrompt !== undefined) {
+        if (!body.stage1PositivePrompt.trim()) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'stage1PositivePrompt cannot be empty — an empty positive prompt causes ComfyUI to reject the job',
+          );
+        }
+        if (!newStage1PosNode) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'cannot set stage1PositivePrompt: this workflow has no stage-1 positive prompt node',
+          );
+        }
+        writePromptText(json, newStage1PosNode, body.stage1PositivePrompt);
+      }
+      if (body.stage1NegativePrompt !== undefined) {
+        if (!newStage1NegNode) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'cannot set stage1NegativePrompt: this workflow has no stage-1 negative prompt node',
+          );
+        }
+        writePromptText(json, newStage1NegNode, body.stage1NegativePrompt);
+      }
       for (const override of body.ksamplerOverrides ?? []) {
         writeKSamplerOverride(json, override);
       }
@@ -955,14 +986,34 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         defaultGarmentPhasePrompt = extracted.defaultGarmentPhasePrompt;
       }
 
+      let defaultStage1PositivePrompt = existing.defaultStage1PositivePrompt;
+      let defaultStage1NegativePrompt = existing.defaultStage1NegativePrompt;
+      if (
+        body.stage1PositivePromptNode ||
+        body.stage1NegativePromptNode ||
+        body.stage1PositivePrompt !== undefined ||
+        body.stage1NegativePrompt !== undefined
+      ) {
+        defaultStage1PositivePrompt = extractPromptText(
+          newStage1PosNode ? (json[newStage1PosNode] as WorkflowNode | undefined) : undefined,
+        );
+        defaultStage1NegativePrompt = extractPromptText(
+          newStage1NegNode ? (json[newStage1NegNode] as WorkflowNode | undefined) : undefined,
+        );
+      }
+
       const updateValues: Record<string, unknown> = {
         updatedAt: new Date(),
         defaultFacePhasePrompt,
         defaultGarmentPhasePrompt,
+        defaultStage1PositivePrompt,
+        defaultStage1NegativePrompt,
       };
       if (
         body.garmentPhasePrompt !== undefined ||
         body.facePhasePrompt !== undefined ||
+        body.stage1PositivePrompt !== undefined ||
+        body.stage1NegativePrompt !== undefined ||
         (body.ksamplerOverrides?.length ?? 0) > 0
       ) {
         updateValues.jsonContent = json;

@@ -509,6 +509,11 @@ export const UpdateWorkflowBody = z.object({
   // be empty).
   garmentPhasePrompt: z.string().optional(),
   facePhasePrompt: z.string().optional(),
+  // Same TEXT vs node-id-column distinction as above, for two_stage's own stage-1
+  // pair. stage1PositivePrompt must be non-empty (same reason as garmentPhasePrompt);
+  // stage1NegativePrompt may be empty (same as facePhasePrompt).
+  stage1PositivePrompt: z.string().optional(),
+  stage1NegativePrompt: z.string().optional(),
   // KSampler settings — targeted by node ID rather than "the" KSampler, since a
   // workflow can have more than one (two_stage: build-person + dress-garment each
   // have their own). steps<1 means no generation happens; denoise is bounded to its
