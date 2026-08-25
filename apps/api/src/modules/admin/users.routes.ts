@@ -416,16 +416,27 @@ export async function adminUsersRoutes(app: FastifyInstance) {
       const { id } = req.params as { id: string };
       const { newPassword } = req.body as z.infer<typeof ResetPasswordBody>;
       const passwordHash = await hashPassword(newPassword);
-      const [updated] = await app.db
-        .update(schema.users)
-        .set({ passwordHash, updatedAt: new Date() })
-        .where(eq(schema.users.id, id))
-        .returning({ id: schema.users.id });
-      if (!updated) throw new AppError('NOT_FOUND', 404, 'user not found');
-      await app.db
-        .update(schema.refreshTokens)
-        .set({ revokedAt: new Date() })
-        .where(eq(schema.refreshTokens.userId, id));
+      await app.db.transaction(async (tx) => {
+        const [updated] = await tx
+          .update(schema.users)
+          .set({ passwordHash, updatedAt: new Date() })
+          .where(eq(schema.users.id, id))
+          .returning({ id: schema.users.id });
+        if (!updated) throw new AppError('NOT_FOUND', 404, 'user not found');
+        await tx
+          .update(schema.refreshTokens)
+          .set({ revokedAt: new Date() })
+          .where(eq(schema.refreshTokens.userId, id));
+
+        // Never persist passwordHash itself into audit_logs.
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'users.reset_password',
+          resourceType: 'user',
+          resourceId: id,
+          request: req,
+        });
+      });
       return { ok: true };
     },
   );
@@ -689,6 +700,47 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           // Never persist passwordHash into audit_logs — it's copied onto admin_users
           // from users.passwordHash at approval time (see schema comment).
           before: { role: existing.role, status: existing.status },
+          request: req,
+        });
+      });
+      return { ok: true };
+    },
+  );
+
+  app.post(
+    '/admin/admin-users/:userId/sync-password',
+    {
+      preHandler: SUPER,
+      schema: { params: z.object({ userId: z.string().uuid() }) },
+    },
+    async (req) => {
+      const { userId } = req.params as { userId: string };
+      await app.db.transaction(async (tx) => {
+        const [admin] = await tx
+          .select({ status: schema.adminUsers.status })
+          .from(schema.adminUsers)
+          .where(eq(schema.adminUsers.userId, userId))
+          .for('update');
+        if (admin?.status !== 'active') {
+          throw new AppError('NOT_FOUND', 404, 'no active admin for this user');
+        }
+        const [user] = await tx
+          .select({ passwordHash: schema.users.passwordHash })
+          .from(schema.users)
+          .where(eq(schema.users.id, userId));
+        if (!user) throw new AppError('NOT_FOUND', 404, 'user not found');
+
+        await tx
+          .update(schema.adminUsers)
+          .set({ passwordHash: user.passwordHash })
+          .where(eq(schema.adminUsers.userId, userId));
+
+        // Never persist passwordHash itself into audit_logs (see admin_users schema comment).
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'admin_users.sync_password',
+          resourceType: 'admin_user',
+          resourceId: userId,
           request: req,
         });
       });
