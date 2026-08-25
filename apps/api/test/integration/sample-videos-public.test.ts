@@ -28,7 +28,7 @@ describe('GET /v1/models/sample-videos', () => {
     );
     return { authorization: `Bearer ${token}` };
   }
-  it('returns only active, non-deleted sample videos ordered by sortOrder', async () => {
+  it('returns only active, non-deleted sample videos ordered by sortOrder, each with its own creditCost', async () => {
     const [active1] = await app.db
       .insert(schema.sampleVideos)
       .values({
@@ -37,6 +37,8 @@ describe('GET /v1/models/sample-videos', () => {
         thumbnailR2Key: 'sample-videos/a.thumb.jpg',
         prompt: 'p',
         sortOrder: 2,
+        duration: 8,
+        quality: '720p',
       })
       .returning();
     const [active2] = await app.db
@@ -47,6 +49,8 @@ describe('GET /v1/models/sample-videos', () => {
         thumbnailR2Key: 'sample-videos/b.thumb.jpg',
         prompt: 'p',
         sortOrder: 1,
+        duration: 15,
+        quality: '1080p',
       })
       .returning();
     await app.db.insert(schema.sampleVideos).values({
@@ -63,13 +67,18 @@ describe('GET /v1/models/sample-videos', () => {
     });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.creditCost).toBe(150);
+    expect(body).not.toHaveProperty('creditCost');
     const items = body.items as Array<{
       id: string;
       thumbnailUrl: string;
       previewVideoUrl: string;
+      creditCost: number;
     }>;
     expect(items.map((i) => i.id)).toEqual([active2.id, active1.id]);
+    // Default pricing config: qualityBase=150 for every tier, perSecondRate=0,
+    // so cost is 150 regardless of duration until an admin tunes the formula.
+    expect(items[0].creditCost).toBe(150);
+    expect(items[1].creditCost).toBe(150);
     expect(items[0].thumbnailUrl).toContain('sample-videos/b.thumb.jpg');
     expect(items[0].previewVideoUrl).toContain('sample-videos/b.mp4');
     expect(items[0].thumbnailUrl).toContain('X-Amz-Signature');

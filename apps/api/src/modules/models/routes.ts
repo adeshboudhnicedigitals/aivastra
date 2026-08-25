@@ -1,4 +1,5 @@
 import { schema } from '@aivastra/db';
+import type { PixverseQuality } from '@aivastra/types';
 import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -75,18 +76,19 @@ export async function modelsRoutes(app: FastifyInstance) {
         title: schema.sampleVideos.title,
         thumbnailR2Key: schema.sampleVideos.thumbnailR2Key,
         videoR2Key: schema.sampleVideos.videoR2Key,
+        duration: schema.sampleVideos.duration,
+        quality: schema.sampleVideos.quality,
       })
       .from(schema.sampleVideos)
       .where(and(eq(schema.sampleVideos.isActive, true), isNull(schema.sampleVideos.deletedAt)))
       .orderBy(asc(schema.sampleVideos.sortOrder));
-    const creditCost = await getPixverseVideoCreditCost(app);
     return {
-      creditCost,
       items: await Promise.all(
         rows.map(async (row) => {
-          const [thumbnail, video] = await Promise.all([
+          const [thumbnail, video, creditCost] = await Promise.all([
             app.storage.presignGet(row.thumbnailR2Key, 3_600),
             app.storage.presignGet(row.videoR2Key, 3_600),
+            getPixverseVideoCreditCost(app, row.duration, row.quality as PixverseQuality),
           ]);
 
           return {
@@ -94,6 +96,7 @@ export async function modelsRoutes(app: FastifyInstance) {
             title: row.title,
             thumbnailUrl: thumbnail.url,
             previewVideoUrl: video.url,
+            creditCost,
           };
         }),
       ),
