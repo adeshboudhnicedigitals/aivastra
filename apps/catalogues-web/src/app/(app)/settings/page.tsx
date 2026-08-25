@@ -10,6 +10,7 @@ import { PremiumSelect } from '@/components/ui/premium-select';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useGoogleDriveStatus } from '@/hooks/use-google-drive-status';
 import { api } from '@/lib/api';
+import { GOOGLE_DRIVE_ENABLED } from '@/lib/feature-flags';
 
 type Tab = 'Profile Details' | 'Billing' | 'Credit History' | 'Invoices';
 const TABS: Tab[] = ['Profile Details', 'Billing', 'Credit History', 'Invoices'];
@@ -863,95 +864,98 @@ export default function SettingsPage(): React.ReactElement {
               )}
             </Section>
 
-            {/* ── Part 3: Integrations (Google Drive) ── */}
-            <Section title="Integrations" noBorder>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 16,
-                  flexWrap: 'wrap',
-                }}
-              >
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <div
-                    style={{
-                      fontWeight: 600,
-                      fontSize: 14,
-                      color: C.text,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                    }}
-                  >
-                    Google Drive
-                    {driveStatus.data?.status === 'CONNECTED' && (
-                      <span
-                        style={{
-                          padding: '2px 8px',
-                          borderRadius: 99,
-                          fontSize: 11,
-                          fontWeight: 600,
-                          background: 'rgba(32,158,70,0.1)',
-                          color: C.mint,
-                        }}
-                      >
-                        Connected
-                      </span>
-                    )}
+            {/* ── Part 3: Integrations (Google Drive) — hidden while the OAuth
+                consent screen is unverified; see lib/feature-flags.ts ── */}
+            {GOOGLE_DRIVE_ENABLED && (
+              <Section title="Integrations" noBorder>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 16,
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div
+                      style={{
+                        fontWeight: 600,
+                        fontSize: 14,
+                        color: C.text,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                      }}
+                    >
+                      Google Drive
+                      {driveStatus.data?.status === 'CONNECTED' && (
+                        <span
+                          style={{
+                            padding: '2px 8px',
+                            borderRadius: 99,
+                            fontSize: 11,
+                            fontWeight: 600,
+                            background: 'rgba(32,158,70,0.1)',
+                            color: C.mint,
+                          }}
+                        >
+                          Connected
+                        </span>
+                      )}
+                    </div>
+                    <p style={{ fontSize: 13, color: C.mid, margin: 0 }}>
+                      {driveStatus.data?.status === 'CONNECTED'
+                        ? `Connected as ${driveStatus.data.googleEmail ?? 'Google Account'}. Studio results can be saved directly to your Drive.`
+                        : driveStatus.data?.status === 'REAUTH_REQUIRED'
+                          ? 'Authorization expired or revoked. Reconnect to save Studio results to Drive.'
+                          : 'Connect your Google Drive account to save generated Studio results directly.'}
+                    </p>
                   </div>
-                  <p style={{ fontSize: 13, color: C.mid, margin: 0 }}>
-                    {driveStatus.data?.status === 'CONNECTED'
-                      ? `Connected as ${driveStatus.data.googleEmail ?? 'Google Account'}. Studio results can be saved directly to your Drive.`
-                      : driveStatus.data?.status === 'REAUTH_REQUIRED'
-                        ? 'Authorization expired or revoked. Reconnect to save Studio results to Drive.'
-                        : 'Connect your Google Drive account to save generated Studio results directly.'}
-                  </p>
+                  {driveStatus.data?.status === 'CONNECTED' ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleDisconnectDrive()}
+                      disabled={disconnectingDrive}
+                      style={{
+                        padding: '8px 16px',
+                        borderRadius: 8,
+                        border: `1px solid ${C.border2}`,
+                        background: C.white,
+                        cursor: disconnectingDrive ? 'not-allowed' : 'pointer',
+                        fontFamily: 'inherit',
+                        fontWeight: 600,
+                        fontSize: 13,
+                        color: C.pink,
+                        opacity: disconnectingDrive ? 0.6 : 1,
+                      }}
+                    >
+                      {disconnectingDrive ? 'Disconnecting…' : 'Disconnect'}
+                    </button>
+                  ) : (
+                    <a
+                      href="/api/integrations/google-drive/connect"
+                      style={{
+                        padding: '8px 16px',
+                        borderRadius: 8,
+                        border: 'none',
+                        background: grad,
+                        color: C.white,
+                        fontWeight: 600,
+                        fontSize: 13,
+                        textDecoration: 'none',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                      }}
+                    >
+                      {driveStatus.data?.status === 'REAUTH_REQUIRED'
+                        ? 'Reconnect Google Drive'
+                        : 'Connect Google Drive'}
+                    </a>
+                  )}
                 </div>
-                {driveStatus.data?.status === 'CONNECTED' ? (
-                  <button
-                    type="button"
-                    onClick={() => void handleDisconnectDrive()}
-                    disabled={disconnectingDrive}
-                    style={{
-                      padding: '8px 16px',
-                      borderRadius: 8,
-                      border: `1px solid ${C.border2}`,
-                      background: C.white,
-                      cursor: disconnectingDrive ? 'not-allowed' : 'pointer',
-                      fontFamily: 'inherit',
-                      fontWeight: 600,
-                      fontSize: 13,
-                      color: C.pink,
-                      opacity: disconnectingDrive ? 0.6 : 1,
-                    }}
-                  >
-                    {disconnectingDrive ? 'Disconnecting…' : 'Disconnect'}
-                  </button>
-                ) : (
-                  <a
-                    href="/api/integrations/google-drive/connect"
-                    style={{
-                      padding: '8px 16px',
-                      borderRadius: 8,
-                      border: 'none',
-                      background: grad,
-                      color: C.white,
-                      fontWeight: 600,
-                      fontSize: 13,
-                      textDecoration: 'none',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                    }}
-                  >
-                    {driveStatus.data?.status === 'REAUTH_REQUIRED'
-                      ? 'Reconnect Google Drive'
-                      : 'Connect Google Drive'}
-                  </a>
-                )}
-              </div>
-            </Section>
+              </Section>
+            )}
           </div>
         )}
 

@@ -20,6 +20,7 @@ import { useGoogleDriveStatus } from '@/hooks/use-google-drive-status';
 import { useJobStream } from '@/hooks/use-job-stream';
 import { api } from '@/lib/api';
 import { downloadErrorMessage } from '@/lib/errors';
+import { GOOGLE_DRIVE_ENABLED } from '@/lib/feature-flags';
 
 async function concurrentPool<T>(
   fns: Array<() => Promise<T>>,
@@ -584,27 +585,29 @@ function ImageCard({
                 >
                   {downloading ? <SpinnerIcon size={14} /> : <DownloadIcon size={16} />}
                 </button>
-                <button
-                  type="button"
-                  disabled={savingToDrive}
-                  title="Save to Drive"
-                  onClick={saveToDrive}
-                  style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: 8,
-                    background: savingToDrive ? C.border : C.lighter,
-                    cursor: savingToDrive ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: C.mid,
-                    border: 'none',
-                    padding: 0,
-                  }}
-                >
-                  {savingToDrive ? <SpinnerIcon size={14} /> : <DriveIcon size={16} />}
-                </button>
+                {GOOGLE_DRIVE_ENABLED && (
+                  <button
+                    type="button"
+                    disabled={savingToDrive}
+                    title="Save to Drive"
+                    onClick={saveToDrive}
+                    style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: 8,
+                      background: savingToDrive ? C.border : C.lighter,
+                      cursor: savingToDrive ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: C.mid,
+                      border: 'none',
+                      padding: 0,
+                    }}
+                  >
+                    {savingToDrive ? <SpinnerIcon size={14} /> : <DriveIcon size={16} />}
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -990,43 +993,45 @@ export default function CataloguePage({
                 </>
               )}
             </button>
-            <button
-              type="button"
-              onClick={handleSaveAllToDrive}
-              disabled={savingAllToDrive || completedCount === 0}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 8,
-                padding: '0 20px',
-                height: 38,
-                borderRadius: 8,
-                border: `1px solid ${C.border}`,
-                background: C.field,
-                color: C.mid,
-                fontFamily: 'inherit',
-                fontSize: 14,
-                fontWeight: 600,
-                cursor: savingAllToDrive || completedCount === 0 ? 'not-allowed' : 'pointer',
-                opacity: savingAllToDrive || completedCount === 0 ? 0.5 : 1,
-                boxSizing: 'border-box',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {savingAllToDrive ? (
-                <>
-                  <SpinnerIcon size={18} />
-                  {driveProgress
-                    ? `Saving ${driveProgress.done}/${driveProgress.total}…`
-                    : 'Saving…'}
-                </>
-              ) : (
-                <>
-                  Save All to Drive <DriveIcon size={20} />
-                </>
-              )}
-            </button>
+            {GOOGLE_DRIVE_ENABLED && (
+              <button
+                type="button"
+                onClick={handleSaveAllToDrive}
+                disabled={savingAllToDrive || completedCount === 0}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  padding: '0 20px',
+                  height: 38,
+                  borderRadius: 8,
+                  border: `1px solid ${C.border}`,
+                  background: C.field,
+                  color: C.mid,
+                  fontFamily: 'inherit',
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: savingAllToDrive || completedCount === 0 ? 'not-allowed' : 'pointer',
+                  opacity: savingAllToDrive || completedCount === 0 ? 0.5 : 1,
+                  boxSizing: 'border-box',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {savingAllToDrive ? (
+                  <>
+                    <SpinnerIcon size={18} />
+                    {driveProgress
+                      ? `Saving ${driveProgress.done}/${driveProgress.total}…`
+                      : 'Saving…'}
+                  </>
+                ) : (
+                  <>
+                    Save All to Drive <DriveIcon size={20} />
+                  </>
+                )}
+              </button>
+            )}
           </div>
         }
       />
