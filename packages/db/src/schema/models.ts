@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -81,18 +82,31 @@ export const modelBackgrounds = pgTable(
 
 // Admin-curated PixVerse video templates. Each row is a sample clip shown to
 // the user as a picker option; its prompt is what gets sent to PixVerse.
-export const sampleVideos = pgTable('sample_videos', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  title: text('title').notNull(),
-  videoR2Key: text('video_r2_key').notNull(),
-  thumbnailR2Key: text('thumbnail_r2_key').notNull(),
-  prompt: text('prompt').notNull(),
-  isActive: boolean('is_active').notNull().default(true),
-  sortOrder: integer('sort_order').notNull().default(0),
-  deletedAt: timestamp('deleted_at', { withTimezone: true }),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const sampleVideos = pgTable(
+  'sample_videos',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    title: text('title').notNull(),
+    videoR2Key: text('video_r2_key').notNull(),
+    thumbnailR2Key: text('thumbnail_r2_key').notNull(),
+    prompt: text('prompt').notNull(),
+    // PixVerse image-to-video params for this template. v6 (the hardcoded
+    // model) accepts duration 1-15s at any of 4 quality tiers with no
+    // cross-constraint — see docs/superpowers/specs/
+    // 2026-08-25-pixverse-dynamic-duration-quality-design.md.
+    duration: integer('duration').notNull().default(8),
+    quality: text('quality').notNull().default('720p'),
+    isActive: boolean('is_active').notNull().default(true),
+    sortOrder: integer('sort_order').notNull().default(0),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check('sample_videos_duration_valid', sql`${t.duration} BETWEEN 1 AND 15`),
+    check('sample_videos_quality_valid', sql`${t.quality} IN ('360p', '540p', '720p', '1080p')`),
+  ],
+);
 
 // e.g. { genderSlug: 'men', slug: 'fullsleeveshirt', label: 'Full Sleeve Shirt' }
 export const garmentSubcategories = pgTable('garment_subcategories', {
