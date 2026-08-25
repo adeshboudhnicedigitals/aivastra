@@ -17,7 +17,13 @@ export default function JobCostsTab({ toast }: Props) {
   });
   const [tryonCreditCost, setTryonCreditCost] = useState(5);
   const [sareeMannequinDevCreditCost, setSareeMannequinDevCreditCost] = useState(10);
-  const [pixverseCreditCost, setPixverseCreditCost] = useState(150);
+  const [pixverseVideoPricing, setPixverseVideoPricing] = useState<{
+    perSecondRate: number;
+    qualityBase: Record<'360p' | '540p' | '720p' | '1080p', number>;
+  }>({
+    perSecondRate: 0,
+    qualityBase: { '360p': 150, '540p': 150, '720p': 150, '1080p': 150 },
+  });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -26,13 +32,16 @@ export default function JobCostsTab({ toast }: Props) {
       resolutions?: Record<string, { enabled: boolean; creditCost: number }>;
       tryon?: { creditCost: number };
       sareeMannequinDev?: { creditCost: number };
-      pixverse?: { creditCost: number };
+      pixverseVideoPricing?: {
+        perSecondRate: number;
+        qualityBase: Record<'360p' | '540p' | '720p' | '1080p', number>;
+      };
     }>('/admin/config')
       .then((cfg) => {
         if (cfg.resolutions) setResolutions(cfg.resolutions);
         if (cfg.tryon) setTryonCreditCost(cfg.tryon.creditCost);
         if (cfg.sareeMannequinDev) setSareeMannequinDevCreditCost(cfg.sareeMannequinDev.creditCost);
-        if (cfg.pixverse) setPixverseCreditCost(cfg.pixverse.creditCost);
+        if (cfg.pixverseVideoPricing) setPixverseVideoPricing(cfg.pixverseVideoPricing);
       })
       .catch((e) =>
         toast({
@@ -53,7 +62,7 @@ export default function JobCostsTab({ toast }: Props) {
           resolutions,
           tryon: { creditCost: tryonCreditCost },
           sareeMannequinDev: { creditCost: sareeMannequinDevCreditCost },
-          pixverse: { creditCost: pixverseCreditCost },
+          pixverseVideoPricing,
         }),
       });
       toast({ title: 'Job costs saved' });
@@ -227,38 +236,88 @@ export default function JobCostsTab({ toast }: Props) {
 
             <div style={{ marginTop: 24, marginBottom: 8 }}>
               <div className="setting-lbl" style={{ marginBottom: 4 }}>
-                Catalog Video (PixVerse)
+                Catalog Video Pricing (PixVerse)
               </div>
               <div className="setting-desc" style={{ marginBottom: 12 }}>
-                Credit cost per catalog-video generation (image-to-video via PixVerse).
+                Credit cost per catalog-video generation = quality base + duration (seconds) ×
+                per-second rate. Applies per sample-video template's own duration/quality.
               </div>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  padding: '10px 12px',
-                  border: '1px solid var(--border)',
-                  borderRadius: 'var(--r)',
-                  background: 'var(--surface-2)',
-                }}
-              >
-                <span className="setting-lbl">Catalog Video</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
-                  <input
-                    className="input"
-                    type="number"
-                    min={1}
-                    max={1000}
-                    style={{ width: 80, textAlign: 'right' }}
-                    value={pixverseCreditCost}
-                    disabled={saving}
-                    onChange={(e) => setPixverseCreditCost(Number(e.target.value))}
-                  />
-                  <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                    credits / video
-                  </span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    padding: '10px 12px',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--r)',
+                    background: 'var(--surface-2)',
+                  }}
+                >
+                  <span className="setting-lbl">Per-second rate</span>
+                  <div
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}
+                  >
+                    <input
+                      className="input"
+                      type="number"
+                      min={0}
+                      max={100}
+                      style={{ width: 80, textAlign: 'right' }}
+                      value={pixverseVideoPricing.perSecondRate}
+                      disabled={saving}
+                      onChange={(e) =>
+                        setPixverseVideoPricing((prev) => ({
+                          ...prev,
+                          perSecondRate: Number(e.target.value),
+                        }))
+                      }
+                    />
+                    <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                      credits / second
+                    </span>
+                  </div>
                 </div>
+                {(['360p', '540p', '720p', '1080p'] as const).map((tier) => (
+                  <div
+                    key={tier}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: '10px 12px',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--r)',
+                      background: 'var(--surface-2)',
+                    }}
+                  >
+                    <span className="setting-lbl" style={{ width: 60 }}>
+                      {tier}
+                    </span>
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}
+                    >
+                      <input
+                        className="input"
+                        type="number"
+                        min={1}
+                        max={1000}
+                        style={{ width: 80, textAlign: 'right' }}
+                        value={pixverseVideoPricing.qualityBase[tier]}
+                        disabled={saving}
+                        onChange={(e) =>
+                          setPixverseVideoPricing((prev) => ({
+                            ...prev,
+                            qualityBase: { ...prev.qualityBase, [tier]: Number(e.target.value) },
+                          }))
+                        }
+                      />
+                      <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                        base credits
+                      </span>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 

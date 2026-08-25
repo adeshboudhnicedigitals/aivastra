@@ -342,4 +342,34 @@ describe('POST /v1/jobs/catalog-video', () => {
     expect(params.duration).toBe(15);
     expect(params.quality).toBe('1080p');
   });
+  it('uses the admin-configured pricing formula, not the hardcoded default, once tuned', async () => {
+    await app.redis.set(
+      'config:system',
+      JSON.stringify({
+        pixverseVideoPricing: {
+          perSecondRate: 5,
+          qualityBase: { '360p': 10, '540p': 20, '720p': 30, '1080p': 50 },
+        },
+      }),
+    );
+    try {
+      const { token, userId } = await registerUser('cv-admin-tuned@x.com');
+      await grantCredits(userId, 500);
+      const sourceJobId = await sourceJob(userId);
+      const sampleVideoId = await activeSampleWithPricing(10, '540p');
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/jobs/catalog-video',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { sourceJobId, sampleVideoId },
+      });
+      expect(res.statusCode).toBe(201);
+      const { jobId } = res.json();
+      const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+      // 20 (540p base) + 10s * 5/s = 70
+      expect(job.creditsCharged).toBe(70);
+    } finally {
+      await app.redis.del('config:system');
+    }
+  });
 });
