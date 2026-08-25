@@ -496,7 +496,7 @@ describe('admin workflows - floor validation', () => {
     },
   };
 
-  it('PATCH updates ksamplerSteps/ksamplerCfg/ksamplerDenoise in jsonContent', async () => {
+  it('PATCH updates steps/cfg/denoise via ksamplerOverrides in jsonContent', async () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/admin/workflows',
@@ -517,7 +517,9 @@ describe('admin workflows - floor validation', () => {
       method: 'PATCH',
       url: `/admin/workflows/${id}`,
       headers,
-      payload: { ksamplerSteps: 8, ksamplerCfg: 2.5, ksamplerDenoise: 0.75 },
+      payload: {
+        ksamplerOverrides: [{ nodeId: 'ksampler_node', steps: 8, cfg: 2.5, denoise: 0.75 }],
+      },
     });
     expect(patchRes.statusCode).toBe(200);
 
@@ -534,7 +536,7 @@ describe('admin workflows - floor validation', () => {
     expect(stored.ksampler_node.inputs.denoise).toBe(0.75);
   });
 
-  it('PATCH rejects ksamplerSteps below 1', async () => {
+  it('PATCH rejects a ksamplerOverrides steps below 1', async () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/admin/workflows',
@@ -555,12 +557,12 @@ describe('admin workflows - floor validation', () => {
       method: 'PATCH',
       url: `/admin/workflows/${id}`,
       headers,
-      payload: { ksamplerSteps: 0 },
+      payload: { ksamplerOverrides: [{ nodeId: 'ksampler_node', steps: 0 }] },
     });
     expect(patchRes.statusCode).toBe(400);
   });
 
-  it('PATCH rejects a negative ksamplerCfg', async () => {
+  it('PATCH rejects a negative ksamplerOverrides cfg', async () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/admin/workflows',
@@ -581,12 +583,12 @@ describe('admin workflows - floor validation', () => {
       method: 'PATCH',
       url: `/admin/workflows/${id}`,
       headers,
-      payload: { ksamplerCfg: -1 },
+      payload: { ksamplerOverrides: [{ nodeId: 'ksampler_node', cfg: -1 }] },
     });
     expect(patchRes.statusCode).toBe(400);
   });
 
-  it('PATCH rejects a ksamplerDenoise outside [0, 1]', async () => {
+  it('PATCH rejects a ksamplerOverrides denoise outside [0, 1]', async () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/admin/workflows',
@@ -607,12 +609,12 @@ describe('admin workflows - floor validation', () => {
       method: 'PATCH',
       url: `/admin/workflows/${id}`,
       headers,
-      payload: { ksamplerDenoise: 1.5 },
+      payload: { ksamplerOverrides: [{ nodeId: 'ksampler_node', denoise: 1.5 }] },
     });
     expect(patchRes.statusCode).toBe(400);
   });
 
-  it('PATCH rejects ksampler fields when the workflow has no KSampler node', async () => {
+  it('PATCH rejects a ksamplerOverrides nodeId that does not exist in the workflow', async () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/admin/workflows',
@@ -633,12 +635,12 @@ describe('admin workflows - floor validation', () => {
       method: 'PATCH',
       url: `/admin/workflows/${id}`,
       headers,
-      payload: { ksamplerSteps: 10 },
+      payload: { ksamplerOverrides: [{ nodeId: 'ksampler_node', steps: 10 }] },
     });
     expect(patchRes.statusCode).toBe(400);
   });
 
-  it('GET list and GET detail agree on ksamplerSteps/ksamplerCfg/ksamplerDenoise for the same workflow', async () => {
+  it('GET list and GET detail agree on ksamplerNodes for the same workflow', async () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/admin/workflows',
@@ -661,28 +663,24 @@ describe('admin workflows - floor validation', () => {
       url: `/admin/workflows/${id}`,
       headers,
     });
-    const listItem = (
-      listRes.json() as {
-        id: string;
-        ksamplerSteps: number | null;
-        ksamplerCfg: number | null;
-        ksamplerDenoise: number | null;
-      }[]
-    ).find((w) => w.id === id);
-    const detail = detailRes.json() as {
-      ksamplerSteps: number | null;
-      ksamplerCfg: number | null;
-      ksamplerDenoise: number | null;
+    type KSamplerNode = {
+      nodeId: string;
+      steps: number | null;
+      cfg: number | null;
+      denoise: number | null;
+      seed: number | null;
     };
-    expect(listItem?.ksamplerSteps).toBe(4);
-    expect(listItem?.ksamplerCfg).toBe(1);
-    expect(listItem?.ksamplerDenoise).toBe(1);
-    expect(detail.ksamplerSteps).toBe(listItem?.ksamplerSteps);
-    expect(detail.ksamplerCfg).toBe(listItem?.ksamplerCfg);
-    expect(detail.ksamplerDenoise).toBe(listItem?.ksamplerDenoise);
+    const listItem = (listRes.json() as { id: string; ksamplerNodes: KSamplerNode[] }[]).find(
+      (w) => w.id === id,
+    );
+    const detail = detailRes.json() as { ksamplerNodes: KSamplerNode[] };
+    expect(listItem?.ksamplerNodes).toEqual([
+      { nodeId: 'ksampler_node', steps: 4, cfg: 1, denoise: 1, seed: 12345 },
+    ]);
+    expect(detail.ksamplerNodes).toEqual(listItem?.ksamplerNodes);
   });
 
-  it('PATCH with only ksamplerSteps leaves cfg/denoise unchanged', async () => {
+  it('PATCH with only steps in ksamplerOverrides leaves cfg/denoise unchanged', async () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/admin/workflows',
@@ -703,7 +701,7 @@ describe('admin workflows - floor validation', () => {
       method: 'PATCH',
       url: `/admin/workflows/${id}`,
       headers,
-      payload: { ksamplerSteps: 20 },
+      payload: { ksamplerOverrides: [{ nodeId: 'ksampler_node', steps: 20 }] },
     });
     expect(patchRes.statusCode).toBe(200);
 
