@@ -1897,6 +1897,238 @@ git commit -m "feat(web): show per-template credit cost in the catalog-video wiz
 
 ---
 
+### Task 12: Admin — edit duration/quality on an existing sample-video template
+
+> Added after the final whole-branch review: that review found existing
+> `sample_videos` rows have no UI path to change duration/quality after
+> creation (`PatchSampleVideoBody` already accepts both fields and the PATCH
+> route already persists them — Task 4 — but no admin-web surface calls it
+> for these two fields). Every template created before this task ships stays
+> stranded at the DB default (8s/720p) forever. This closes that gap.
+
+**Files:**
+- Create: `apps/admin-web/src/components/SampleVideoEditDrawer.tsx`
+- Modify: `apps/admin-web/src/pages/assets/SampleVideosTab.tsx`
+
+**Interfaces:**
+- Consumes: `SampleVideo` interface (with `duration`/`quality`, from Task 8's
+  update to `SampleVideoUploadModal.tsx`); `PATCH /admin/assets/sample-videos/:id`
+  accepting `{ duration?, quality? }` (Task 4); `PIXVERSE_QUALITIES`,
+  `PIXVERSE_DURATION_MIN`/`MAX`, `computePixverseVideoCost`,
+  `PixverseVideoPricingConfig` from `@aivastra/types` (Task 2); `GET
+  /admin/config`'s `pixverseVideoPricing` field (Task 3); the existing
+  `EditDrawer` component (`apps/admin-web/src/components/EditDrawer.tsx`) —
+  reuse it rather than building a new modal shell.
+- Produces: `SampleVideosTab.tsx` gains an "Edit" action per card that opens
+  `SampleVideoEditDrawer`, PATCHes the row, and updates local state on save.
+  Nothing else depends on this task.
+
+- [ ] **Step 1: Create the edit drawer component**
+
+Create `apps/admin-web/src/components/SampleVideoEditDrawer.tsx`:
+
+```typescript
+import { useEffect, useState } from 'react';
+import {
+  PIXVERSE_DURATION_MAX,
+  PIXVERSE_DURATION_MIN,
+  PIXVERSE_QUALITIES,
+  computePixverseVideoCost,
+  type PixverseQuality,
+  type PixverseVideoPricingConfig,
+} from '@aivastra/types';
+import { apiErrorMessage, apiFetch } from '../lib/data';
+import { EditDrawer } from './EditDrawer';
+import type { SampleVideo } from './SampleVideoUploadModal';
+
+export function SampleVideoEditDrawer({
+  item,
+  onClose,
+  onSaved,
+  toast,
+}: {
+  item: SampleVideo;
+  onClose: () => void;
+  onSaved: (updated: { duration: number; quality: string }) => void;
+  toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
+}) {
+  const [duration, setDuration] = useState(item.duration);
+  const [quality, setQuality] = useState<PixverseQuality>(item.quality as PixverseQuality);
+  const [pricing, setPricing] = useState<PixverseVideoPricingConfig | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    apiFetch<{ pixverseVideoPricing?: PixverseVideoPricingConfig }>('/admin/config')
+      .then((cfg) => {
+        if (cfg.pixverseVideoPricing) setPricing(cfg.pixverseVideoPricing);
+      })
+      .catch(() => {
+        /* preview is best-effort; save doesn't depend on it */
+      });
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await apiFetch(`/admin/assets/sample-videos/${item.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ duration, quality }),
+      });
+      toast({ title: 'Sample video updated' });
+      onSaved({ duration, quality });
+    } catch (error) {
+      toast({
+        kind: 'error',
+        title: 'Failed to update sample video',
+        body: apiErrorMessage(error, 'Please try again.'),
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <EditDrawer
+      onClose={onClose}
+      title="Edit sample video"
+      subtitle={item.title}
+      width="min(480px, calc(100vw - 40px))"
+      saving={saving}
+      onSave={() => void save()}
+      saveLabel="Save"
+    >
+      <div className="field">
+        <label>Duration (seconds)</label>
+        <input
+          className="input"
+          type="number"
+          min={PIXVERSE_DURATION_MIN}
+          max={PIXVERSE_DURATION_MAX}
+          value={duration}
+          onChange={(e) =>
+            setDuration(
+              Math.min(
+                PIXVERSE_DURATION_MAX,
+                Math.max(PIXVERSE_DURATION_MIN, Number(e.target.value)),
+              ),
+            )
+          }
+          style={{ width: 100 }}
+        />
+      </div>
+      <div className="field">
+        <label>Quality</label>
+        <select
+          className="input"
+          value={quality}
+          onChange={(e) => setQuality(e.target.value as PixverseQuality)}
+        >
+          {PIXVERSE_QUALITIES.map((q) => (
+            <option key={q} value={q}>
+              {q}
+            </option>
+          ))}
+        </select>
+      </div>
+      {pricing && (
+        <p className="hint">
+          Estimated cost: {computePixverseVideoCost(duration, quality, pricing)} credits
+        </p>
+      )}
+    </EditDrawer>
+  );
+}
+```
+
+(`apiErrorMessage`/`apiFetch` import path and signatures must match what
+`SampleVideosTab.tsx` and `SampleVideoUploadModal.tsx` already import from
+`../lib/data` — copy their exact import, don't guess. `SampleVideo` is
+already exported from `SampleVideoUploadModal.tsx` per Task 8 — import the
+type from there rather than redefining it.)
+
+- [ ] **Step 2: Wire an Edit action into `SampleVideosTab.tsx`**
+
+In `apps/admin-web/src/pages/assets/SampleVideosTab.tsx`:
+
+Add state for which item is being edited, alongside the existing
+`modalOpen`/`confirmDeleteId` state:
+
+```typescript
+  const [editingItem, setEditingItem] = useState<SampleVideo | null>(null);
+```
+
+(Add `useState` to the existing `useCallback, useEffect, useState` import
+from `'react'` if not already present — it already is, per the current
+file.)
+
+In the card's action row (the `<div>` containing the `Switch` and the
+Delete button, currently around lines 141-157), add an Edit button before
+the Delete button:
+
+```typescript
+                    <button
+                      className="btn sm"
+                      onClick={() => setEditingItem(item)}
+                    >
+                      <Icon.Edit /> Edit
+                    </button>
+```
+
+Check `apps/admin-web/src/components/Icons.tsx` for the exact exported edit
+icon name (`Icon.Edit`, `Icon.Pencil`, or similar — use whichever this
+codebase's icon set actually exports; grep the file if unsure, don't guess
+a name that doesn't exist).
+
+After the existing `{modalOpen && (<SampleVideoUploadModal ... />)}` block
+at the end of the component, add:
+
+```typescript
+      {editingItem && (
+        <SampleVideoEditDrawer
+          item={editingItem}
+          toast={toast}
+          onClose={() => setEditingItem(null)}
+          onSaved={(updated) => {
+            setItems((v) =>
+              v.map((x) => (x.id === editingItem.id ? { ...x, ...updated } : x)),
+            );
+            setEditingItem(null);
+          }}
+        />
+      )}
+```
+
+Add the import: `import { SampleVideoEditDrawer } from '../../components/SampleVideoEditDrawer';`
+
+- [ ] **Step 3: Verify it typechecks/builds**
+
+```bash
+pnpm --filter @aivastra/admin build
+```
+
+(Check `apps/admin-web/package.json` first if the actual typecheck-producing
+script differs.)
+
+Expected: no type errors.
+
+- [ ] **Step 4: Manual verification**
+
+No browser tooling is available in this environment. A clean build/typecheck
+is the available evidence for this task; note in your report that a
+human/browser-tooled pass (open Assets → Sample Videos, click Edit on a
+card, change duration/quality, confirm the cost preview updates, save,
+confirm the card's badge — from Task 9 — reflects the new values, reload
+and confirm it persisted) is still owed, same as Tasks 8-11.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add apps/admin-web/src/components/SampleVideoEditDrawer.tsx apps/admin-web/src/pages/assets/SampleVideosTab.tsx
+git commit -m "feat(admin-web): add edit UI for duration/quality on existing sample-video templates"
+```
+
+---
+
 ## Final Verification
 
 - [ ] **Full test suites**
