@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Icon } from '../../components/Icons';
+import { SampleVideoEditDrawer } from '../../components/SampleVideoEditDrawer';
 import { type SampleVideo, SampleVideoUploadModal } from '../../components/SampleVideoUploadModal';
 import { Switch } from '../../components/Switch';
 import { apiErrorMessage, apiFetch } from '../../lib/data';
@@ -11,6 +12,7 @@ export function SampleVideosTab() {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [editingItem, setEditingItem] = useState<SampleVideo | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -157,10 +159,13 @@ export function SampleVideosTab() {
                   >
                     <Switch checked={item.isActive} onChange={() => void toggle(item)} />
                     <button
-                      className="btn sm danger"
+                      className="btn sm"
                       style={{ marginLeft: 'auto' }}
-                      onClick={() => setConfirmDeleteId(item.id)}
+                      onClick={() => setEditingItem(item)}
                     >
+                      <Icon.Edit /> Edit
+                    </button>
+                    <button className="btn sm danger" onClick={() => setConfirmDeleteId(item.id)}>
                       <Icon.Trash /> Delete
                     </button>
                   </div>
@@ -198,6 +203,18 @@ export function SampleVideosTab() {
           onDone={(created) => {
             setItems((v) => [...v, created]);
             setModalOpen(false);
+          }}
+        />
+      )}
+
+      {editingItem && (
+        <SampleVideoEditDrawer
+          item={editingItem}
+          toast={toast}
+          onClose={() => setEditingItem(null)}
+          onSaved={(updated) => {
+            setItems((v) => v.map((x) => (x.id === editingItem.id ? { ...x, ...updated } : x)));
+            setEditingItem(null);
           }}
         />
       )}
