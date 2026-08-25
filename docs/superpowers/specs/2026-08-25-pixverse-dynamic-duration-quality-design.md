@@ -1,37 +1,53 @@
 # PixVerse dynamic duration & quality — design
 
-Date: 2026-08-25
+Date: 2026-08-25 (revised same day — see "Revision note")
 Status: approved, pending plan
 
 ## Problem
 
 `apps/dispatcher/src/pixverse/client.ts` hardcodes every catalog-video job to
 `duration: 8, quality: '720p'` when calling PixVerse's image-to-video endpoint.
-PixVerse actually supports multiple durations and quality tiers, with a hard
-constraint between them. We want per-template control instead of one fixed
-value, and admin-managed pricing that reflects PixVerse's own cost variance.
+PixVerse actually supports a range of durations and quality tiers depending on
+model version. We want per-template control instead of one fixed value, and
+admin-managed pricing that reflects PixVerse's own cost variance.
 
-## PixVerse API constraints (verified)
+## Revision note
 
-Confirmed via PixVerse's own ComfyUI partner-node source
-(`comfy_api_nodes/apis/pixverse.py`, `nodes_pixverse.py` in `Comfy-Org/ComfyUI`),
-which mirrors the real `/openapi/v2/video/img/generate` request shape:
+The first pass of this spec sourced duration/quality constraints from
+PixVerse's ComfyUI partner-node source, which only implements the
+conservative subset (`duration: 5 | 8`, `quality: ..., 1080p only at 5s`).
+That is **not what PixVerse's real API supports for the model we use**.
+Pulling PixVerse's own OpenAPI spec text verbatim corrected this:
 
-- `duration`: `5 | 8` (seconds) — no other values accepted.
+> "Video duration — v3.5/v4/v4.5: 5/8 (v3.5 1080p cannot use 8) — v5: 5/8 —
+> v5.5/v5.6: 5/8/10 (1080p cannot use 10) — **v6/c1: 1~15**"
+
+Our client hardcodes `model: 'v6'`. For v6, duration is **any integer from 1
+to 15 seconds**, at any of the 4 quality tiers, with **no documented 1080p
+cutoff** (unlike v3.5 and v5.5/v5.6, which do have one). Everything below
+reflects this corrected range, not the original 5/8-only draft.
+
+## PixVerse API constraints (verified, v6)
+
+Verified against PixVerse's own OpenAPI spec text for
+`/openapi/v2/video/img/generate`:
+
+- `duration`: integer, `1–15` (seconds).
 - `quality`: `'360p' | '540p' | '720p' | '1080p'`.
-- **Constraint: `quality === '1080p'` forces `duration === 5`.** PixVerse
-  rejects 1080p at 8 seconds. This yields exactly **7 valid combinations**
-  (all of 360p/540p/720p at 5s and 8s, plus 1080p at 5s only).
-- `model` stays hardcoded at `'v6'` — out of scope for this change.
+- No cross-constraint between them for v6/c1 — every duration × quality pair
+  is valid.
+- `model` stays hardcoded at `'v6'` — out of scope for this change. (Other
+  model versions have narrower/cross-constrained ranges — irrelevant here
+  since we never send a different model value.)
 
 ## Where duration/quality are set
 
-Per-**sample-video template**, not globally and not user-selectable at request
-time. `sample_videos` is the existing admin-curated table (title, prompt,
-video/thumbnail keys) a user picks from in the Catalog Video wizard; duration
-and quality become two more admin-set fields on that same row, alongside
-`prompt`. Different templates (a quick spin vs. a longer runway walk) can use
-different lengths/quality.
+Per-**sample-video template**, not globally and not user-selectable at
+request time. `sample_videos` is the existing admin-curated table (title,
+prompt, video/thumbnail keys) a user picks from in the Catalog Video wizard;
+duration and quality become two more admin-set fields on that same row,
+alongside `prompt`. Different templates (a quick 5s spin vs. a 15s runway
+walk) can use different lengths/quality.
 
 ## Data model
 
@@ -41,68 +57,73 @@ Migration adds to `sample_videos`:
 ALTER TABLE sample_videos
   ADD COLUMN duration integer NOT NULL DEFAULT 8,
   ADD COLUMN quality text NOT NULL DEFAULT '720p',
-  ADD CONSTRAINT sample_videos_duration_valid CHECK (duration IN (5, 8)),
-  ADD CONSTRAINT sample_videos_quality_valid CHECK (quality IN ('360p','540p','720p','1080p')),
-  ADD CONSTRAINT sample_videos_combo_valid CHECK (NOT (quality = '1080p' AND duration = 8));
+  ADD CONSTRAINT sample_videos_duration_valid CHECK (duration BETWEEN 1 AND 15),
+  ADD CONSTRAINT sample_videos_quality_valid CHECK (quality IN ('360p','540p','720p','1080p'));
 ```
 
 Defaults (`8`, `'720p'`) backfill existing rows to match today's hardcoded
 behavior exactly — no behavior change for existing templates until an admin
-edits them. The three `CHECK` constraints are defense-in-depth alongside Zod
-validation at the API layer (matches this repo's pattern elsewhere of
-validating at every layer that can reach the DB).
+edits them. No combo-validity constraint is needed (unlike the original
+draft) since v6 has no invalid duration×quality pairing. The two `CHECK`
+constraints are defense-in-depth alongside Zod validation at the API layer.
 
 ## Credit cost
 
-Cost genuinely differs by duration/quality on PixVerse's side, so a single
-flat `pixverse.creditCost` (today's model) is replaced by a **7-row pricing
-matrix**, one row per valid combo, managed in the existing admin **Settings →
-Credit Plans → Job Costs** page (`JobCostsTab.tsx`) as a new section —
-structurally identical to the existing "Resolution Pricing" table (HD/2K/4K
-rows, each with an `enabled` toggle and a `creditCost` input).
+A fixed per-combo pricing table doesn't scale to 15 × 4 = 60 possible
+combinations, so cost is computed by **formula** instead of a lookup table:
 
-- New `config:system` Redis key: `pixverseVideoPricing`, keyed by literal
-  combo strings (`'5_360p'`, `'5_540p'`, `'5_720p'`, `'5_1080p'`, `'8_360p'`,
-  `'8_540p'`, `'8_720p'`) — 7 fixed optional fields, same shape as
-  `SystemConfigBody.resolutions` (not a free-form `z.record`).
+```
+creditCost = ceil(qualityBase[quality] + duration * perSecondRate)
+```
+
+Managed in the existing admin **Settings → Credit Plans → Job Costs** page
+(`JobCostsTab.tsx`) as a new "Catalog Video Pricing" section, replacing
+today's single flat "Catalog Video" cost row:
+
+- 4 number inputs — one base credit cost per quality tier (`360p`, `540p`,
+  `720p`, `1080p`).
+- 1 number input — credits charged per second of duration, added on top of
+  the quality base.
+
+- New `config:system` Redis key: `pixverseVideoPricing`:
+  `{ perSecondRate: number, qualityBase: { '360p': number, '540p': number, '720p': number, '1080p': number } }`.
 - **Clean cutover**: the old flat `pixverse.creditCost` field, its
   `DEFAULT_PIXVERSE_CONFIG`, and `getPixverseCreditCost()` are removed
-  entirely — no fallback path. `DEFAULT_PIXVERSE_VIDEO_PRICING` seeds every
-  combo at today's flat cost (150) so nothing changes until an admin adjusts
-  a row. All video-generation credit cost configuration lives exclusively in
-  this admin page, matching every other job-cost knob in this repo.
-- `enabled: false` on a combo removes it from the choices offered in the
-  admin sample-video duration/quality pickers (SampleVideoUploadModal) — an
-  admin cannot build a template using a combo that isn't priced/allowed.
+  entirely — no fallback path. `DEFAULT_PIXVERSE_VIDEO_PRICING` seeds
+  `qualityBase` at today's flat cost (150) for every tier and `perSecondRate`
+  at `0`, so an existing 8s/720p template still prices at exactly 150 until
+  an admin tunes the formula. All video-generation credit cost configuration
+  lives exclusively in this admin page, matching every other job-cost knob
+  in this repo.
+- The formula itself — `computePixverseVideoCost(duration, quality, config)`
+  — lives once in `packages/types/src/jobs.ts` as a pure function, so the API
+  resolver and the admin-web live cost preview (see below) can't drift.
 - A new `getPixverseVideoCreditCost(app, duration, quality)` replaces
-  `getPixverseCreditCost(app)`, reading `cfg.pixverseVideoPricing[comboKey]`
-  and falling back to `PIXVERSE_VIDEO_COST` (150) if unset/malformed — same
+  `getPixverseCreditCost(app)`: reads `cfg.pixverseVideoPricing` (falling
+  back to `DEFAULT_PIXVERSE_VIDEO_PRICING` if unset/malformed — same
   try/catch-and-default pattern as every other resolver in
-  `resolution-config.ts`.
+  `resolution-config.ts`), then calls `computePixverseVideoCost`. Result is
+  floored at 1 credit.
 
 ## API changes
 
-- `packages/types/src/jobs.ts`: add `PIXVERSE_DURATIONS = [5, 8] as const`,
-  `PIXVERSE_QUALITIES = ['360p','540p','720p','1080p'] as const`,
-  `PIXVERSE_VIDEO_COMBOS` (the 7 valid `{duration, quality}` pairs), and a
-  `pixverseComboKey(duration, quality)` helper (`` `${duration}_${quality}` ``)
-  shared by both the API resolver and the admin UI so the key format has one
-  definition.
+- `packages/types/src/jobs.ts`:
+  - `PIXVERSE_DURATION_MIN = 1`, `PIXVERSE_DURATION_MAX = 15`.
+  - `PIXVERSE_QUALITIES = ['360p', '540p', '720p', '1080p'] as const`.
+  - `computePixverseVideoCost(duration, quality, config)` — the shared
+    formula above, exported so both API and admin-web use one
+    implementation.
 - `packages/types/src/admin.ts`:
-  - `ConfirmSampleVideoBody` gains `duration`/`quality` fields (required,
-    validated against the enums) with a `.refine` rejecting the 1080p+8
-    combo.
-  - `PatchSampleVideoBody` gains the same two fields, both optional (partial
-    update). Because a PATCH body may change only one of the two fields, the
-    cross-field 1080p+8 check can't live in the Zod schema alone — the route
-    handler merges the patch onto the existing row and re-validates the
-    resulting combo before writing, returning `400` on an invalid result.
+  - `ConfirmSampleVideoBody` gains `duration: z.number().int().min(1).max(15)`
+    and `quality: z.enum(PIXVERSE_QUALITIES)` (both required). No `.refine`
+    needed — every combo is valid.
+  - `PatchSampleVideoBody` gains the same two fields, both optional.
   - `SystemConfigBody.pixverse` is removed; replaced by
-    `pixverseVideoPricing` with the 7 fixed optional combo fields (each
-    `{enabled, creditCost}`, same shape as today's `ResolutionConfig`).
+    `pixverseVideoPricing: z.object({ perSecondRate: z.number().min(0).max(100), qualityBase: z.object({ '360p': ResolutionConfig-style number, ... }) }).optional()`.
 - `apps/api/src/modules/admin/models.routes.ts` (sample-video CRUD): pass
-  `duration`/`quality` through on create; merge-and-validate on patch as
-  above.
+  `duration`/`quality` through on create and patch — no merge-and-validate
+  step needed now that every combo is valid (simpler than the original
+  draft's cross-field check).
 - `apps/api/src/modules/models/routes.ts`
   (`GET /v1/models/sample-videos`, the Studio-facing list): currently
   returns one top-level `creditCost` for the whole list. Changes to a
@@ -130,17 +151,18 @@ rows, each with an `enabled` toggle and a `creditCost` input).
 
 ## Admin UI changes
 
-- `SampleVideoUploadModal.tsx`: add a duration selector (5s / 8s) and a
-  quality selector (360p/540p/720p/1080p), both filtered to only the
-  `enabled` combos from `GET /admin/config`. Picking 1080p auto-forces
-  duration to 5s and disables the 8s option (client-side mirror of the
-  server-side constraint — belt and suspenders, not a substitute for it).
-  `PatchSampleVideoBody` allows editing both fields on existing templates.
-- `SampleVideosTab.tsx`: show each card's duration/quality (e.g. "8s ·
-  720p") alongside the existing title/prompt.
+- `SampleVideoUploadModal.tsx`: replace the (nonexistent today) fixed
+  duration choice with a **numeric input, 1–15**, and a quality **dropdown**
+  (4 tiers). No cross-field filtering needed — every combo is valid for v6.
+  A live cost preview (using the same `computePixverseVideoCost` helper,
+  fed the current admin pricing config) shows the admin what this template
+  will cost as they type. `PatchSampleVideoBody` allows editing both fields
+  on existing templates.
+- `SampleVideosTab.tsx`: show each card's duration/quality (e.g. "12s ·
+  1080p") alongside the existing title/prompt.
 - `JobCostsTab.tsx`: new "Catalog Video Pricing" section replacing today's
-  single "Catalog Video" cost row — a 7-row table (one per valid combo),
-  structurally identical to the existing Resolution Pricing table above it.
+  single "Catalog Video" cost row — 4 quality-base inputs + 1 per-second-rate
+  input, per the formula above.
 
 ## Web UI changes (`CatalogVideoWizard.tsx`)
 
@@ -165,12 +187,14 @@ rows, each with an `enabled` toggle and a `creditCost` input).
 Existing integration coverage to extend, not replace:
 
 - `apps/api/test/integration/admin-sample-videos.test.ts` — create/patch
-  with duration/quality, invalid-combo rejection (both on create and on a
-  patch that produces an invalid combo).
+  with duration (1–15 boundary values) and quality, out-of-range rejection.
 - `apps/api/test/integration/sample-videos-public.test.ts` — per-item
-  `creditCost` in the list response.
+  `creditCost` in the list response, computed via the formula.
 - `apps/api/test/integration/catalog-video-create.test.ts` — job charged the
-  matrix cost for the specific sample video's combo, not the old flat cost.
+  formula-computed cost for the specific sample video's duration/quality,
+  not the old flat cost.
 - `apps/dispatcher/test/integration/catalog-video.test.ts` /
   `video-lane.test.ts` — PixVerse request body carries the job's
   duration/quality instead of hardcoded 8/720p.
+- New unit test for `computePixverseVideoCost` covering boundary values
+  (duration=1, duration=15, each quality tier) and rounding behavior.
