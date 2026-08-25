@@ -20,6 +20,7 @@ interface SampleVideoOption {
   title: string;
   thumbnailUrl: string;
   previewVideoUrl: string;
+  creditCost: number;
 }
 
 type CatalogueResponse = Array<{
@@ -371,7 +372,6 @@ export function CatalogVideoWizard({
   });
 
   const { data: sampleVideos, isLoading: sampleVideosLoading } = useQuery<{
-    creditCost: number;
     items: SampleVideoOption[];
   }>({
     queryKey: ['sample-videos'],
@@ -385,11 +385,7 @@ export function CatalogVideoWizard({
     enabled: step >= 2,
   });
 
-  const creditCost = sampleVideos?.creditCost;
   const balance = creditsData?.balance;
-  const insufficientCredits =
-    typeof creditCost === 'number' && typeof balance === 'number' && balance < creditCost;
-
   const imageOptions: CatalogueImageOption[] = (catalogues ?? []).flatMap((catalogue) =>
     catalogue.jobs
       .filter((job) => job.status === 'COMPLETED')
@@ -399,6 +395,9 @@ export function CatalogVideoWizard({
       })),
   );
   const selectedSample = sampleVideos?.items.find((option) => option.id === sampleVideoId);
+  const creditCost = selectedSample?.creditCost;
+  const insufficientCredits =
+    typeof creditCost === 'number' && typeof balance === 'number' && balance < creditCost;
 
   async function handleUpload(file: File) {
     if (uploading) return;
@@ -804,6 +803,16 @@ export function CatalogVideoWizard({
                             }}
                           >
                             {option.title}
+                          </span>
+                          <span
+                            style={{
+                              display: 'block',
+                              padding: '0 12px 10px',
+                              fontSize: 11,
+                              color: C.mid,
+                            }}
+                          >
+                            {option.creditCost} credits
                           </span>
                         </button>
                       );
