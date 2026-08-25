@@ -829,6 +829,11 @@ async function processVideoJob(
   const { db, redis, pub, storage, s3, r2Bucket } = cfg;
   const sourceImageKey = rawParams.sourceImageKey as string;
   const prompt = rawParams.prompt as string;
+  // Fallback to today's previous hardcoded values for job_inputs rows written
+  // before this field existed (or seeded directly in tests) — every job
+  // created via createCatalogVideoJob (Task 6) always sets both.
+  const duration = typeof rawParams.duration === 'number' ? rawParams.duration : 8;
+  const quality = typeof rawParams.quality === 'string' ? rawParams.quality : '720p';
 
   const env = loadEnv();
   // Fail fast rather than sending an empty key: PixVerse would 401, handleFailure
@@ -859,6 +864,8 @@ async function processVideoJob(
       env.PIXVERSE_API_KEY,
       imageUrl,
       prompt,
+      duration,
+      quality,
       jobLog,
     );
     await db.insert(schema.jobEvents).values({
