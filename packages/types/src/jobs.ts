@@ -116,6 +116,33 @@ export const SAREE_MANNEQUIN_DEV_COST = 10;
 /** Fallback default — the actual charged cost is admin-configurable, see getPixverseCreditCost(). */
 export const PIXVERSE_VIDEO_COST = 150;
 
+export const PIXVERSE_DURATION_MIN = 1;
+export const PIXVERSE_DURATION_MAX = 15;
+
+export const PIXVERSE_QUALITIES = ['360p', '540p', '720p', '1080p'] as const;
+export type PixverseQuality = (typeof PIXVERSE_QUALITIES)[number];
+
+export interface PixverseVideoPricingConfig {
+  /** Credits charged per second of video, on top of the quality base. */
+  perSecondRate: number;
+  /** Base credit cost per quality tier, before the per-second addition. */
+  qualityBase: Record<PixverseQuality, number>;
+}
+
+/**
+ * Single source of truth for catalog-video pricing — called by both the API
+ * cost resolver (getPixverseVideoCreditCost) and the admin cost-preview UI,
+ * so the two can never compute a different number for the same inputs.
+ */
+export function computePixverseVideoCost(
+  duration: number,
+  quality: PixverseQuality,
+  config: PixverseVideoPricingConfig,
+): number {
+  const raw = config.qualityBase[quality] + duration * config.perSecondRate;
+  return Math.max(1, Math.ceil(raw));
+}
+
 export const CreateSimpleTryonRequest = z.object({
   personKey: z.string().regex(INPUT_GARMENT_KEY),
   sourceJobId: z.string().uuid(),
