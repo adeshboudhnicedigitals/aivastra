@@ -54,7 +54,17 @@ export async function adminConfigRoutes(app: FastifyInstance) {
     cfg.maxQueueDepth = cfg.maxQueueDepth ?? DEFAULT_MAX_QUEUE_DEPTH;
     cfg.tryon = cfg.tryon ?? DEFAULT_TRYON_CONFIG;
     cfg.sareeMannequinDev = cfg.sareeMannequinDev ?? DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG;
-    cfg.pixverseVideoPricing = cfg.pixverseVideoPricing ?? DEFAULT_PIXVERSE_VIDEO_PRICING;
+    // qualityBase is a Zod `.partial()` on PATCH, so a stored config can be
+    // missing tiers — merge per-key (not `??`) so GET stays consistent with
+    // what getPixverseVideoCreditCost() actually resolves for a missing tier.
+    cfg.pixverseVideoPricing = {
+      perSecondRate:
+        cfg.pixverseVideoPricing?.perSecondRate ?? DEFAULT_PIXVERSE_VIDEO_PRICING.perSecondRate,
+      qualityBase: {
+        ...DEFAULT_PIXVERSE_VIDEO_PRICING.qualityBase,
+        ...cfg.pixverseVideoPricing?.qualityBase,
+      },
+    };
     cfg.shopify = {
       trialCredits: cfg.shopify?.trialCredits ?? DEFAULT_SHOPIFY_TRIAL_CONFIG.trialCredits,
       packCredits: Object.fromEntries(

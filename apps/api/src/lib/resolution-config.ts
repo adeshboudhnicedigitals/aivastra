@@ -133,6 +133,16 @@ export async function getSareeMannequinDevCreditCost(app: FastifyInstance): Prom
   }
 }
 
+/**
+ * Reads the admin-configured PixVerse duration/quality pricing formula from
+ * the same `config:system` Redis key. `SystemConfigBody.pixverseVideoPricing`
+ * lets an admin PATCH just one quality tier (`qualityBase` is a Zod
+ * `.partial()`), so a stored config can legitimately be missing tiers — merge
+ * per-key against DEFAULT_PIXVERSE_VIDEO_PRICING rather than trusting the
+ * stored object as complete. An existence check (`cfg.pixverseVideoPricing ??
+ * DEFAULT`) would let a partial `qualityBase` reach computePixverseVideoCost,
+ * which indexes it directly with no fallback — `undefined + number` is `NaN`.
+ */
 export async function getPixverseVideoCreditCost(
   app: FastifyInstance,
   duration: number,
@@ -141,8 +151,14 @@ export async function getPixverseVideoCreditCost(
   try {
     const raw = await app.redis.get(CONFIG_KEY);
     const cfg = raw ? JSON.parse(raw) : {};
-    const pricing: PixverseVideoPricingConfig =
-      cfg.pixverseVideoPricing ?? DEFAULT_PIXVERSE_VIDEO_PRICING;
+    const stored = cfg.pixverseVideoPricing as Partial<PixverseVideoPricingConfig> | undefined;
+    const pricing: PixverseVideoPricingConfig = {
+      perSecondRate:
+        typeof stored?.perSecondRate === 'number'
+          ? stored.perSecondRate
+          : DEFAULT_PIXVERSE_VIDEO_PRICING.perSecondRate,
+      qualityBase: { ...DEFAULT_PIXVERSE_VIDEO_PRICING.qualityBase, ...stored?.qualityBase },
+    };
     return computePixverseVideoCost(duration, quality, pricing);
   } catch {
     return computePixverseVideoCost(duration, quality, DEFAULT_PIXVERSE_VIDEO_PRICING);
