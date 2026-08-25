@@ -138,6 +138,15 @@ export function SampleVideosTab() {
                   >
                     {item.prompt}
                   </p>
+                  <p
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--muted)',
+                      margin: '2px 0 0',
+                    }}
+                  >
+                    {item.duration}s · {item.quality}
+                  </p>
                   <div
                     style={{
                       display: 'flex',
