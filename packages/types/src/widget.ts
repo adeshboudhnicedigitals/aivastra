@@ -443,7 +443,7 @@ export const ShopifyCustomerPresignRequest = z.object({
     .number()
     .int()
     .positive()
-    .max(15 * 1024 * 1024),
+    .max(25 * 1024 * 1024),
   clientId: z.string().uuid().optional(),
 });
 export type ShopifyCustomerPresignRequest = z.infer<typeof ShopifyCustomerPresignRequest>;
