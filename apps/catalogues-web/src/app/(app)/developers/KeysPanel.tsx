@@ -128,6 +128,7 @@ function RevealedKeyBox({ created, onDismiss }: { created: CreatedApiKey; onDism
 export function KeysPanel() {
   const qc = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
+  const [keyKind, setKeyKind] = useState<'wordpress_widget' | undefined>(undefined);
   const [label, setLabel] = useState('');
   // Holds the plaintext key ONLY between creation and dismissal. Never
   // persisted, never logged, cleared the moment the user dismisses it.
@@ -139,11 +140,13 @@ export function KeysPanel() {
   const merchantGated = isMerchantGateError(keysQuery.error);
 
   const createMutation = useMutation({
-    mutationFn: (l: string) => createApiKey(l),
+    mutationFn: (vars: { label: string; kind?: 'wordpress_widget' }) =>
+      createApiKey(vars.label, vars.kind),
     onSuccess: (created) => {
       setRevealedKey(created);
       setCreateOpen(false);
       setLabel('');
+      setKeyKind(undefined);
       void qc.invalidateQueries({ queryKey: ['dev-api-keys'] });
     },
   });
@@ -197,9 +200,40 @@ export function KeysPanel() {
           </p>
         </div>
         {!createOpen && (
-          <GradBtn onClick={() => setCreateOpen(true)}>
-            <Plus size={16} /> Create key
-          </GradBtn>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              type="button"
+              onClick={() => {
+                setKeyKind('wordpress_widget');
+                setCreateOpen(true);
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '0 14px',
+                height: 38,
+                borderRadius: 8,
+                border: `1px solid ${C.border2}`,
+                background: C.white,
+                color: C.text,
+                fontFamily: 'inherit',
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              <Plus size={15} /> Create WordPress Widget Key
+            </button>
+            <GradBtn
+              onClick={() => {
+                setKeyKind(undefined);
+                setCreateOpen(true);
+              }}
+            >
+              <Plus size={16} /> Create key
+            </GradBtn>
+          </div>
         )}
       </div>
 
@@ -224,13 +258,20 @@ export function KeysPanel() {
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <label htmlFor="new-key-label" style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
-              API Key Label
+              {keyKind === 'wordpress_widget' ? 'WordPress Widget Key Label' : 'API Key Label'}
             </label>
+            <p style={{ fontSize: 12, color: C.mid, margin: '0 0 4px' }}>
+              {keyKind === 'wordpress_widget'
+                ? 'Scoped specifically for the WordPress / WooCommerce plugin. Rate-limited for storefront usage.'
+                : 'Full-access API key for server-side integrations.'}
+            </p>
             <input
               id="new-key-label"
               value={label}
               onChange={(e) => setLabel(e.target.value)}
-              placeholder="e.g. production key"
+              placeholder={
+                keyKind === 'wordpress_widget' ? 'e.g. My WooCommerce Store' : 'e.g. production key'
+              }
               maxLength={64}
               style={{
                 height: 40,
@@ -265,6 +306,7 @@ export function KeysPanel() {
               onClick={() => {
                 setCreateOpen(false);
                 setLabel('');
+                setKeyKind(undefined);
                 createMutation.reset();
               }}
               disabled={createMutation.isPending}
@@ -285,11 +327,15 @@ export function KeysPanel() {
               Cancel
             </button>
             <GradBtn
-              onClick={() => createMutation.mutate(label.trim())}
+              onClick={() => createMutation.mutate({ label: label.trim(), kind: keyKind })}
               disabled={createMutation.isPending || !label.trim()}
               style={{ height: 38, fontSize: 13.5, padding: '0 18px' }}
             >
-              {createMutation.isPending ? 'Creating…' : 'Create Key'}
+              {createMutation.isPending
+                ? 'Creating…'
+                : keyKind === 'wordpress_widget'
+                  ? 'Create Widget Key'
+                  : 'Create Key'}
             </GradBtn>
           </div>
         </div>
@@ -323,11 +369,11 @@ export function KeysPanel() {
         </div>
       ) : (
         <div style={{ overflowX: 'auto', width: '100%', borderRadius: 8 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 540 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 600 }}>
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: '1.2fr 1fr 1.1fr 1.1fr 0.6fr',
+                gridTemplateColumns: '1.2fr 1fr 1fr 1.1fr 1.1fr 0.6fr',
                 padding: '10px 14px',
                 borderBottom: `1px solid ${C.border}`,
                 fontSize: 12,
@@ -339,6 +385,7 @@ export function KeysPanel() {
             >
               <span>Label</span>
               <span>Key</span>
+              <span>Type</span>
               <span>Created</span>
               <span>Last used</span>
               <span />
@@ -348,7 +395,7 @@ export function KeysPanel() {
                 key={k.id}
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '1.2fr 1fr 1.1fr 1.1fr 0.6fr',
+                  gridTemplateColumns: '1.2fr 1fr 1fr 1.1fr 1.1fr 0.6fr',
                   padding: '12px 14px',
                   borderBottom: `1px solid ${C.border}`,
                   alignItems: 'center',
@@ -380,6 +427,39 @@ export function KeysPanel() {
                   }}
                 >
                   {k.keyPrefix}…
+                </span>
+                <span>
+                  {k.scope === 'widget' || k.integration === 'wordpress' ? (
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        fontSize: 11.5,
+                        fontWeight: 600,
+                        padding: '2px 8px',
+                        borderRadius: 6,
+                        background: 'rgba(99, 102, 241, 0.1)',
+                        color: '#6366f1',
+                      }}
+                    >
+                      WP Widget
+                    </span>
+                  ) : (
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        fontSize: 11.5,
+                        fontWeight: 600,
+                        padding: '2px 8px',
+                        borderRadius: 6,
+                        background: 'rgba(100, 116, 139, 0.1)',
+                        color: C.mid,
+                      }}
+                    >
+                      Full Access
+                    </span>
+                  )}
                 </span>
                 <span
                   style={{

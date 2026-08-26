@@ -12,8 +12,11 @@ export function listApiKeys(): Promise<ApiKeyListResponse> {
   return api.get<ApiKeyListResponse>('/v1/merchant/api-keys');
 }
 
-export function createApiKey(label: string): Promise<ApiKeyCreateResponse> {
-  return api.post<ApiKeyCreateResponse>('/v1/merchant/api-keys', { label });
+export function createApiKey(
+  label: string,
+  kind?: 'wordpress_widget',
+): Promise<ApiKeyCreateResponse> {
+  return api.post<ApiKeyCreateResponse>('/v1/merchant/api-keys', { label, kind });
 }
 
 export function revokeApiKey(id: string): Promise<void> {
