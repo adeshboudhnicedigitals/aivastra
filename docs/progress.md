@@ -1,7 +1,7 @@
 ## 2026-08-26 — Workflow Template Replace with Drain & Version Snapshots
 
 **Done**
-- **Schema & Migration (`0174_nervous_shen.sql`)**:
+- **Schema & Migration (`0175_nervous_shen.sql`, renumbered from `0174` after `origin/dev` independently claimed `0174_foamy_tyger_tiger` — see `docs/version-control.md`'s Migration Index Conflicts rule)**:
   - Added `version` integer column (default 1) to `workflow_templates`.
   - Added `workflow_template_archives` table mirroring all workflow template fields, keyed by `(workflow_template_id, version)` with unique constraint on `workflow_template_id` (at most 1 active draining version per workflow).
 - **Dispatcher Versioned Resolution & Patcher**:
