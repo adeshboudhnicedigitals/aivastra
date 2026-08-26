@@ -179,9 +179,9 @@
   border-top: 1px solid rgba(17, 24, 39, 0.08);
 }
 
-/* History view: a 2-up scrollable gallery instead of the single-column
-   merged feed, with no per-card actions (browsing past results isn't the
-   purchase moment the fresh result is). */
+/* History view: a 2-up scrollable gallery, no per-card actions (browsing
+   past results isn't the purchase moment the fresh result is). The result
+   step otherwise never uses this grid — it always shows exactly one card. */
 .aivastra-tryon__result-list--grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -518,6 +518,10 @@
   }
 }
 
+.aivastra-tryon__result-image-wrap {
+  position: relative;
+}
+
 .aivastra-tryon__result-image {
   width: 100%;
   height: auto;
@@ -525,6 +529,86 @@
   object-fit: contain;
   background: #f2f2f2;
   border-radius: 5px;
+}
+
+.aivastra-tryon__expand {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.aivastra-tryon__expand:hover {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+/* History grid tiles already open a full-size view on tap (see
+   openHistoryDetail in tryon-widget.js) — a second expand affordance on
+   the same tile would just be visual clutter. */
+.aivastra-tryon__result-card--compact .aivastra-tryon__expand {
+  display: none;
+}
+
+.aivastra-tryon__lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.9);
+  padding: 24px;
+}
+
+.aivastra-tryon__lightbox[hidden] {
+  display: none;
+}
+
+/* width/height: auto (not left unset) overrides the tag's placeholder 1x1
+   attributes (present only to satisfy theme-check's img-width-height rule)
+   so the browser sizes from the loaded image's real dimensions instead of
+   rendering an invisible 1px dot — same root cause as
+   .aivastra-tryon__ready-image above, different fix: that one fills a
+   fixed-aspect-ratio parent, but here width/height 100% would stretch the
+   img's own box (and therefore its click target) to the full lightbox,
+   leaving no backdrop area outside the visible photo to click-to-close. */
+.aivastra-tryon__lightbox-image {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 8px;
+}
+
+.aivastra-tryon__lightbox-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.aivastra-tryon__lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .aivastra-tryon__promo {
