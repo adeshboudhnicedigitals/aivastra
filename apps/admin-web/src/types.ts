@@ -87,6 +87,7 @@ export interface WorkflowOption {
   poseCount: number;
   defaultFacePhasePrompt: string;
   defaultGarmentPhasePrompt: string;
+  regenerationReasonPrompts: { reason: string; prompt: string }[];
   facePhasePromptNode: string | null;
   // two_stage only — stage 1's own prompt pair (stage 2's reuses the fields above)
   stage1PositivePromptNode: string | null;
@@ -287,6 +288,8 @@ export interface Job {
   jobType?: string;
   outputUrl?: string;
   userHint?: string;
+  /** Non-null = this job was created by the regenerate flow, not a fresh submission. */
+  parentJobId?: string | null;
 }
 
 export type WorkerStatus = 'IDLE' | 'BUSY' | 'DRAINING' | 'OFFLINE';

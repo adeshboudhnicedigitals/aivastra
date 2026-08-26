@@ -71,12 +71,21 @@ export const jobs = pgTable(
     // comfy_request_duration_seconds Prometheus histogram; kept in Postgres too so
     // the admin dashboard doesn't need a Grafana Cloud round-trip to render it.
     comfyDurationMs: integer('comfy_duration_ms'),
+    // Manual QA flag set from the /results webtool (apps/api/src/modules/results/routes.ts)
+    // to mark a job for later review. flagReason is one of the fixed categories validated
+    // there; flagNote is an optional free-text detail. Cleared (all four null/false) on unflag.
+    flagged: boolean('flagged').notNull().default(false),
+    flagReason: text('flag_reason'),
+    flagNote: text('flag_note'),
+    flaggedAt: timestamp('flagged_at', { withTimezone: true }),
+    flaggedBy: uuid('flagged_by').references(() => users.id, { onDelete: 'set null' }),
   },
   (t) => ({
     // Every Shopify analytics query filters on exactly this pair. Without it
     // each one degrades to a sequential scan of every job in the system.
     byShopifyStoreTime: index('jobs_shopify_store_created_idx').on(t.shopifyStoreId, t.createdAt),
     byBatch: index('jobs_batch_idx').on(t.batchId),
+    byFlagged: index('jobs_flagged_idx').on(t.flagged),
     // GET /v1/merchant/tryon/history groups by (merchant_id, day) — without
     // this, that query sequential-scans the whole jobs table as it grows.
     byMerchant: index('jobs_merchant_created_idx').on(t.merchantId, t.createdAt),
@@ -112,6 +121,11 @@ export const jobOutputs = pgTable('job_outputs', {
   assetKind: text('asset_kind').notNull().default('ORIGINAL'),
   // The WatermarkService version used; null when assetKind='ORIGINAL'.
   watermarkVersion: smallint('watermark_version'),
+  // Stamped the first time this result is actually downloaded (GET /v1/jobs/:id/result
+  // when called from a real download action, not just viewing/zooming) — gates the
+  // "regenerate" option, which is disabled once a result has been downloaded. Null =
+  // never downloaded. Never cleared once set.
+  downloadedAt: timestamp('downloaded_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
