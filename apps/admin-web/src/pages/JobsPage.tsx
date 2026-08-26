@@ -843,7 +843,9 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                   Permanently delete{' '}
                   <strong>
                     {Array.from(deleteAssetsTargets)
-                      .map((t) => (t === 'result' ? 'the result image' : "the person's uploaded photo"))
+                      .map((t) =>
+                        t === 'result' ? 'the result image' : "the person's uploaded photo",
+                      )
                       .join(' and ')}
                   </strong>{' '}
                   for this job. Cannot be undone. The job record and its configuration are not

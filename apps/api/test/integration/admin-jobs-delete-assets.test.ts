@@ -122,7 +122,10 @@ describe('POST /admin/jobs/:id/delete-assets', () => {
     expect(output?.resultKey).toBeNull();
     expect(output?.thumbnailKey).toBeNull();
 
-    const [refreshedJob] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, job.id));
+    const [refreshedJob] = await app.db
+      .select()
+      .from(schema.jobs)
+      .where(eq(schema.jobs.id, job.id));
     expect(refreshedJob?.customerPhotoKey).toBe(customerPhotoKey);
     expect(refreshedJob?.status).toBe('COMPLETED');
 
@@ -149,7 +152,10 @@ describe('POST /admin/jobs/:id/delete-assets', () => {
     expect(res.json()).toEqual({ ok: true, deleted: ['person'] });
 
     await expect(app.storage.headObject(customerPhotoKey)).rejects.toThrow();
-    const [refreshedJob] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, job.id));
+    const [refreshedJob] = await app.db
+      .select()
+      .from(schema.jobs)
+      .where(eq(schema.jobs.id, job.id));
     expect(refreshedJob?.customerPhotoKey).toBeNull();
   });
 
