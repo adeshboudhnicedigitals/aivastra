@@ -24,6 +24,9 @@
     const button = root.querySelector('.aivastra-tryon__button');
     const modal = root.querySelector('.aivastra-tryon__modal');
     const closeBtn = root.querySelector('.aivastra-tryon__close');
+    const lightbox = root.querySelector('.aivastra-tryon__lightbox');
+    const lightboxImage = root.querySelector('.aivastra-tryon__lightbox-image');
+    const lightboxCloseBtn = root.querySelector('.aivastra-tryon__lightbox-close');
     const fileInput = root.querySelector('.aivastra-tryon__file-input');
     const avatarImage = root.querySelector('.aivastra-tryon__avatar-image');
     const steps = {
@@ -45,6 +48,21 @@
       : [];
     let progressLineTimer = null;
     let progressLineIndex = 0;
+    const progressCanvas = root.querySelector('.aivastra-tryon__progress-canvas');
+
+    // Shows the shopper's own uploaded photo faintly behind the spinner
+    // while generating, via a CSS custom property rather than an <img> tag
+    // — a background-image avoids the "1x1 placeholder attribute" trap
+    // that bit .aivastra-tryon__lightbox-image, and paints below the
+    // canvas's own content by default with no z-index bookkeeping needed.
+    function setProgressBackground(url) {
+      if (!progressCanvas) return;
+      if (url) {
+        progressCanvas.style.setProperty('--aivastra-progress-bg-url', `url("${url}")`);
+      } else {
+        progressCanvas.style.removeProperty('--aivastra-progress-bg-url');
+      }
+    }
     const resultList = root.querySelector('.aivastra-tryon__result-list');
     const resultEmpty = root.querySelector('.aivastra-tryon__result-empty');
     const resultCardTemplate = root.querySelector('.aivastra-tryon__result-card-template');
@@ -67,7 +85,13 @@
     const historyBtn = root.querySelector('.aivastra-tryon__history-btn');
     const historyBadge = root.querySelector('.aivastra-tryon__history-badge');
     const HISTORY_STORAGE_KEY = 'aivastra_tryon_history';
-    const HISTORY_MAX_ITEMS = 12;
+
+    // Where backBtn should land while the result step is showing: 'flow'
+    // (the normal case — post-generation feed or the History grid itself)
+    // returns to the upload/ready flow via startOver(); 'history' means the
+    // shopper drilled into a single tile from the History grid, so back
+    // should pop one level to the grid instead of leaving history entirely.
+    let resultBackTarget = 'flow';
 
     const CLIENT_ID_STORAGE_KEY = 'aivastra_client_id';
 
@@ -245,18 +269,14 @@
       for (let i = 0; i < progressLines.length; i++) {
         progressLines[i].classList.toggle('is-active', i === 0);
       }
-      // Advances once per tick and stops on the last line rather than looping —
-      // a job can take longer than the full rotation, and holding on "Almost
-      // there…" reads better than cycling back to "Creating your try-on…".
+      // Loops continuously instead of stopping on the last line — a job can
+      // take longer than one pass through the copy, and cycling back reads
+      // better than sitting frozen on "Almost there…" for the remainder.
       progressLineTimer = setInterval(() => {
-        if (progressLineIndex >= progressLines.length - 1) {
-          stopProgressRotator();
-          return;
-        }
         progressLines[progressLineIndex].classList.remove('is-active');
-        progressLineIndex += 1;
+        progressLineIndex = (progressLineIndex + 1) % progressLines.length;
         progressLines[progressLineIndex].classList.add('is-active');
-      }, 2400);
+      }, 3200);
     }
 
     function stopProgressRotator() {
@@ -334,13 +354,29 @@
         productTitle,
         productUrl,
       };
-      const history = [entry, ...getHistory()].slice(0, HISTORY_MAX_ITEMS);
+      const history = [entry, ...getHistory()];
       try {
         localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history));
       } catch (_err) {
         /* private-browsing / storage-full — history just won't persist */
       }
       syncHeaderButton();
+    }
+
+    // Fixed-position and a sibling of .aivastra-tryon__modal (not nested
+    // inside it) so it covers the full viewport rather than being clipped
+    // to the modal's fixed 400x700 box — a "full page" view, not a bigger
+    // card.
+    function openLightbox(url) {
+      if (!lightbox || !lightboxImage || !url) return;
+      lightboxImage.src = url;
+      lightbox.hidden = false;
+    }
+
+    function closeLightbox() {
+      if (!lightbox) return;
+      lightbox.hidden = true;
+      if (lightboxImage) lightboxImage.src = '';
     }
 
     // navigator.share is absent on desktop Firefox and older Safari. The
@@ -472,10 +508,9 @@
       }
     }
 
-    // One full-size card per stored result — the just-generated one lands on
-    // top because addToHistory() unshifts it. Every card is a fresh clone of
-    // the Liquid <template>, so each has its own Add to Cart / Share state;
-    // nothing needs resetting between renders.
+    // Builds one result card, cloned fresh from the Liquid <template> each
+    // time so its Add to Cart / Share state never needs resetting between
+    // renders.
     //
     // actions=false is the History grid view: browsing past results isn't a
     // purchase moment the way the just-generated result is, so the actions
@@ -489,18 +524,37 @@
       img.src = entry.resultUrl;
       // Belt-and-braces: resolveHistoryEntry() already re-signs before this
       // card is built, so this only fires on a genuinely dead object (or a
-      // legacy entry with no jobId to re-sign from). Re-renders in whatever
-      // view (grid or not) is currently showing.
+      // legacy entry with no jobId to re-sign from). The History grid has a
+      // list to refresh; the single-result view (fresh generation or a
+      // tapped tile) has only this one card, so it just falls back to the
+      // empty state instead.
       img.addEventListener('error', () => {
         removeHistoryEntry(entry);
-        renderResultList({
-          grid: resultList ? resultList.classList.contains(RESULT_LIST_GRID_CLASS) : false,
-        });
+        if (resultList?.classList.contains(RESULT_LIST_GRID_CLASS)) {
+          renderResultList();
+        } else if (resultList) {
+          resultList.innerHTML = '';
+          if (resultEmpty) resultEmpty.hidden = false;
+        }
       });
 
       if (!actions) {
         card.classList.add('aivastra-tryon__result-card--compact');
+        card.setAttribute('role', 'button');
+        card.setAttribute('tabindex', '0');
+        card.addEventListener('click', () => openHistoryDetail(entry));
+        card.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            openHistoryDetail(entry);
+          }
+        });
         return card;
+      }
+
+      const expandBtn = card.querySelector('.aivastra-tryon__expand');
+      if (expandBtn) {
+        expandBtn.addEventListener('click', () => openLightbox(entry.resultUrl));
       }
 
       const addToCartBtn = card.querySelector('.aivastra-tryon__add-to-cart');
@@ -523,21 +577,55 @@
 
     const RESULT_LIST_GRID_CLASS = 'aivastra-tryon__result-list--grid';
 
-    // grid=true is the History button's view: a 2-up, no-actions gallery of
-    // everything the shopper has generated. grid=false (default) is the
-    // single-column merged feed shown right after a fresh generation, actions
-    // included — unchanged from before History got its own layout.
-    async function renderResultList({ grid = false } = {}) {
+    // The History button's view: a 2-up, no-actions gallery of everything
+    // the shopper has generated. The result step otherwise only ever shows
+    // a single card (see renderSingleResult) — this is the one place the
+    // full history list renders at once.
+    async function renderResultList() {
       const history = getHistory();
       syncHeaderButton();
       if (!resultList) return;
-      resultList.classList.toggle(RESULT_LIST_GRID_CLASS, grid);
+      resultList.classList.add(RESULT_LIST_GRID_CLASS);
       resultList.innerHTML = '';
       const resolved = (await Promise.all(history.map(resolveHistoryEntry))).filter(Boolean);
       if (resultEmpty) resultEmpty.hidden = resolved.length > 0;
       for (let i = 0; i < resolved.length; i++) {
-        resultList.appendChild(buildResultCard(resolved[i], { actions: !grid }));
+        resultList.appendChild(buildResultCard(resolved[i], { actions: false }));
       }
+    }
+
+    // The result step's normal state: exactly one card, full-size, with Add
+    // to Cart / Share — used both right after a fresh generation and when a
+    // History tile is tapped. Never the merged multi-result feed the result
+    // step used to show; that's what the History grid is for now.
+    function renderSingleResult(entry) {
+      if (!resultList) return;
+      resultList.classList.remove(RESULT_LIST_GRID_CLASS);
+      resultList.innerHTML = '';
+      resultList.appendChild(buildResultCard(entry, { actions: true }));
+      if (resultEmpty) resultEmpty.hidden = true;
+    }
+
+    // Tapping a History tile opens that one result full-size, same layout
+    // (single column, Add to Cart / Share) as the just-generated result —
+    // browsing history shouldn't be a dead end without a purchase path.
+    function openHistoryDetail(entry) {
+      resultBackTarget = 'history';
+      renderSingleResult(entry);
+      showStep('result');
+    }
+
+    // backBtn's behavior depends on how the shopper got to the result step:
+    // popping one level back to the History grid when they drilled into a
+    // tile, otherwise leaving the result feed entirely for the main flow.
+    async function handleBack() {
+      if (resultBackTarget === 'history') {
+        resultBackTarget = 'flow';
+        await renderResultList();
+        showStep('result');
+        return;
+      }
+      startOver();
     }
 
     function resetReadyPreview() {
@@ -766,7 +854,8 @@
         }
         const resultUrl = await waitForResult(jobResult.jobId);
         addToHistory(resultUrl, jobResult.jobId);
-        await renderResultList();
+        resultBackTarget = 'flow';
+        renderSingleResult({ resultUrl, jobId: jobResult.jobId });
         showStep('result');
         trackEvent('result_view');
       } catch (err) {
@@ -807,6 +896,10 @@
       const reuseKey = pendingReuseKey;
       pendingFile = null;
       pendingReuseKey = null;
+      // readyImage.src is already the current photo (blob URL for a fresh
+      // upload, presigned preview URL for a reuse) regardless of which
+      // branch below runs, so grab it once before either path proceeds.
+      setProgressBackground(readyImage ? readyImage.src : null);
       if (file) {
         showStep('progress');
         try {
@@ -830,12 +923,25 @@
 
     button.addEventListener('click', openModal);
     closeBtn.addEventListener('click', closeModal);
-    if (backBtn) backBtn.addEventListener('click', startOver);
+    if (lightboxCloseBtn) lightboxCloseBtn.addEventListener('click', closeLightbox);
+    if (lightbox) {
+      // Tapping the dark backdrop closes it; tapping the image itself
+      // (or the close button) must not, so only a direct hit on the
+      // lightbox element itself counts.
+      lightbox.addEventListener('click', (e) => {
+        if (e.target === lightbox) closeLightbox();
+      });
+    }
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && lightbox && !lightbox.hidden) closeLightbox();
+    });
+    if (backBtn) backBtn.addEventListener('click', handleBack);
     if (ctaBtn) ctaBtn.addEventListener('click', confirmReady);
     if (changePhotoBtn) changePhotoBtn.addEventListener('click', () => fileInput.click());
     if (historyBtn) {
       historyBtn.addEventListener('click', async () => {
-        await renderResultList({ grid: true });
+        resultBackTarget = 'flow';
+        await renderResultList();
         showStep('result');
       });
     }
