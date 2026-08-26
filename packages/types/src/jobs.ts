@@ -121,6 +121,17 @@ export const CreateSimpleTryonRequest = z.object({
   sourceJobId: z.string().uuid(),
 });
 
+/** A reason is mandatory before a regenerate request fires — see regenerateJob. */
+export const RegenerateJobRequest = z.object({
+  reason: z.string().min(1).max(300),
+});
+
+/** Reason labels configured for the job's resolved workflow template, plus a
+ *  fixed trailing "Other" the client always offers — see getRegenerateReasons. */
+export const RegenerateReasonsResponse = z.object({
+  reasons: z.array(z.string()),
+});
+
 export const CreateCatalogVideoJobRequest = z
   .object({
     // Exactly one of sourceJobId (an existing completed AI Vastra job) or

@@ -173,6 +173,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       poseCount: countMap[r.id] ?? 0,
       defaultFacePhasePrompt: r.defaultFacePhasePrompt,
       defaultGarmentPhasePrompt: r.defaultGarmentPhasePrompt,
+      regenerationReasonPrompts: r.regenerationReasonPrompts,
       facePhasePromptNode: r.facePhasePromptNode,
       ksamplerNodes: extractKSamplerNodes(r.jsonContent as Record<string, unknown>),
       lowerNodeId: r.lowerNodeId,
@@ -816,6 +817,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         garmentPhasePromptNode?: string;
         garmentPhasePrompt?: string;
         facePhasePrompt?: string;
+        regenerationReasonPrompts?: { reason: string; prompt: string }[];
         ksamplerOverrides?: {
           nodeId: string;
           steps?: number;
@@ -1061,6 +1063,14 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         updateValues.tryonGarmentNodeId2 = body.tryonGarmentNodeId2 ?? null;
       if ('tryonOutputNodeId' in body)
         updateValues.tryonOutputNodeId = body.tryonOutputNodeId ?? null;
+      if (body.regenerationReasonPrompts !== undefined) {
+        // Trim + drop rows with a blank reason or prompt here rather than trusting
+        // the client's array verbatim — an admin backspacing a row to empty
+        // shouldn't leave a pair regenerate could later match against or offer.
+        updateValues.regenerationReasonPrompts = body.regenerationReasonPrompts
+          .map((p) => ({ reason: p.reason.trim(), prompt: p.prompt.trim() }))
+          .filter((p) => p.reason.length > 0 && p.prompt.length > 0);
+      }
 
       await app.db.transaction(async (tx) => {
         const [locked] = await tx

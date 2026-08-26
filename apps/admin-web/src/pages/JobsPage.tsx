@@ -46,6 +46,7 @@ interface JobDetail extends Job {
   events?: JobEvent[];
   inputImages?: InputImages;
   workflowLabel?: string | null;
+  regenerateReason?: string | null;
 }
 
 function EventRow({ ev }: { ev: JobEvent }) {
@@ -608,6 +609,25 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
               <KV k="Duration" v={fmtDuration(j) ?? '—'} />
               {j.attempts != null && <KV k="Attempts" v={String(j.attempts)} />}
               {j.errorCode && <KV k="Error code" v={j.errorCode} />}
+              <KV
+                k="Origin"
+                v={
+                  j.parentJobId ? (
+                    <span style={{ color: 'var(--warn, #b8860b)', fontWeight: 600 }}>
+                      Regenerated
+                    </span>
+                  ) : (
+                    'Original generation'
+                  )
+                }
+              />
+              {j.parentJobId && (
+                <KV
+                  k="Regenerated from"
+                  v={<code style={{ fontSize: 12 }}>{j.parentJobId}</code>}
+                />
+              )}
+              {j.parentJobId && <KV k="Regenerate reason" v={j.regenerateReason ?? '—'} />}
             </div>
 
             {j.outputUrl && (
@@ -1496,7 +1516,18 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                       <span className="semi">{j.userEmail ?? '—'}</span>
                     </td>
                     <td>
-                      <JobTypeBadge jobType={j.jobType} />
+                      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                        <JobTypeBadge jobType={j.jobType} />
+                        {j.parentJobId && (
+                          <span
+                            className="badge"
+                            title="Created by regenerating another job"
+                            style={{ fontSize: 10, color: 'var(--warn, #b8860b)' }}
+                          >
+                            Regen
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td>
                       <StatusBadge status={j.status} />
@@ -1703,6 +1734,20 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                           <span style={{ color: 'var(--muted)' }}>Job Type</span>
                           <JobTypeBadge jobType={j.jobType} />
                         </div>
+                        {j.parentJobId && (
+                          <div
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <span style={{ color: 'var(--muted)' }}>Origin</span>
+                            <span style={{ color: 'var(--warn, #b8860b)', fontWeight: 600 }}>
+                              Regenerated
+                            </span>
+                          </div>
+                        )}
                         <div
                           style={{
                             display: 'flex',

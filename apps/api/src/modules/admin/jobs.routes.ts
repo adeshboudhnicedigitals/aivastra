@@ -155,6 +155,9 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         createdAt: schema.jobs.createdAt,
         startedAt: schema.jobs.startedAt,
         completedAt: schema.jobs.completedAt,
+        // Non-null = this job was created by the regenerate flow, not a fresh
+        // submission — surfaced in the table as a "Regenerated" badge.
+        parentJobId: schema.jobs.parentJobId,
         faceLabel: schema.modelFaces.label,
         faceThumbnailKey: schema.modelFaces.thumbnailKey,
         backgroundLabel: schema.modelBackgrounds.label,
@@ -224,6 +227,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
           createdAt: schema.jobs.createdAt,
           startedAt: schema.jobs.startedAt,
           completedAt: schema.jobs.completedAt,
+          parentJobId: schema.jobs.parentJobId,
           faceLabel: schema.modelFaces.label,
           backgroundLabel: schema.modelBackgrounds.label,
           poseLabel: schema.modelPoseAssets.displayName,
@@ -286,6 +290,15 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         .orderBy(desc(schema.jobEvents.createdAt))
         .limit(50);
 
+      // Pulled out to a top-level field so the admin UI doesn't need to parse
+      // the raw event log just to show why this regeneration happened.
+      const regenerateReason =
+        (
+          events.find((e) => e.eventType === 'REGENERATE_REASON')?.payload as
+            | { reason?: string }
+            | undefined
+        )?.reason ?? null;
+
       const pu = async (key: string | null | undefined) =>
         key ? (await app.storage.presignGet(key, 3600)).url : undefined;
 
@@ -333,6 +346,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         jobParams: undefined,
         customerPhotoKey: undefined,
         workflowLabel,
+        regenerateReason,
         defaultWorkflowLabel: undefined,
         overrideWorkflowLabel: undefined,
         inputImages: {
