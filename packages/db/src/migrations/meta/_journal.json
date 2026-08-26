@@ -1212,6 +1212,13 @@
       "when": 1787641933752,
       "tag": "0172_abandoned_nova",
       "breakpoints": true
+    },
+    {
+      "idx": 173,
+      "version": "7",
+      "when": 1787658649756,
+      "tag": "0173_sudden_sasquatch",
+      "breakpoints": true
     }
   ]
 }

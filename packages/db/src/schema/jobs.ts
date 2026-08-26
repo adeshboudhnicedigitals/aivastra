@@ -71,12 +71,21 @@ export const jobs = pgTable(
     // comfy_request_duration_seconds Prometheus histogram; kept in Postgres too so
     // the admin dashboard doesn't need a Grafana Cloud round-trip to render it.
     comfyDurationMs: integer('comfy_duration_ms'),
+    // Manual QA flag set from the /results webtool (apps/api/src/modules/results/routes.ts)
+    // to mark a job for later review. flagReason is one of the fixed categories validated
+    // there; flagNote is an optional free-text detail. Cleared (all four null/false) on unflag.
+    flagged: boolean('flagged').notNull().default(false),
+    flagReason: text('flag_reason'),
+    flagNote: text('flag_note'),
+    flaggedAt: timestamp('flagged_at', { withTimezone: true }),
+    flaggedBy: uuid('flagged_by').references(() => users.id, { onDelete: 'set null' }),
   },
   (t) => ({
     // Every Shopify analytics query filters on exactly this pair. Without it
     // each one degrades to a sequential scan of every job in the system.
     byShopifyStoreTime: index('jobs_shopify_store_created_idx').on(t.shopifyStoreId, t.createdAt),
     byBatch: index('jobs_batch_idx').on(t.batchId),
+    byFlagged: index('jobs_flagged_idx').on(t.flagged),
   }),
 );
 
