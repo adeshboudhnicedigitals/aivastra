@@ -11,7 +11,7 @@ if (!defined('ABSPATH')) {
  * at connect time (see Aivastra_Connection_Service) and discarded, never
  * persisted. See docs/wordpress-plugin-design.md §4.3.
  */
-final class Aivastra_Connection_Settings
+class Aivastra_Connection_Settings
 {
     private const OPTION_KEY = 'aivastra_tryon_settings';
 

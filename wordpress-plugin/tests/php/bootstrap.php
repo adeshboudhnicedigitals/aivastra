@@ -10,3 +10,10 @@ if (!defined('ABSPATH')) {
 }
 
 require_once __DIR__ . '/../../vendor/autoload.php';
+
+if (!class_exists('WP_Error')) {
+    final class WP_Error
+    {
+        public function __construct(public string $code = '') {}
+    }
+}
