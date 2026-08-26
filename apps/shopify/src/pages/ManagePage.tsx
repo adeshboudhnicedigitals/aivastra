@@ -63,6 +63,9 @@ interface ActivationSummary {
     individuallyEnabledProducts: number;
     excludedProducts: number;
     failedToSync: number;
+    // null when the live Shopify lookup this needs failed (rate limit,
+    // reauth needed, etc.) — the rest of the page still works without it.
+    notSynced: number | null;
   };
 }
 
@@ -738,7 +741,22 @@ export default function ManagePage() {
           </BlockStack>
         </Card>
 
-        <InlineGrid columns={{ xs: 1, sm: 5 }} gap="400">
+        <InlineGrid columns={{ xs: 1, sm: 6 }} gap="400">
+          <Card>
+            <BlockStack gap="200">
+              <Text as="p" tone="subdued">
+                Not Synced
+              </Text>
+              <Text as="p" variant="heading2xl">
+                {summary.counts.notSynced ?? '—'}
+              </Text>
+              {summary.counts.notSynced !== null && summary.counts.notSynced > 0 && (
+                <Text as="p" tone="subdued">
+                  Run Sync products on the Dashboard to import them.
+                </Text>
+              )}
+            </BlockStack>
+          </Card>
           <Card>
             <BlockStack gap="200">
               <Text as="p" tone="subdued">

@@ -1,5 +1,5 @@
 (() => {
-  const MAX_PHOTO_BYTES = 15 * 1024 * 1024;
+  const MAX_PHOTO_BYTES = 25 * 1024 * 1024;
   const SSE_MAX_WAIT_MS = 6 * 60 * 1000;
   const SSE_RECONNECT_DELAY_MS = 1000;
 
@@ -24,6 +24,9 @@
     const button = root.querySelector('.aivastra-tryon__button');
     const modal = root.querySelector('.aivastra-tryon__modal');
     const closeBtn = root.querySelector('.aivastra-tryon__close');
+    const lightbox = root.querySelector('.aivastra-tryon__lightbox');
+    const lightboxImage = root.querySelector('.aivastra-tryon__lightbox-image');
+    const lightboxCloseBtn = root.querySelector('.aivastra-tryon__lightbox-close');
     const fileInput = root.querySelector('.aivastra-tryon__file-input');
     const avatarImage = root.querySelector('.aivastra-tryon__avatar-image');
     const steps = {
@@ -35,6 +38,31 @@
       error: root.querySelector('.aivastra-tryon__step--error'),
       email: root.querySelector('.aivastra-tryon__step--email'),
     };
+
+    // Rotates through the generating-page copy while a job is in flight.
+    // Empty when the merchant set a custom generatingText — tryon-button.liquid
+    // renders a single static line in that case instead of this list, so their
+    // customization isn't silently overridden.
+    const progressLines = steps.progress
+      ? steps.progress.querySelectorAll('.aivastra-tryon__progress-line')
+      : [];
+    let progressLineTimer = null;
+    let progressLineIndex = 0;
+    const progressCanvas = root.querySelector('.aivastra-tryon__progress-canvas');
+
+    // Shows the shopper's own uploaded photo faintly behind the spinner
+    // while generating, via a CSS custom property rather than an <img> tag
+    // — a background-image avoids the "1x1 placeholder attribute" trap
+    // that bit .aivastra-tryon__lightbox-image, and paints below the
+    // canvas's own content by default with no z-index bookkeeping needed.
+    function setProgressBackground(url) {
+      if (!progressCanvas) return;
+      if (url) {
+        progressCanvas.style.setProperty('--aivastra-progress-bg-url', `url("${url}")`);
+      } else {
+        progressCanvas.style.removeProperty('--aivastra-progress-bg-url');
+      }
+    }
     const resultList = root.querySelector('.aivastra-tryon__result-list');
     const resultEmpty = root.querySelector('.aivastra-tryon__result-empty');
     const resultCardTemplate = root.querySelector('.aivastra-tryon__result-card-template');
@@ -57,7 +85,13 @@
     const historyBtn = root.querySelector('.aivastra-tryon__history-btn');
     const historyBadge = root.querySelector('.aivastra-tryon__history-badge');
     const HISTORY_STORAGE_KEY = 'aivastra_tryon_history';
-    const HISTORY_MAX_ITEMS = 12;
+
+    // Where backBtn should land while the result step is showing: 'flow'
+    // (the normal case — post-generation feed or the History grid itself)
+    // returns to the upload/ready flow via startOver(); 'history' means the
+    // shopper drilled into a single tile from the History grid, so back
+    // should pop one level to the grid instead of leaving history entirely.
+    let resultBackTarget = 'flow';
 
     const CLIENT_ID_STORAGE_KEY = 'aivastra_client_id';
 
@@ -127,7 +161,7 @@
 
     if (emailSubmit) {
       emailSubmit.addEventListener('click', () => {
-        const value = (emailInput && emailInput.value ? emailInput.value : '').trim();
+        const value = (emailInput?.value ? emailInput.value : '').trim();
         // Cheap client-side shape check only; the server's Zod schema is the
         // real validation.
         if (!value || value.indexOf('@') < 1) {
@@ -139,7 +173,7 @@
         }
         if (emailError) emailError.hidden = true;
         shopperEmail = value;
-        shopperEmailConsent = !!(emailConsentInput && emailConsentInput.checked);
+        shopperEmailConsent = !!emailConsentInput?.checked;
         // This click is the affirmative action. Until it happens, createJob
         // sends no email at all, even for a logged-in customer whose address
         // was prefilled into the input above.
@@ -229,10 +263,35 @@
       }
     }
 
+    function startProgressRotator() {
+      if (!progressLines.length) return;
+      progressLineIndex = 0;
+      for (let i = 0; i < progressLines.length; i++) {
+        progressLines[i].classList.toggle('is-active', i === 0);
+      }
+      // Loops continuously instead of stopping on the last line — a job can
+      // take longer than one pass through the copy, and cycling back reads
+      // better than sitting frozen on "Almost there…" for the remainder.
+      progressLineTimer = setInterval(() => {
+        progressLines[progressLineIndex].classList.remove('is-active');
+        progressLineIndex = (progressLineIndex + 1) % progressLines.length;
+        progressLines[progressLineIndex].classList.add('is-active');
+      }, 3200);
+    }
+
+    function stopProgressRotator() {
+      if (progressLineTimer) {
+        clearInterval(progressLineTimer);
+        progressLineTimer = null;
+      }
+    }
+
     function showStep(name) {
       for (const key in steps) {
         if (steps[key]) steps[key].hidden = key !== name;
       }
+      if (name === 'progress') startProgressRotator();
+      else stopProgressRotator();
       syncHeaderButton();
     }
 
@@ -295,13 +354,29 @@
         productTitle,
         productUrl,
       };
-      const history = [entry, ...getHistory()].slice(0, HISTORY_MAX_ITEMS);
+      const history = [entry, ...getHistory()];
       try {
         localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history));
       } catch (_err) {
         /* private-browsing / storage-full — history just won't persist */
       }
       syncHeaderButton();
+    }
+
+    // Fixed-position and a sibling of .aivastra-tryon__modal (not nested
+    // inside it) so it covers the full viewport rather than being clipped
+    // to the modal's fixed 400x700 box — a "full page" view, not a bigger
+    // card.
+    function openLightbox(url) {
+      if (!lightbox || !lightboxImage || !url) return;
+      lightboxImage.src = url;
+      lightbox.hidden = false;
+    }
+
+    function closeLightbox() {
+      if (!lightbox) return;
+      lightbox.hidden = true;
+      if (lightboxImage) lightboxImage.src = '';
     }
 
     // navigator.share is absent on desktop Firefox and older Safari. The
@@ -433,11 +508,15 @@
       }
     }
 
-    // One full-size card per stored result — the just-generated one lands on
-    // top because addToHistory() unshifts it. Every card is a fresh clone of
-    // the Liquid <template>, so each has its own Add to Cart / Share state;
-    // nothing needs resetting between renders.
-    function buildResultCard(entry) {
+    // Builds one result card, cloned fresh from the Liquid <template> each
+    // time so its Add to Cart / Share state never needs resetting between
+    // renders.
+    //
+    // actions=false is the History grid view: browsing past results isn't a
+    // purchase moment the way the just-generated result is, so the actions
+    // row is hidden entirely (CSS, via the --compact modifier) rather than
+    // built with dead/unwired buttons.
+    function buildResultCard(entry, { actions = true } = {}) {
       const fragment = resultCardTemplate.content.cloneNode(true);
       const card = fragment.querySelector('.aivastra-tryon__result-card');
 
@@ -445,11 +524,38 @@
       img.src = entry.resultUrl;
       // Belt-and-braces: resolveHistoryEntry() already re-signs before this
       // card is built, so this only fires on a genuinely dead object (or a
-      // legacy entry with no jobId to re-sign from).
+      // legacy entry with no jobId to re-sign from). The History grid has a
+      // list to refresh; the single-result view (fresh generation or a
+      // tapped tile) has only this one card, so it just falls back to the
+      // empty state instead.
       img.addEventListener('error', () => {
         removeHistoryEntry(entry);
-        renderResultList();
+        if (resultList?.classList.contains(RESULT_LIST_GRID_CLASS)) {
+          renderResultList();
+        } else if (resultList) {
+          resultList.innerHTML = '';
+          if (resultEmpty) resultEmpty.hidden = false;
+        }
       });
+
+      if (!actions) {
+        card.classList.add('aivastra-tryon__result-card--compact');
+        card.setAttribute('role', 'button');
+        card.setAttribute('tabindex', '0');
+        card.addEventListener('click', () => openHistoryDetail(entry));
+        card.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            openHistoryDetail(entry);
+          }
+        });
+        return card;
+      }
+
+      const expandBtn = card.querySelector('.aivastra-tryon__expand');
+      if (expandBtn) {
+        expandBtn.addEventListener('click', () => openLightbox(entry.resultUrl));
+      }
 
       const addToCartBtn = card.querySelector('.aivastra-tryon__add-to-cart');
       const cartError = card.querySelector('.aivastra-tryon__cart-error');
@@ -469,16 +575,57 @@
       return card;
     }
 
+    const RESULT_LIST_GRID_CLASS = 'aivastra-tryon__result-list--grid';
+
+    // The History button's view: a 2-up, no-actions gallery of everything
+    // the shopper has generated. The result step otherwise only ever shows
+    // a single card (see renderSingleResult) — this is the one place the
+    // full history list renders at once.
     async function renderResultList() {
       const history = getHistory();
       syncHeaderButton();
       if (!resultList) return;
+      resultList.classList.add(RESULT_LIST_GRID_CLASS);
       resultList.innerHTML = '';
       const resolved = (await Promise.all(history.map(resolveHistoryEntry))).filter(Boolean);
       if (resultEmpty) resultEmpty.hidden = resolved.length > 0;
       for (let i = 0; i < resolved.length; i++) {
-        resultList.appendChild(buildResultCard(resolved[i]));
+        resultList.appendChild(buildResultCard(resolved[i], { actions: false }));
       }
+    }
+
+    // The result step's normal state: exactly one card, full-size, with Add
+    // to Cart / Share — used both right after a fresh generation and when a
+    // History tile is tapped. Never the merged multi-result feed the result
+    // step used to show; that's what the History grid is for now.
+    function renderSingleResult(entry) {
+      if (!resultList) return;
+      resultList.classList.remove(RESULT_LIST_GRID_CLASS);
+      resultList.innerHTML = '';
+      resultList.appendChild(buildResultCard(entry, { actions: true }));
+      if (resultEmpty) resultEmpty.hidden = true;
+    }
+
+    // Tapping a History tile opens that one result full-size, same layout
+    // (single column, Add to Cart / Share) as the just-generated result —
+    // browsing history shouldn't be a dead end without a purchase path.
+    function openHistoryDetail(entry) {
+      resultBackTarget = 'history';
+      renderSingleResult(entry);
+      showStep('result');
+    }
+
+    // backBtn's behavior depends on how the shopper got to the result step:
+    // popping one level back to the History grid when they drilled into a
+    // tile, otherwise leaving the result feed entirely for the main flow.
+    async function handleBack() {
+      if (resultBackTarget === 'history') {
+        resultBackTarget = 'flow';
+        await renderResultList();
+        showStep('result');
+        return;
+      }
+      startOver();
     }
 
     function resetReadyPreview() {
@@ -532,7 +679,16 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contentType: file.type, contentLength: file.size, clientId }),
       });
-      if (!presignRes.ok) throw new Error('presign failed');
+      if (!presignRes.ok) {
+        // 4xx here means the API rejected this specific photo (e.g. content
+        // type) and its message is written to be shown to the shopper; a 5xx
+        // is our own infra, so fall back to a generic retry message instead
+        // of leaking anything internal.
+        const errBody = await presignRes.json().catch(() => ({}));
+        const err = new Error('presign failed');
+        if (presignRes.status < 500) err.userMessage = errBody?.error?.message;
+        throw err;
+      }
       const body = await presignRes.json();
       const uploadUrl = body.uploadUrl;
       const r2Key = body.r2Key;
@@ -579,7 +735,15 @@
         const body = await res.json().catch(() => ({}));
         return { pending: true, reason: body.reason, message: body.message };
       }
-      if (!res.ok) throw new Error(`job create failed: ${res.status}`);
+      if (!res.ok) {
+        // Same split as uploadPhoto: a 4xx AppError message (e.g. "uploaded
+        // photo not found", a size-limit message) is written for the
+        // shopper; a 5xx is ours to fix, not theirs to read about.
+        const errBody = await res.json().catch(() => ({}));
+        const err = new Error(`job create failed: ${res.status}`);
+        if (res.status < 500) err.userMessage = errBody?.error?.message;
+        throw err;
+      }
       const body = await res.json();
       return { pending: false, jobId: body.jobId };
     }
@@ -645,14 +809,22 @@
         }
 
         if (terminal) {
-          if (terminal.status === 'FAILED') throw new Error(terminal.errorCode || 'job failed');
+          if (terminal.status === 'FAILED') {
+            const failErr = new Error(terminal.errorCode || 'job failed');
+            failErr.jobFailed = true;
+            throw failErr;
+          }
           const terminalBody = await fetchJobStatus(jobId);
           return terminalBody.resultUrl;
         }
 
         const body = await fetchJobStatus(jobId);
         if (body.status === 'COMPLETED') return body.resultUrl;
-        if (body.status === 'FAILED') throw new Error('job failed');
+        if (body.status === 'FAILED') {
+          const failErr = new Error(body.errorCode || 'job failed');
+          failErr.jobFailed = true;
+          throw failErr;
+        }
 
         await new Promise((resolve) => {
           setTimeout(resolve, SSE_RECONNECT_DELAY_MS);
@@ -682,17 +854,37 @@
         }
         const resultUrl = await waitForResult(jobResult.jobId);
         addToHistory(resultUrl, jobResult.jobId);
-        await renderResultList();
+        resultBackTarget = 'flow';
+        renderSingleResult({ resultUrl, jobId: jobResult.jobId });
         showStep('result');
         trackEvent('result_view');
       } catch (err) {
-        if (isReuse && err && err.expiredReuse) {
+        if (isReuse && err?.expiredReuse) {
           forgetPhoto();
           showStep('upload');
           if (reuseExpiredNote) reuseExpiredNote.hidden = false;
           return;
         }
-        showStep('error');
+        // The raw reason (err.message on a jobFailed error is the
+        // dispatcher's internal errorCode — provider/exception text, not
+        // written for a shopper to read) stays in the console for debugging;
+        // only a curated, safe message ever reaches the error step.
+        console.error('[aivastra tryon] generation failed', err);
+        if (err?.userMessage) {
+          showErrorWithMessage(err.userMessage);
+        } else if (err?.jobFailed) {
+          showErrorWithMessage(
+            "We couldn't generate your try-on and your credits were refunded. Try a clear, front-facing photo with good lighting.",
+          );
+        } else if (err && err.message === 'sse timed out') {
+          showErrorWithMessage(
+            'This is taking longer than expected. Please try again in a moment.',
+          );
+        } else {
+          showErrorWithMessage(
+            "We couldn't generate your try-on. Please try again with a different photo.",
+          );
+        }
       }
     }
 
@@ -704,13 +896,24 @@
       const reuseKey = pendingReuseKey;
       pendingFile = null;
       pendingReuseKey = null;
+      // readyImage.src is already the current photo (blob URL for a fresh
+      // upload, presigned preview URL for a reuse) regardless of which
+      // branch below runs, so grab it once before either path proceeds.
+      setProgressBackground(readyImage ? readyImage.src : null);
       if (file) {
         showStep('progress');
         try {
           const customerPhotoKey = await uploadPhoto(file);
           await proceedWithPhoto(customerPhotoKey, false);
-        } catch (_err) {
-          showStep('error');
+        } catch (err) {
+          console.error('[aivastra tryon] upload failed', err);
+          if (err?.userMessage) {
+            showErrorWithMessage(err.userMessage);
+          } else {
+            showErrorWithMessage(
+              "We couldn't upload your photo. Please check your connection and try again.",
+            );
+          }
         }
       } else if (reuseKey) {
         showStep('progress');
@@ -720,11 +923,24 @@
 
     button.addEventListener('click', openModal);
     closeBtn.addEventListener('click', closeModal);
-    if (backBtn) backBtn.addEventListener('click', startOver);
+    if (lightboxCloseBtn) lightboxCloseBtn.addEventListener('click', closeLightbox);
+    if (lightbox) {
+      // Tapping the dark backdrop closes it; tapping the image itself
+      // (or the close button) must not, so only a direct hit on the
+      // lightbox element itself counts.
+      lightbox.addEventListener('click', (e) => {
+        if (e.target === lightbox) closeLightbox();
+      });
+    }
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && lightbox && !lightbox.hidden) closeLightbox();
+    });
+    if (backBtn) backBtn.addEventListener('click', handleBack);
     if (ctaBtn) ctaBtn.addEventListener('click', confirmReady);
     if (changePhotoBtn) changePhotoBtn.addEventListener('click', () => fileInput.click());
     if (historyBtn) {
       historyBtn.addEventListener('click', async () => {
+        resultBackTarget = 'flow';
         await renderResultList();
         showStep('result');
       });
@@ -738,7 +954,7 @@
         return;
       }
       if (file.size > MAX_PHOTO_BYTES) {
-        showErrorWithMessage('That photo is too large. Please choose one under 15MB.');
+        showErrorWithMessage('That photo is too large. Please choose one under 25MB.');
         return;
       }
       showReady({ file });

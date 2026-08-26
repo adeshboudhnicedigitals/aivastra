@@ -3,14 +3,56 @@ import { and, count, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { searchCollections, syncCollectionMembership } from './collections.sync.js';
+import { shopifyGraphQL } from './service.js';
 import { mergeStoreSettingsObject, storeSettingsJson } from './settings-json.js';
+import { getValidAccessToken } from './token.js';
+
+const PRODUCTS_COUNT_QUERY = `
+  query ProductsCount {
+    productsCount {
+      count
+    }
+  }
+`;
+
+/**
+ * "Not synced" = products Shopify has that we've never even attempted —
+ * distinct from `failedToSync` below, which already has a row (an attempt
+ * that errored). Requires a live Shopify call since we only learn about a
+ * product once we've synced it; a store's total catalog size isn't cached
+ * anywhere. Returns null on failure (rate limit, reauth needed, etc.) rather
+ * than throwing, so a Shopify hiccup never breaks the rest of the Manage page.
+ */
+async function fetchNotSyncedCount(
+  app: FastifyInstance,
+  store: typeof schema.shopifyStores.$inferSelect,
+  totalSynced: number,
+): Promise<number | null> {
+  try {
+    const accessToken = await getValidAccessToken(app, store);
+    const data = await shopifyGraphQL<{ productsCount: { count: number } }>(
+      store.shopDomain,
+      accessToken,
+      PRODUCTS_COUNT_QUERY,
+    );
+    return Math.max(0, data.productsCount.count - totalSynced);
+  } catch (err) {
+    app.log.warn({ err, storeId: store.id }, 'failed to fetch Shopify productsCount');
+    return null;
+  }
+}
 
 const ModeBody = z.object({ mode: z.enum(['global', 'selective']) });
 const CollectionIdsBody = z.object({ shopifyCollectionIds: z.array(z.number().int()).min(1) });
 const SearchQuery = z.object({ q: z.string().min(1) });
 const CollectionIdParams = z.object({ shopifyCollectionId: z.coerce.number().int() });
 
-async function summaryCounts(app: FastifyInstance, storeId: string) {
+async function summaryCounts(
+  app: FastifyInstance,
+  store: typeof schema.shopifyStores.$inferSelect,
+) {
+  const storeId = store.id;
+
   const [{ enabledCollections }] = await app.db
     .select({ enabledCollections: count() })
     .from(schema.shopifyEnabledCollections)
@@ -54,12 +96,22 @@ async function summaryCounts(app: FastifyInstance, storeId: string) {
       ),
     );
 
+  // Every row we've ever created for this store, regardless of status — the
+  // denominator `fetchNotSyncedCount` subtracts from Shopify's live total.
+  const [{ totalSynced }] = await app.db
+    .select({ totalSynced: count() })
+    .from(schema.shopifyProductGarments)
+    .where(eq(schema.shopifyProductGarments.storeId, storeId));
+
+  const notSynced = await fetchNotSyncedCount(app, store, totalSynced);
+
   return {
     enabledCollections,
     excludedCollections,
     individuallyEnabledProducts,
     excludedProducts,
     failedToSync,
+    notSynced,
   };
 }
 
@@ -172,7 +224,7 @@ export async function shopifyActivationRoutes(app: FastifyInstance) {
     const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
     return {
       mode: store.settings.activation?.mode ?? 'selective',
-      counts: await summaryCounts(app, store.id),
+      counts: await summaryCounts(app, store),
     };
   });
 

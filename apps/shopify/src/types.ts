@@ -22,6 +22,8 @@ export interface ShopifyActivationSettings {
 export interface ShopifyStoreSettings {
   workflowTemplateId?: string;
   themeBlockConfirmed?: boolean;
+  emailBonusClaimed?: boolean;
+  emailBonusClaimedAt?: string;
   limits?: ShopifyStoreLimits;
   retention?: ShopifyStoreRetention;
   widget?: ShopifyWidgetConfig;
@@ -76,10 +78,12 @@ export interface ShopifyStats {
 export interface ShopifyMe {
   store: {
     shopDomain: string;
+    shopEmail: string | null;
     settings: ShopifyStoreSettings;
     connectedSince: string;
   };
   creditBalance: number;
+  hasPurchasedPack: boolean;
   runway: {
     balance: number;
     tryOnsRemaining: number;
@@ -99,6 +103,12 @@ export interface ShopifyMe {
 }
 
 export interface ShopifyOnboardingConfirmResponse {
+  settings: ShopifyStoreSettings;
+}
+
+export interface ShopifyEmailBonusClaimResponse {
+  creditsGranted: number;
+  creditBalance: number;
   settings: ShopifyStoreSettings;
 }
 
