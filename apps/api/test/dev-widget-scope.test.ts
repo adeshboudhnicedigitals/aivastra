@@ -1,7 +1,13 @@
+import { schema } from '@aivastra/db';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildTestApp, type TestApp } from './helpers/api.js';
 import { type Containers, startContainers } from './helpers/containers.js';
-import { createTestApiKey, createTestMerchant } from './helpers/merchant.js';
+import {
+  createTestApiKey,
+  createTestDevTryonCategory,
+  createTestMerchant,
+} from './helpers/merchant.js';
 
 let c: Containers;
 let app: TestApp;
@@ -102,5 +108,57 @@ describe('full-only dev routes reject widget-scoped keys', () => {
       headers: { authorization: `Bearer ${key}` },
     });
     expect(res.status).toBe(403);
+  });
+});
+
+const jpegBytes = () => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(64)]);
+
+function tryonForm(categorySlug: string) {
+  const fd = new FormData();
+  fd.set('category', categorySlug);
+  fd.set('person', new Blob([jpegBytes()], { type: 'image/jpeg' }), 'p.jpg');
+  fd.set('garment', new Blob([jpegBytes()], { type: 'image/jpeg' }), 'g.jpg');
+  return fd;
+}
+
+describe('job source attribution', () => {
+  it('stamps wordpress_tryon for a wordpress-integration key', async () => {
+    const m = await createTestMerchant(app, { balance: 1000, jobRateLimitPerMin: 1000 });
+    const { key } = await createTestApiKey(app, m.merchantId, {
+      scope: 'widget',
+      integration: 'wordpress',
+    });
+    await createTestDevTryonCategory(app, { slug: `wp-src-${m.merchantId}` });
+
+    const res = await fetch(`${base}/v1/dev/tryon`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${key}` },
+      body: tryonForm(`wp-src-${m.merchantId}`),
+    });
+    expect(res.status).toBe(202);
+    const { jobId } = await res.json();
+
+    const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+    expect(job?.source).toBe('wordpress_tryon');
+  });
+
+  it('stamps api_tryon for a generic-integration key (unchanged behavior)', async () => {
+    const m = await createTestMerchant(app, { balance: 1000, jobRateLimitPerMin: 1000 });
+    const { key } = await createTestApiKey(app, m.merchantId, {
+      scope: 'full',
+      integration: 'generic',
+    });
+    await createTestDevTryonCategory(app, { slug: `api-src-${m.merchantId}` });
+
+    const res = await fetch(`${base}/v1/dev/tryon`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${key}` },
+      body: tryonForm(`api-src-${m.merchantId}`),
+    });
+    expect(res.status).toBe(202);
+    const { jobId } = await res.json();
+
+    const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+    expect(job?.source).toBe('api_tryon');
   });
 });

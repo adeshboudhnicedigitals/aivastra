@@ -116,6 +116,7 @@ export async function createDevTryonJob(
     merchantId: string;
     merchantUserId: string;
     apiKeyId: string;
+    integration: 'generic' | 'wordpress';
     categorySlug: string;
     personKey: string;
     garmentKey: string;
@@ -162,7 +163,10 @@ export async function createDevTryonJob(
     apiKeyId: params.apiKeyId,
     cost,
     watermark: false,
-    source: JOB_SOURCE.API_TRYON,
+    // Never trust a client-supplied field for this — integration is resolved
+    // server-side by dev-api-auth.ts from the authenticated key row, the same
+    // place merchantId/merchantUserId are already resolved.
+    source: params.integration === 'wordpress' ? JOB_SOURCE.WORDPRESS_TRYON : JOB_SOURCE.API_TRYON,
     buildJobInputs: () => ({
       upperGarmentKey: params.garmentKey,
       params: {

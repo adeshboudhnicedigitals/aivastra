@@ -246,6 +246,7 @@ export async function devRoutes(app: FastifyInstance) {
         merchantId,
         merchantUserId,
         apiKeyId,
+        integration: (req.integration as 'generic' | 'wordpress') ?? 'generic',
         categorySlug,
         personKey,
         garmentKey,
