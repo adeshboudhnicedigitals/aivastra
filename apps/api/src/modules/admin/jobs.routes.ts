@@ -4,9 +4,11 @@ import { aliasedTable, and, count, desc, eq, gte, ilike, lte, or, sql } from 'dr
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { verifyPassword } from '../auth/service.js';
 import { refund } from '../credits/ledger.js';
 import { adminStreamHandler } from '../jobs/sse.js';
-import { requirePermission } from './guard.js';
+import { recordAudit } from './audit.js';
+import { requireAdmin, requirePermission } from './guard.js';
 import { jobTypeSql } from './job-type.js';
 import {
   describeJobsExportFilters,
@@ -41,6 +43,35 @@ const JobsQuery = z.object({
   createdFrom: z.string().optional(),
   createdTo: z.string().optional(),
 });
+
+const DELETE_ASSETS_TARGETS = ['result', 'person'] as const;
+type DeleteAssetsTarget = (typeof DELETE_ASSETS_TARGETS)[number];
+
+const DeleteAssetsBody = z.object({
+  password: z.string().min(1),
+  targets: z.array(z.enum(DELETE_ASSETS_TARGETS)).min(1),
+});
+
+const TERMINAL_JOB_STATUSES = ['COMPLETED', 'FAILED', 'CANCELLED'] as const;
+
+/**
+ * Deletes one R2 object if a key is given. Never throws — a failed delete is
+ * reported via `ok: false` so the caller can decide whether to null the
+ * corresponding DB pointer (never null a pointer whose object is still there).
+ */
+async function purgeKeyIfPresent(
+  app: FastifyInstance,
+  key: string | null | undefined,
+): Promise<{ ok: boolean; shouldClear: boolean }> {
+  if (!key) return { ok: true, shouldClear: false };
+  try {
+    await app.storage.deleteObject(key);
+    return { ok: true, shouldClear: true };
+  } catch (err) {
+    app.log.warn({ err, key }, 'admin delete-assets: object delete failed');
+    return { ok: false, shouldClear: false };
+  }
+}
 
 export async function adminJobsRoutes(app: FastifyInstance) {
   const R = requirePermission('jobs.read');
@@ -392,6 +423,110 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         await refund(app.db, job.userId, job.creditsCharged, id, 'REFUND_ADMIN_CANCEL');
       }
       return { ok: true };
+    },
+  );
+
+  app.post(
+    '/admin/jobs/:id/delete-assets',
+    {
+      preHandler: requireAdmin(['SUPER_ADMIN']),
+      schema: { params: z.object({ id: z.string().uuid() }), body: DeleteAssetsBody },
+    },
+    async (req) => {
+      // biome-ignore lint/suspicious/noExplicitAny: Fastify typed-provider workaround
+      const { id } = req.params as any;
+      const { password, targets: rawTargets } = req.body as z.infer<typeof DeleteAssetsBody>;
+      const targets = [...new Set(rawTargets)] as DeleteAssetsTarget[];
+
+      const [caller] = await app.db
+        .select({ passwordHash: schema.users.passwordHash })
+        .from(schema.users)
+        .where(eq(schema.users.id, req.userId));
+      if (!caller?.passwordHash || !(await verifyPassword(caller.passwordHash, password))) {
+        throw new AppError('FORBIDDEN', 403, 'incorrect password');
+      }
+
+      const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, id));
+      if (!job) throw new AppError('NOT_FOUND', 404, 'no job');
+      if (!(TERMINAL_JOB_STATUSES as readonly string[]).includes(job.status)) {
+        throw new AppError('BAD_STATE', 409, 'job must be COMPLETED, FAILED, or CANCELLED');
+      }
+
+      const [output] = await app.db
+        .select({
+          resultKey: schema.jobOutputs.resultKey,
+          thumbnailKey: schema.jobOutputs.thumbnailKey,
+        })
+        .from(schema.jobOutputs)
+        .where(eq(schema.jobOutputs.jobId, id));
+      const [inputRow] = await app.db
+        .select({ params: schema.jobInputs.params })
+        .from(schema.jobInputs)
+        .where(eq(schema.jobInputs.jobId, id));
+      const paramsBefore = (inputRow?.params ?? {}) as Record<string, unknown>;
+      const paramsPersonKey =
+        typeof paramsBefore.personKey === 'string' ? paramsBefore.personKey : null;
+
+      const before = {
+        requestedTargets: targets,
+        hadResult: !!output?.resultKey,
+        hadThumbnail: !!output?.thumbnailKey,
+        hadCustomerPhotoKey: !!job.customerPhotoKey,
+        hadParamsPersonKey: !!paramsPersonKey,
+      };
+
+      const deleted: DeleteAssetsTarget[] = [];
+      const outputPatch: { resultKey?: null; thumbnailKey?: null } = {};
+      let clearCustomerPhoto = false;
+      let clearParamsPersonKey = false;
+
+      if (targets.includes('result')) {
+        const r = await purgeKeyIfPresent(app, output?.resultKey);
+        const t = await purgeKeyIfPresent(app, output?.thumbnailKey);
+        if (r.shouldClear) outputPatch.resultKey = null;
+        if (t.shouldClear) outputPatch.thumbnailKey = null;
+        if (r.ok && t.ok) deleted.push('result');
+      }
+
+      if (targets.includes('person')) {
+        const c = await purgeKeyIfPresent(app, job.customerPhotoKey);
+        const p = await purgeKeyIfPresent(app, paramsPersonKey);
+        if (c.shouldClear) clearCustomerPhoto = true;
+        if (p.shouldClear) clearParamsPersonKey = true;
+        if (c.ok && p.ok) deleted.push('person');
+      }
+
+      await app.db.transaction(async (tx) => {
+        if (Object.keys(outputPatch).length > 0) {
+          await tx
+            .update(schema.jobOutputs)
+            .set(outputPatch)
+            .where(eq(schema.jobOutputs.jobId, id));
+        }
+        if (clearCustomerPhoto) {
+          await tx
+            .update(schema.jobs)
+            .set({ customerPhotoKey: null })
+            .where(eq(schema.jobs.id, id));
+        }
+        if (clearParamsPersonKey) {
+          await tx
+            .update(schema.jobInputs)
+            .set({ params: sql`${schema.jobInputs.params} - 'personKey'` })
+            .where(eq(schema.jobInputs.jobId, id));
+        }
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole ?? 'SUPER_ADMIN' },
+          action: 'jobs.delete_assets',
+          resourceType: 'job',
+          resourceId: id,
+          before,
+          after: { deleted },
+          request: req,
+        });
+      });
+
+      return { ok: deleted.length === targets.length, deleted };
     },
   );
 
