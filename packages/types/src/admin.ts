@@ -465,6 +465,13 @@ export const CreateWorkflowBody = z
     }
   });
 
+export const ReplaceWorkflowBody = z.intersection(
+  CreateWorkflowBody,
+  z.object({
+    password: z.string().min(1, 'password is required to replace a workflow'),
+  }),
+);
+
 export const ParseWorkflowBody = z.object({
   jsonContent: z.record(z.any()),
   workflowType: z
