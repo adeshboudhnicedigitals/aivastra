@@ -32,7 +32,10 @@ export async function createSareeJob(
 
   // 3. Must be an active saree workflow.
   const [wf] = await app.db
-    .select({ id: schema.workflowTemplates.id })
+    .select({
+      id: schema.workflowTemplates.id,
+      version: schema.workflowTemplates.version,
+    })
     .from(schema.workflowTemplates)
     .where(
       and(
@@ -79,6 +82,7 @@ export async function createSareeJob(
       params: {
         modelKey: settings.modelImageKey,
         workflowTemplateId: wf.id,
+        dispatchTemplateVersion: wf.version,
         kind: 'saree',
       },
     });

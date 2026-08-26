@@ -108,6 +108,9 @@ export interface WorkflowOption {
   tryonGarmentNodeId: string | null;
   tryonGarmentNodeId2: string | null;
   tryonOutputNodeId: string | null;
+  version?: number;
+  funnelCount?: number;
+  draining?: { fromVersion: number } | null;
   createdAt: string;
 }
 

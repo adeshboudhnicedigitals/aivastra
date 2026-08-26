@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
+import { ReplaceWorkflowModal } from '../components/ReplaceWorkflowModal';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { WorkflowUploadModal } from '../components/WorkflowUploadModal';
 import { ApiError, apiErrorMessage, apiFetch } from '../lib/data';
@@ -59,6 +60,7 @@ export default function WorkflowsPage({ toast }: Props) {
   const [detailLoading, setDetailLoading] = useState(false);
   const [jsonCopied, setJsonCopied] = useState(false);
   const [editingWf, setEditingWf] = useState<WorkflowOption | null>(null);
+  const [replacingWf, setReplacingWf] = useState<WorkflowOption | null>(null);
   const [editForm, setEditForm] = useState({
     label: '',
     slug: '',
@@ -95,6 +97,11 @@ export default function WorkflowsPage({ toast }: Props) {
   const handleCreated = (wf: WorkflowOption) => {
     setWorkflows((prev) => [wf, ...prev]);
     setShowUpload(false);
+  };
+
+  const handleReplaced = (updated: WorkflowOption) => {
+    setWorkflows((prev) => prev.map((w) => (w.id === updated.id ? updated : w)));
+    setReplacingWf(null);
   };
 
   const handleDelete = async (id: string) => {
@@ -403,7 +410,47 @@ export default function WorkflowsPage({ toast }: Props) {
                 <tbody>
                   {filteredWorkflows.map((wf) => (
                     <tr key={wf.id}>
-                      <td style={{ fontWeight: 500 }}>{wf.label}</td>
+                      <td style={{ fontWeight: 500 }}>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            flexWrap: 'wrap',
+                          }}
+                        >
+                          <span>{wf.label}</span>
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontFamily: 'monospace',
+                              fontWeight: 600,
+                              background: 'var(--subtle, #f1f5f9)',
+                              color: 'var(--text-muted, #64748b)',
+                              border: '1px solid var(--border)',
+                              borderRadius: 4,
+                              padding: '1px 5px',
+                            }}
+                          >
+                            v{wf.version ?? 1}
+                          </span>
+                          {wf.draining && (
+                            <span
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 600,
+                                padding: '2px 8px',
+                                borderRadius: 10,
+                                background: 'rgba(234, 179, 8, 0.15)',
+                                color: '#ca8a04',
+                              }}
+                              title={`Draining jobs from v${wf.draining.fromVersion}`}
+                            >
+                              Draining v{wf.draining.fromVersion}
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td>
                         <code
                           style={{
@@ -473,6 +520,18 @@ export default function WorkflowsPage({ toast }: Props) {
                         <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                           <button
                             className="btn sm ghost"
+                            disabled={Boolean(wf.draining)}
+                            onClick={() => setReplacingWf(wf)}
+                            title={
+                              wf.draining
+                                ? 'Cannot replace while draining previous version'
+                                : 'Replace workflow in place (updates ComfyUI graph)'
+                            }
+                          >
+                            <Icon.Replace /> Replace
+                          </button>
+                          <button
+                            className="btn sm ghost"
                             onClick={() => {
                               setEditingWf(wf);
                               setEditForm({
@@ -506,23 +565,6 @@ export default function WorkflowsPage({ toast }: Props) {
                             {wf.isActive ? <Icon.Eye /> : <Icon.Eye />}
                             {togglingId === wf.id ? '…' : wf.isActive ? 'Deactivate' : 'Activate'}
                           </button>
-                          {wf.poseCount > 0 && (
-                            <button
-                              className="btn sm ghost"
-                              disabled={workflows.length <= 1}
-                              onClick={() => {
-                                setReassigning(wf);
-                                setReassignTargetId('');
-                              }}
-                              title={
-                                workflows.length <= 1
-                                  ? 'No other workflows to reassign to'
-                                  : 'Reassign poses to another workflow'
-                              }
-                            >
-                              <Icon.Replace /> Reassign
-                            </button>
-                          )}
                           <button
                             className="btn sm ghost"
                             style={{ color: 'var(--danger)' }}
@@ -580,19 +622,58 @@ export default function WorkflowsPage({ toast }: Props) {
                       fontSize: 'inherit',
                     }}
                   >
-                    <span
-                      className="semi"
+                    <div
                       style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        flexWrap: 'wrap',
                         overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        fontSize: 15,
-                        color: 'var(--ink)',
-                        fontWeight: 600,
                       }}
                     >
-                      {wf.label}
-                    </span>
+                      <span
+                        className="semi"
+                        style={{
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          fontSize: 15,
+                          color: 'var(--ink)',
+                          fontWeight: 600,
+                        }}
+                      >
+                        {wf.label}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontFamily: 'monospace',
+                          fontWeight: 600,
+                          background: 'var(--subtle, #f1f5f9)',
+                          color: 'var(--text-muted, #64748b)',
+                          border: '1px solid var(--border)',
+                          borderRadius: 4,
+                          padding: '1px 5px',
+                        }}
+                      >
+                        v{wf.version ?? 1}
+                      </span>
+                      {wf.draining && (
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 600,
+                            padding: '2px 8px',
+                            borderRadius: 10,
+                            background: 'rgba(234, 179, 8, 0.15)',
+                            color: '#ca8a04',
+                          }}
+                          title={`Draining jobs from v${wf.draining.fromVersion}`}
+                        >
+                          Draining v{wf.draining.fromVersion}
+                        </span>
+                      )}
+                    </div>
                     <span
                       style={{
                         color: 'var(--muted-2)',
@@ -730,6 +811,18 @@ export default function WorkflowsPage({ toast }: Props) {
                       >
                         <button
                           className="btn sm ghost"
+                          disabled={Boolean(wf.draining)}
+                          onClick={() => setReplacingWf(wf)}
+                          title={
+                            wf.draining
+                              ? 'Cannot replace while draining previous version'
+                              : 'Replace workflow in place (updates ComfyUI graph)'
+                          }
+                        >
+                          <Icon.Replace /> Replace
+                        </button>
+                        <button
+                          className="btn sm ghost"
                           onClick={() => {
                             setEditingWf(wf);
                             setEditForm({
@@ -759,18 +852,6 @@ export default function WorkflowsPage({ toast }: Props) {
                         >
                           {togglingId === wf.id ? '…' : wf.isActive ? 'Deactivate' : 'Activate'}
                         </button>
-                        {wf.poseCount > 0 && (
-                          <button
-                            className="btn sm ghost"
-                            disabled={workflows.length <= 1}
-                            onClick={() => {
-                              setReassigning(wf);
-                              setReassignTargetId('');
-                            }}
-                          >
-                            <Icon.Replace /> Reassign
-                          </button>
-                        )}
                         <button
                           className="btn sm ghost danger"
                           disabled={wf.poseCount > 0}
@@ -1268,6 +1349,16 @@ export default function WorkflowsPage({ toast }: Props) {
         <WorkflowUploadModal
           onCreated={handleCreated}
           onClose={() => setShowUpload(false)}
+          toast={toast}
+        />
+      )}
+
+      {/* Replace workflow modal */}
+      {replacingWf && (
+        <ReplaceWorkflowModal
+          workflow={replacingWf}
+          onReplaced={handleReplaced}
+          onClose={() => setReplacingWf(null)}
           toast={toast}
         />
       )}

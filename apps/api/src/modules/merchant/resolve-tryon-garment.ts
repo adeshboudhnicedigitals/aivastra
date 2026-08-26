@@ -7,6 +7,7 @@ export interface ResolvedTryonGarment {
   r2Key: string;
   secondR2Key?: string;
   workflowTemplateId: string;
+  workflowTemplateVersion?: number | null;
   isDemo: boolean;
 }
 
@@ -31,6 +32,7 @@ export async function resolveTryonGarment(
       moderationStatus: schema.merchantCatalogItems.moderationStatus,
       twoInputTryonWorkflowTemplateId: schema.garmentSubcategories.twoInputTryonWorkflowTemplateId,
       workflowTemplateId: schema.tryonCategories.workflowTemplateId,
+      workflowTemplateVersion: schema.workflowTemplates.version,
       tryonCategoryIsActive: schema.tryonCategories.isActive,
       workflowTemplateIsActive: schema.workflowTemplates.isActive,
     })
@@ -76,7 +78,10 @@ export async function resolveTryonGarment(
         );
       }
       const [twoInputTemplate] = await app.db
-        .select({ isActive: schema.workflowTemplates.isActive })
+        .select({
+          isActive: schema.workflowTemplates.isActive,
+          version: schema.workflowTemplates.version,
+        })
         .from(schema.workflowTemplates)
         .where(eq(schema.workflowTemplates.id, own.twoInputTryonWorkflowTemplateId))
         .limit(1);
@@ -87,12 +92,18 @@ export async function resolveTryonGarment(
         r2Key: own.r2Key,
         secondR2Key: own.secondR2Key,
         workflowTemplateId: own.twoInputTryonWorkflowTemplateId,
+        workflowTemplateVersion: twoInputTemplate.version,
         isDemo: false,
       };
     }
 
     assertWorkflow(own);
-    return { r2Key: own.r2Key, workflowTemplateId: own.workflowTemplateId, isDemo: false };
+    return {
+      r2Key: own.r2Key,
+      workflowTemplateId: own.workflowTemplateId,
+      workflowTemplateVersion: own.workflowTemplateVersion,
+      isDemo: false,
+    };
   }
 
   const [demo] = await app.db
@@ -101,6 +112,7 @@ export async function resolveTryonGarment(
       isActive: schema.demoCatalogItems.isActive,
       setIsActive: schema.demoCatalogSets.isActive,
       workflowTemplateId: schema.tryonCategories.workflowTemplateId,
+      workflowTemplateVersion: schema.workflowTemplates.version,
       tryonCategoryIsActive: schema.tryonCategories.isActive,
       workflowTemplateIsActive: schema.workflowTemplates.isActive,
     })
@@ -145,7 +157,12 @@ export async function resolveTryonGarment(
     throw new AppError('FORBIDDEN', 403, 'catalog item is not available');
   }
   assertWorkflow(demo);
-  return { r2Key: demo.r2Key, workflowTemplateId: demo.workflowTemplateId, isDemo: true };
+  return {
+    r2Key: demo.r2Key,
+    workflowTemplateId: demo.workflowTemplateId,
+    workflowTemplateVersion: demo.workflowTemplateVersion,
+    isDemo: true,
+  };
 }
 
 function assertWorkflow(row: {

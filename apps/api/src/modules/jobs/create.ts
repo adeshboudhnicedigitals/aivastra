@@ -289,6 +289,7 @@ export async function resolveTryonPlan(
   let requiresMannequinStep = false;
   let sareeStep2: {
     workflowTemplateId: string | null;
+    version: number | null;
     upperNodeIds: string[] | null;
     lowerNodeId: string | null;
     shoeNodeId: string | null;
@@ -303,6 +304,7 @@ export async function resolveTryonPlan(
         sareeStep2LowerNodeId: schema.workflowTemplates.lowerNodeId,
         sareeStep2ShoeNodeId: schema.workflowTemplates.shoeNodeId,
         sareeStep2SizeNodeIds: schema.workflowTemplates.sizeNodeIds,
+        sareeStep2Version: schema.workflowTemplates.version,
       })
       .from(schema.garmentSubcategories)
       .leftJoin(
@@ -314,6 +316,7 @@ export async function resolveTryonPlan(
     if (requiresMannequinStep) {
       sareeStep2 = {
         workflowTemplateId: gtRow?.sareeStep2WorkflowTemplateId ?? null,
+        version: gtRow?.sareeStep2Version ?? null,
         upperNodeIds: gtRow?.sareeStep2UpperNodeIds ?? null,
         lowerNodeId: gtRow?.sareeStep2LowerNodeId ?? null,
         shoeNodeId: gtRow?.sareeStep2ShoeNodeId ?? null,
@@ -557,6 +560,7 @@ export async function resolveTryonPlan(
             lowerNodeId: schema.workflowTemplates.lowerNodeId,
             shoeNodeId: schema.workflowTemplates.shoeNodeId,
             sizeNodeIds: schema.workflowTemplates.sizeNodeIds,
+            version: schema.workflowTemplates.version,
           })
           .from(schema.catalogueTemplateSubcategories)
           .innerJoin(
@@ -617,6 +621,7 @@ export async function resolveTryonPlan(
           return {
             poseId,
             workflowTemplateId: row.workflowTemplateId,
+            version: row.version,
             promptGarmentPhase: row.promptGarmentPhase,
             upperNodeIds: row.upperNodeIds,
             lowerNodeId: row.lowerNodeId,
@@ -633,12 +638,14 @@ export async function resolveTryonPlan(
     .select({
       poseId: schema.modelPoseAssets.id,
       defaultWorkflowTemplateId: schema.modelPoseAssets.workflowTemplateId,
+      defaultWorkflowVersion: defaultWorkflow.version,
       defaultUpperNodeIds: defaultWorkflow.upperNodeIds,
       defaultLowerNodeId: defaultWorkflow.lowerNodeId,
       defaultShoeNodeId: defaultWorkflow.shoeNodeId,
       defaultSizeNodeIds: defaultWorkflow.sizeNodeIds,
       configWorkflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
       configIsActive: schema.poseGarmentConfigs.isActive,
+      overrideWorkflowVersion: overrideWorkflow.version,
       overrideUpperNodeIds: overrideWorkflow.upperNodeIds,
       overrideLowerNodeId: overrideWorkflow.lowerNodeId,
       overrideShoeNodeId: overrideWorkflow.shoeNodeId,
@@ -676,6 +683,7 @@ export async function resolveTryonPlan(
     ? distinctPoseIds.map((poseId) => ({
         poseId,
         workflowTemplateId: sareeStep2?.workflowTemplateId ?? null,
+        version: sareeStep2?.version ?? null,
         promptGarmentPhase: null,
         upperNodeIds: sareeStep2?.upperNodeIds ?? [],
         lowerNodeId: sareeStep2?.lowerNodeId ?? null,
@@ -686,6 +694,8 @@ export async function resolveTryonPlan(
       poseWorkflowRows.map((r) => ({
         poseId: r.poseId,
         workflowTemplateId: r.configWorkflowTemplateId ?? r.defaultWorkflowTemplateId,
+        version:
+          r.configWorkflowTemplateId != null ? r.overrideWorkflowVersion : r.defaultWorkflowVersion,
         promptGarmentPhase: null,
         upperNodeIds:
           r.configWorkflowTemplateId != null
@@ -742,6 +752,8 @@ export async function resolveTryonPlan(
       promptGarmentPhase: pw?.promptGarmentPhase ?? null,
       params: {
         ...(body.params ?? {}),
+        dispatchTemplateVersion: pw?.version ?? null,
+        ...(pw?.workflowTemplateId ? { workflowTemplateId: pw.workflowTemplateId } : {}),
         // Always the clamped, server-computed dims — whether derived from the
         // aspect-ratio enum or a custom request, this is what the dispatcher
         // patches the workflow with. Never let a raw pre-maxOutputPx value through.
@@ -753,7 +765,6 @@ export async function resolveTryonPlan(
         ...(catalogueTemplateMappingId
           ? {
               catalogueTemplateMappingId,
-              workflowTemplateId: pw?.workflowTemplateId,
               ...(pw?.promptGarmentPhase ? { promptGarmentPhase: pw.promptGarmentPhase } : {}),
             }
           : {}),
@@ -1025,6 +1036,7 @@ export async function createSimpleTryonJob(
       garmentTypeId: schema.jobInputs.garmentTypeId,
       kind: sql<string>`${schema.jobInputs.params}->>'kind'`.as('kind'),
       workflowTemplateId: schema.tryonCategories.workflowTemplateId,
+      workflowTemplateVersion: schema.workflowTemplates.version,
       tryonCategoryIsActive: schema.tryonCategories.isActive,
       workflowTemplateIsActive: schema.workflowTemplates.isActive,
       // Tryon-direct results (source='tryon'/'api_tryon') are WebP-encoded, not
@@ -1058,6 +1070,7 @@ export async function createSimpleTryonJob(
   }
 
   let workflowTemplateId: string;
+  let workflowTemplateVersion: number | null = source.workflowTemplateVersion ?? null;
 
   if (source.kind === 'saree') {
     const sareeSettings = await getSareeSettings(app.db);
@@ -1065,7 +1078,10 @@ export async function createSimpleTryonJob(
       throw new AppError('VALIDATION', 400, 'saree tryon workflow not configured by admin');
     }
     const [wf] = await app.db
-      .select({ isActive: schema.workflowTemplates.isActive })
+      .select({
+        isActive: schema.workflowTemplates.isActive,
+        version: schema.workflowTemplates.version,
+      })
       .from(schema.workflowTemplates)
       .where(
         and(
@@ -1077,6 +1093,7 @@ export async function createSimpleTryonJob(
       throw new AppError('VALIDATION', 400, 'saree tryon workflow is not active');
     }
     workflowTemplateId = sareeSettings.workflowTemplateId;
+    workflowTemplateVersion = wf.version;
   } else {
     // Kill-switch parity: a tryon category (or its workflow template) that an admin
     // deactivated after garment types were mapped to it must not resolve.
@@ -1126,7 +1143,12 @@ export async function createSimpleTryonJob(
       // regenerate can re-derive the garment from the CURRENT output of the
       // source job, exactly as a fresh request would, instead of needing a
       // separate code path.
-      params: { personKey, workflowTemplateId, sourceJobId },
+      params: {
+        personKey,
+        workflowTemplateId,
+        sourceJobId,
+        dispatchTemplateVersion: workflowTemplateVersion,
+      },
     });
     return [newJob];
   });
