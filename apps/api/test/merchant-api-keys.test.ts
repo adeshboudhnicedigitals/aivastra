@@ -245,3 +245,31 @@ describe('GET /v1/merchant/api-usage', () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe('POST /v1/merchant/api-keys with kind: wordpress_widget', () => {
+  it('atomically sets scope=widget and integration=wordpress', async () => {
+    const createRes = await call('/v1/merchant/api-keys', {
+      method: 'POST',
+      body: JSON.stringify({ label: 'My WooCommerce Store', kind: 'wordpress_widget' }),
+    });
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json();
+    expect(created.scope).toBe('widget');
+    expect(created.integration).toBe('wordpress');
+
+    const list = await (await call('/v1/merchant/api-keys')).json();
+    const row = list.keys.find((k: { id: string }) => k.id === created.id);
+    expect(row.scope).toBe('widget');
+    expect(row.integration).toBe('wordpress');
+  });
+
+  it('defaults to full/generic when kind is omitted (unchanged behavior)', async () => {
+    const createRes = await call('/v1/merchant/api-keys', {
+      method: 'POST',
+      body: JSON.stringify({ label: 'Regular key' }),
+    });
+    const created = await createRes.json();
+    expect(created.scope).toBe('full');
+    expect(created.integration).toBe('generic');
+  });
+});
