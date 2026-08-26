@@ -1,0 +1,33 @@
+.aivastra-tryon-button {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  background: #1a1a1a;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.aivastra-tryon-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.aivastra-tryon-modal[hidden] {
+  display: none;
+}
+
+.aivastra-tryon-modal-content {
+  background: #fff;
+  border-radius: 8px;
+  padding: 24px;
+  max-width: 420px;
+  width: 90%;
+}
