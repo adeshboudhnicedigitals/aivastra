@@ -245,18 +245,14 @@
       for (let i = 0; i < progressLines.length; i++) {
         progressLines[i].classList.toggle('is-active', i === 0);
       }
-      // Advances once per tick and stops on the last line rather than looping —
-      // a job can take longer than the full rotation, and holding on "Almost
-      // there…" reads better than cycling back to "Creating your try-on…".
+      // Loops continuously instead of stopping on the last line — a job can
+      // take longer than one pass through the copy, and cycling back reads
+      // better than sitting frozen on "Almost there…" for the remainder.
       progressLineTimer = setInterval(() => {
-        if (progressLineIndex >= progressLines.length - 1) {
-          stopProgressRotator();
-          return;
-        }
         progressLines[progressLineIndex].classList.remove('is-active');
-        progressLineIndex += 1;
+        progressLineIndex = (progressLineIndex + 1) % progressLines.length;
         progressLines[progressLineIndex].classList.add('is-active');
-      }, 2400);
+      }, 3200);
     }
 
     function stopProgressRotator() {

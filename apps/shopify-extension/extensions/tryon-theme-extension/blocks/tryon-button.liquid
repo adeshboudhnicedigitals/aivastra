@@ -134,6 +134,7 @@
 
             <div class="aivastra-tryon__step aivastra-tryon__step--progress" hidden>
               <div class="aivastra-tryon__progress-canvas">
+                <div class="aivastra-tryon__progress-spinner" aria-hidden="true"></div>
                 {%- if cfg.copy.generatingText != blank -%}
                   <p class="aivastra-tryon__progress-message">{{ cfg.copy.generatingText | escape }}</p>
                 {%- else -%}
@@ -144,9 +145,6 @@
                     <p class="aivastra-tryon__progress-line">Almost there…</p>
                   </div>
                 {%- endif -%}
-                <div class="aivastra-tryon__progress-bar-track">
-                  <div class="aivastra-tryon__progress-bar-fill"></div>
-                </div>
               </div>
             </div>
 

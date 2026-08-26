@@ -197,6 +197,22 @@
   display: none;
 }
 
+.aivastra-tryon__result-card--compact {
+  cursor: pointer;
+  border-radius: 12px;
+  transition: opacity 0.15s ease-in-out;
+}
+
+.aivastra-tryon__result-card--compact:hover,
+.aivastra-tryon__result-card--compact:focus-visible {
+  opacity: 0.85;
+}
+
+.aivastra-tryon__result-card--compact:focus-visible {
+  outline: 2px solid var(--aivastra-accent, var(--aivastra-button-color, #000000));
+  outline-offset: 2px;
+}
+
 .aivastra-tryon__result-empty {
   flex: 1;
   display: flex;
@@ -479,30 +495,26 @@
   transform: scale(1);
 }
 
-.aivastra-tryon__progress-bar-track {
-  width: 80%;
-  height: 7px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.1);
-  overflow: hidden;
+/* Scoped under the canvas parent (not a bare class selector) and with an
+   explicit `display` on purpose: Dawn's base.css ships
+   `div:empty { display: none }` (specificity 0,1,1), which silently wins
+   over a plain `.aivastra-tryon__progress-spinner` (0,1,0) since this div
+   has no children/text and this rule never otherwise competed for the
+   `display` property. This is why the previous bar-fill animations never
+   rendered either — same theme rule, same empty-div shape. */
+.aivastra-tryon__progress-canvas .aivastra-tryon__progress-spinner {
+  display: block;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 4px solid rgba(0, 0, 0, 0.12);
+  border-top-color: var(--aivastra-accent, var(--aivastra-button-color, #000000));
+  animation: aivastra-progress-spin 0.9s linear infinite;
 }
 
-.aivastra-tryon__progress-bar-fill {
-  height: 100%;
-  width: 100%;
-  border-radius: 999px;
-  background: var(--aivastra-accent, var(--aivastra-button-color, #000000));
-  transform-origin: left center;
-  animation: aivastra-progress-pulse 1.6s ease-in-out infinite;
-}
-
-@keyframes aivastra-progress-pulse {
-  0%,
-  100% {
-    transform: scaleX(0.08);
-  }
-  50% {
-    transform: scaleX(1);
+@keyframes aivastra-progress-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 
