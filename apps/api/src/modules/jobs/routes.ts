@@ -8,6 +8,8 @@ import {
   CreateSimpleTryonRequest,
   CreateTryOnJobRequest,
   JOB_SOURCE,
+  RegenerateJobRequest,
+  RegenerateReasonsResponse,
   SareeConfigResponse,
 } from '@aivastra/types';
 import { and, asc, desc, eq, isNotNull, sql } from 'drizzle-orm';
@@ -28,7 +30,7 @@ import {
 import { createBatchJobs } from './createBatch.js';
 import { createSareeJob } from './createSaree.js';
 import { createSareeMannequinJob } from './createSareeMannequin.js';
-import { regenerateJob } from './regenerate.js';
+import { getRegenerateReasons, regenerateJob } from './regenerate.js';
 import { sseHandler, userStreamHandler } from './sse.js';
 
 export async function jobsRoutes(app: FastifyInstance) {
@@ -156,15 +158,41 @@ export async function jobsRoutes(app: FastifyInstance) {
     },
   );
 
+  app.get(
+    '/v1/jobs/:id/regenerate-reasons',
+    {
+      preHandler: app.requireUser,
+      schema: {
+        params: z.object({ id: z.string().uuid() }),
+        response: { 200: RegenerateReasonsResponse },
+      },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const reasons = await getRegenerateReasons(app, req.userId, id);
+      return { reasons };
+    },
+  );
+
   app.post(
     '/v1/jobs/:id/regenerate',
     {
       preHandler: app.requireUser,
-      schema: { params: z.object({ id: z.string().uuid() }) },
+      schema: { params: z.object({ id: z.string().uuid() }), body: RegenerateJobRequest },
     },
     async (req, reply) => {
       const { id } = req.params as { id: string };
-      const result = await regenerateJob(app, req.userId, id);
+      const { reason } = req.body as z.infer<typeof RegenerateJobRequest>;
+      // Same protection every other job-creation route has: a repeated click
+      // (or a retried request) carrying the same Idempotency-Key returns the
+      // cached result instead of creating — and charging/refunding — a second job.
+      const result = await withIdempotency(
+        app,
+        'jobs',
+        req.userId,
+        req.headers['idempotency-key'] as string | undefined,
+        () => regenerateJob(app, req.userId, id, reason),
+      );
       reply.code(201);
       return result;
     },
@@ -516,6 +544,7 @@ export async function jobsRoutes(app: FastifyInstance) {
           job: schema.jobs,
           assetKind: schema.jobOutputs.assetKind,
           watermarkVersion: schema.jobOutputs.watermarkVersion,
+          downloadedAt: schema.jobOutputs.downloadedAt,
         })
         .from(schema.jobs)
         .innerJoin(schema.jobInputs, eq(schema.jobs.id, schema.jobInputs.jobId))
@@ -535,6 +564,7 @@ export async function jobsRoutes(app: FastifyInstance) {
         ...r.job,
         assetKind: r.assetKind,
         watermarkVersion: r.watermarkVersion,
+        alreadyDownloaded: r.downloadedAt != null,
       }));
 
       // All jobs in a catalogue share the same aspectRatio and garment (set once at creation).
@@ -793,6 +823,44 @@ export async function jobsRoutes(app: FastifyInstance) {
         .where(eq(schema.jobOutputs.jobId, id));
       const r2Key = output?.resultKey ?? keys.output(id);
       const { url, expiresIn } = await app.storage.presignGet(r2Key, 3600);
+      return { url, expiresIn };
+    },
+  );
+
+  // POST /v1/jobs/:id/download — the real "I'm downloading this" signal, deliberately
+  // separate from GET /result above. /result is called constantly just to display or
+  // zoom a result (studio panel, catalogue grid, preview page all fetch it on render),
+  // so stamping downloadedAt there would mark almost every image "downloaded" the
+  // instant it's shown, defeating the regenerate-disabled-after-download rule. Only
+  // the frontend's actual download buttons call this endpoint.
+  app.post(
+    '/v1/jobs/:id/download',
+    {
+      preHandler: app.requireUser,
+      schema: { params: z.object({ id: z.string().uuid() }) },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const [job] = await app.db
+        .select()
+        .from(schema.jobs)
+        .where(and(eq(schema.jobs.id, id), eq(schema.jobs.userId, req.userId)));
+      if (!job) throw new AppError('NOT_FOUND', 404, 'job not found');
+      if (job.status !== 'COMPLETED') throw new AppError('NOT_READY', 409, 'job not complete');
+
+      const [output] = await app.db
+        .select({ resultKey: schema.jobOutputs.resultKey })
+        .from(schema.jobOutputs)
+        .where(eq(schema.jobOutputs.jobId, id));
+      const r2Key = output?.resultKey ?? keys.output(id);
+      const { url, expiresIn } = await app.storage.presignGet(r2Key, 3600);
+
+      // First download wins — never overwrite an earlier timestamp.
+      await app.db
+        .update(schema.jobOutputs)
+        .set({ downloadedAt: sql`coalesce(${schema.jobOutputs.downloadedAt}, now())` })
+        .where(eq(schema.jobOutputs.jobId, id));
+
       return { url, expiresIn };
     },
   );

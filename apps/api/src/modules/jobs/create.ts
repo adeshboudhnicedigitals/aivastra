@@ -226,6 +226,10 @@ export async function resolveTryonPlan(
     resolvedUpperGarmentKey: string | null;
     trustedGarmentKeys?: Set<string>;
     cache?: TryonPlanCache;
+    /** Set only by regenerateJob to force the same workflow's alternate positive
+     *  prompt — see the params-merge at the end of the looks_ map below. Never
+     *  derived from client input. */
+    paramsOverride?: Record<string, unknown>;
   },
 ): Promise<TryonPlan> {
   const {
@@ -768,6 +772,11 @@ export async function resolveTryonPlan(
               ...(pw?.promptGarmentPhase ? { promptGarmentPhase: pw.promptGarmentPhase } : {}),
             }
           : {}),
+        // Always last: regenerateJob's alternate-prompt override, when present, wins
+        // over both the request's own params and any mapping-derived prompt above —
+        // it targets the same workflowTemplateId already resolved for this pose, so
+        // this only changes which prompt text is sent, never which graph loads.
+        ...(opts.paramsOverride ?? {}),
       },
     };
   });
@@ -845,6 +854,15 @@ export async function createJob(
      *  endpoint. */
     apiKeyId?: string;
     source?: JobSource;
+    /** Set only by regenerateJob — see resolveTryonPlan's matching field. */
+    paramsOverride?: Record<string, unknown>;
+    /** Set only by regenerateJob when the caller is still within today's free
+     *  regenerate allowance: the job is created with creditsCharged=0 and no
+     *  credit_ledger row at all — genuinely never charged, not charged-then-
+     *  refunded. Keeping creditsCharged at 0 also means every existing refund
+     *  path (terminateJob, the sweeper) naturally no-ops for this job, since
+     *  they all guard on `creditsCharged > 0`. */
+    waiveCost?: boolean;
   },
 ) {
   const {
@@ -897,6 +915,7 @@ export async function createJob(
   const plan = await resolveTryonPlan(app, userId, body, {
     resolvedUpperGarmentKey: resolvedUpperGarmentKey ?? null,
     trustedGarmentKeys: opts?.trustedGarmentKeys,
+    paramsOverride: opts?.paramsOverride,
   });
 
   await assertQueueCapacity(app, plan.looks.length);
@@ -911,6 +930,7 @@ export async function createJob(
   // Never re-derived after this point — see spec precedence rule.
   const { queueStream, priority, watermark } = routing;
 
+  const cost = opts?.waiveCost ? 0 : plan.cost;
   const jobIds = await app.db.transaction(async (tx) => {
     const created: string[] = [];
     for (const look of plan.looks) {
@@ -924,11 +944,11 @@ export async function createJob(
           priority,
           queueStream,
           watermark,
-          creditsCharged: plan.cost,
+          creditsCharged: cost,
           source: opts?.source ?? JOB_SOURCE.CATALOG,
         })
         .returning();
-      await atomicDeduct(tx as unknown as DB, userId, plan.cost, job.id);
+      if (cost > 0) await atomicDeduct(tx as unknown as DB, userId, cost, job.id);
       await tx.insert(schema.jobInputs).values({
         jobId: job.id,
         upperGarmentKey: look.upperGarmentKey,
@@ -1020,9 +1040,14 @@ export async function createSimpleTryonJob(
   app: FastifyInstance,
   userId: string,
   body: z.infer<typeof CreateSimpleTryonRequest>,
+  opts?: {
+    /** Set only by regenerateJob within today's free allowance — see createJob's
+     *  matching option for why this is a genuine zero, not charge-then-refund. */
+    waiveCost?: boolean;
+  },
 ) {
   const { personKey, sourceJobId } = body;
-  const COST = await getTryonCreditCost(app);
+  const COST = opts?.waiveCost ? 0 : await getTryonCreditCost(app);
 
   await assertOwnsUploadKey(app, userId, personKey);
 
@@ -1134,7 +1159,7 @@ export async function createSimpleTryonJob(
         source: JOB_SOURCE.TRYON,
       })
       .returning();
-    await atomicDeduct(tx as unknown as DB, userId, COST, newJob.id);
+    if (COST > 0) await atomicDeduct(tx as unknown as DB, userId, COST, newJob.id);
     await tx.insert(schema.jobInputs).values({
       jobId: newJob.id,
       upperGarmentKey: garmentKey,

@@ -29,6 +29,25 @@
   - Moved `resolve-template-version.test.ts` and `drain-cleanup.test.ts` from `src/workflow/` (picked up by the unit-test glob despite needing live Postgres) into `test/integration/`, where they belong.
   - Strengthened `workflow-replace-drain.test.ts` with a content-level assertion (an untouched `marker` field on the fixture's output node) proving the archived vs. live *graph* was actually dispatched to ComfyUI, not just that job status/archive-lifecycle timing was correct — prompt text alone can't distinguish versions here since `patcher.ts` always lets the job's own `promptGarmentPhase` override the template's baked-in prompt.
 
+## 2026-08-26 — Super-Admin Selective Job Asset Deletion
+
+**Done**
+- **Endpoint**: Added `POST /admin/jobs/:id/delete-assets` in `apps/api/src/modules/admin/jobs.routes.ts`. Gated strictly to `SUPER_ADMIN` role and requires the calling admin to re-enter their login password (verified against `admin_users.passwordHash` via Argon2id).
+- **Invariants & Gates**:
+  - Gated on terminal job statuses: `COMPLETED`, `FAILED`, `CANCELLED`. Non-terminal jobs (`QUEUED`, `GENERATING`, `PREPROCESSING`) reject with `409 CONFLICT`.
+  - Target selection: allows selectively deleting `result` (resultKey and thumbnailKey) and/or `person` (customer's uploaded photo, resolving both merchant/Shopify `jobs.customerPhotoKey` and tryon-direct `job_inputs.params.personKey`).
+  - Purges R2/MinIO objects before updating PostgreSQL pointers in a single transaction.
+  - Leaves the job row, its status, credits charged, events, and all configuration parameters intact (using PostgreSQL JSONB subtraction `params - 'personKey'`).
+  - Transactionally records an audit log under action `jobs.delete_assets` without exposing the admin password.
+- **Frontend UI**: In `apps/admin-web/src/pages/JobsPage.tsx`:
+  - Added checkboxes on the Output card and Input Images (person tile) gated on `role === 'SUPER_ADMIN' && TERMINAL_JOB_STATUSES.includes(j.status)`.
+  - Added sticky "Delete selected" action bar showing selected count and opening confirmation modal.
+  - Added password confirmation modal explaining permanent asset deletion. Retains modal on 403 (wrong password) for easy correction while closing on success or fatal errors.
+  - Automatically resets delete selection and modals on job navigation.
+- **Testing & Verification**:
+  - Added integration test suite `apps/api/test/integration/admin-jobs-delete-assets.test.ts` covering 403 role & password gates, 409 non-terminal state rejection, selective result deletion, selective customer photo deletion, selective tryon direct personKey deletion, and full dual deletion with audit log verification (all 7 integration tests passing).
+  - Executed automated end-to-end verification checklist with Playwright against live API (`http://localhost:4000`) and Admin Web (`http://localhost:5173`) covering all 6 manual verification steps (super admin login, checkbox visibility on completed tryon direct job, wrong password error handling with modal retention, successful result deletion and live card removal, successful person image deletion and live input tile removal, non-terminal queued/generating suppression of checkboxes, and moderator role suppression of checkboxes).
+
 ## 2026-08-25 — Admin panel password desync general fix & reset-password audit logging
 
 **Done**
