@@ -13,6 +13,19 @@ export const apiKeys = pgTable('api_keys', {
   keyHash: text('key_hash').notNull().unique(),
   // e.g. "sk_live_a1b2" — dashboard display only, never sufficient to authenticate.
   keyPrefix: text('key_prefix').notNull(),
+  // 'full' can call every /v1/dev/* route; 'widget' is restricted to the
+  // storefront-safe allowlist enforced by requireDevScope() in dev-api-auth.ts.
+  // No CHECK constraint — same deliberate choice as jobs.source (see
+  // packages/types/src/job-taxonomy.ts).
+  scope: text('scope', { enum: ['full', 'widget'] })
+    .notNull()
+    .default('full'),
+  // Which integration minted this key. Resolved server-side into jobs.source —
+  // never trusted from a client-supplied field. See
+  // docs/wordpress-plugin-design.md §4.2a.
+  integration: text('integration', { enum: ['generic', 'wordpress'] })
+    .notNull()
+    .default('generic'),
   lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
