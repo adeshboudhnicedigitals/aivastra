@@ -17,6 +17,7 @@ import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
+import { assertWidgetKeyRateLimit } from '../../lib/widget-key-rate-limit.js';
 import { createDevTryonJob } from './create-job.js';
 import { createDevSareeMannequinJob } from './create-saree-mannequin-job.js';
 import { sniffImageMime } from './image-sniff.js';
@@ -142,6 +143,11 @@ export async function devRoutes(app: FastifyInstance) {
       const merchantId = req.merchantId as string;
       const merchantUserId = req.merchantUserId as string;
       const apiKeyId = req.apiKeyId as string;
+
+      if (req.apiKeyScope === 'widget') {
+        await assertWidgetKeyRateLimit(app, apiKeyId);
+      }
+
       const maxFileBytes = await getUploadLimitBytes(req.server, 'devApiMaxBytes');
 
       let categorySlug: string | undefined;
@@ -385,6 +391,9 @@ export async function devRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { id } = req.params as { id: string };
+      if (req.apiKeyScope === 'widget') {
+        await assertWidgetKeyRateLimit(app, req.apiKeyId as string);
+      }
       const [job] = await app.db
         .select({
           id: schema.jobs.id,
