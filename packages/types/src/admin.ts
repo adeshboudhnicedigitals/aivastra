@@ -354,7 +354,7 @@ export const CreateWorkflowBody = z
     label: z.string().min(1).max(120),
     jsonContent: z.record(z.any()),
     workflowType: z
-      .enum(['regular', 'tryon', 'saree_step1', 'saree_step1_two_input'])
+      .enum(['regular', 'tryon', 'saree_step1', 'saree_step1_two_input', 'two_stage'])
       .default('regular'),
     // Regular workflow fields (required when workflowType = 'regular')
     faceNodeId: z.string().min(1).optional(),
@@ -382,8 +382,41 @@ export const CreateWorkflowBody = z
     tryonGarmentNodeId: z.string().min(1).optional(),
     tryonGarmentNodeId2: z.string().min(1).optional(),
     tryonOutputNodeId: z.string().min(1).optional(),
+    // Two-stage workflow fields (required when workflowType = 'two_stage'). Stage 2's
+    // prompt pair reuses facePhasePromptNode (negative) / garmentPhasePromptNode
+    // (positive) above — same convention as tryon/saree — so only stage 1 needs its
+    // own dedicated fields.
+    stage1PositivePromptNode: z.string().min(1).optional(),
+    stage1NegativePromptNode: z.string().min(1).optional(),
   })
   .superRefine((val, ctx) => {
+    if (val.workflowType === 'two_stage') {
+      for (const field of [
+        'faceNodeId',
+        'poseNodeId',
+        'bgNodeId',
+        'facePhasePromptNode',
+        'garmentPhasePromptNode',
+        'stage1PositivePromptNode',
+        'stage1NegativePromptNode',
+      ] as const) {
+        if (!val[field]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field],
+            message: `${field} is required for two_stage workflows`,
+          });
+        }
+      }
+      if ((val.upperNodeIds?.length ?? 0) === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['upperNodeIds'],
+          message: 'garment node is required for two_stage workflows',
+        });
+      }
+      return;
+    }
     if (
       val.workflowType === 'tryon' ||
       val.workflowType === 'saree_step1' ||
@@ -434,7 +467,9 @@ export const CreateWorkflowBody = z
 
 export const ParseWorkflowBody = z.object({
   jsonContent: z.record(z.any()),
-  workflowType: z.enum(['regular', 'tryon', 'saree_step1', 'saree_step1_two_input']).optional(),
+  workflowType: z
+    .enum(['regular', 'tryon', 'saree_step1', 'saree_step1_two_input', 'two_stage'])
+    .optional(),
 });
 
 export const UpdateWorkflowBody = z.object({
@@ -466,6 +501,8 @@ export const UpdateWorkflowBody = z.object({
   resultNodeId: z.string().min(1).nullable().optional(),
   facePhasePromptNode: z.string().min(1).optional(),
   garmentPhasePromptNode: z.string().min(1).optional(),
+  stage1PositivePromptNode: z.string().min(1).optional(),
+  stage1NegativePromptNode: z.string().min(1).optional(),
   // Prompt TEXT (not which node holds it — see facePhasePromptNode/garmentPhasePromptNode
   // above for that). No .min(1) here on purpose: emptiness rules differ per field and are
   // enforced in the route handler (garmentPhasePrompt must be non-empty, facePhasePrompt may
@@ -481,13 +518,27 @@ export const UpdateWorkflowBody = z.object({
     .array(z.object({ reason: z.string().min(1).max(100), prompt: z.string().min(1).max(300) }))
     .max(50)
     .optional(),
-  // KSampler settings — found by class_type scan, not a stored node-id column (every
-  // real workflow has exactly one KSampler). steps<1 means no generation happens;
-  // denoise is bounded to its defined semantic range [0,1]; cfg has no fixed ceiling
-  // since it varies by model/LoRA.
-  ksamplerSteps: z.number().int().min(1).optional(),
-  ksamplerCfg: z.number().min(0).optional(),
-  ksamplerDenoise: z.number().min(0).max(1).optional(),
+  // Same TEXT vs node-id-column distinction as above, for two_stage's own stage-1
+  // pair. stage1PositivePrompt must be non-empty (same reason as garmentPhasePrompt);
+  // stage1NegativePrompt may be empty (same as facePhasePrompt).
+  stage1PositivePrompt: z.string().optional(),
+  stage1NegativePrompt: z.string().optional(),
+  // KSampler settings — targeted by node ID rather than "the" KSampler, since a
+  // workflow can have more than one (two_stage: build-person + dress-garment each
+  // have their own). steps<1 means no generation happens; denoise is bounded to its
+  // defined semantic range [0,1]; cfg has no fixed ceiling since it varies by
+  // model/LoRA; seed has no ceiling either (ComfyUI accepts any non-negative int).
+  ksamplerOverrides: z
+    .array(
+      z.object({
+        nodeId: z.string().min(1),
+        steps: z.number().int().min(1).optional(),
+        cfg: z.number().min(0).optional(),
+        denoise: z.number().min(0).max(1).optional(),
+        seed: z.number().int().min(0).optional(),
+      }),
+    )
+    .optional(),
   // Tryon workflow node IDs
   tryonPersonNodeId: z.string().min(1).nullable().optional(),
   tryonGarmentNodeId: z.string().min(1).nullable().optional(),

@@ -1,1 +1,0 @@
-ALTER TABLE "workflow_templates" ADD COLUMN "regeneration_reason_prompts" jsonb DEFAULT '[]'::jsonb NOT NULL;

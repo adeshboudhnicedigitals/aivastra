@@ -57,7 +57,7 @@ interface Props {
     _page: string,
     _filter?: { page: string; filter?: string; search?: string; jobId?: string },
   ) => void;
-  toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
+  toast: (t: { kind?: 'error' | 'warning' | 'success'; title: string; body?: string }) => void;
 }
 
 export default function UsersPage({ onNav, toast }: Props) {
@@ -640,7 +640,31 @@ export default function UsersPage({ onNav, toast }: Props) {
       method: 'POST',
       body: JSON.stringify({ newPassword }),
     });
-    toast({ title: 'Password reset \u2014 share the new password with the customer' });
+    if (detail.isAdmin) {
+      toast({
+        kind: 'warning',
+        title: 'Password reset \u2014 admin panel access not yet updated',
+        body: `${userLabel(detail)} is also an active admin. Use "Sync Admin Password" to update their admin.aivastra.com login too.`,
+      });
+    } else {
+      toast({ title: 'Password reset \u2014 share the new password with the customer' });
+    }
+  }
+
+  async function syncAdminPassword(u: User) {
+    setAdminActioning(true);
+    try {
+      await apiFetch(`/admin/admin-users/${u.id}/sync-password`, { method: 'POST' });
+      toast({ title: `${userLabel(u)}'s admin panel password now matches their account password` });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to sync admin password',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setAdminActioning(false);
+    }
   }
 
   async function assignAdminRole(u: User, role: string) {
@@ -731,6 +755,15 @@ export default function UsersPage({ onNav, toast }: Props) {
             >
               <Icon.Refresh /> Reset Password
             </button>
+            {isSuperAdmin && u.isAdmin && (
+              <button
+                className="btn ghost"
+                disabled={adminActioning}
+                onClick={() => void syncAdminPassword(u)}
+              >
+                <Icon.Refresh /> Sync Admin Password
+              </button>
+            )}
             {isSuperAdmin && u.adminRole !== 'SUPER_ADMIN' && (u.isAdmin || u.hasPassword) && (
               <select
                 className="input"

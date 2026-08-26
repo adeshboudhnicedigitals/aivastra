@@ -33,6 +33,16 @@ interface Props {
   onNav: (_page: string, _filter?: { page: string; filter?: string }) => void;
 }
 
+function ksamplerOverridesFromWf(wf: WorkflowOption) {
+  return wf.ksamplerNodes.map((n) => ({
+    nodeId: n.nodeId,
+    steps: String(n.steps ?? ''),
+    cfg: String(n.cfg ?? ''),
+    denoise: String(n.denoise ?? ''),
+    seed: String(n.seed ?? ''),
+  }));
+}
+
 export default function WorkflowsPage({ toast }: Props) {
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
   const [query, setQuery] = useState('');
@@ -55,9 +65,15 @@ export default function WorkflowsPage({ toast }: Props) {
     garmentPhasePrompt: '',
     facePhasePrompt: '',
     regenerationReasonPrompts: [] as { reason: string; prompt: string }[],
-    ksamplerSteps: '',
-    ksamplerCfg: '',
-    ksamplerDenoise: '',
+    stage1PositivePrompt: '',
+    stage1NegativePrompt: '',
+    ksamplerOverrides: [] as {
+      nodeId: string;
+      steps: string;
+      cfg: string;
+      denoise: string;
+      seed: string;
+    }[],
   });
   const [editSaving, setEditSaving] = useState(false);
 
@@ -192,14 +208,34 @@ export default function WorkflowsPage({ toast }: Props) {
       if (editingWf.facePhasePromptNode) {
         patch.facePhasePrompt = editForm.facePhasePrompt.trim();
       }
-      if (editingWf.ksamplerSteps !== null) {
-        const steps = Number(editForm.ksamplerSteps);
-        const cfg = Number(editForm.ksamplerCfg);
-        const denoise = Number(editForm.ksamplerDenoise);
-        if (!Number.isNaN(steps)) patch.ksamplerSteps = steps;
-        if (!Number.isNaN(cfg)) patch.ksamplerCfg = cfg;
-        if (!Number.isNaN(denoise)) patch.ksamplerDenoise = denoise;
+      if (editingWf.stage1PositivePromptNode) {
+        patch.stage1PositivePrompt = editForm.stage1PositivePrompt.trim();
       }
+      if (editingWf.stage1NegativePromptNode) {
+        patch.stage1NegativePrompt = editForm.stage1NegativePrompt.trim();
+      }
+      const ksamplerOverrides = editForm.ksamplerOverrides
+        .map((o) => {
+          const steps = Number(o.steps);
+          const cfg = Number(o.cfg);
+          const denoise = Number(o.denoise);
+          const seed = Number(o.seed);
+          const override: {
+            nodeId: string;
+            steps?: number;
+            cfg?: number;
+            denoise?: number;
+            seed?: number;
+          } = { nodeId: o.nodeId };
+          if (!Number.isNaN(steps)) override.steps = steps;
+          if (!Number.isNaN(cfg)) override.cfg = cfg;
+          if (!Number.isNaN(denoise)) override.denoise = denoise;
+          if (!Number.isNaN(seed)) override.seed = seed;
+          return override;
+        })
+        .filter((o) => Object.keys(o).length > 1);
+      if (ksamplerOverrides.length > 0) patch.ksamplerOverrides = ksamplerOverrides;
+
       await apiFetch(`/admin/workflows/${editingWf.id}`, {
         method: 'PATCH',
         body: JSON.stringify(patch),
@@ -216,19 +252,23 @@ export default function WorkflowsPage({ toast }: Props) {
                 ...(editingWf.facePhasePromptNode
                   ? { defaultFacePhasePrompt: editForm.facePhasePrompt.trim() }
                   : {}),
-                ...(editingWf.ksamplerSteps !== null
-                  ? {
-                      ksamplerSteps: Number.isNaN(Number(editForm.ksamplerSteps))
-                        ? w.ksamplerSteps
-                        : Number(editForm.ksamplerSteps),
-                      ksamplerCfg: Number.isNaN(Number(editForm.ksamplerCfg))
-                        ? w.ksamplerCfg
-                        : Number(editForm.ksamplerCfg),
-                      ksamplerDenoise: Number.isNaN(Number(editForm.ksamplerDenoise))
-                        ? w.ksamplerDenoise
-                        : Number(editForm.ksamplerDenoise),
-                    }
+                ...(editingWf.stage1PositivePromptNode
+                  ? { defaultStage1PositivePrompt: editForm.stage1PositivePrompt.trim() }
                   : {}),
+                ...(editingWf.stage1NegativePromptNode
+                  ? { defaultStage1NegativePrompt: editForm.stage1NegativePrompt.trim() }
+                  : {}),
+                ksamplerNodes: w.ksamplerNodes.map((n) => {
+                  const form = editForm.ksamplerOverrides.find((o) => o.nodeId === n.nodeId);
+                  if (!form) return n;
+                  return {
+                    nodeId: n.nodeId,
+                    steps: Number.isNaN(Number(form.steps)) ? n.steps : Number(form.steps),
+                    cfg: Number.isNaN(Number(form.cfg)) ? n.cfg : Number(form.cfg),
+                    denoise: Number.isNaN(Number(form.denoise)) ? n.denoise : Number(form.denoise),
+                    seed: Number.isNaN(Number(form.seed)) ? n.seed : Number(form.seed),
+                  };
+                }),
               }
             : w,
         ),
@@ -447,9 +487,9 @@ export default function WorkflowsPage({ toast }: Props) {
                                 garmentPhasePrompt: wf.defaultGarmentPhasePrompt,
                                 facePhasePrompt: wf.defaultFacePhasePrompt,
                                 regenerationReasonPrompts: wf.regenerationReasonPrompts ?? [],
-                                ksamplerSteps: String(wf.ksamplerSteps ?? ''),
-                                ksamplerCfg: String(wf.ksamplerCfg ?? ''),
-                                ksamplerDenoise: String(wf.ksamplerDenoise ?? ''),
+                                stage1PositivePrompt: wf.defaultStage1PositivePrompt,
+                                stage1NegativePrompt: wf.defaultStage1NegativePrompt,
+                                ksamplerOverrides: ksamplerOverridesFromWf(wf),
                               });
                             }}
                             title="Edit workflow"
@@ -705,9 +745,9 @@ export default function WorkflowsPage({ toast }: Props) {
                               garmentPhasePrompt: wf.defaultGarmentPhasePrompt,
                               facePhasePrompt: wf.defaultFacePhasePrompt,
                               regenerationReasonPrompts: wf.regenerationReasonPrompts ?? [],
-                              ksamplerSteps: String(wf.ksamplerSteps ?? ''),
-                              ksamplerCfg: String(wf.ksamplerCfg ?? ''),
-                              ksamplerDenoise: String(wf.ksamplerDenoise ?? ''),
+                              stage1PositivePrompt: wf.defaultStage1PositivePrompt,
+                              stage1NegativePrompt: wf.defaultStage1NegativePrompt,
+                              ksamplerOverrides: ksamplerOverridesFromWf(wf),
                             });
                           }}
                         >
@@ -1060,14 +1100,19 @@ export default function WorkflowsPage({ toast }: Props) {
             !editForm.label.trim() ||
             !editForm.slug.trim() ||
             !editForm.garmentPhasePrompt.trim() ||
-            (editingWf?.ksamplerSteps !== null &&
-              (Number.isNaN(Number(editForm.ksamplerSteps)) ||
-                Number(editForm.ksamplerSteps) < 1 ||
-                Number.isNaN(Number(editForm.ksamplerCfg)) ||
-                Number(editForm.ksamplerCfg) < 0 ||
-                Number.isNaN(Number(editForm.ksamplerDenoise)) ||
-                Number(editForm.ksamplerDenoise) < 0 ||
-                Number(editForm.ksamplerDenoise) > 1))
+            (!!editingWf?.stage1PositivePromptNode && !editForm.stage1PositivePrompt.trim()) ||
+            editForm.ksamplerOverrides.some(
+              (o) =>
+                Number.isNaN(Number(o.steps)) ||
+                Number(o.steps) < 1 ||
+                Number.isNaN(Number(o.cfg)) ||
+                Number(o.cfg) < 0 ||
+                Number.isNaN(Number(o.denoise)) ||
+                Number(o.denoise) < 0 ||
+                Number(o.denoise) > 1 ||
+                Number.isNaN(Number(o.seed)) ||
+                Number(o.seed) < 0,
+            )
           }
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -1196,42 +1241,111 @@ export default function WorkflowsPage({ toast }: Props) {
                 </button>
               </div>
             </div>
-            {editingWf?.ksamplerSteps !== null && (
-              <div style={{ display: 'flex', gap: 14 }}>
-                <div className="field" style={{ flex: 1 }}>
-                  <label>Steps</label>
-                  <input
-                    className="input"
-                    type="number"
-                    value={editForm.ksamplerSteps}
-                    disabled={editSaving}
-                    onChange={(e) => setEditForm((f) => ({ ...f, ksamplerSteps: e.target.value }))}
-                  />
-                </div>
-                <div className="field" style={{ flex: 1 }}>
-                  <label>CFG</label>
-                  <input
-                    className="input"
-                    type="number"
-                    value={editForm.ksamplerCfg}
-                    disabled={editSaving}
-                    onChange={(e) => setEditForm((f) => ({ ...f, ksamplerCfg: e.target.value }))}
-                  />
-                </div>
-                <div className="field" style={{ flex: 1 }}>
-                  <label>Denoise</label>
-                  <input
-                    className="input"
-                    type="number"
-                    value={editForm.ksamplerDenoise}
-                    disabled={editSaving}
-                    onChange={(e) =>
-                      setEditForm((f) => ({ ...f, ksamplerDenoise: e.target.value }))
-                    }
-                  />
-                </div>
+            {editingWf?.stage1PositivePromptNode && (
+              <div className="field">
+                <label>Stage 1 positive prompt (build-person pass)</label>
+                <textarea
+                  className="input"
+                  rows={4}
+                  value={editForm.stage1PositivePrompt}
+                  disabled={editSaving}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, stage1PositivePrompt: e.target.value }))
+                  }
+                />
               </div>
             )}
+            {editingWf?.stage1NegativePromptNode && (
+              <div className="field">
+                <label>Stage 1 negative prompt (build-person pass)</label>
+                <textarea
+                  className="input"
+                  rows={4}
+                  value={editForm.stage1NegativePrompt}
+                  disabled={editSaving}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, stage1NegativePrompt: e.target.value }))
+                  }
+                />
+              </div>
+            )}
+            {editForm.ksamplerOverrides.map((o, idx) => (
+              <div key={o.nodeId} className="field" style={{ margin: 0 }}>
+                <label style={{ fontSize: 12, fontWeight: 600 }}>
+                  KSampler {editForm.ksamplerOverrides.length > 1 ? `— node ${o.nodeId}` : ''}
+                </label>
+                <div style={{ display: 'flex', gap: 14 }}>
+                  <div className="field" style={{ flex: 1, margin: 0 }}>
+                    <label>Steps</label>
+                    <input
+                      className="input"
+                      type="number"
+                      value={o.steps}
+                      disabled={editSaving}
+                      onChange={(e) =>
+                        setEditForm((f) => ({
+                          ...f,
+                          ksamplerOverrides: f.ksamplerOverrides.map((x, i) =>
+                            i === idx ? { ...x, steps: e.target.value } : x,
+                          ),
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="field" style={{ flex: 1, margin: 0 }}>
+                    <label>CFG</label>
+                    <input
+                      className="input"
+                      type="number"
+                      value={o.cfg}
+                      disabled={editSaving}
+                      onChange={(e) =>
+                        setEditForm((f) => ({
+                          ...f,
+                          ksamplerOverrides: f.ksamplerOverrides.map((x, i) =>
+                            i === idx ? { ...x, cfg: e.target.value } : x,
+                          ),
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="field" style={{ flex: 1, margin: 0 }}>
+                    <label>Denoise</label>
+                    <input
+                      className="input"
+                      type="number"
+                      value={o.denoise}
+                      disabled={editSaving}
+                      onChange={(e) =>
+                        setEditForm((f) => ({
+                          ...f,
+                          ksamplerOverrides: f.ksamplerOverrides.map((x, i) =>
+                            i === idx ? { ...x, denoise: e.target.value } : x,
+                          ),
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="field" style={{ flex: 1, margin: 0 }}>
+                    <label>Seed</label>
+                    <input
+                      className="input"
+                      type="number"
+                      value={o.seed}
+                      disabled={editSaving}
+                      onChange={(e) =>
+                        setEditForm((f) => ({
+                          ...f,
+                          ksamplerOverrides: f.ksamplerOverrides.map((x, i) =>
+                            i === idx ? { ...x, seed: e.target.value } : x,
+                          ),
+                        }))
+                      }
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </EditDrawer>
       )}

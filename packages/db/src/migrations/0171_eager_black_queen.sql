@@ -1,1 +1,0 @@
-ALTER TABLE "workflow_templates" DROP COLUMN IF EXISTS "regeneration_prompts";

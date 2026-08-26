@@ -1,6 +1,6 @@
 {
-  "id": "34ae88b0-202a-44b9-b301-3d566ed240a7",
-  "prevId": "0bc95ed2-fa5c-4241-a347-a627bb655fef",
+  "id": "bf360cb2-2196-4bae-b6cc-c90224bf7c35",
+  "prevId": "1f185ae9-e938-4f94-bc46-e8bc1ebb67f4",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2208,6 +2208,96 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.google_drive_connections": {
+      "name": "google_drive_connections",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "google_email": {
+          "name": "google_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "refresh_token_enc": {
+          "name": "refresh_token_enc",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "revoked_at": {
+          "name": "revoked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "google_drive_connections_user_id_uniq": {
+          "name": "google_drive_connections_user_id_uniq",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "google_drive_connections_user_id_users_id_fk": {
+          "name": "google_drive_connections_user_id_users_id_fk",
+          "tableFrom": "google_drive_connections",
+          "tableTo": "users",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.job_events": {
       "name": "job_events",
       "schema": "",
@@ -2447,12 +2537,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "downloaded_at": {
-          "name": "downloaded_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -2634,37 +2718,6 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": false
-        },
-        "flagged": {
-          "name": "flagged",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "flag_reason": {
-          "name": "flag_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "flag_note": {
-          "name": "flag_note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "flagged_at": {
-          "name": "flagged_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "flagged_by": {
-          "name": "flagged_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -2704,11 +2757,17 @@
           "method": "btree",
           "with": {}
         },
-        "jobs_flagged_idx": {
-          "name": "jobs_flagged_idx",
+        "jobs_merchant_created_idx": {
+          "name": "jobs_merchant_created_idx",
           "columns": [
             {
-              "expression": "flagged",
+              "expression": "merchant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -2762,15 +2821,6 @@
           "tableFrom": "jobs",
           "tableTo": "shopify_shoppers",
           "columnsFrom": ["shopify_shopper_id"],
-          "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "jobs_flagged_by_users_id_fk": {
-          "name": "jobs_flagged_by_users_id_fk",
-          "tableFrom": "jobs",
-          "tableTo": "users",
-          "columnsFrom": ["flagged_by"],
           "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
@@ -3400,7 +3450,7 @@
           "type": "boolean",
           "primaryKey": false,
           "notNull": true,
-          "default": true
+          "default": false
         },
         "job_rate_limit_per_min": {
           "name": "job_rate_limit_per_min",
@@ -5293,6 +5343,18 @@
           "primaryKey": false,
           "notNull": true
         },
+        "stage1_positive_prompt_node": {
+          "name": "stage1_positive_prompt_node",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "stage1_negative_prompt_node": {
+          "name": "stage1_negative_prompt_node",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "default_face_phase_prompt": {
           "name": "default_face_phase_prompt",
           "type": "text",
@@ -5307,12 +5369,19 @@
           "notNull": true,
           "default": "''"
         },
-        "regeneration_reason_prompts": {
-          "name": "regeneration_reason_prompts",
-          "type": "jsonb",
+        "default_stage1_positive_prompt": {
+          "name": "default_stage1_positive_prompt",
+          "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'[]'::jsonb"
+          "default": "''"
+        },
+        "default_stage1_negative_prompt": {
+          "name": "default_stage1_negative_prompt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
         },
         "workflow_type": {
           "name": "workflow_type",

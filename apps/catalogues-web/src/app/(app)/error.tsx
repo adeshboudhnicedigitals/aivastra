@@ -16,10 +16,10 @@ export default function AppError({
   return (
     <ErrorState
       title="Something went wrong"
-      message="We couldn't load this page. Try again, or go back to your catalogues."
+      message="We couldn't load this page. Try again, or go back to your catalogs."
       onRetry={reset}
-      homeHref="/catalogues"
-      homeLabel="Back to Catalogues"
+      homeHref="/catalogs"
+      homeLabel="Back to Catalogs"
     />
   );
 }

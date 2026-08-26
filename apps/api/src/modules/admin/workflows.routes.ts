@@ -13,6 +13,7 @@ import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
 import { detectTryonMappings } from './tryon-detect.js';
 import { detectTryonTwoInputMappings } from './tryon-two-input-detect.js';
+import { detectTwoStageMappings } from './two-stage-detect.js';
 import { classifyNode, detectMappings, type NodeCategory } from './workflow-detect.js';
 
 type WorkflowNode = {
@@ -88,45 +89,56 @@ function writePromptText(json: Record<string, unknown>, nodeId: string, text: st
   node.inputs[key] = text;
 }
 
-// Every real workflow has exactly one KSampler node (verified against production
-// workflow exports) — found by class_type, not a stored node-id column, since
-// nothing else needs to identify it and a scan is O(nodes) on an already-small JSON.
-function findKSamplerNode(
-  json: Record<string, unknown>,
-): { nodeId: string; node: WorkflowNode } | null {
+// Targeted by node ID, not "the" KSampler — a workflow can have more than one
+// (two_stage: build-person + dress-garment each have their own), so picking
+// "the first one found" would silently edit or display the wrong stage.
+
+export function extractKSamplerNodes(json: Record<string, unknown>): {
+  nodeId: string;
+  steps: number | null;
+  cfg: number | null;
+  denoise: number | null;
+  seed: number | null;
+}[] {
+  const nodes: ReturnType<typeof extractKSamplerNodes> = [];
   for (const [nodeId, value] of Object.entries(json)) {
     const node = value as WorkflowNode;
-    if (node?.class_type === 'KSampler') return { nodeId, node };
+    if (node?.class_type !== 'KSampler') continue;
+    const inputs = node.inputs;
+    nodes.push({
+      nodeId,
+      steps: typeof inputs?.steps === 'number' ? inputs.steps : null,
+      cfg: typeof inputs?.cfg === 'number' ? inputs.cfg : null,
+      denoise: typeof inputs?.denoise === 'number' ? inputs.denoise : null,
+      seed: typeof inputs?.seed === 'number' ? inputs.seed : null,
+    });
   }
-  return null;
+  return nodes;
 }
 
-function extractKSamplerValues(json: Record<string, unknown>): {
-  ksamplerSteps: number | null;
-  ksamplerCfg: number | null;
-  ksamplerDenoise: number | null;
-} {
-  const inputs = findKSamplerNode(json)?.node.inputs;
-  return {
-    ksamplerSteps: typeof inputs?.steps === 'number' ? inputs.steps : null,
-    ksamplerCfg: typeof inputs?.cfg === 'number' ? inputs.cfg : null,
-    ksamplerDenoise: typeof inputs?.denoise === 'number' ? inputs.denoise : null,
-  };
-}
-
-// Returns false (no write performed) when the workflow has no KSampler node —
-// caller turns that into a 400, mirroring the facePhasePrompt-with-no-node case.
-function writeKSamplerValues(
+// Throws on a bad nodeId (caller turns AppError into the HTTP response) rather
+// than returning a boolean — unlike the old single-KSampler version, a wrong
+// nodeId here is a client mistake worth a specific error, not silent no-op.
+export function writeKSamplerOverride(
   json: Record<string, unknown>,
-  values: { steps?: number; cfg?: number; denoise?: number },
-): boolean {
-  const found = findKSamplerNode(json);
-  if (!found) return false;
-  found.node.inputs ??= {};
-  if (values.steps !== undefined) found.node.inputs.steps = values.steps;
-  if (values.cfg !== undefined) found.node.inputs.cfg = values.cfg;
-  if (values.denoise !== undefined) found.node.inputs.denoise = values.denoise;
-  return true;
+  override: { nodeId: string; steps?: number; cfg?: number; denoise?: number; seed?: number },
+): void {
+  const node = json[override.nodeId] as WorkflowNode | undefined;
+  if (!node) {
+    throw new AppError('VALIDATION', 400, `KSampler node "${override.nodeId}" not found`);
+  }
+  if (node.class_type !== 'KSampler') {
+    throw new AppError(
+      'VALIDATION',
+      400,
+      `Node "${override.nodeId}" is type "${node.class_type}", not a KSampler`,
+    );
+  }
+  node.inputs ??= {};
+  if (override.steps !== undefined) node.inputs.steps = override.steps;
+  if (override.cfg !== undefined) node.inputs.cfg = override.cfg;
+  if (override.denoise !== undefined) node.inputs.denoise = override.denoise;
+  if (override.seed !== undefined) node.inputs.seed = override.seed;
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────
@@ -163,7 +175,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       defaultGarmentPhasePrompt: r.defaultGarmentPhasePrompt,
       regenerationReasonPrompts: r.regenerationReasonPrompts,
       facePhasePromptNode: r.facePhasePromptNode,
-      ...extractKSamplerValues(r.jsonContent as Record<string, unknown>),
+      ksamplerNodes: extractKSamplerNodes(r.jsonContent as Record<string, unknown>),
       lowerNodeId: r.lowerNodeId,
       shoeNodeId: r.shoeNodeId,
       thirdNodeId: r.thirdNodeId,
@@ -177,6 +189,10 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       tryonGarmentNodeId: r.tryonGarmentNodeId,
       tryonGarmentNodeId2: r.tryonGarmentNodeId2,
       tryonOutputNodeId: r.tryonOutputNodeId,
+      stage1PositivePromptNode: r.stage1PositivePromptNode,
+      stage1NegativePromptNode: r.stage1NegativePromptNode,
+      defaultStage1PositivePrompt: r.defaultStage1PositivePrompt,
+      defaultStage1NegativePrompt: r.defaultStage1NegativePrompt,
       createdAt: r.createdAt,
     }));
   });
@@ -205,6 +221,10 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       if (parseWorkflowType === 'saree_step1_two_input') {
         const { detected, allImageNodes, allPromptNodes } =
           detectTryonTwoInputMappings(jsonContent);
+        return { detected, allImageNodes, allPromptNodes };
+      }
+      if (parseWorkflowType === 'two_stage') {
+        const { detected, allImageNodes, allPromptNodes } = detectTwoStageMappings(jsonContent);
         return { detected, allImageNodes, allPromptNodes };
       }
 
@@ -247,6 +267,8 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         tryonGarmentNodeId?: string;
         tryonGarmentNodeId2?: string;
         tryonOutputNodeId?: string;
+        stage1PositivePromptNode?: string;
+        stage1NegativePromptNode?: string;
       };
 
       const [existing] = await app.db
@@ -331,6 +353,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
             throw new AppError('INSERT_FAILED', 500, 'failed to insert workflow template');
 
           await recordAudit(tx, {
+            // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
             actor: { userId: req.userId, role: req.adminRole! },
             action: 'workflow.create',
             resourceType: 'workflow',
@@ -359,6 +382,154 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
           tryonGarmentNodeId: row?.tryonGarmentNodeId,
           tryonGarmentNodeId2: row?.tryonGarmentNodeId2,
           tryonOutputNodeId: row?.tryonOutputNodeId,
+          createdAt: row?.createdAt,
+        };
+      }
+
+      if (workflowType === 'two_stage') {
+        const { detected: autoDetected } = detectTwoStageMappings(body.jsonContent);
+        const faceNodeId = body.faceNodeId ?? autoDetected.faceNodeId ?? '';
+        const poseNodeId = body.poseNodeId ?? autoDetected.poseNodeId ?? '';
+        const bgNodeId = body.bgNodeId ?? autoDetected.bgNodeId ?? '';
+        const garmentNodeId = body.upperNodeIds?.[0] ?? autoDetected.garmentNodeId ?? '';
+        // Stage 2's prompt pair reuses facePhasePromptNode (negative) / garmentPhasePromptNode
+        // (positive) — same two columns every other workflowType uses for "the prompt that
+        // actually gets patched at runtime" — only stage 1 needs its own dedicated columns.
+        // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
+        const stage2NegativeNode = body.facePhasePromptNode!;
+        // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
+        const stage2PositiveNode = body.garmentPhasePromptNode!;
+        const stage1PositiveNode =
+          body.stage1PositivePromptNode ?? autoDetected.stage1PositivePromptNode ?? '';
+        const stage1NegativeNode =
+          body.stage1NegativePromptNode ?? autoDetected.stage1NegativePromptNode ?? '';
+
+        if (!faceNodeId)
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'Could not detect face node — set faceNodeId manually',
+          );
+        if (!poseNodeId)
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'Could not detect pose node — set poseNodeId manually',
+          );
+        if (!bgNodeId)
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'Could not detect background node — set bgNodeId manually',
+          );
+        if (!garmentNodeId)
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'Could not detect garment node — set upperNodeIds manually',
+          );
+        if (!stage1PositiveNode || !stage1NegativeNode)
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'Could not detect stage-1 prompt nodes — set stage1PositivePromptNode/stage1NegativePromptNode manually',
+          );
+
+        validateNodeExists(body.jsonContent, faceNodeId, 'face');
+        validateNodeType(body.jsonContent, faceNodeId, 'image', 'face');
+        validateNodeExists(body.jsonContent, poseNodeId, 'pose');
+        validateNodeType(body.jsonContent, poseNodeId, 'image', 'pose');
+        validateNodeExists(body.jsonContent, bgNodeId, 'background');
+        validateNodeType(body.jsonContent, bgNodeId, 'image', 'background');
+        validateNodeExists(body.jsonContent, garmentNodeId, 'garment');
+        validateNodeType(body.jsonContent, garmentNodeId, 'image', 'garment');
+        validateNodeExists(body.jsonContent, stage2NegativeNode, 'stage-2 negative prompt');
+        validateNodeType(body.jsonContent, stage2NegativeNode, 'prompt', 'stage-2 negative prompt');
+        validateNodeExists(body.jsonContent, stage2PositiveNode, 'stage-2 positive prompt');
+        validateNodeType(body.jsonContent, stage2PositiveNode, 'prompt', 'stage-2 positive prompt');
+        validateNodeExists(body.jsonContent, stage1PositiveNode, 'stage-1 positive prompt');
+        validateNodeType(body.jsonContent, stage1PositiveNode, 'prompt', 'stage-1 positive prompt');
+        validateNodeExists(body.jsonContent, stage1NegativeNode, 'stage-1 negative prompt');
+        validateNodeType(body.jsonContent, stage1NegativeNode, 'prompt', 'stage-1 negative prompt');
+
+        const sizeNodeIds = body.sizeNodeIds ?? autoDetected.sizeNodeIds;
+        const defaultFacePhasePrompt = extractPromptText(
+          body.jsonContent[stage2NegativeNode] as WorkflowNode | undefined,
+        );
+        const defaultGarmentPhasePrompt = extractPromptText(
+          body.jsonContent[stage2PositiveNode] as WorkflowNode | undefined,
+        );
+        const defaultStage1PositivePrompt = extractPromptText(
+          body.jsonContent[stage1PositiveNode] as WorkflowNode | undefined,
+        );
+        const defaultStage1NegativePrompt = extractPromptText(
+          body.jsonContent[stage1NegativeNode] as WorkflowNode | undefined,
+        );
+
+        const row = await app.db.transaction(async (tx) => {
+          const [inserted] = await tx
+            .insert(schema.workflowTemplates)
+            .values({
+              slug: body.slug,
+              label: body.label,
+              jsonContent: body.jsonContent,
+              workflowType,
+              faceNodeId,
+              poseNodeId,
+              bgNodeId,
+              upperNodeIds: [garmentNodeId],
+              sizeNodeIds,
+              facePhasePromptNode: stage2NegativeNode,
+              garmentPhasePromptNode: stage2PositiveNode,
+              stage1PositivePromptNode: stage1PositiveNode,
+              stage1NegativePromptNode: stage1NegativeNode,
+              defaultFacePhasePrompt,
+              defaultGarmentPhasePrompt,
+              defaultStage1PositivePrompt,
+              defaultStage1NegativePrompt,
+            })
+            .returning();
+          if (!inserted)
+            throw new AppError('INSERT_FAILED', 500, 'failed to insert workflow template');
+
+          await recordAudit(tx, {
+            // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+            actor: { userId: req.userId, role: req.adminRole! },
+            action: 'workflow.create',
+            resourceType: 'workflow',
+            resourceId: inserted.id,
+            after: {
+              id: inserted.id,
+              slug: inserted.slug,
+              label: inserted.label,
+              workflowType: inserted.workflowType,
+            },
+            request: req,
+          });
+
+          return inserted;
+        });
+
+        return {
+          id: row?.id,
+          slug: row?.slug,
+          label: row?.label,
+          workflowType: row?.workflowType,
+          isActive: row?.isActive,
+          poseCount: 0,
+          faceNodeId: row?.faceNodeId,
+          poseNodeId: row?.poseNodeId,
+          bgNodeId: row?.bgNodeId,
+          upperNodeIds: row?.upperNodeIds,
+          sizeNodeIds: row?.sizeNodeIds,
+          facePhasePromptNode: row?.facePhasePromptNode,
+          garmentPhasePromptNode: row?.garmentPhasePromptNode,
+          stage1PositivePromptNode: row?.stage1PositivePromptNode,
+          stage1NegativePromptNode: row?.stage1NegativePromptNode,
+          defaultFacePhasePrompt: row?.defaultFacePhasePrompt,
+          defaultGarmentPhasePrompt: row?.defaultGarmentPhasePrompt,
+          defaultStage1PositivePrompt: row?.defaultStage1PositivePrompt,
+          defaultStage1NegativePrompt: row?.defaultStage1NegativePrompt,
           createdAt: row?.createdAt,
         };
       }
@@ -434,6 +605,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
             throw new AppError('INSERT_FAILED', 500, 'failed to insert workflow template');
 
           await recordAudit(tx, {
+            // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
             actor: { userId: req.userId, role: req.adminRole! },
             action: 'workflow.create',
             resourceType: 'workflow',
@@ -548,6 +720,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
           throw new AppError('INSERT_FAILED', 500, 'failed to insert workflow template');
 
         await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
           actor: { userId: req.userId, role: req.adminRole! },
           action: 'workflow.create',
           resourceType: 'workflow',
@@ -609,7 +782,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       return {
         ...row,
         poseCount: Number(poseCountRow?.cnt ?? 0),
-        ...extractKSamplerValues(row.jsonContent as Record<string, unknown>),
+        ksamplerNodes: extractKSamplerNodes(row.jsonContent as Record<string, unknown>),
       };
     },
   );
@@ -645,13 +818,21 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         garmentPhasePrompt?: string;
         facePhasePrompt?: string;
         regenerationReasonPrompts?: { reason: string; prompt: string }[];
-        ksamplerSteps?: number;
-        ksamplerCfg?: number;
-        ksamplerDenoise?: number;
+        ksamplerOverrides?: {
+          nodeId: string;
+          steps?: number;
+          cfg?: number;
+          denoise?: number;
+          seed?: number;
+        }[];
         tryonPersonNodeId?: string | null;
         tryonGarmentNodeId?: string | null;
         tryonGarmentNodeId2?: string | null;
         tryonOutputNodeId?: string | null;
+        stage1PositivePromptNode?: string;
+        stage1NegativePromptNode?: string;
+        stage1PositivePrompt?: string;
+        stage1NegativePrompt?: string;
       };
 
       const [existing] = await app.db
@@ -700,6 +881,14 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         validateNodeExists(json, body.garmentPhasePromptNode, 'positive prompt');
         validateNodeType(json, body.garmentPhasePromptNode, 'prompt', 'positive prompt');
       }
+      if (body.stage1PositivePromptNode) {
+        validateNodeExists(json, body.stage1PositivePromptNode, 'stage-1 positive prompt');
+        validateNodeType(json, body.stage1PositivePromptNode, 'prompt', 'stage-1 positive prompt');
+      }
+      if (body.stage1NegativePromptNode) {
+        validateNodeExists(json, body.stage1NegativePromptNode, 'stage-1 negative prompt');
+        validateNodeType(json, body.stage1NegativePromptNode, 'prompt', 'stage-1 negative prompt');
+      }
 
       const mergedUpperNodeIds = body.upperNodeIds ?? existing.upperNodeIds;
       const mergedLowerNodeId =
@@ -732,6 +921,8 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
 
       const newNegNode = body.facePhasePromptNode ?? existing.facePhasePromptNode;
       const newPosNode = body.garmentPhasePromptNode ?? existing.garmentPhasePromptNode;
+      const newStage1PosNode = body.stage1PositivePromptNode ?? existing.stage1PositivePromptNode;
+      const newStage1NegNode = body.stage1NegativePromptNode ?? existing.stage1NegativePromptNode;
 
       if (body.garmentPhasePrompt !== undefined) {
         if (!body.garmentPhasePrompt.trim()) {
@@ -753,23 +944,35 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         }
         writePromptText(json, newNegNode, body.facePhasePrompt);
       }
-      if (
-        body.ksamplerSteps !== undefined ||
-        body.ksamplerCfg !== undefined ||
-        body.ksamplerDenoise !== undefined
-      ) {
-        const wrote = writeKSamplerValues(json, {
-          steps: body.ksamplerSteps,
-          cfg: body.ksamplerCfg,
-          denoise: body.ksamplerDenoise,
-        });
-        if (!wrote) {
+      if (body.stage1PositivePrompt !== undefined) {
+        if (!body.stage1PositivePrompt.trim()) {
           throw new AppError(
             'VALIDATION',
             400,
-            'cannot set ksampler values: this workflow has no KSampler node',
+            'stage1PositivePrompt cannot be empty — an empty positive prompt causes ComfyUI to reject the job',
           );
         }
+        if (!newStage1PosNode) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'cannot set stage1PositivePrompt: this workflow has no stage-1 positive prompt node',
+          );
+        }
+        writePromptText(json, newStage1PosNode, body.stage1PositivePrompt);
+      }
+      if (body.stage1NegativePrompt !== undefined) {
+        if (!newStage1NegNode) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'cannot set stage1NegativePrompt: this workflow has no stage-1 negative prompt node',
+          );
+        }
+        writePromptText(json, newStage1NegNode, body.stage1NegativePrompt);
+      }
+      for (const override of body.ksamplerOverrides ?? []) {
+        writeKSamplerOverride(json, override);
       }
 
       let defaultFacePhasePrompt = existing.defaultFacePhasePrompt;
@@ -785,17 +988,35 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         defaultGarmentPhasePrompt = extracted.defaultGarmentPhasePrompt;
       }
 
+      let defaultStage1PositivePrompt = existing.defaultStage1PositivePrompt;
+      let defaultStage1NegativePrompt = existing.defaultStage1NegativePrompt;
+      if (
+        body.stage1PositivePromptNode ||
+        body.stage1NegativePromptNode ||
+        body.stage1PositivePrompt !== undefined ||
+        body.stage1NegativePrompt !== undefined
+      ) {
+        defaultStage1PositivePrompt = extractPromptText(
+          newStage1PosNode ? (json[newStage1PosNode] as WorkflowNode | undefined) : undefined,
+        );
+        defaultStage1NegativePrompt = extractPromptText(
+          newStage1NegNode ? (json[newStage1NegNode] as WorkflowNode | undefined) : undefined,
+        );
+      }
+
       const updateValues: Record<string, unknown> = {
         updatedAt: new Date(),
         defaultFacePhasePrompt,
         defaultGarmentPhasePrompt,
+        defaultStage1PositivePrompt,
+        defaultStage1NegativePrompt,
       };
       if (
         body.garmentPhasePrompt !== undefined ||
         body.facePhasePrompt !== undefined ||
-        body.ksamplerSteps !== undefined ||
-        body.ksamplerCfg !== undefined ||
-        body.ksamplerDenoise !== undefined
+        body.stage1PositivePrompt !== undefined ||
+        body.stage1NegativePrompt !== undefined ||
+        (body.ksamplerOverrides?.length ?? 0) > 0
       ) {
         updateValues.jsonContent = json;
       }
@@ -830,6 +1051,10 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         updateValues.facePhasePromptNode = body.facePhasePromptNode;
       if (body.garmentPhasePromptNode !== undefined)
         updateValues.garmentPhasePromptNode = body.garmentPhasePromptNode;
+      if (body.stage1PositivePromptNode !== undefined)
+        updateValues.stage1PositivePromptNode = body.stage1PositivePromptNode;
+      if (body.stage1NegativePromptNode !== undefined)
+        updateValues.stage1NegativePromptNode = body.stage1NegativePromptNode;
       if ('tryonPersonNodeId' in body)
         updateValues.tryonPersonNodeId = body.tryonPersonNodeId ?? null;
       if ('tryonGarmentNodeId' in body)
@@ -861,6 +1086,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
           .where(eq(schema.workflowTemplates.id, id));
 
         await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
           actor: { userId: req.userId, role: req.adminRole! },
           action: 'workflow.update',
           resourceType: 'workflow',
@@ -916,6 +1142,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
           .returning({ id: schema.modelPoseAssets.id });
 
         await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
           actor: { userId: req.userId, role: req.adminRole! },
           action: 'workflow.reassign',
           resourceType: 'workflow',
@@ -978,6 +1205,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         await tx.delete(schema.workflowTemplates).where(eq(schema.workflowTemplates.id, id));
 
         await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
           actor: { userId: req.userId, role: req.adminRole! },
           action: 'workflow.delete',
           resourceType: 'workflow',

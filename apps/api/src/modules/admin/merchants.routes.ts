@@ -178,7 +178,7 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
             // an admin creating this record here IS the approval — no separate
             // activation step needed.
             isActive: true,
-            demoData: true,
+            demoData: false,
           })
           .returning();
 

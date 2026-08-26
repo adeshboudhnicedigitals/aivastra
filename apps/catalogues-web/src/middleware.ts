@@ -14,6 +14,7 @@ const PUBLIC_PATHS = [
   '/forgot-password',
   '/reset-password',
   '/kiosk-upload',
+  '/kiosk-download',
   '/tryon-library-app',
 ];
 // Features not ready for real users — hidden from the sidebar (see sidebar.tsx

@@ -26,11 +26,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import aivastra.nice.interactive.ui.components.AppDialog
 import aivastra.nice.interactive.ui.components.AppHeaderLogo
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,9 +64,20 @@ fun PhotoReviewPage(
     onBack: () -> Unit,
     onRetake: () -> Unit,
     onProceed: () -> Unit = {},
+    // True when this screen was reached from the "Try More Outfits" flow (an existing photo
+    // reused, no upload step to go back to) rather than fresh from PhotoUpload. Swaps the
+    // top-left button from Back to Home, guarded by a confirmation since it exits the session.
+    cameFromTryMoreOutfits: Boolean = false,
+    onGoHome: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    BackHandler(onBack = onBack)
+    var showHomeConfirmDialog by remember { mutableStateOf(false) }
+    val topLeftAction: () -> Unit = if (cameFromTryMoreOutfits) {
+        { showHomeConfirmDialog = true }
+    } else {
+        onBack
+    }
+    BackHandler(onBack = topLeftAction)
 
     val isPreview = LocalInspectionMode.current
     val statusBarH: Dp = (if (isPreview) sdp(R.dimen._28sdp) else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()) + sdp(R.dimen._10sdp)
@@ -109,13 +125,13 @@ fun PhotoReviewPage(
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
-                            onClick = onBack
+                            onClick = topLeftAction
                         ),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
+                        if (cameFromTryMoreOutfits) Icons.Default.Home else Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = if (cameFromTryMoreOutfits) "Home" else "Back",
                         tint = Color.White,
                         modifier = Modifier.size(sdp(R.dimen._20sdp))
                     )
@@ -189,6 +205,21 @@ fun PhotoReviewPage(
                     }
                 }
             }
+        }
+
+        if (showHomeConfirmDialog) {
+            AppDialog(
+                title = "Go to Home?",
+                message = "Are you sure you want to go to home? This will exit your current session.",
+                icon = Icons.Default.Home,
+                confirmText = "Yes, Go Home",
+                cancelText = "Cancel",
+                onConfirm = {
+                    showHomeConfirmDialog = false
+                    onGoHome()
+                },
+                onDismiss = { showHomeConfirmDialog = false }
+            )
         }
     }
 }

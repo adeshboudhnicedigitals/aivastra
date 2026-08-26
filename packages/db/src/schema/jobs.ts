@@ -86,6 +86,9 @@ export const jobs = pgTable(
     byShopifyStoreTime: index('jobs_shopify_store_created_idx').on(t.shopifyStoreId, t.createdAt),
     byBatch: index('jobs_batch_idx').on(t.batchId),
     byFlagged: index('jobs_flagged_idx').on(t.flagged),
+    // GET /v1/merchant/tryon/history groups by (merchant_id, day) — without
+    // this, that query sequential-scans the whole jobs table as it grows.
+    byMerchant: index('jobs_merchant_created_idx').on(t.merchantId, t.createdAt),
   }),
 );
 

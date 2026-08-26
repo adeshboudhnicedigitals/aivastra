@@ -35,6 +35,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import aivastra.nice.interactive.ui.components.AppHeaderLogo
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -59,18 +60,27 @@ import coil.compose.AsyncImage
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import aivastra.nice.interactive.R
+import aivastra.nice.interactive.data.repository.KioskDownloadRepository
+import aivastra.nice.interactive.data.repository.KioskDownloadResult
 import aivastra.nice.interactive.ui.components.AppDialog
+import aivastra.nice.interactive.ui.components.ExitSessionDialog
 import aivastra.nice.interactive.ui.theme.AiVastraTheme
 import aivastra.nice.interactive.ui.theme.PoppinsFamily
 import aivastra.nice.interactive.utils.sdp
 import aivastra.nice.interactive.utils.ssp
 
+// Public web page (apps/catalogues-web/src/app/kiosk-download/page.tsx) that turns a
+// batch of job IDs into a "download all as zip" flow.
+private const val KIOSK_DOWNLOAD_BASE_URL = "https://app.aivastra.com/kiosk-download"
+
 @Composable
 fun DownloadPage(
     resultsList: List<String>,
+    jobIds: List<String> = emptyList(),
     onBack: () -> Unit,
     onDeleteSession: () -> Unit,
     onCreateNew: () -> Unit,
+    onRetake: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val isPreview = LocalInspectionMode.current
@@ -78,7 +88,30 @@ fun DownloadPage(
     val navBarH: Dp = if (isPreview) 14.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     var currentIndex by remember { mutableIntStateOf(0) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    // "Create New" opens the same multi-way exit dialog used elsewhere in the try-on flow
+    // (minus "Go to Downloads" — we're already on that screen) instead of jumping straight
+    // to CategorySelection, since the customer may actually want to retake instead.
+    var showExitDialog by remember { mutableStateOf(false) }
     val currentImageUrl = resultsList.getOrNull(currentIndex) ?: ""
+
+    // Optimistically shows the QR from the locally-tracked job IDs immediately (no loading
+    // flicker), then corrects it against GET /v1/kiosk-download/batch — the same endpoint a
+    // scanning phone hits — so the QR never advertises jobs the server would actually reject
+    // as expired/failed. A failed check (network hiccup) keeps the optimistic list rather than
+    // blocking the QR: the phone that scans it re-validates for real anyway.
+    var confirmedJobIds by remember { mutableStateOf(jobIds) }
+    var batchChecked by remember { mutableStateOf(false) }
+    LaunchedEffect(jobIds) {
+        confirmedJobIds = jobIds
+        batchChecked = false
+        if (jobIds.isNotEmpty()) {
+            when (val result = KioskDownloadRepository().getBatch(jobIds)) {
+                is KioskDownloadResult.Success -> confirmedJobIds = result.data.map { it.jobId }
+                is KioskDownloadResult.Failure -> Unit
+            }
+        }
+        batchChecked = true
+    }
 
     Box(
         modifier = modifier
@@ -151,7 +184,7 @@ fun DownloadPage(
                     fontFamily = PoppinsFamily
                 )
 
-                Spacer(Modifier.height(sdp(R.dimen._20sdp)))
+                Spacer(Modifier.height(sdp(R.dimen._download_section_gap)))
 
                 // ── Card 1: Single Image & Big QR Download ───────────────────────
                 Box(modifier = Modifier.fillMaxWidth()) {
@@ -174,7 +207,7 @@ fun DownloadPage(
                             alignment = Alignment.Center,
                             modifier = Modifier
                                 .weight(0.44f)
-                                .height(sdp(R.dimen._220sdp))
+                                .height(sdp(R.dimen._download_image_height))
                                 .clip(RoundedCornerShape(sdp(R.dimen._12sdp)))
                                 .background(Color.Black)
                         )
@@ -188,13 +221,13 @@ fun DownloadPage(
                             if (currentImageUrl.isNotBlank()) {
                                 QrCodeImage(
                                     content = currentImageUrl,
-                                    modifier = Modifier.size(sdp(R.dimen._150sdp))
+                                    modifier = Modifier.size(sdp(R.dimen._download_qr_size))
                                 )
                             } else {
                                 Image(
                                     painter = painterResource(R.drawable.placeholder),
                                     contentDescription = null,
-                                    modifier = Modifier.size(sdp(R.dimen._150sdp))
+                                    modifier = Modifier.size(sdp(R.dimen._download_qr_size))
                                 )
                             }
                             Spacer(Modifier.height(sdp(R.dimen._12sdp)))
@@ -267,7 +300,7 @@ fun DownloadPage(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = sdp(R.dimen._18sdp)),
+                        .padding(vertical = sdp(R.dimen._download_divider_padding)),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
@@ -297,17 +330,25 @@ fun DownloadPage(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(sdp(R.dimen._20sdp))
                 ) {
-                    val allImagesQrUrl = resultsList.joinToString(",")
+                    // Encodes job IDs (short) rather than the presigned result URLs
+                    // (long, and growing per result) so this stays scannable as the
+                    // session accumulates more try-on results.
+                    val noneAvailable = batchChecked && confirmedJobIds.isEmpty()
+                    val allImagesQrUrl = if (confirmedJobIds.isNotEmpty()) {
+                        "$KIOSK_DOWNLOAD_BASE_URL?jobs=${confirmedJobIds.joinToString(",")}"
+                    } else {
+                        ""
+                    }
                     if (allImagesQrUrl.isNotBlank()) {
                         QrCodeImage(
                             content = allImagesQrUrl,
-                            modifier = Modifier.size(sdp(R.dimen._150sdp))
+                            modifier = Modifier.size(sdp(R.dimen._download_qr_size))
                         )
                     } else {
                         Image(
                             painter = painterResource(R.drawable.placeholder),
                             contentDescription = null,
-                            modifier = Modifier.size(sdp(R.dimen._150sdp))
+                            modifier = Modifier.size(sdp(R.dimen._download_qr_size))
                         )
                     }
 
@@ -335,7 +376,11 @@ fun DownloadPage(
                         )
                         Spacer(Modifier.height(sdp(R.dimen._8sdp)))
                         Text(
-                            text = "Scan the QR code to download all try-on images from this session.",
+                            text = if (noneAvailable) {
+                                "These results are no longer available to download (links expire 24h after generation)."
+                            } else {
+                                "Scan the QR code to download all try-on images from this session."
+                            },
                             color = Color.White.copy(alpha = 0.7f),
                             fontSize = ssp(R.dimen._12ssp),
                             lineHeight = ssp(R.dimen._16ssp),
@@ -344,7 +389,7 @@ fun DownloadPage(
                     }
                 }
 
-                Spacer(Modifier.height(sdp(R.dimen._28sdp)))
+                Spacer(Modifier.height(sdp(R.dimen._download_bottom_gap)))
             }
 
             // ── Bottom Action Buttons ────────────────────────────────────────
@@ -398,7 +443,7 @@ fun DownloadPage(
                                 listOf(Color(0xFFE7A52C), Color(0xFF9B5100))
                             )
                         )
-                        .clickable(onClick = onCreateNew),
+                        .clickable { showExitDialog = true },
                     contentAlignment = Alignment.Center
                 ) {
                     Row(
@@ -442,6 +487,16 @@ fun DownloadPage(
             onDismiss = {
                 showDeleteDialog = false
             }
+        )
+    }
+
+    // ── "Create New" Exit Dialog (no Downloads option — already here) ──────
+    if (showExitDialog) {
+        ExitSessionDialog(
+            onGoHome = { showExitDialog = false; onCreateNew() },
+            onGoToDownloads = null,
+            onRetake = { showExitDialog = false; onRetake() },
+            onDismiss = { showExitDialog = false }
         )
     }
 }

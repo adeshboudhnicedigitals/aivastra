@@ -191,10 +191,19 @@ export const workflowTemplates = pgTable('workflow_templates', {
   // Prompt node IDs
   facePhasePromptNode: text('face_phase_prompt_node'),
   garmentPhasePromptNode: text('garment_phase_prompt_node').notNull(),
+  // 'two_stage' only — the person-build stage's own prompt pair, distinct from
+  // facePhasePromptNode/garmentPhasePromptNode which (for this type) hold the
+  // second, garment-dressing stage's negative/positive nodes. Two-stage graphs
+  // run a person-build KSampler followed by a separate garment-dress KSampler
+  // in one ComfyUI submission; each stage's prompt is independently editable.
+  stage1PositivePromptNode: text('stage1_positive_prompt_node'),
+  stage1NegativePromptNode: text('stage1_negative_prompt_node'),
 
   // Default prompts extracted from JSON at upload time
   defaultFacePhasePrompt: text('default_face_phase_prompt').notNull().default(''),
   defaultGarmentPhasePrompt: text('default_garment_phase_prompt').notNull().default(''),
+  defaultStage1PositivePrompt: text('default_stage1_positive_prompt').notNull().default(''),
+  defaultStage1NegativePrompt: text('default_stage1_negative_prompt').notNull().default(''),
 
   // Admin-curated (reason -> alternate prompt) pairs offered when a user
   // regenerates a result produced by this template — same graph, different

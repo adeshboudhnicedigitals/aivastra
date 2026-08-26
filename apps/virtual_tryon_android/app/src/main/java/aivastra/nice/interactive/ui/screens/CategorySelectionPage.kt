@@ -3,6 +3,7 @@ package aivastra.nice.interactive.ui.screens
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -33,8 +35,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -52,9 +58,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.painterResource
@@ -68,6 +76,8 @@ import androidx.compose.ui.unit.coerceIn
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import aivastra.nice.interactive.R
+import aivastra.nice.interactive.data.repository.MerchantRepository
+import aivastra.nice.interactive.data.repository.MerchantResult
 import aivastra.nice.interactive.data.repository.UserRepository
 import aivastra.nice.interactive.data.session.SessionManager
 import aivastra.nice.interactive.ui.components.AppDialog
@@ -79,11 +89,15 @@ import aivastra.nice.interactive.utils.sdp
 import aivastra.nice.interactive.utils.ssp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 
 import android.app.Activity
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.ui.platform.LocalContext
 import androidx.activity.compose.BackHandler
+import aivastra.nice.interactive.utils.CrashReporter
 
 // ─── Data model ──────────────────────────────────────────────────────────────
 
@@ -111,6 +125,8 @@ private val categories = listOf(
 fun CategorySelectionPage(
     onCategorySelected: (categoryId: String) -> Unit = {},
     onProfileClick: () -> Unit = {},
+    onUploadProductsClick: () -> Unit = {},
+    onReportsClick: () -> Unit = {},
     onLogoutSuccess: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -129,6 +145,14 @@ fun CategorySelectionPage(
 
     val scope = rememberCoroutineScope()
     val userEmail = remember { SessionManager.userEmail ?: "user@aivastra.com" }
+
+    var creditsBalance by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        when (val result = MerchantRepository().getMe()) {
+            is MerchantResult.Success -> creditsBalance = result.data.balance
+            is MerchantResult.Failure -> Unit // Keep the pill at 0 rather than surfacing an error over the whole screen for this ancillary widget.
+        }
+    }
 
     // ── Compute dynamic card height from actual screen space ───────────────
     // BoxWithConstraints gives us real maxHeight at composition time, enabling
@@ -192,43 +216,157 @@ fun CategorySelectionPage(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             AppHeaderLogo()
-                            Box {
-                                Box(
-                                    modifier = Modifier
-                                        .size(sdp(R.dimen._40sdp))
-                                        .clickable { onProfileClick() },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Image(
-                                        painter = painterResource(id = R.drawable.profile_icon),
-                                        contentDescription = "Profile",
-                                        modifier = Modifier.size(sdp(R.dimen._40sdp))
-                                    )
-                                }
-                                DropdownMenu(
-                                    expanded = showProfileMenu,
-                                    onDismissRequest = { showProfileMenu = false },
-                                    modifier = Modifier
-                                        .background(Color(0xFF1E1E1E))
-                                        .border(sdp(R.dimen._1sdp), Color(0xFFD88A18).copy(alpha = 0.5f), RoundedCornerShape(sdp(R.dimen._12sdp)))
-                                        .padding(vertical = sdp(R.dimen._4sdp))
-                                ) {
-                                    DropdownMenuItem(
-                                        text = {
-                                            Column {
-                                                Text("Signed in as", fontSize = ssp(R.dimen._10ssp), color = Color.Gray, fontFamily = PoppinsFamily)
-                                                Text(userEmail, fontSize = ssp(R.dimen._12ssp), fontWeight = FontWeight.SemiBold, color = Color.White, fontFamily = PoppinsFamily)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                // Explicit interaction source + no-ripple scale-down feedback (same
+                                // recipe as CategoryCard) fires the instant a finger touches down —
+                                // the default clickable ripple noticeably lagged the tap here since it
+                                // waits on the indication animation before anything visibly reacts.
+                                val menuInteractionSource = remember { MutableInteractionSource() }
+                                val isMenuPressed by menuInteractionSource.collectIsPressedAsState()
+                                val menuButtonScale by animateFloatAsState(
+                                    targetValue = if (isMenuPressed) 0.88f else 1f,
+                                    animationSpec = tween(60),
+                                    label = "menuButtonScale"
+                                )
+                                Box {
+                                    // Outer box is the real touch target — bigger than the visible
+                                    // pill so a tap that lands just outside the 40sdp circle (but still
+                                    // near it) still registers, instead of requiring a dead-center hit.
+                                    Box(
+                                        modifier = Modifier
+                                            .size(sdp(R.dimen._52sdp))
+                                            .clip(CircleShape)
+                                            .clickable(
+                                                interactionSource = menuInteractionSource,
+                                                indication = null,
+                                                onClick = { showProfileMenu = true }
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(sdp(R.dimen._40sdp))
+                                                .scale(menuButtonScale)
+                                                .clip(CircleShape)
+                                                .background(Color.White.copy(alpha = 0.08f))
+                                                .border(sdp(R.dimen._1sdp), Color.White.copy(alpha = 0.16f), CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.MoreVert,
+                                                contentDescription = "Menu",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(sdp(R.dimen._22sdp))
+                                            )
+                                        }
+                                    }
+                                    DropdownMenu(
+                                        expanded = showProfileMenu,
+                                        onDismissRequest = { showProfileMenu = false },
+                                        modifier = Modifier.width(sdp(R.dimen._240sdp)),
+                                        containerColor = Color.Transparent,
+                                        tonalElevation = 0.dp,
+                                        shadowElevation = 0.dp
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.End) {
+                                            // Speech-bubble tail pointing up at the 3-dot button that opened this menu.
+                                            Canvas(
+                                                modifier = Modifier
+                                                    .padding(end = sdp(R.dimen._16sdp))
+                                                    .size(width = sdp(R.dimen._16sdp), height = sdp(R.dimen._8sdp))
+                                            ) {
+                                                val tailPath = Path().apply {
+                                                    moveTo(0f, size.height)
+                                                    lineTo(size.width / 2f, 0f)
+                                                    lineTo(size.width, size.height)
+                                                    close()
+                                                }
+                                                drawPath(tailPath, color = Color(0xFF1B1815))
                                             }
-                                        },
-                                        onClick = {}, enabled = false,
-                                        leadingIcon = { Icon(Icons.Default.Email, null, tint = Color(0xFFD88A18)) }
-                                    )
-                                    HorizontalDivider(color = Color.White.copy(alpha = 0.15f), modifier = Modifier.padding(vertical = sdp(R.dimen._4sdp)))
-                                    DropdownMenuItem(
-                                        text = { Text("Logout", fontSize = ssp(R.dimen._12ssp), fontWeight = FontWeight.SemiBold, color = Color(0xFFFF5252), fontFamily = PoppinsFamily) },
-                                        onClick = { showProfileMenu = false; showLogoutDialog = true },
-                                        leadingIcon = { Icon(Icons.Default.ExitToApp, "Logout", tint = Color(0xFFFF5252)) }
-                                    )
+                                            // Glass finish, no stroke — fully opaque (not see-through) so menu
+                                            // text stays readable regardless of what's behind it; the "glass"
+                                            // read comes from a soft diagonal sheen catching the top-left
+                                            // corner, not from transparency.
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clip(RoundedCornerShape(sdp(R.dimen._16sdp)))
+                                                    .background(Color(0xFF1B1815))
+                                                    .background(
+                                                        Brush.linearGradient(
+                                                            colors = listOf(Color.White.copy(alpha = 0.10f), Color.Transparent, Color.Transparent),
+                                                            start = Offset(0f, 0f),
+                                                            end = Offset(300f, 220f)
+                                                        )
+                                                    )
+                                                    .padding(vertical = sdp(R.dimen._6sdp))
+                                            ) {
+                                                CreditsPill(
+                                                    credits = creditsBalance,
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(horizontal = sdp(R.dimen._12sdp), vertical = sdp(R.dimen._4sdp))
+                                                )
+                                                HorizontalDivider(
+                                                    color = Color.White.copy(alpha = 0.12f),
+                                                    modifier = Modifier.padding(horizontal = sdp(R.dimen._12sdp), vertical = sdp(R.dimen._4sdp))
+                                                )
+                                                ProfileMenuItem(
+                                                    leadingIcon = {
+                                                        Icon(Icons.Default.Person, null, tint = Color(0xFFD88A18), modifier = Modifier.size(sdp(R.dimen._18sdp)))
+                                                    },
+                                                    title = "My Profile",
+                                                    subtitle = "View and edit your profile",
+                                                    onClick = { showProfileMenu = false; onProfileClick() }
+                                                )
+                                                ProfileMenuItem(
+                                                    leadingIcon = {
+                                                        Icon(painterResource(R.drawable.ic_cloud_upload), null, tint = Color(0xFFD88A18), modifier = Modifier.size(sdp(R.dimen._18sdp)))
+                                                    },
+                                                    title = "Upload Products",
+                                                    subtitle = "Add your products",
+                                                    onClick = { showProfileMenu = false; onUploadProductsClick() }
+                                                )
+                                                ProfileMenuItem(
+                                                    leadingIcon = {
+                                                        Icon(Icons.AutoMirrored.Filled.List, null, tint = Color(0xFFD88A18), modifier = Modifier.size(sdp(R.dimen._18sdp)))
+                                                    },
+                                                    title = "Reports",
+                                                    subtitle = "View daily activity",
+                                                    onClick = { showProfileMenu = false; onReportsClick() }
+                                                )
+                                                ProfileMenuItem(
+                                                    leadingIcon = {
+                                                        Icon(Icons.Default.Star, null, tint = Color(0xFFD88A18), modifier = Modifier.size(sdp(R.dimen._18sdp)))
+                                                    },
+                                                    title = "Manage Credits",
+                                                    subtitle = "View plans & Add credits",
+                                                    onClick = {
+                                                        showProfileMenu = false
+                                                        try {
+                                                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://app.aivastra.com/pricing")))
+                                                        } catch (e: Exception) {
+                                                            CrashReporter.recordException(e, "CategorySelectionPage")
+                                                        }
+                                                    }
+                                                )
+                                                HorizontalDivider(
+                                                    color = Color.White.copy(alpha = 0.12f),
+                                                    modifier = Modifier.padding(horizontal = sdp(R.dimen._12sdp), vertical = sdp(R.dimen._4sdp))
+                                                )
+                                                ProfileMenuItem(
+                                                    leadingIcon = {
+                                                        Icon(Icons.Default.ExitToApp, null, tint = Color(0xFFFF6A4D), modifier = Modifier.size(sdp(R.dimen._18sdp)))
+                                                    },
+                                                    title = "Log Out",
+                                                    subtitle = "Sign out from your account",
+                                                    titleColor = Color(0xFFFF6A4D),
+                                                    showChevron = false,
+                                                    onClick = { showProfileMenu = false; showLogoutDialog = true }
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -250,7 +388,7 @@ fun CategorySelectionPage(
                                 Spacer(Modifier.height(sdp(R.dimen._2sdp)))
                                 Text(
                                     "Select who is trying on today",
-                                    color = Color.White.copy(alpha = 0.55f),
+                                    color = Color(0xFFD9D9D9),
                                     fontSize = ssp(R.dimen._13ssp),
                                     fontFamily = PoppinsFamily,
                                     fontWeight = FontWeight.Normal
@@ -274,7 +412,7 @@ fun CategorySelectionPage(
                         onCategorySelected = onCategorySelected
                     )
 
-                    Spacer(Modifier.height(sdp(R.dimen._14sdp)))
+                    Spacer(Modifier.height(sdp(R.dimen._30sdp)))
 
                     // ── Bottom Section: Privacy notice ──────────────────────
                     Row(
@@ -343,6 +481,97 @@ fun CategorySelectionPage(
             }
         }
     }
+}
+
+//──────────────────────────────────────────────────────────────────────────────
+// CREDITS PILL
+//──────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun CreditsPill(credits: Int, modifier: Modifier = Modifier) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+        // Same neutral glass treatment as the 3-dot menu button next to it —
+        // flat translucent white fill + a barely-there white border, no color tint.
+        modifier = modifier
+            .clip(RoundedCornerShape(sdp(R.dimen._8sdp)))
+            .background(Color.White.copy(alpha = 0.08f))
+            .border(sdp(R.dimen._1sdp), Color.White.copy(alpha = 0.16f), RoundedCornerShape(sdp(R.dimen._8sdp)))
+            .padding(start = sdp(R.dimen._6sdp), end = sdp(R.dimen._12sdp), top = sdp(R.dimen._9sdp), bottom = sdp(R.dimen._9sdp))
+    ) {
+        Box(
+            modifier = Modifier
+                .size(sdp(R.dimen._22sdp))
+                .clip(CircleShape)
+                .background(Color(0xFF19140F))
+                .border(sdp(R.dimen._1sdp), Color(0xFFD88A18), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Star,
+                contentDescription = null,
+                tint = Color(0xFFD88A18),
+                modifier = Modifier.size(sdp(R.dimen._12sdp))
+            )
+        }
+        Spacer(Modifier.width(sdp(R.dimen._6sdp)))
+        Text(
+            text = buildAnnotatedString {
+                withStyle(SpanStyle(color = Color(0xFFD99429), fontWeight = FontWeight.Bold)) { append(formatCredits(credits)) }
+                withStyle(SpanStyle(color = Color.Gray.copy(alpha = 0.85f), fontWeight = FontWeight.SemiBold)) { append(" Credits") }
+            },
+            fontSize = ssp(R.dimen._11ssp),
+            fontFamily = PoppinsFamily
+        )
+    }
+}
+
+private fun formatCredits(value: Int): String = String.format(Locale.US, "%,d", value)
+
+//──────────────────────────────────────────────────────────────────────────────
+// PROFILE DROPDOWN MENU ITEM
+//──────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun ProfileMenuItem(
+    leadingIcon: @Composable () -> Unit,
+    title: String,
+    subtitle: String,
+    titleColor: Color = Color.White,
+    showChevron: Boolean = true,
+    onClick: () -> Unit
+) {
+    DropdownMenuItem(
+        text = {
+            Column {
+                Text(title, color = titleColor, fontSize = ssp(R.dimen._13ssp), fontWeight = FontWeight.SemiBold, fontFamily = PoppinsFamily)
+                Spacer(Modifier.height(sdp(R.dimen._menu_item_text_gap)))
+                Text(subtitle, color = Color.White.copy(alpha = 0.45f), fontSize = ssp(R.dimen._10ssp), fontFamily = PoppinsFamily, fontWeight = FontWeight.Normal)
+            }
+        },
+        contentPadding = PaddingValues(horizontal = sdp(R.dimen._12sdp), vertical = sdp(R.dimen._menu_item_row_padding)),
+        onClick = onClick,
+        leadingIcon = {
+            Box(
+                modifier = Modifier
+                    .size(sdp(R.dimen._34sdp))
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.06f)),
+                contentAlignment = Alignment.Center
+            ) { leadingIcon() }
+        },
+        trailingIcon = if (showChevron) {
+            {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.3f),
+                    modifier = Modifier.size(sdp(R.dimen._18sdp))
+                )
+            }
+        } else null
+    )
 }
 
 //──────────────────────────────────────────────────────────────────────────────
@@ -495,7 +724,7 @@ private fun CategoryCard(
                 .padding(start = textStartPadding),
             verticalArrangement = Arrangement.Center
         ) {
-
+            Spacer(Modifier.height(sdp(R.dimen._36sdp)))
             Text(
                 text = category.label.uppercase(),
                 color = Color.White,

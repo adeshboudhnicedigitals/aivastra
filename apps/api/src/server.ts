@@ -61,9 +61,11 @@ import { catalogRoutes } from './modules/catalog/routes.js';
 import { creditsRoutes } from './modules/credits/routes.js';
 import { devCatalogRoutes } from './modules/dev/catalog.routes.js';
 import { devRoutes } from './modules/dev/routes.js';
+import { googleDriveRoutes } from './modules/google-drive/routes.js';
 import { jobsRoutes } from './modules/jobs/routes.js';
 import { merchantApiKeysRoutes } from './modules/merchant/api-keys.routes.js';
 import { merchantCatalogRoutes } from './modules/merchant/catalog.routes.js';
+import { kioskDownloadRoutes } from './modules/merchant/kiosk-download.routes.js';
 import { merchantMeRoutes } from './modules/merchant/me.routes.js';
 import { merchantOnboardingRoutes } from './modules/merchant/onboarding.routes.js';
 import { merchantPaymentsRoutes } from './modules/merchant/payments.routes.js';
@@ -359,6 +361,7 @@ export async function buildServer(env: Env) {
   await app.register(uploadsRoutes);
   await app.register(backgroundsRoutes);
   await app.register(jobsRoutes);
+  await app.register(googleDriveRoutes);
   await app.register(posePresetsRoutes);
   await app.register(merchantCatalogRoutes);
   await app.register(merchantOnboardingRoutes);
@@ -366,6 +369,7 @@ export async function buildServer(env: Env) {
   await app.register(merchantMeRoutes);
   await app.register(merchantTryonResultsRoutes);
   await app.register(merchantUploadSessionRoutes);
+  await app.register(kioskDownloadRoutes);
   await app.register(merchantPaymentsRoutes);
   await app.register(merchantApiKeysRoutes);
   await app.register(devRoutes);

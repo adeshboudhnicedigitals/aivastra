@@ -1,6 +1,6 @@
 {
-  "id": "73011baa-5549-4803-892e-13a079bafa5f",
-  "prevId": "a1fb1ee1-f9b2-4841-89ba-3e6b1c7eb498",
+  "id": "7bab1e25-9503-4f99-a98c-b73b5fb47b0f",
+  "prevId": "98dab895-6a33-4feb-81c0-c3fb57efeff2",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2208,6 +2208,96 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.google_drive_connections": {
+      "name": "google_drive_connections",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "google_email": {
+          "name": "google_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "refresh_token_enc": {
+          "name": "refresh_token_enc",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "revoked_at": {
+          "name": "revoked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "google_drive_connections_user_id_uniq": {
+          "name": "google_drive_connections_user_id_uniq",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "google_drive_connections_user_id_users_id_fk": {
+          "name": "google_drive_connections_user_id_users_id_fk",
+          "tableFrom": "google_drive_connections",
+          "tableTo": "users",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.job_events": {
       "name": "job_events",
       "schema": "",
@@ -2447,12 +2537,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "downloaded_at": {
-          "name": "downloaded_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -2663,6 +2747,27 @@
           "columns": [
             {
               "expression": "batch_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "jobs_merchant_created_idx": {
+          "name": "jobs_merchant_created_idx",
+          "columns": [
+            {
+              "expression": "merchant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

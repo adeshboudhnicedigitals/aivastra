@@ -1,3 +1,54 @@
+## 2026-08-25 — Admin panel password desync general fix & reset-password audit logging
+
+**Done**
+- **Admin Password Resync Endpoint**: Added `POST /admin/admin-users/:userId/sync-password` in `apps/api/src/modules/admin/users.routes.ts` (gated by `SUPER_ADMIN` / `admin_users.manage`). Resyncs `admin_users.passwordHash` from `users.passwordHash` for any active admin account (including `SUPER_ADMIN` rows), transactionally recording an audit log (`admin_users.sync_password`) without exposing credentials in the audit payload.
+- **Reset Password Transaction & Audit Log**: Wrapped `POST /admin/users/:id/reset-password` mutating operations (`users.passwordHash` update and `refreshTokens` revocation) in `app.db.transaction` with audit logging (`users.reset_password`).
+- **Admin UI Warning & Sync Button**: In `apps/admin-web/src/pages/UsersPage.tsx`:
+  - Added "Sync Admin Password" action button in `head-tools`, strictly gated on `isSuperAdmin && u.isAdmin`.
+  - Added warning toast on customer password reset when the user is also an active admin, alerting operators to sync their admin panel credentials.
+  - Added `warning` kind support to `ToastItem`, `App.tsx`, `ToastStack.tsx`, and `tokens.css`.
+- **Historical Context & Desync Resolution**:
+  - **2026-06-12** (`12868615`): Admin/web credential isolation design shipped (`admin_users.passwordHash` separated from `users.passwordHash`).
+  - **2026-08-05** (entry at line ~1244): First known casualty of resulting desync (bootstrap-admin) fixed for that single instance.
+  - **2026-08-25**: General case fully resolved via explicit resync for `SUPER_ADMIN` / active admins, preserved role-grant sync for non-super admins, and warning toast on customer password reset.
+- **Integration & Unit Tests**: Added integration tests in `apps/api/test/integration/admin-approval.test.ts` covering 403 gating for non-super callers, 404 for non-existent / non-admin / pending / rejected rows, successful resync for active SUPER_ADMIN with audit log verification, and reset-password transactional audit logging. All 20 integration tests and 584 unit tests passing cleanly.
+
+## 2026-08-22 — Studio Generation Loading UX Enhancement
+
+**Done**
+- **Stage-Aware Generation Cards**: Replaced generic spinner-only loading tiles in Studio (`apps/catalogues-web/src/app/(app)/studio/generation-panel.tsx`) with dynamic, stage-aware cards showing workflow step labels, stage-derived progress percentages (mapped via `STATUS_PROGRESS[status]` and `steps` threshold logic), and mini progress bars.
+- **Animated Input Treatments**: Added decorative `.scan-line`, `.shimmer`, `.garment-deblur`, and `.processing-pulse` CSS keyframe animations operating solely on the input/reference thumbnail asset without implying partial render streaming.
+- **Terminal State Cease & Distinction**: Failed and cancelled jobs cleanly cease all animations, hide progress percentage/bars, and display distinct terminal copy ("Generation failed" vs "Generation cancelled") with zero retry affordances.
+- **Completion Transition**: Added subtle scale/opacity badge `.completion-pop` ("Ready" checkmark) on `COMPLETED` results while preserving independent, atomic image reveals per tile.
+- **Context-Aware Batch Indicator**:
+  - Non-embedded Studio view: Displays plain count badge (`"X of Y ready"`) in the header without adding a competing progress bar (Block 1 maintains the smooth batch average).
+  - Embedded view (`hideProcessingPreview: true`): Displays a dedicated batch progress bar with completion percentage derived from `completedCount / totalCount`.
+- **Accessibility & Motion Preference**: Added batch-level `aria-live="polite"` live region for screen-reader announcements (preventing noisy per-card overlaps), marked decorative scan lines and shimmers `aria-hidden="true"`, and added `@media (prefers-reduced-motion: reduce)` overrides in `apps/catalogues-web/src/app/globals.css`.
+- **Microcopy & Timing**: Added single parent-level 2.5s interval rotating microcopy messages during active processing (`!allSettled`) with strictly neutral timing copy (no numeric ETAs).
+- **Post-implementation review fixes** (Claude, after visual QA against a live screenshot): swapped the initial implementation's off-brand neon-violet/Tailwind palette (`#A855F7`, `#C084FC`, near-black `rgba(0,0,0,*)` glass) for this app's actual brand purple (`#754AB0`/`#BD2587`) and a purple-tinted glass (`rgba(43,20,78,*)`) at lower opacity so the input garment stays visible during processing; unified the Queued/Processing badge to one color family instead of black-vs-purple; removed the fake 10%-filled progress bar/percentage shown on not-yet-started Queued cards; hid the download/Drive icon buttons entirely until a card is actually `COMPLETED` instead of showing them disabled; made the rotating microcopy (previously wired to state but only fed into the screen-reader-only `aria-live` region) actually visible in both the Block 1 and Block 2 headers; and derived `PROCESSING_MESSAGES` from `steps[].label` instead of a hand-duplicated array.
+
+## 2026-08-21 — Google Drive Export for Studio Results
+
+**Done**
+- **Task 1 (DB Schema & Migration)**: Created `google_drive_connections` table (`packages/db/src/schema/google-drive.ts`) with `userId` (unique FK to users CASCADE), `googleEmail`, `refreshTokenEnc`, `scope`, `revokedAt`, and exported from `packages/db/src/schema/index.ts`. Generated and applied migration `0168_google_drive_connections.sql`.
+- **Task 2 (Env Var)**: Added `GOOGLE_DRIVE_TOKEN_ENC_KEY` (32-byte base64) to `apps/api/src/env.ts` and `.env.production.example`.
+- **Task 3 (Types)**: Added `GoogleDriveStatusResponse` and `GoogleDriveExportResponse` schemas/types in `packages/types/src/google-drive.ts` and exported from `packages/types/src/index.ts`.
+- **Task 4 (API Module)**: Implemented self-contained `apps/api/src/modules/google-drive/` module:
+  - `drive-client.ts`: `findOrCreateAppFolder` (finds or creates "AI Vastra" folder) and `uploadFile` (multipart upload).
+  - `token.ts`: `getConnection`, `getValidDriveAccessToken` (on-demand token exchange via refresh token, handling `invalid_grant` -> `REAUTH_REQUIRED`), `saveConnection`, and `disconnect` (best-effort revoke at Google + clears credentials).
+  - `oauth.ts`: `buildAuthUrl` (`drive.file`, `access_type=offline`, conditional `prompt=consent`), `exchangeCode`, and `fetchGoogleEmail`.
+  - `service.ts`: `exportResultToDrive` (direct R2 buffer upload to Google Drive without browser round-trip).
+  - `routes.ts`: `GET /v1/integrations/google-drive/connect`, `GET /v1/integrations/google-drive/callback`, `GET /v1/integrations/google-drive/status`, `POST /v1/integrations/google-drive/disconnect`, `POST /v1/jobs/:id/export/google-drive`.
+- **Task 5 (Server Route & User Erasure)**: Registered `googleDriveRoutes` in `apps/api/src/server.ts` and hooked `disconnectGoogleDrive` into `eraseUser` (`apps/api/src/modules/admin/users.routes.ts`) for GDPR erasure.
+- **Task 6 (Integration Tests)**: Added comprehensive integration suite in `apps/api/test/integration/google-drive.test.ts` covering connect redirect, callback code exchange & error redirects, status reporting for all states, export happy path / missing connection / other user / folder creation / invalid grant reauth required, disconnect revoke & state reset, and user erasure revoke. All 16 tests passing.
+- **Task 7 (Studio UI)**:
+  - Added `useGoogleDriveStatus` hook (`apps/catalogues-web/src/hooks/use-google-drive-status.ts`).
+  - Added `DriveIcon` to `apps/catalogues-web/src/components/icons.tsx`.
+  - Added `hideGoogleDrive` prop and Save to Drive action button with loading spinner on each completed result tile in `apps/catalogues-web/src/app/(app)/studio/generation-panel.tsx`.
+  - Added `drive_connected` and `drive_error` URL param handlers with toast feedback and cache invalidation in `apps/catalogues-web/src/app/(app)/studio/page.tsx`.
+  - Added Next.js BFF navigation route `apps/catalogues-web/src/app/api/integrations/google-drive/connect/route.ts`.
+  - Added Google Drive integration status and Disconnect button under Account Settings (`apps/catalogues-web/src/app/(app)/settings/page.tsx`).
+
 ## 2026-08-20 — Admin Role-Permission Matrix (API, Settings Tab, Sidebar & Recycle Bin fixes)
 
 **Done**

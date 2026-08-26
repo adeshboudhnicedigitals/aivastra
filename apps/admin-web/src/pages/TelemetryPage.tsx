@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Bar,
   BarChart,
@@ -11,6 +11,12 @@ import {
   YAxis,
 } from 'recharts';
 import { Icon } from '../components/Icons';
+import JobDistributionChart, {
+  type DistributionBucket,
+  type DistributionPoint,
+  PHASE_COLORS,
+  PHASE_LABELS,
+} from '../components/JobDistributionChart';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 
 type DayRange = 7 | 14 | 30;
@@ -45,6 +51,39 @@ interface TelemetryResponse {
   successRate: number | null;
 }
 
+interface DistributionResponse {
+  days: number;
+  fromMs: number;
+  toMs: number;
+  bucketSeconds: number;
+  totalJobs: number;
+  shownJobs: number;
+  sampled: boolean;
+  buckets: DistributionBucket[];
+}
+
+// Zoom re-queries the visible range, so the fetch has to wait for the gesture to
+// settle — otherwise every wheel notch fires a request.
+const ZOOM_REFETCH_DEBOUNCE_MS = 350;
+
+// If the jobs in the window occupy less than this fraction of it, open zoomed to
+// where they actually are. On a real time axis a quiet week renders its one busy
+// hour as a ~10px sliver — technically honest, but it reads as an empty chart.
+const AUTOFIT_THRESHOLD = 0.6;
+
+/** Time range actually covered by the returned buckets, padded slightly. */
+function dataExtent(d: DistributionResponse): { from: number; to: number } | null {
+  if (d.buckets.length === 0) return null;
+  let lo = Number.POSITIVE_INFINITY;
+  let hi = Number.NEGATIVE_INFINITY;
+  for (const b of d.buckets) {
+    lo = Math.min(lo, b.bucketMs);
+    hi = Math.max(hi, b.bucketMs + d.bucketSeconds * 1000);
+  }
+  const pad = Math.max((hi - lo) * 0.08, 60_000);
+  return { from: Math.max(lo - pad, d.fromMs), to: Math.min(hi + pad, d.toMs) };
+}
+
 interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
@@ -72,6 +111,67 @@ function fmtMs(ms: number | null): string {
 
 function tickSeconds(v: number): string {
   return v < 1 ? `${Math.round(v * 1000)}ms` : `${v.toFixed(1)}s`;
+}
+
+// Bucket width now spans 15s to 1 week, since zooming refines it.
+function formatBucketWidth(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${seconds / 60} min`;
+  if (seconds < 86400) return `${seconds / 3600}h`;
+  return seconds === 86400 ? '1 day' : `${seconds / 86400} days`;
+}
+
+function PointDetail({ point, onClose }: { point: DistributionPoint; onClose: () => void }) {
+  const rows: [string, string][] = [
+    ['Job ID', point.jobId],
+    ['Type', point.jobType],
+    ['Worker', point.workerId ?? '—'],
+    ['Started', new Date(point.createdAt).toLocaleString()],
+    ['Queue wait', fmtMs(point.queueMs)],
+    ['ComfyUI', fmtMs(point.comfyMs)],
+    ['End-to-end', fmtMs(point.e2eMs)],
+    ['Attempts', String(point.attempts)],
+    ['Error', point.errorCode ?? '—'],
+  ];
+  return (
+    <div
+      style={{
+        marginTop: 12,
+        padding: '10px 12px',
+        border: '1px solid var(--border)',
+        borderRadius: 8,
+        background: 'var(--surface-2)',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 8,
+        }}
+      >
+        <strong style={{ fontSize: 13 }}>Job detail{point.isOutlier ? ' · outlier' : ''}</strong>
+        <button className="btn" type="button" onClick={onClose} style={{ fontSize: 12 }}>
+          Close
+        </button>
+      </div>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: '6px 16px',
+        }}
+      >
+        {rows.map(([k, v]) => (
+          <div key={k} style={{ fontSize: 12 }}>
+            <span style={{ color: 'var(--muted)' }}>{k}: </span>
+            <span className="mono">{v}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function DurationChart({ title, data }: { title: string; data: ChartPoint[] }) {
@@ -138,13 +238,42 @@ function DurationChart({ title, data }: { title: string; data: ChartPoint[] }) {
 export default function TelemetryPage({ toast }: Props) {
   const [days, setDays] = useState<DayRange>(7);
   const [data, setData] = useState<TelemetryResponse | null>(null);
+  const [dist, setDist] = useState<DistributionResponse | null>(null);
+  const [selectedPoint, setSelectedPoint] = useState<DistributionPoint | null>(null);
   const [loading, setLoading] = useState(true);
+  const [zooming, setZooming] = useState(false);
+
+  // The outer window the day selector picked; pan/zoom can't escape it.
+  const [bounds, setBounds] = useState(() => {
+    const to = Date.now();
+    return { from: to - 7 * 86_400_000, to };
+  });
+  // The currently visible slice — updated on every wheel/drag frame for
+  // immediate feedback, then refetched once the gesture settles.
+  const [view, setView] = useState(bounds);
 
   const load = useCallback(async () => {
     setLoading(true);
+    const to = Date.now();
+    const from = to - days * 86_400_000;
+    setBounds({ from, to });
+    setView({ from, to });
     try {
-      const res = await apiFetch<TelemetryResponse>(`/admin/telemetry?days=${days}`);
+      const [res, distRes] = await Promise.all([
+        apiFetch<TelemetryResponse>(`/admin/telemetry?days=${days}`),
+        apiFetch<DistributionResponse>(`/admin/telemetry/distribution?days=${days}`),
+      ]);
       setData(res);
+      setDist(distRes);
+      setSelectedPoint(null);
+
+      // Open on the data rather than on a mostly-empty window. This changes the
+      // view, which triggers the range refetch below and refines the buckets —
+      // exactly what a manual zoom to the same place would do.
+      const extent = dataExtent(distRes);
+      if (extent && extent.to - extent.from < (to - from) * AUTOFIT_THRESHOLD) {
+        setView(extent);
+      }
     } catch (e) {
       toast({
         kind: 'error',
@@ -159,6 +288,47 @@ export default function TelemetryPage({ toast }: Props) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Refetch the distribution for whatever range is visible. Narrowing the range
+  // refines the buckets and cuts the job count, so a deep zoom drops below the
+  // sampling budget and every job in view becomes visible — the reason zoom
+  // re-queries instead of just scaling pixels.
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const initialRangeRef = useRef(true);
+
+  useEffect(() => {
+    // The full-extent range is already covered by load(); don't duplicate it.
+    if (initialRangeRef.current) {
+      initialRangeRef.current = false;
+      return;
+    }
+    const { from, to } = view;
+    setZooming(true);
+    const timer = setTimeout(() => {
+      apiFetch<DistributionResponse>(
+        `/admin/telemetry/distribution?from=${Math.round(from)}&to=${Math.round(to)}`,
+      )
+        .then((res) => {
+          // A slower earlier request must not overwrite a newer view.
+          const cur = viewRef.current;
+          if (cur.from === from && cur.to === to) setDist(res);
+        })
+        .catch((e) => {
+          toast({
+            kind: 'error',
+            title: 'Failed to load range',
+            body: apiErrorMessage(e, 'Please try again.'),
+          });
+        })
+        .finally(() => setZooming(false));
+    }, ZOOM_REFETCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [view, toast]);
+
+  const handleViewChange = useCallback((from: number, to: number) => {
+    setView((prev) => (prev.from === from && prev.to === to ? prev : { from, to }));
+  }, []);
 
   // p50/p95 share the same SQL FILTER predicate per metric (see telemetry.routes.ts),
   // so within one metric they're always both null or both present together.
@@ -196,6 +366,8 @@ export default function TelemetryPage({ toast }: Props) {
         p50: r.comfyP50Ms / 1000,
         p95: r.comfyP95Ms / 1000,
       })) ?? [];
+
+  const jobTypeOrder = data?.jobTypes.map((r) => r.jobType) ?? [];
 
   return (
     <>
@@ -360,6 +532,89 @@ export default function TelemetryPage({ toast }: Props) {
               <div style={{ marginTop: 16 }}>
                 <DurationChart title="ComfyUI round-trip by job type" data={comfyData} />
               </div>
+
+              {dist && dist.buckets.length > 0 && (
+                <div className="card" style={{ marginTop: 16 }}>
+                  <div className="card-head">
+                    <h3>Job time breakdown</h3>
+                  </div>
+                  <div className="card-body">
+                    <JobDistributionChart
+                      buckets={dist.buckets}
+                      jobTypeOrder={jobTypeOrder}
+                      bucketSeconds={dist.bucketSeconds}
+                      viewFrom={view.from}
+                      viewTo={view.to}
+                      boundsFrom={bounds.from}
+                      boundsTo={bounds.to}
+                      onViewChange={handleViewChange}
+                      onPointClick={setSelectedPoint}
+                      selectedJobId={selectedPoint?.jobId ?? null}
+                      loading={zooming}
+                    />
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: 16,
+                        flexWrap: 'wrap',
+                        marginTop: 8,
+                        alignItems: 'center',
+                      }}
+                    >
+                      {(Object.keys(PHASE_LABELS) as (keyof typeof PHASE_LABELS)[]).map((k) => (
+                        <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span
+                            style={{
+                              width: 10,
+                              height: 10,
+                              borderRadius: 2,
+                              background: PHASE_COLORS[k],
+                              display: 'inline-block',
+                            }}
+                          />
+                          <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                            {PHASE_LABELS[k]}
+                          </span>
+                        </div>
+                      ))}
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                        · outlier capped in <span style={{ color: 'var(--danger)' }}>red</span>
+                      </span>
+                    </div>
+                    {jobTypeOrder.length > 1 ? (
+                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                        Columns within each bucket, left to right:{' '}
+                        <span className="semi">{jobTypeOrder.join(' · ')}</span>
+                      </div>
+                    ) : null}
+
+                    {selectedPoint ? (
+                      <PointDetail point={selectedPoint} onClose={() => setSelectedPoint(null)} />
+                    ) : null}
+
+                    <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 8 }}>
+                      Every bar is one job, rising from zero to its end-to-end time and split into
+                      the three phases that compose it — so bar height is E2E, and the coloured
+                      sections show where that time went. Click any bar for its worker, exact
+                      timings and error. The grey box behind is Q1–Q3 of E2E with the median line;
+                      bars capped red are outliers past the 1.5×IQR fence. Scroll to zoom, drag to
+                      pan, double-click to reset — zooming re-queries that range, so buckets get
+                      finer as you go in (currently {formatBucketWidth(dist.bucketSeconds)}).{' '}
+                      {dist.sampled ? (
+                        <strong>
+                          Showing {dist.shownJobs.toLocaleString()} of{' '}
+                          {dist.totalJobs.toLocaleString()} jobs — dots are sampled evenly across
+                          buckets, but every outlier is shown and the box statistics use all{' '}
+                          {dist.totalJobs.toLocaleString()}. Zoom in to drop below the cap and plot
+                          every job in view.
+                        </strong>
+                      ) : (
+                        <>All {dist.totalJobs.toLocaleString()} jobs in this window are plotted.</>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              )}
             </>
           )}
 

@@ -5,6 +5,7 @@ import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   DownloadIcon,
+  DriveIcon,
   FullscreenIcon,
   ImageDownIcon,
   MonitorPlayIcon,
@@ -16,9 +17,11 @@ import { SupportModal } from '@/components/SupportModal';
 import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { useGoogleDriveStatus } from '@/hooks/use-google-drive-status';
 import { useJobStream } from '@/hooks/use-job-stream';
 import { api } from '@/lib/api';
 import { ApiError, downloadErrorMessage } from '@/lib/errors';
+import { GOOGLE_DRIVE_ENABLED } from '@/lib/feature-flags';
 
 const REGENERATE_LIMIT_SUPPORT_MESSAGE =
   "I've used all 5 free regenerations for today and would like help getting more.";
@@ -173,9 +176,27 @@ function ImageCard({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const driveStatus = useGoogleDriveStatus();
+  const [savingToDrive, setSavingToDrive] = useState(false);
   const qc = useQueryClient();
 
   const pct = useAnimatedProgress(job.status);
+
+  async function saveToDrive() {
+    if (savingToDrive) return;
+    if (driveStatus.data?.status !== 'CONNECTED') {
+      window.location.href = '/api/integrations/google-drive/connect';
+      return;
+    }
+    setSavingToDrive(true);
+    try {
+      await api.post(`/v1/jobs/${job.id}/export/google-drive`, {});
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Could not save to Google Drive. Try again.');
+    } finally {
+      setSavingToDrive(false);
+    }
+  }
 
   const { data: result } = useQuery<{ url: string }>({
     queryKey: ['job-result', job.id],
@@ -611,6 +632,29 @@ function ImageCard({
                     Regenerate
                   </button>
                 )}
+                {GOOGLE_DRIVE_ENABLED && (
+                  <button
+                    type="button"
+                    disabled={savingToDrive}
+                    title="Save to Drive"
+                    onClick={saveToDrive}
+                    style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: 8,
+                      background: savingToDrive ? C.border : C.lighter,
+                      cursor: savingToDrive ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: C.mid,
+                      border: 'none',
+                      padding: 0,
+                    }}
+                  >
+                    {savingToDrive ? <SpinnerIcon size={14} /> : <DriveIcon size={16} />}
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -642,6 +686,10 @@ export default function CataloguePage({
   const [zoomVisible, setZoomVisible] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [downloadErr, setDownloadErr] = useState<string | null>(null);
+  const driveStatus = useGoogleDriveStatus();
+  const [savingAllToDrive, setSavingAllToDrive] = useState(false);
+  const [driveProgress, setDriveProgress] = useState<{ done: number; total: number } | null>(null);
+  const [driveErr, setDriveErr] = useState<string | null>(null);
   const [regenerating, setRegenerating] = useState(false);
   const regeneratingRef = useRef(false);
   const [reasonModalJobId, setReasonModalJobId] = useState<string | null>(null);
@@ -690,6 +738,12 @@ export default function CataloguePage({
     const t = setTimeout(() => setDownloadErr(null), 3500);
     return () => clearTimeout(t);
   }, [downloadErr]);
+
+  useEffect(() => {
+    if (!driveErr) return;
+    const t = setTimeout(() => setDriveErr(null), 3500);
+    return () => clearTimeout(t);
+  }, [driveErr]);
 
   const { data, isLoading } = useQuery<CatalogueDetail>({
     queryKey: ['catalogue', id],
@@ -835,6 +889,37 @@ export default function CataloguePage({
     }
   }
 
+  async function handleSaveAllToDrive() {
+    if (!data || savingAllToDrive) return;
+    if (driveStatus.data?.status !== 'CONNECTED') {
+      window.location.href = '/api/integrations/google-drive/connect';
+      return;
+    }
+    const completed = data.jobs.filter((j) => j.status === 'COMPLETED');
+    if (completed.length === 0) return;
+    setSavingAllToDrive(true);
+    setDriveErr(null);
+    setDriveProgress({ done: 0, total: completed.length });
+    try {
+      const results = await Promise.allSettled(
+        completed.map((job) =>
+          api.post(`/v1/jobs/${job.id}/export/google-drive`, {}).finally(() => {
+            setDriveProgress((p) => (p ? { done: p.done + 1, total: p.total } : p));
+          }),
+        ),
+      );
+      const failures = results.filter((r) => r.status === 'rejected').length;
+      if (failures > 0) {
+        setDriveErr(
+          `${failures} of ${completed.length} image${completed.length !== 1 ? 's' : ''} failed to save to Drive.`,
+        );
+      }
+    } finally {
+      setSavingAllToDrive(false);
+      setDriveProgress(null);
+    }
+  }
+
   async function openReasonModal(jobId: string) {
     setReasonModalJobId(jobId);
     setRegenerateReason('');
@@ -931,7 +1016,7 @@ export default function CataloguePage({
         lead={
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <Link
-              href="/catalogues"
+              href="/catalogs"
               style={{ color: C.mid, display: 'flex', textDecoration: 'none' }}
             >
               <ArrowLeft />
@@ -954,7 +1039,7 @@ export default function CataloguePage({
         right={
           <div style={{ display: 'flex', gap: 12 }}>
             <Link
-              href={`/catalogues/${id}/preview`}
+              href={`/catalogs/${id}/preview`}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -1009,6 +1094,45 @@ export default function CataloguePage({
                 </>
               )}
             </button>
+            {GOOGLE_DRIVE_ENABLED && (
+              <button
+                type="button"
+                onClick={handleSaveAllToDrive}
+                disabled={savingAllToDrive || completedCount === 0}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  padding: '0 20px',
+                  height: 38,
+                  borderRadius: 8,
+                  border: `1px solid ${C.border}`,
+                  background: C.field,
+                  color: C.mid,
+                  fontFamily: 'inherit',
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: savingAllToDrive || completedCount === 0 ? 'not-allowed' : 'pointer',
+                  opacity: savingAllToDrive || completedCount === 0 ? 0.5 : 1,
+                  boxSizing: 'border-box',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {savingAllToDrive ? (
+                  <>
+                    <SpinnerIcon size={18} />
+                    {driveProgress
+                      ? `Saving ${driveProgress.done}/${driveProgress.total}…`
+                      : 'Saving…'}
+                  </>
+                ) : (
+                  <>
+                    Save All to Drive <DriveIcon size={20} />
+                  </>
+                )}
+              </button>
+            )}
           </div>
         }
       />
@@ -1256,6 +1380,26 @@ export default function CataloguePage({
           }}
         >
           {downloadErr}
+        </div>
+      )}
+
+      {driveErr && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 24,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: C.dark,
+            color: C.white,
+            padding: '10px 20px',
+            borderRadius: 8,
+            fontSize: 13,
+            zIndex: 1200,
+            boxShadow: '0 6px 24px rgba(0,0,0,0.2)',
+          }}
+        >
+          {driveErr}
         </div>
       )}
     </>
