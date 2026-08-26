@@ -137,6 +137,16 @@ async function recordRefusal(
 }
 
 function writeSseHeaders(reply: FastifyReply): void {
+  // reply.raw.writeHead() below bypasses Fastify's own reply pipeline
+  // entirely, so anything set via reply.header() — notably @fastify/cors's
+  // Access-Control-Allow-Origin, computed in its onRequest hook — never
+  // reaches the socket unless copied over here first. Without this, the
+  // browser gets a 200 with no CORS header and blocks the shopper's
+  // cross-origin widget from reading the stream. setHeader (not writeHead)
+  // so these merge with, rather than fight, the headers below.
+  for (const [key, value] of Object.entries(reply.getHeaders())) {
+    if (value !== undefined) reply.raw.setHeader(key, value);
+  }
   reply.raw.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
