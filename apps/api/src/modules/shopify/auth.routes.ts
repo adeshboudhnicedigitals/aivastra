@@ -5,7 +5,6 @@ import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import { encryptToken } from '../../lib/crypto.js';
 import { AppError } from '../../lib/errors.js';
 import { writeWidgetKeyMetafield } from './metafields.js';
-import { grantShopifyTrialCredits } from './purchase.js';
 import { numericIdFromGid, shopifyGraphQL, verifyQueryHmac } from './service.js';
 import { type TokenGrant, toTokenGrant } from './token.js';
 import { markWidgetConfigUnsynced, publishLatestConfig } from './widget-config.routes.js';
@@ -210,8 +209,6 @@ export async function provisionShopifyStore(
   };
 
   const store = await upsertShopifyStore(app, details, accessToken, scope, grant);
-  const { creditsGranted } = await grantShopifyTrialCredits(app, store);
-  log.debug({ storeId: store.id, creditsGranted }, 'shopify trial credit grant');
   await writeWidgetKeyMetafield(shop, accessToken, details.shopifyShopId, store.storeKey, log);
   // Reauthorization can be reached only after a widget-config PATCH has
   // already committed Postgres and Shopify rejected the old token. Publish

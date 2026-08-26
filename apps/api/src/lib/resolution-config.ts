@@ -134,9 +134,9 @@ export async function getPixverseCreditCost(app: FastifyInstance): Promise<numbe
 }
 
 /**
- * Reads the admin-configured number of free trial credits granted once,
- * automatically, when a Shopify store first links to an AiVastra account
- * (see grantShopifyTrialCredits in modules/shopify/purchase.ts). Falls back to
+ * Reads the admin-configured number of free credits granted once when a
+ * store owner confirms their contact email from the Dashboard popup (see
+ * grantShopifyEmailBonus in modules/shopify/purchase.ts). Falls back to
  * DEFAULT_SHOPIFY_TRIAL_CONFIG.trialCredits if nothing is stored yet, or the
  * entry is missing/malformed.
  */

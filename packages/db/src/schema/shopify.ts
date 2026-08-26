@@ -69,6 +69,8 @@ export interface ShopifyActivationSettings {
 export interface ShopifyStoreSettings {
   workflowTemplateId?: string;
   themeBlockConfirmed?: boolean;
+  emailBonusClaimed?: boolean;
+  emailBonusClaimedAt?: string;
   limits?: ShopifyStoreLimits;
   retention?: ShopifyStoreRetention;
   widget?: ShopifyWidgetConfig;

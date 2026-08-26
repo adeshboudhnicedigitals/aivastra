@@ -179,6 +179,24 @@
   border-top: 1px solid rgba(17, 24, 39, 0.08);
 }
 
+/* History view: a 2-up scrollable gallery instead of the single-column
+   merged feed, with no per-card actions (browsing past results isn't the
+   purchase moment the fresh result is). */
+.aivastra-tryon__result-list--grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.aivastra-tryon__result-list--grid .aivastra-tryon__result-card + .aivastra-tryon__result-card {
+  padding-top: 0;
+  border-top: none;
+}
+
+.aivastra-tryon__result-card--compact .aivastra-tryon__result-actions {
+  display: none;
+}
+
 .aivastra-tryon__result-empty {
   flex: 1;
   display: flex;
@@ -245,11 +263,11 @@
 }
 
 .aivastra-tryon__avatar {
-  width: 84px;
-  height: 84px;
+  width: 220px;
+  height: 220px;
   margin: 0 auto 20px;
   overflow: hidden;
-  border-radius: 50%;
+  border-radius: 24px;
   background: #f2f2f2;
 }
 
@@ -431,6 +449,36 @@
   font-weight: 500;
 }
 
+.aivastra-tryon__progress-message {
+  margin: 0;
+}
+
+.aivastra-tryon__progress-rotator {
+  position: relative;
+  width: 100%;
+  min-height: 44px;
+}
+
+.aivastra-tryon__progress-line {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  opacity: 0;
+  transform: scale(0.9);
+  transition:
+    opacity 0.6s ease-in-out,
+    transform 0.6s ease-in-out;
+  pointer-events: none;
+}
+
+.aivastra-tryon__progress-line.is-active {
+  opacity: 1;
+  transform: scale(1);
+}
+
 .aivastra-tryon__progress-bar-track {
   width: 80%;
   height: 7px;
@@ -441,18 +489,20 @@
 
 .aivastra-tryon__progress-bar-fill {
   height: 100%;
-  width: 40%;
+  width: 100%;
   border-radius: 999px;
   background: var(--aivastra-accent, var(--aivastra-button-color, #000000));
-  animation: aivastra-progress-indeterminate 1.4s ease-in-out infinite;
+  transform-origin: left center;
+  animation: aivastra-progress-pulse 1.6s ease-in-out infinite;
 }
 
-@keyframes aivastra-progress-indeterminate {
-  0% {
-    transform: translateX(-100%);
-  }
+@keyframes aivastra-progress-pulse {
+  0%,
   100% {
-    transform: translateX(250%);
+    transform: scaleX(0.08);
+  }
+  50% {
+    transform: scaleX(1);
   }
 }
 

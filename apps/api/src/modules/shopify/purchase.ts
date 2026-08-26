@@ -218,7 +218,7 @@ export async function defaultFetchPurchase(app: FastifyInstance, store: Store, c
   return data.node;
 }
 
-async function storeBalance(app: FastifyInstance, storeId: string): Promise<number> {
+export async function storeBalance(app: FastifyInstance, storeId: string): Promise<number> {
   const [row] = await app.db
     .select({ balance: schema.shopifyStoreCredits.balance })
     .from(schema.shopifyStoreCredits)
@@ -378,26 +378,31 @@ export async function confirmPurchase(
 }
 
 /**
- * Grants the one-time free-tier credits to a store at install time, called from
- * provisionShopifyStore. Independent of any purchase — this exists so a
- * merchant can try the feature before buying anything.
+ * Grants a one-time bonus for confirming the store owner's contact email from
+ * the Dashboard popup. This is the only free-credits path left for a new
+ * store — there is no unconditional install-time grant; a merchant must opt
+ * in with their email to get anything before buying.
  *
- * Idempotent via the same external_ref index (migration 0150), keyed on store
- * id alone so this is strictly one-time per store: unlinking and relinking the
- * same store does not re-grant, but a different store linked to the same owner
- * does.
- *
- * Moved here verbatim from the deleted billing.ts — it is the 25-credit free
- * tier and has nothing to do with subscriptions.
+ * Reuses the same admin-configured trialCredits amount rather than a second
+ * config field — see resolution-config.ts. Idempotent via its own
+ * external_ref (migration 0150's index), keyed on store id alone: unlinking
+ * and relinking the same store does not re-grant, but a different store
+ * linked to the same owner does.
  */
-export async function grantShopifyTrialCredits(
+export async function grantShopifyEmailBonus(
   app: FastifyInstance,
   store: Store,
 ): Promise<{ creditsGranted: number }> {
   const amount = await getShopifyTrialCredits(app);
   if (amount <= 0) return { creditsGranted: 0 };
 
-  const externalRef = `shopify_trial:${store.id}`;
-  const { granted } = await grantStore(app.db, store.id, amount, 'SHOPIFY_TRIAL', externalRef);
+  const externalRef = `shopify_email_bonus:${store.id}`;
+  const { granted } = await grantStore(
+    app.db,
+    store.id,
+    amount,
+    'SHOPIFY_EMAIL_BONUS',
+    externalRef,
+  );
   return { creditsGranted: granted ? amount : 0 };
 }
