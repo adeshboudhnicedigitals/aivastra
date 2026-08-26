@@ -35,6 +35,16 @@
       error: root.querySelector('.aivastra-tryon__step--error'),
       email: root.querySelector('.aivastra-tryon__step--email'),
     };
+
+    // Rotates through the generating-page copy while a job is in flight.
+    // Empty when the merchant set a custom generatingText — tryon-button.liquid
+    // renders a single static line in that case instead of this list, so their
+    // customization isn't silently overridden.
+    const progressLines = steps.progress
+      ? steps.progress.querySelectorAll('.aivastra-tryon__progress-line')
+      : [];
+    let progressLineTimer = null;
+    let progressLineIndex = 0;
     const resultList = root.querySelector('.aivastra-tryon__result-list');
     const resultEmpty = root.querySelector('.aivastra-tryon__result-empty');
     const resultCardTemplate = root.querySelector('.aivastra-tryon__result-card-template');
@@ -229,10 +239,39 @@
       }
     }
 
+    function startProgressRotator() {
+      if (!progressLines.length) return;
+      progressLineIndex = 0;
+      for (let i = 0; i < progressLines.length; i++) {
+        progressLines[i].classList.toggle('is-active', i === 0);
+      }
+      // Advances once per tick and stops on the last line rather than looping —
+      // a job can take longer than the full rotation, and holding on "Almost
+      // there…" reads better than cycling back to "Creating your try-on…".
+      progressLineTimer = setInterval(() => {
+        if (progressLineIndex >= progressLines.length - 1) {
+          stopProgressRotator();
+          return;
+        }
+        progressLines[progressLineIndex].classList.remove('is-active');
+        progressLineIndex += 1;
+        progressLines[progressLineIndex].classList.add('is-active');
+      }, 2400);
+    }
+
+    function stopProgressRotator() {
+      if (progressLineTimer) {
+        clearInterval(progressLineTimer);
+        progressLineTimer = null;
+      }
+    }
+
     function showStep(name) {
       for (const key in steps) {
         if (steps[key]) steps[key].hidden = key !== name;
       }
+      if (name === 'progress') startProgressRotator();
+      else stopProgressRotator();
       syncHeaderButton();
     }
 
@@ -437,7 +476,12 @@
     // top because addToHistory() unshifts it. Every card is a fresh clone of
     // the Liquid <template>, so each has its own Add to Cart / Share state;
     // nothing needs resetting between renders.
-    function buildResultCard(entry) {
+    //
+    // actions=false is the History grid view: browsing past results isn't a
+    // purchase moment the way the just-generated result is, so the actions
+    // row is hidden entirely (CSS, via the --compact modifier) rather than
+    // built with dead/unwired buttons.
+    function buildResultCard(entry, { actions = true } = {}) {
       const fragment = resultCardTemplate.content.cloneNode(true);
       const card = fragment.querySelector('.aivastra-tryon__result-card');
 
@@ -445,11 +489,19 @@
       img.src = entry.resultUrl;
       // Belt-and-braces: resolveHistoryEntry() already re-signs before this
       // card is built, so this only fires on a genuinely dead object (or a
-      // legacy entry with no jobId to re-sign from).
+      // legacy entry with no jobId to re-sign from). Re-renders in whatever
+      // view (grid or not) is currently showing.
       img.addEventListener('error', () => {
         removeHistoryEntry(entry);
-        renderResultList();
+        renderResultList({
+          grid: resultList ? resultList.classList.contains(RESULT_LIST_GRID_CLASS) : false,
+        });
       });
+
+      if (!actions) {
+        card.classList.add('aivastra-tryon__result-card--compact');
+        return card;
+      }
 
       const addToCartBtn = card.querySelector('.aivastra-tryon__add-to-cart');
       const cartError = card.querySelector('.aivastra-tryon__cart-error');
@@ -469,15 +521,22 @@
       return card;
     }
 
-    async function renderResultList() {
+    const RESULT_LIST_GRID_CLASS = 'aivastra-tryon__result-list--grid';
+
+    // grid=true is the History button's view: a 2-up, no-actions gallery of
+    // everything the shopper has generated. grid=false (default) is the
+    // single-column merged feed shown right after a fresh generation, actions
+    // included — unchanged from before History got its own layout.
+    async function renderResultList({ grid = false } = {}) {
       const history = getHistory();
       syncHeaderButton();
       if (!resultList) return;
+      resultList.classList.toggle(RESULT_LIST_GRID_CLASS, grid);
       resultList.innerHTML = '';
       const resolved = (await Promise.all(history.map(resolveHistoryEntry))).filter(Boolean);
       if (resultEmpty) resultEmpty.hidden = resolved.length > 0;
       for (let i = 0; i < resolved.length; i++) {
-        resultList.appendChild(buildResultCard(resolved[i]));
+        resultList.appendChild(buildResultCard(resolved[i], { actions: !grid }));
       }
     }
 
@@ -776,7 +835,7 @@
     if (changePhotoBtn) changePhotoBtn.addEventListener('click', () => fileInput.click());
     if (historyBtn) {
       historyBtn.addEventListener('click', async () => {
-        await renderResultList();
+        await renderResultList({ grid: true });
         showStep('result');
       });
     }
