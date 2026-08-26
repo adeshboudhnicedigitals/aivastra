@@ -26,8 +26,10 @@ import { loadEnv } from '../env.js';
 import { createVideoTask, pollVideoTask } from '../pixverse/client.js';
 import { setWorkerStatus } from '../worker/registry.js';
 import { selectWorker } from '../worker/selector.js';
+import { checkAndCleanupArchiveForJob } from '../workflow/drain-cleanup.js';
 import { finalizeOutput } from '../workflow/finalize.js';
 import { patchWorkflow } from '../workflow/patcher.js';
+import { resolveWorkflowTemplateVersion } from '../workflow/resolve-template-version.js';
 import { runMannequinPhase } from './mannequin-phase.js';
 import { transitionJob } from './state.js';
 
@@ -491,14 +493,11 @@ export async function processJob(
     await markFailed(cfg, jobId, userId, stream, messageId, 'NO_WORKFLOW', jobLog, startedAt);
     return;
   }
-  const [tmplRoles] = await db
-    .select({
-      faceNodeId: schema.workflowTemplates.faceNodeId,
-      bgNodeId: schema.workflowTemplates.bgNodeId,
-      upperNodeIds: schema.workflowTemplates.upperNodeIds,
-    })
-    .from(schema.workflowTemplates)
-    .where(eq(schema.workflowTemplates.id, workflowTemplateId));
+  const snapshotVersion =
+    typeof rawParams.dispatchTemplateVersion === 'number'
+      ? rawParams.dispatchTemplateVersion
+      : null;
+  const tmplRoles = await resolveWorkflowTemplateVersion(db, workflowTemplateId, snapshotVersion);
   const needsFace = !!tmplRoles?.faceNodeId;
   const needsBg = !!tmplRoles?.bgNodeId;
   const needsUpper = (tmplRoles?.upperNodeIds.length ?? 0) > 0;
@@ -665,6 +664,7 @@ export async function processJob(
       },
       db,
       jobLog,
+      snapshotVersion,
     );
 
     // 6. Submit to ComfyUI
@@ -946,15 +946,9 @@ async function processTryonDirectJob(
   }
 
   // Load tryon workflow template
-  const [template] = await db
-    .select({
-      jsonContent: schema.workflowTemplates.jsonContent,
-      tryonPersonNodeId: schema.workflowTemplates.tryonPersonNodeId,
-      tryonGarmentNodeId: schema.workflowTemplates.tryonGarmentNodeId,
-      tryonOutputNodeId: schema.workflowTemplates.tryonOutputNodeId,
-    })
-    .from(schema.workflowTemplates)
-    .where(eq(schema.workflowTemplates.id, workflowTemplateId));
+  const snapshotVersion =
+    typeof params.dispatchTemplateVersion === 'number' ? params.dispatchTemplateVersion : null;
+  const template = await resolveWorkflowTemplateVersion(db, workflowTemplateId, snapshotVersion);
 
   if (!template) {
     await markFailed(
@@ -1228,16 +1222,11 @@ async function processSareeMannequinJob(
     return;
   }
 
-  const [template] = await db
-    .select({
-      jsonContent: schema.workflowTemplates.jsonContent,
-      tryonPersonNodeId: schema.workflowTemplates.tryonPersonNodeId,
-      tryonGarmentNodeId: schema.workflowTemplates.tryonGarmentNodeId,
-      tryonGarmentNodeId2: schema.workflowTemplates.tryonGarmentNodeId2,
-      tryonOutputNodeId: schema.workflowTemplates.tryonOutputNodeId,
-    })
-    .from(schema.workflowTemplates)
-    .where(eq(schema.workflowTemplates.id, workflowTemplateId));
+  const snapshotVersion =
+    typeof rawParams.dispatchTemplateVersion === 'number'
+      ? rawParams.dispatchTemplateVersion
+      : null;
+  const template = await resolveWorkflowTemplateVersion(db, workflowTemplateId, snapshotVersion);
   if (!template) {
     await markFailed(
       cfg,
@@ -1537,15 +1526,9 @@ async function processSareeJob(
 
   // Load saree workflow template. Saree flows reuse the tryon*_node_id columns
   // on workflow_templates (the admin route writes those columns at upload time).
-  const [template] = await db
-    .select({
-      jsonContent: schema.workflowTemplates.jsonContent,
-      tryonPersonNodeId: schema.workflowTemplates.tryonPersonNodeId,
-      tryonGarmentNodeId: schema.workflowTemplates.tryonGarmentNodeId,
-      tryonOutputNodeId: schema.workflowTemplates.tryonOutputNodeId,
-    })
-    .from(schema.workflowTemplates)
-    .where(eq(schema.workflowTemplates.id, workflowTemplateId));
+  const snapshotVersion =
+    typeof params.dispatchTemplateVersion === 'number' ? params.dispatchTemplateVersion : null;
+  const template = await resolveWorkflowTemplateVersion(db, workflowTemplateId, snapshotVersion);
 
   if (!template) {
     await markFailed(
@@ -1835,22 +1818,16 @@ async function processWidgetJob(
     return;
   }
 
-  const [templateRow] = await db
-    .select({
-      jsonContent: schema.workflowTemplates.jsonContent,
-      tryonGarmentNodeId: schema.workflowTemplates.tryonGarmentNodeId,
-      tryonGarmentNodeId2: schema.workflowTemplates.tryonGarmentNodeId2,
-      tryonPersonNodeId: schema.workflowTemplates.tryonPersonNodeId,
-      tryonOutputNodeId: schema.workflowTemplates.tryonOutputNodeId,
-    })
-    .from(schema.workflowTemplates)
-    .where(
-      and(
-        eq(schema.workflowTemplates.id, workflowTemplateId),
-        eq(schema.workflowTemplates.isActive, true),
-      ),
-    )
-    .limit(1);
+  const snapshotVersion =
+    typeof rawParams.dispatchTemplateVersion === 'number'
+      ? rawParams.dispatchTemplateVersion
+      : null;
+  const resolvedTemplate = await resolveWorkflowTemplateVersion(
+    db,
+    workflowTemplateId,
+    snapshotVersion,
+  );
+  const templateRow = resolvedTemplate?.isActive ? resolvedTemplate : undefined;
   if (!templateRow) {
     jobLog.error({ workflowTemplateId }, 'resolved tryon workflow template not found or inactive');
     await markWidgetFailed(
@@ -2166,15 +2143,9 @@ async function processShopifyJob(
 
   // Load Shopify workflow template. Shopify flows reuse the tryon*_node_id columns
   // on workflow_templates (same precedent processSareeJob established).
-  const [template] = await db
-    .select({
-      jsonContent: schema.workflowTemplates.jsonContent,
-      tryonPersonNodeId: schema.workflowTemplates.tryonPersonNodeId,
-      tryonGarmentNodeId: schema.workflowTemplates.tryonGarmentNodeId,
-      tryonOutputNodeId: schema.workflowTemplates.tryonOutputNodeId,
-    })
-    .from(schema.workflowTemplates)
-    .where(eq(schema.workflowTemplates.id, workflowTemplateId));
+  const snapshotVersion =
+    typeof params.dispatchTemplateVersion === 'number' ? params.dispatchTemplateVersion : null;
+  const template = await resolveWorkflowTemplateVersion(db, workflowTemplateId, snapshotVersion);
 
   if (!template) {
     await markShopifyFailed(
@@ -2579,6 +2550,8 @@ async function terminateJob(
 
   await redis.xack(stream, 'dispatcher-cg', messageId);
   recordJobOutcome(status === 'CANCELLED' ? 'cancelled' : 'failed', startedAt, jobType);
+
+  await checkAndCleanupArchiveForJob(db, jobId, _log);
 }
 
 async function handleFailure(

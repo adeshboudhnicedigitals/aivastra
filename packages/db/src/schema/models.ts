@@ -205,6 +205,17 @@ export const workflowTemplates = pgTable('workflow_templates', {
   defaultStage1PositivePrompt: text('default_stage1_positive_prompt').notNull().default(''),
   defaultStage1NegativePrompt: text('default_stage1_negative_prompt').notNull().default(''),
 
+  // Admin-curated (reason -> alternate prompt) pairs offered when a user
+  // regenerates a result produced by this template — same graph, different
+  // prompt text chosen by which reason the user picked. The user's submitted
+  // reason string is matched exactly against `reason` here; no match (e.g. the
+  // user picked "Other") falls back to rerunning the original prompt unchanged
+  // (see regenerateJob in apps/api). Empty array = no alternates configured.
+  regenerationReasonPrompts: jsonb('regeneration_reason_prompts')
+    .notNull()
+    .default(sql`'[]'::jsonb`)
+    .$type<{ reason: string; prompt: string }[]>(),
+
   // 'regular' = catalogue-creation (pose-based) workflows; 'tryon' = person + garment
   // try-on workflows, used by both the studio Try-On feature and kiosk.
   workflowType: text('workflow_type').notNull().default('regular'), // 'regular' | 'tryon'
@@ -217,10 +228,76 @@ export const workflowTemplates = pgTable('workflow_templates', {
   tryonGarmentNodeId2: text('tryon_garment_node_id_2'),
   tryonOutputNodeId: text('tryon_output_node_id'),
 
+  // Bumped by 1 on every confirmed "replace" (POST /admin/workflows/:id/replace).
+  // Jobs stamp the version they resolved at creation time into
+  // job_inputs.params.dispatchTemplateVersion; the dispatcher compares that
+  // stamp against this column to decide whether to use this row's live
+  // content or an archived one. See docs/superpowers/specs/
+  // 2026-08-26-workflow-template-replace-design.md.
+  version: integer('version').notNull().default(1),
+
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// Holds at most one archived (draining) version per template — enforced by the
+// unique index below, not just application logic. A row here means "this
+// template has a replace in progress; jobs stamped with this version should
+// resolve against this row's content, not workflow_templates' live row."
+// Deleted once no non-terminal job references it (see
+// apps/dispatcher/src/workflow/drain-cleanup.ts).
+export const workflowTemplateArchives = pgTable(
+  'workflow_template_archives',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workflowTemplateId: uuid('workflow_template_id')
+      .notNull()
+      .references(() => workflowTemplates.id, { onDelete: 'cascade' }),
+    version: integer('version').notNull(),
+    jsonContent: jsonb('json_content').notNull().$type<Record<string, unknown>>(),
+    faceNodeId: text('face_node_id'),
+    poseNodeId: text('pose_node_id').notNull(),
+    bgNodeId: text('bg_node_id'),
+    upperNodeIds: text('upper_node_ids').array().notNull(),
+    lowerNodeId: text('lower_node_id'),
+    shoeNodeId: text('shoe_node_id'),
+    thirdNodeId: text('third_node_id'),
+    sizeNodeId: text('size_node_id'),
+    sizeNodeIds: text('size_node_ids').array().notNull().default(sql`ARRAY[]::text[]`),
+    latentSizeNodeIds: text('latent_size_node_ids').array().notNull().default(sql`ARRAY[]::text[]`),
+    latentMaxPx: integer('latent_max_px').notNull().default(2048),
+    outputSizeNodeIds: text('output_size_node_ids').array().notNull().default(sql`ARRAY[]::text[]`),
+    outputMaxPx: integer('output_max_px').notNull().default(2048),
+    resultNodeId: text('result_node_id'),
+    facePhasePromptNode: text('face_phase_prompt_node'),
+    garmentPhasePromptNode: text('garment_phase_prompt_node').notNull(),
+    stage1PositivePromptNode: text('stage1_positive_prompt_node'),
+    stage1NegativePromptNode: text('stage1_negative_prompt_node'),
+    defaultFacePhasePrompt: text('default_face_phase_prompt').notNull().default(''),
+    defaultGarmentPhasePrompt: text('default_garment_phase_prompt').notNull().default(''),
+    defaultStage1PositivePrompt: text('default_stage1_positive_prompt').notNull().default(''),
+    defaultStage1NegativePrompt: text('default_stage1_negative_prompt').notNull().default(''),
+    workflowType: text('workflow_type').notNull().default('regular'),
+    tryonPersonNodeId: text('tryon_person_node_id'),
+    tryonGarmentNodeId: text('tryon_garment_node_id'),
+    tryonGarmentNodeId2: text('tryon_garment_node_id_2'),
+    tryonOutputNodeId: text('tryon_output_node_id'),
+    archivedAt: timestamp('archived_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    // At most one archived (draining) version per template — a second
+    // concurrent replace on the same template must fail, not silently create
+    // a second archive row the drain-cleanup logic would have to disambiguate.
+    oneActiveArchivePerTemplate: unique('workflow_template_archives_template_unique').on(
+      t.workflowTemplateId,
+    ),
+    byTemplateVersion: index('workflow_template_archives_template_version_idx').on(
+      t.workflowTemplateId,
+      t.version,
+    ),
+  }),
+);
 
 // Merchant-catalogue mannequin drape styles — orthogonal to garment_subcategories.
 // Any style can generate any saree-eligible garment subcategory; each style just

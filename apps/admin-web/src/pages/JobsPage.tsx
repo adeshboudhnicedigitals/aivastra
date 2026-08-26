@@ -7,8 +7,8 @@ import { StatusBadge } from '../components/StatusBadge';
 import type { SortDir } from '../components/Th';
 import { Th } from '../components/Th';
 import { useAdminJobStream } from '../hooks/use-admin-job-stream';
-import { apiErrorMessage, apiFetch, apiFetchBlob } from '../lib/data';
-import type { Job } from '../types';
+import { ApiError, apiErrorMessage, apiFetch, apiFetchBlob } from '../lib/data';
+import type { Job, JobStatus } from '../types';
 
 const PAGE_SIZE = 25;
 
@@ -20,6 +20,8 @@ const FILTERS = [
   { k: 'FAILED', l: 'Failed' },
   { k: 'CANCELLED', l: 'Cancelled' },
 ] as const;
+
+const TERMINAL_JOB_STATUSES: JobStatus[] = ['COMPLETED', 'FAILED', 'CANCELLED'];
 
 type FilterKey = 'all' | 'QUEUED' | 'GENERATING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 
@@ -44,6 +46,7 @@ interface JobDetail extends Job {
   events?: JobEvent[];
   inputImages?: InputImages;
   workflowLabel?: string | null;
+  regenerateReason?: string | null;
 }
 
 function EventRow({ ev }: { ev: JobEvent }) {
@@ -142,9 +145,11 @@ interface Props {
 }
 
 import { useLocation } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 
 export default function JobsPage({ onNav: _onNav, toast }: Props) {
   const location = useLocation();
+  const { role } = useAuth();
   const requestedJobId = (location.state as { jobId?: string })?.jobId;
   const [filter, setFilter] = useState<FilterKey>(
     (location.state as { filter?: FilterKey })?.filter || 'all',
@@ -171,6 +176,12 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
   const [confirmCancel, setConfirmCancel] = useState<string | null>(null);
   const [actioning, setActioning] = useState(false);
   const [confirmFlush, setConfirmFlush] = useState(false);
+  const [deleteAssetsTargets, setDeleteAssetsTargets] = useState<Set<'result' | 'person'>>(
+    new Set(),
+  );
+  const [deleteAssetsOpen, setDeleteAssetsOpen] = useState(false);
+  const [deleteAssetsPassword, setDeleteAssetsPassword] = useState('');
+  const [deletingAssets, setDeletingAssets] = useState(false);
   const [flushing, setFlushing] = useState(false);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
   const [isNavOpen, setIsNavOpen] = useState(false);
@@ -249,6 +260,12 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
       cancelled = true;
     };
   }, [requestedJobId, toast]);
+
+  useEffect(() => {
+    setDeleteAssetsTargets(new Set());
+    setDeleteAssetsOpen(false);
+    setDeleteAssetsPassword('');
+  }, [detail?.id]);
 
   // Filter dropdown options — fetched once, not tied to the jobs list itself.
   useEffect(() => {
@@ -453,6 +470,53 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
     }
   };
 
+  const handleDeleteAssets = async () => {
+    if (!detail || deleteAssetsTargets.size === 0) return;
+    setDeletingAssets(true);
+    try {
+      const res = await apiFetch<{ ok: boolean; deleted: ('result' | 'person')[] }>(
+        `/admin/jobs/${detail.id}/delete-assets`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            password: deleteAssetsPassword,
+            targets: Array.from(deleteAssetsTargets),
+          }),
+        },
+      );
+      const labels = res.deleted.map((t) => (t === 'result' ? 'Result image' : 'Person image'));
+      toast({ title: labels.length > 0 ? `Deleted: ${labels.join(', ')}` : 'Nothing to delete' });
+      setDeleteAssetsOpen(false);
+      setDeleteAssetsPassword('');
+      setDeleteAssetsTargets(new Set());
+      void openDetail(detail);
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Delete failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+      // Wrong password is the one failure the admin can fix by retrying in
+      // place; every other error (404/409/500) closes the dialog since
+      // retrying with the same input won't help.
+      if (!(e instanceof ApiError) || e.status !== 403) {
+        setDeleteAssetsOpen(false);
+        setDeleteAssetsPassword('');
+      }
+    } finally {
+      setDeletingAssets(false);
+    }
+  };
+
+  const toggleDeleteTarget = (target: 'result' | 'person', checked: boolean) => {
+    setDeleteAssetsTargets((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(target);
+      else next.delete(target);
+      return next;
+    });
+  };
+
   const fmtDuration = (j: Job) => {
     if (!j.startedAt || !j.completedAt) return null;
     const ms = new Date(j.completedAt).getTime() - new Date(j.startedAt).getTime();
@@ -545,6 +609,25 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
               <KV k="Duration" v={fmtDuration(j) ?? '—'} />
               {j.attempts != null && <KV k="Attempts" v={String(j.attempts)} />}
               {j.errorCode && <KV k="Error code" v={j.errorCode} />}
+              <KV
+                k="Origin"
+                v={
+                  j.parentJobId ? (
+                    <span style={{ color: 'var(--warn, #b8860b)', fontWeight: 600 }}>
+                      Regenerated
+                    </span>
+                  ) : (
+                    'Original generation'
+                  )
+                }
+              />
+              {j.parentJobId && (
+                <KV
+                  k="Regenerated from"
+                  v={<code style={{ fontSize: 12 }}>{j.parentJobId}</code>}
+                />
+              )}
+              {j.parentJobId && <KV k="Regenerate reason" v={j.regenerateReason ?? '—'} />}
             </div>
 
             {j.outputUrl && (
@@ -556,6 +639,25 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                   <a href={j.outputUrl} target="_blank" rel="noreferrer" className="link">
                     View output <Icon.ExternalLink />
                   </a>
+                  {role === 'SUPER_ADMIN' && TERMINAL_JOB_STATUSES.includes(j.status) && (
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        marginTop: 10,
+                        fontSize: 13,
+                        color: 'var(--muted)',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={deleteAssetsTargets.has('result')}
+                        onChange={(e) => toggleDeleteTarget('result', e.target.checked)}
+                      />
+                      Select result image for deletion
+                    </label>
+                  )}
                 </div>
               </div>
             )}
@@ -581,45 +683,88 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                       const url = j.inputImages?.[key];
                       if (!url) return null;
                       return (
-                        <a
-                          key={key}
-                          href={url}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={{ textDecoration: 'none', textAlign: 'center' }}
-                        >
-                          {/* biome-ignore lint/performance/noImgElement: admin SPA, not Next.js */}
-                          <img
-                            src={url}
-                            alt={label}
-                            style={{
-                              width: 96,
-                              height: 96,
-                              objectFit: 'cover',
-                              borderRadius: 8,
-                              border: '1px solid var(--border)',
-                              display: 'block',
-                              cursor: 'zoom-in',
-                            }}
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).style.display = 'none';
-                            }}
-                          />
-                          <span
-                            style={{
-                              fontSize: 11,
-                              color: 'var(--muted)',
-                              marginTop: 4,
-                              display: 'block',
-                            }}
+                        <div key={key} style={{ textAlign: 'center' }}>
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{ textDecoration: 'none' }}
                           >
-                            {label}
-                          </span>
-                        </a>
+                            {/* biome-ignore lint/performance/noImgElement: admin SPA, not Next.js */}
+                            <img
+                              src={url}
+                              alt={label}
+                              style={{
+                                width: 96,
+                                height: 96,
+                                objectFit: 'cover',
+                                borderRadius: 8,
+                                border: '1px solid var(--border)',
+                                display: 'block',
+                                cursor: 'zoom-in',
+                              }}
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).style.display = 'none';
+                              }}
+                            />
+                            <span
+                              style={{
+                                fontSize: 11,
+                                color: 'var(--muted)',
+                                marginTop: 4,
+                                display: 'block',
+                              }}
+                            >
+                              {label}
+                            </span>
+                          </a>
+                          {key === 'person' &&
+                            role === 'SUPER_ADMIN' &&
+                            TERMINAL_JOB_STATUSES.includes(j.status) && (
+                              <label
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: 4,
+                                  marginTop: 4,
+                                  fontSize: 11,
+                                  color: 'var(--muted)',
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={deleteAssetsTargets.has('person')}
+                                  onChange={(e) => toggleDeleteTarget('person', e.target.checked)}
+                                />
+                                Select for deletion
+                              </label>
+                            )}
+                        </div>
                       );
                     })}
                   </div>
                 </div>
+              </div>
+            )}
+
+            {deleteAssetsTargets.size > 0 && (
+              <div
+                className="card"
+                style={{
+                  marginBottom: 14,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: 12,
+                }}
+              >
+                <span style={{ fontSize: 13, color: 'var(--muted)' }}>
+                  {deleteAssetsTargets.size} image{deleteAssetsTargets.size > 1 ? 's' : ''} selected
+                </span>
+                <button className="btn sm danger" onClick={() => setDeleteAssetsOpen(true)}>
+                  <Icon.Trash /> Delete selected
+                </button>
               </div>
             )}
 
@@ -693,6 +838,71 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                 </button>
                 <button className="btn danger" onClick={handleCancel} disabled={actioning}>
                   <Icon.Ban /> Yes, cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {deleteAssetsOpen && (
+          <div
+            className="modal-overlay"
+            onClick={() => {
+              if (!deletingAssets) {
+                setDeleteAssetsOpen(false);
+                setDeleteAssetsPassword('');
+              }
+            }}
+          >
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <h3>Delete job assets</h3>
+              </div>
+              <div className="modal-body">
+                <p style={{ marginBottom: 12 }}>
+                  Permanently delete{' '}
+                  <strong>
+                    {Array.from(deleteAssetsTargets)
+                      .map((t) =>
+                        t === 'result' ? 'the result image' : "the person's uploaded photo",
+                      )
+                      .join(' and ')}
+                  </strong>{' '}
+                  for this job. Cannot be undone. The job record and its configuration are not
+                  affected.
+                </p>
+                <label
+                  style={{ display: 'block', fontSize: 13, marginBottom: 6, color: 'var(--muted)' }}
+                >
+                  Confirm your admin password
+                </label>
+                <input
+                  className="input"
+                  type="password"
+                  value={deleteAssetsPassword}
+                  onChange={(e) => setDeleteAssetsPassword(e.target.value)}
+                  placeholder="Password"
+                  style={{ width: '100%' }}
+                  autoFocus
+                />
+              </div>
+              <div className="modal-foot">
+                <button
+                  className="btn ghost"
+                  disabled={deletingAssets}
+                  onClick={() => {
+                    setDeleteAssetsOpen(false);
+                    setDeleteAssetsPassword('');
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn danger"
+                  disabled={deletingAssets || !deleteAssetsPassword}
+                  onClick={() => void handleDeleteAssets()}
+                >
+                  <Icon.Trash /> {deletingAssets ? 'Deleting…' : 'Yes, delete'}
                 </button>
               </div>
             </div>
@@ -1306,7 +1516,18 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                       <span className="semi">{j.userEmail ?? '—'}</span>
                     </td>
                     <td>
-                      <JobTypeBadge jobType={j.jobType} />
+                      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                        <JobTypeBadge jobType={j.jobType} />
+                        {j.parentJobId && (
+                          <span
+                            className="badge"
+                            title="Created by regenerating another job"
+                            style={{ fontSize: 10, color: 'var(--warn, #b8860b)' }}
+                          >
+                            Regen
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td>
                       <StatusBadge status={j.status} />
@@ -1513,6 +1734,20 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                           <span style={{ color: 'var(--muted)' }}>Job Type</span>
                           <JobTypeBadge jobType={j.jobType} />
                         </div>
+                        {j.parentJobId && (
+                          <div
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <span style={{ color: 'var(--muted)' }}>Origin</span>
+                            <span style={{ color: 'var(--warn, #b8860b)', fontWeight: 600 }}>
+                              Regenerated
+                            </span>
+                          </div>
+                        )}
                         <div
                           style={{
                             display: 'flex',

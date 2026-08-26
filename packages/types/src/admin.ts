@@ -465,6 +465,13 @@ export const CreateWorkflowBody = z
     }
   });
 
+export const ReplaceWorkflowBody = z.intersection(
+  CreateWorkflowBody,
+  z.object({
+    password: z.string().min(1, 'password is required to replace a workflow'),
+  }),
+);
+
 export const ParseWorkflowBody = z.object({
   jsonContent: z.record(z.any()),
   workflowType: z
@@ -509,6 +516,15 @@ export const UpdateWorkflowBody = z.object({
   // be empty).
   garmentPhasePrompt: z.string().optional(),
   facePhasePrompt: z.string().optional(),
+  // Admin-curated (reason -> alternate prompt) pairs offered on regenerate —
+  // same graph, different prompt text chosen by the reason the user picked.
+  // [] clears the list (regenerate then reruns the original prompt for any
+  // reason, since nothing matches). Prompt gets the same 300-char cap as a
+  // user hint; reason is a short label shown verbatim in the reason picker.
+  regenerationReasonPrompts: z
+    .array(z.object({ reason: z.string().min(1).max(100), prompt: z.string().min(1).max(300) }))
+    .max(50)
+    .optional(),
   // Same TEXT vs node-id-column distinction as above, for two_stage's own stage-1
   // pair. stage1PositivePrompt must be non-empty (same reason as garmentPhasePrompt);
   // stage1NegativePrompt may be empty (same as facePhasePrompt).

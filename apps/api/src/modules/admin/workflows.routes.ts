@@ -3,12 +3,14 @@ import {
   CreateWorkflowBody,
   ParseWorkflowBody,
   ReassignWorkflowBody,
+  ReplaceWorkflowBody,
   UpdateWorkflowBody,
 } from '@aivastra/types';
 import { and, count, eq, ne } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { verifyPassword } from '../auth/service.js';
 import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
 import { detectTryonMappings } from './tryon-detect.js';
@@ -141,6 +143,347 @@ export function writeKSamplerOverride(
   if (override.seed !== undefined) node.inputs.seed = override.seed;
 }
 
+function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
+  const workflowType = body.workflowType ?? 'regular';
+
+  if (workflowType === 'saree_step1_two_input') {
+    const { detected: autoDetected } = detectTryonTwoInputMappings(body.jsonContent);
+    const personNodeId = body.tryonPersonNodeId ?? autoDetected.personNodeId ?? '';
+    const bodyNodeId = body.tryonGarmentNodeId ?? autoDetected.bodyNodeId ?? '';
+    const palluNodeId = body.tryonGarmentNodeId2 ?? autoDetected.palluNodeId ?? '';
+    const outputNodeId = body.tryonOutputNodeId ?? autoDetected.outputNodeId ?? '';
+    // biome-ignore lint/style/noNonNullAssertion: guaranteed by superRefine
+    const negNode = body.facePhasePromptNode!;
+    // biome-ignore lint/style/noNonNullAssertion: guaranteed by superRefine
+    const posNode = body.garmentPhasePromptNode!;
+    if (!bodyNodeId)
+      throw new AppError(
+        'VALIDATION',
+        400,
+        'Could not detect body node — set tryonGarmentNodeId manually',
+      );
+    if (!palluNodeId)
+      throw new AppError(
+        'VALIDATION',
+        400,
+        'Could not detect pallu node — set tryonGarmentNodeId2 manually',
+      );
+    if (!outputNodeId)
+      throw new AppError(
+        'VALIDATION',
+        400,
+        'Could not detect output node — set tryonOutputNodeId manually',
+      );
+    if (personNodeId) {
+      validateNodeExists(body.jsonContent, personNodeId, 'person');
+      validateNodeType(body.jsonContent, personNodeId, 'image', 'person');
+    }
+    validateNodeExists(body.jsonContent, bodyNodeId, 'body');
+    validateNodeExists(body.jsonContent, palluNodeId, 'pallu');
+    validateNodeExists(body.jsonContent, outputNodeId, 'output');
+    validateNodeExists(body.jsonContent, negNode, 'negative prompt');
+    validateNodeExists(body.jsonContent, posNode, 'positive prompt');
+    validateNodeType(body.jsonContent, bodyNodeId, 'image', 'body');
+    validateNodeType(body.jsonContent, palluNodeId, 'image', 'pallu');
+    validateNodeType(body.jsonContent, negNode, 'prompt', 'negative prompt');
+    validateNodeType(body.jsonContent, posNode, 'prompt', 'positive prompt');
+    const { defaultFacePhasePrompt, defaultGarmentPhasePrompt } = extractDefaultPrompts(
+      body.jsonContent,
+      negNode,
+      posNode,
+    );
+    return {
+      slug: body.slug,
+      label: body.label,
+      jsonContent: body.jsonContent,
+      workflowType,
+      faceNodeId: '',
+      poseNodeId: '',
+      bgNodeId: '',
+      upperNodeIds: [],
+      lowerNodeId: null,
+      shoeNodeId: null,
+      thirdNodeId: null,
+      sizeNodeIds: [],
+      latentSizeNodeIds: [],
+      latentMaxPx: 2048,
+      outputSizeNodeIds: [],
+      outputMaxPx: 2048,
+      resultNodeId: null,
+      facePhasePromptNode: negNode,
+      garmentPhasePromptNode: posNode,
+      defaultFacePhasePrompt,
+      defaultGarmentPhasePrompt,
+      stage1PositivePromptNode: null,
+      stage1NegativePromptNode: null,
+      defaultStage1PositivePrompt: '',
+      defaultStage1NegativePrompt: '',
+      tryonPersonNodeId: personNodeId || null,
+      tryonGarmentNodeId: bodyNodeId,
+      tryonGarmentNodeId2: palluNodeId,
+      tryonOutputNodeId: outputNodeId,
+    };
+  }
+
+  if (workflowType === 'two_stage') {
+    const { detected: autoDetected } = detectTwoStageMappings(body.jsonContent);
+    const faceNodeId = body.faceNodeId ?? autoDetected.faceNodeId ?? '';
+    const poseNodeId = body.poseNodeId ?? autoDetected.poseNodeId ?? '';
+    const bgNodeId = body.bgNodeId ?? autoDetected.bgNodeId ?? '';
+    const garmentNodeId = body.upperNodeIds?.[0] ?? autoDetected.garmentNodeId ?? '';
+    // biome-ignore lint/style/noNonNullAssertion: guaranteed by superRefine
+    const stage2NegativeNode = body.facePhasePromptNode!;
+    // biome-ignore lint/style/noNonNullAssertion: guaranteed by superRefine
+    const stage2PositiveNode = body.garmentPhasePromptNode!;
+    const stage1PositiveNode =
+      body.stage1PositivePromptNode ?? autoDetected.stage1PositivePromptNode ?? '';
+    const stage1NegativeNode =
+      body.stage1NegativePromptNode ?? autoDetected.stage1NegativePromptNode ?? '';
+
+    if (!faceNodeId)
+      throw new AppError('VALIDATION', 400, 'Could not detect face node — set faceNodeId manually');
+    if (!poseNodeId)
+      throw new AppError('VALIDATION', 400, 'Could not detect pose node — set poseNodeId manually');
+    if (!bgNodeId)
+      throw new AppError(
+        'VALIDATION',
+        400,
+        'Could not detect background node — set bgNodeId manually',
+      );
+    if (!garmentNodeId)
+      throw new AppError(
+        'VALIDATION',
+        400,
+        'Could not detect garment node — set upperNodeIds manually',
+      );
+    if (!stage1PositiveNode || !stage1NegativeNode)
+      throw new AppError(
+        'VALIDATION',
+        400,
+        'Could not detect stage-1 prompt nodes — set stage1PositivePromptNode/stage1NegativePromptNode manually',
+      );
+
+    validateNodeExists(body.jsonContent, faceNodeId, 'face');
+    validateNodeType(body.jsonContent, faceNodeId, 'image', 'face');
+    validateNodeExists(body.jsonContent, poseNodeId, 'pose');
+    validateNodeType(body.jsonContent, poseNodeId, 'image', 'pose');
+    validateNodeExists(body.jsonContent, bgNodeId, 'background');
+    validateNodeType(body.jsonContent, bgNodeId, 'image', 'background');
+    validateNodeExists(body.jsonContent, garmentNodeId, 'garment');
+    validateNodeType(body.jsonContent, garmentNodeId, 'image', 'garment');
+    validateNodeExists(body.jsonContent, stage2NegativeNode, 'stage-2 negative prompt');
+    validateNodeType(body.jsonContent, stage2NegativeNode, 'prompt', 'stage-2 negative prompt');
+    validateNodeExists(body.jsonContent, stage2PositiveNode, 'stage-2 positive prompt');
+    validateNodeType(body.jsonContent, stage2PositiveNode, 'prompt', 'stage-2 positive prompt');
+    validateNodeExists(body.jsonContent, stage1PositiveNode, 'stage-1 positive prompt');
+    validateNodeType(body.jsonContent, stage1PositiveNode, 'prompt', 'stage-1 positive prompt');
+    validateNodeExists(body.jsonContent, stage1NegativeNode, 'stage-1 negative prompt');
+    validateNodeType(body.jsonContent, stage1NegativeNode, 'prompt', 'stage-1 negative prompt');
+
+    const sizeNodeIds = body.sizeNodeIds ?? autoDetected.sizeNodeIds;
+    const defaultFacePhasePrompt = extractPromptText(
+      body.jsonContent[stage2NegativeNode] as WorkflowNode | undefined,
+    );
+    const defaultGarmentPhasePrompt = extractPromptText(
+      body.jsonContent[stage2PositiveNode] as WorkflowNode | undefined,
+    );
+    const defaultStage1PositivePrompt = extractPromptText(
+      body.jsonContent[stage1PositiveNode] as WorkflowNode | undefined,
+    );
+    const defaultStage1NegativePrompt = extractPromptText(
+      body.jsonContent[stage1NegativeNode] as WorkflowNode | undefined,
+    );
+
+    return {
+      slug: body.slug,
+      label: body.label,
+      jsonContent: body.jsonContent,
+      workflowType,
+      faceNodeId,
+      poseNodeId,
+      bgNodeId,
+      upperNodeIds: [garmentNodeId],
+      lowerNodeId: null,
+      shoeNodeId: null,
+      thirdNodeId: null,
+      sizeNodeIds,
+      latentSizeNodeIds: [],
+      latentMaxPx: 2048,
+      outputSizeNodeIds: [],
+      outputMaxPx: 2048,
+      resultNodeId: null,
+      facePhasePromptNode: stage2NegativeNode,
+      garmentPhasePromptNode: stage2PositiveNode,
+      stage1PositivePromptNode: stage1PositiveNode,
+      stage1NegativePromptNode: stage1NegativeNode,
+      defaultFacePhasePrompt,
+      defaultGarmentPhasePrompt,
+      defaultStage1PositivePrompt,
+      defaultStage1NegativePrompt,
+      tryonPersonNodeId: null,
+      tryonGarmentNodeId: null,
+      tryonGarmentNodeId2: null,
+      tryonOutputNodeId: null,
+    };
+  }
+
+  if (workflowType === 'tryon' || workflowType === 'saree_step1') {
+    const { detected: autoDetected } = detectTryonMappings(body.jsonContent);
+    const personNodeId = body.tryonPersonNodeId ?? autoDetected.personNodeId ?? '';
+    const garmentNodeId = body.tryonGarmentNodeId ?? autoDetected.garmentNodeId ?? '';
+    const outputNodeId = body.tryonOutputNodeId ?? autoDetected.outputNodeId ?? '';
+    // biome-ignore lint/style/noNonNullAssertion: guaranteed by superRefine
+    const negNode = body.facePhasePromptNode!;
+    // biome-ignore lint/style/noNonNullAssertion: guaranteed by superRefine
+    const posNode = body.garmentPhasePromptNode!;
+
+    if (!garmentNodeId)
+      throw new AppError(
+        'VALIDATION',
+        400,
+        'Could not detect garment node — set tryonGarmentNodeId manually',
+      );
+    if (!outputNodeId)
+      throw new AppError(
+        'VALIDATION',
+        400,
+        'Could not detect output node — set tryonOutputNodeId manually',
+      );
+
+    if (personNodeId) {
+      validateNodeExists(body.jsonContent, personNodeId, 'person');
+      validateNodeType(body.jsonContent, personNodeId, 'image', 'person');
+    }
+    validateNodeExists(body.jsonContent, garmentNodeId, 'garment');
+    validateNodeExists(body.jsonContent, outputNodeId, 'output');
+    validateNodeExists(body.jsonContent, negNode, 'negative prompt');
+    validateNodeExists(body.jsonContent, posNode, 'positive prompt');
+    validateNodeType(body.jsonContent, garmentNodeId, 'image', 'garment');
+    validateNodeType(body.jsonContent, negNode, 'prompt', 'negative prompt');
+    validateNodeType(body.jsonContent, posNode, 'prompt', 'positive prompt');
+
+    const { defaultFacePhasePrompt, defaultGarmentPhasePrompt } = extractDefaultPrompts(
+      body.jsonContent,
+      negNode,
+      posNode,
+    );
+
+    return {
+      slug: body.slug,
+      label: body.label,
+      jsonContent: body.jsonContent,
+      workflowType,
+      faceNodeId: '',
+      poseNodeId: '',
+      bgNodeId: '',
+      upperNodeIds: [],
+      lowerNodeId: null,
+      shoeNodeId: null,
+      thirdNodeId: null,
+      sizeNodeIds: [],
+      latentSizeNodeIds: [],
+      latentMaxPx: 2048,
+      outputSizeNodeIds: [],
+      outputMaxPx: 2048,
+      resultNodeId: null,
+      facePhasePromptNode: negNode,
+      garmentPhasePromptNode: posNode,
+      defaultFacePhasePrompt,
+      defaultGarmentPhasePrompt,
+      stage1PositivePromptNode: null,
+      stage1NegativePromptNode: null,
+      defaultStage1PositivePrompt: '',
+      defaultStage1NegativePrompt: '',
+      tryonPersonNodeId: personNodeId || null,
+      tryonGarmentNodeId: garmentNodeId,
+      tryonGarmentNodeId2: null,
+      tryonOutputNodeId: outputNodeId,
+    };
+  }
+
+  // Regular workflow — full node validation.
+  // biome-ignore lint/style/noNonNullAssertion: guaranteed by superRefine
+  const poseNodeId = body.poseNodeId!;
+  // biome-ignore lint/style/noNonNullAssertion: guaranteed by superRefine
+  const garmentPhasePromptNode = body.garmentPhasePromptNode!;
+  const upperNodeIds = body.upperNodeIds ?? [];
+
+  validateNodeExists(body.jsonContent, poseNodeId, 'pose');
+  validateNodeType(body.jsonContent, poseNodeId, 'image', 'pose');
+  if (body.faceNodeId) {
+    validateNodeExists(body.jsonContent, body.faceNodeId, 'face');
+    validateNodeType(body.jsonContent, body.faceNodeId, 'image', 'face');
+  }
+  if (body.bgNodeId) {
+    validateNodeExists(body.jsonContent, body.bgNodeId, 'background');
+    validateNodeType(body.jsonContent, body.bgNodeId, 'image', 'background');
+  }
+  for (const uid of upperNodeIds) {
+    validateNodeExists(body.jsonContent, uid, 'upper garment');
+    validateNodeType(body.jsonContent, uid, 'image', 'upper garment');
+  }
+  if (body.lowerNodeId) {
+    validateNodeExists(body.jsonContent, body.lowerNodeId, 'lower garment');
+    validateNodeType(body.jsonContent, body.lowerNodeId, 'image', 'lower garment');
+  }
+  if (body.shoeNodeId) {
+    validateNodeExists(body.jsonContent, body.shoeNodeId, 'shoes');
+    validateNodeType(body.jsonContent, body.shoeNodeId, 'image', 'shoes');
+  }
+  if (body.thirdNodeId) {
+    validateNodeExists(body.jsonContent, body.thirdNodeId, 'third garment');
+    validateNodeType(body.jsonContent, body.thirdNodeId, 'image', 'third garment');
+  }
+  for (const uid of body.sizeNodeIds ?? []) {
+    validateNodeExists(body.jsonContent, uid, 'size');
+  }
+  validateNodeExists(body.jsonContent, garmentPhasePromptNode, 'positive prompt');
+  validateNodeType(body.jsonContent, garmentPhasePromptNode, 'prompt', 'positive prompt');
+  if (body.facePhasePromptNode) {
+    validateNodeExists(body.jsonContent, body.facePhasePromptNode, 'negative prompt');
+    validateNodeType(body.jsonContent, body.facePhasePromptNode, 'prompt', 'negative prompt');
+  }
+
+  const defaultGarmentPhasePrompt = extractPromptText(
+    body.jsonContent[garmentPhasePromptNode] as WorkflowNode | undefined,
+  );
+  const defaultFacePhasePrompt = body.facePhasePromptNode
+    ? extractPromptText(body.jsonContent[body.facePhasePromptNode] as WorkflowNode | undefined)
+    : '';
+
+  return {
+    slug: body.slug,
+    label: body.label,
+    jsonContent: body.jsonContent,
+    workflowType: 'regular',
+    faceNodeId: body.faceNodeId ?? null,
+    poseNodeId,
+    bgNodeId: body.bgNodeId ?? null,
+    upperNodeIds,
+    lowerNodeId: body.lowerNodeId ?? null,
+    shoeNodeId: body.shoeNodeId ?? null,
+    thirdNodeId: body.thirdNodeId ?? null,
+    sizeNodeIds: body.sizeNodeIds ?? [],
+    latentSizeNodeIds: body.latentSizeNodeIds ?? [],
+    latentMaxPx: body.latentMaxPx ?? 2048,
+    outputSizeNodeIds: body.outputSizeNodeIds ?? [],
+    outputMaxPx: body.outputMaxPx ?? 2048,
+    resultNodeId: body.resultNodeId ?? null,
+    facePhasePromptNode: body.facePhasePromptNode ?? null,
+    garmentPhasePromptNode,
+    defaultFacePhasePrompt,
+    defaultGarmentPhasePrompt,
+    stage1PositivePromptNode: null,
+    stage1NegativePromptNode: null,
+    defaultStage1PositivePrompt: '',
+    defaultStage1NegativePrompt: '',
+    tryonPersonNodeId: null,
+    tryonGarmentNodeId: null,
+    tryonGarmentNodeId2: null,
+    tryonOutputNodeId: null,
+  };
+}
+
 // ── Routes ────────────────────────────────────────────────────────────────
 
 export async function adminWorkflowsRoutes(app: FastifyInstance) {
@@ -152,27 +495,52 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
   app.get('/admin/workflows', { preHandler: R }, async () => {
     const rows = await app.db.select().from(schema.workflowTemplates);
 
-    const poseCounts = await app.db
-      .select({
-        workflowTemplateId: schema.modelPoseAssets.workflowTemplateId,
-        cnt: count(),
-      })
-      .from(schema.modelPoseAssets)
-      .groupBy(schema.modelPoseAssets.workflowTemplateId);
+    const [poseCounts, funnelCounts, archives] = await Promise.all([
+      app.db
+        .select({
+          workflowTemplateId: schema.modelPoseAssets.workflowTemplateId,
+          cnt: count(),
+        })
+        .from(schema.modelPoseAssets)
+        .groupBy(schema.modelPoseAssets.workflowTemplateId),
+      app.db
+        .select({
+          workflowTemplateId: schema.shopifyFunnelTemplates.workflowTemplateId,
+          cnt: count(),
+        })
+        .from(schema.shopifyFunnelTemplates)
+        .groupBy(schema.shopifyFunnelTemplates.workflowTemplateId),
+      app.db
+        .select({
+          workflowTemplateId: schema.workflowTemplateArchives.workflowTemplateId,
+          version: schema.workflowTemplateArchives.version,
+        })
+        .from(schema.workflowTemplateArchives),
+    ]);
 
     const countMap = Object.fromEntries(
       poseCounts.map((r) => [r.workflowTemplateId, Number(r.cnt)]),
+    );
+    const funnelCountMap = Object.fromEntries(
+      funnelCounts.map((r) => [r.workflowTemplateId, Number(r.cnt)]),
+    );
+    const archiveMap = Object.fromEntries(
+      archives.map((r) => [r.workflowTemplateId, { fromVersion: r.version }]),
     );
 
     return rows.map((r) => ({
       id: r.id,
       slug: r.slug,
       label: r.label,
+      version: r.version,
       workflowType: r.workflowType,
       isActive: r.isActive,
       poseCount: countMap[r.id] ?? 0,
+      funnelCount: funnelCountMap[r.id] ?? 0,
+      draining: archiveMap[r.id] ?? null,
       defaultFacePhasePrompt: r.defaultFacePhasePrompt,
       defaultGarmentPhasePrompt: r.defaultGarmentPhasePrompt,
+      regenerationReasonPrompts: r.regenerationReasonPrompts,
       facePhasePromptNode: r.facePhasePromptNode,
       ksamplerNodes: extractKSamplerNodes(r.jsonContent as Record<string, unknown>),
       lowerNodeId: r.lowerNodeId,
@@ -242,33 +610,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       schema: { body: CreateWorkflowBody },
     },
     async (req) => {
-      const body = req.body as {
-        slug: string;
-        label: string;
-        jsonContent: Record<string, unknown>;
-        workflowType?: string;
-        faceNodeId?: string;
-        poseNodeId?: string;
-        bgNodeId?: string;
-        upperNodeIds?: string[];
-        lowerNodeId?: string;
-        shoeNodeId?: string;
-        thirdNodeId?: string;
-        sizeNodeIds?: string[];
-        latentSizeNodeIds?: string[];
-        latentMaxPx?: number;
-        outputSizeNodeIds?: string[];
-        outputMaxPx?: number;
-        resultNodeId?: string;
-        facePhasePromptNode?: string;
-        garmentPhasePromptNode?: string;
-        tryonPersonNodeId?: string;
-        tryonGarmentNodeId?: string;
-        tryonGarmentNodeId2?: string;
-        tryonOutputNodeId?: string;
-        stage1PositivePromptNode?: string;
-        stage1NegativePromptNode?: string;
-      };
+      const body = req.body as z.infer<typeof CreateWorkflowBody>;
 
       const [existing] = await app.db
         .select({ id: schema.workflowTemplates.id })
@@ -278,443 +620,10 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         throw new AppError('CONFLICT', 409, `Workflow with slug "${body.slug}" already exists`);
       }
 
-      const workflowType = body.workflowType ?? 'regular';
-
-      if (workflowType === 'saree_step1_two_input') {
-        const { detected: autoDetected } = detectTryonTwoInputMappings(body.jsonContent);
-        const personNodeId = body.tryonPersonNodeId ?? autoDetected.personNodeId ?? '';
-        const bodyNodeId = body.tryonGarmentNodeId ?? autoDetected.bodyNodeId ?? '';
-        const palluNodeId = body.tryonGarmentNodeId2 ?? autoDetected.palluNodeId ?? '';
-        const outputNodeId = body.tryonOutputNodeId ?? autoDetected.outputNodeId ?? '';
-        // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
-        const negNode = body.facePhasePromptNode!;
-        // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
-        const posNode = body.garmentPhasePromptNode!;
-        if (!bodyNodeId)
-          throw new AppError(
-            'VALIDATION',
-            400,
-            'Could not detect body node — set tryonGarmentNodeId manually',
-          );
-        if (!palluNodeId)
-          throw new AppError(
-            'VALIDATION',
-            400,
-            'Could not detect pallu node — set tryonGarmentNodeId2 manually',
-          );
-        if (!outputNodeId)
-          throw new AppError(
-            'VALIDATION',
-            400,
-            'Could not detect output node — set tryonOutputNodeId manually',
-          );
-        if (personNodeId) {
-          validateNodeExists(body.jsonContent, personNodeId, 'person');
-          validateNodeType(body.jsonContent, personNodeId, 'image', 'person');
-        }
-        validateNodeExists(body.jsonContent, bodyNodeId, 'body');
-        validateNodeExists(body.jsonContent, palluNodeId, 'pallu');
-        validateNodeExists(body.jsonContent, outputNodeId, 'output');
-        validateNodeExists(body.jsonContent, negNode, 'negative prompt');
-        validateNodeExists(body.jsonContent, posNode, 'positive prompt');
-        validateNodeType(body.jsonContent, bodyNodeId, 'image', 'body');
-        validateNodeType(body.jsonContent, palluNodeId, 'image', 'pallu');
-        validateNodeType(body.jsonContent, negNode, 'prompt', 'negative prompt');
-        validateNodeType(body.jsonContent, posNode, 'prompt', 'positive prompt');
-        const { defaultFacePhasePrompt, defaultGarmentPhasePrompt } = extractDefaultPrompts(
-          body.jsonContent,
-          negNode,
-          posNode,
-        );
-        const row = await app.db.transaction(async (tx) => {
-          const [inserted] = await tx
-            .insert(schema.workflowTemplates)
-            .values({
-              slug: body.slug,
-              label: body.label,
-              jsonContent: body.jsonContent,
-              workflowType,
-              faceNodeId: '',
-              poseNodeId: '',
-              bgNodeId: '',
-              upperNodeIds: [],
-              facePhasePromptNode: negNode,
-              garmentPhasePromptNode: posNode,
-              defaultFacePhasePrompt,
-              defaultGarmentPhasePrompt,
-              tryonPersonNodeId: personNodeId || null,
-              tryonGarmentNodeId: bodyNodeId,
-              tryonGarmentNodeId2: palluNodeId,
-              tryonOutputNodeId: outputNodeId,
-            })
-            .returning();
-          if (!inserted)
-            throw new AppError('INSERT_FAILED', 500, 'failed to insert workflow template');
-
-          await recordAudit(tx, {
-            // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
-            actor: { userId: req.userId, role: req.adminRole! },
-            action: 'workflow.create',
-            resourceType: 'workflow',
-            resourceId: inserted.id,
-            after: {
-              id: inserted.id,
-              slug: inserted.slug,
-              label: inserted.label,
-              workflowType: inserted.workflowType,
-            },
-            request: req,
-          });
-
-          return inserted;
-        });
-        return {
-          id: row?.id,
-          slug: row?.slug,
-          label: row?.label,
-          workflowType: row?.workflowType,
-          isActive: row?.isActive,
-          poseCount: 0,
-          defaultFacePhasePrompt: row?.defaultFacePhasePrompt,
-          defaultGarmentPhasePrompt: row?.defaultGarmentPhasePrompt,
-          tryonPersonNodeId: row?.tryonPersonNodeId,
-          tryonGarmentNodeId: row?.tryonGarmentNodeId,
-          tryonGarmentNodeId2: row?.tryonGarmentNodeId2,
-          tryonOutputNodeId: row?.tryonOutputNodeId,
-          createdAt: row?.createdAt,
-        };
-      }
-
-      if (workflowType === 'two_stage') {
-        const { detected: autoDetected } = detectTwoStageMappings(body.jsonContent);
-        const faceNodeId = body.faceNodeId ?? autoDetected.faceNodeId ?? '';
-        const poseNodeId = body.poseNodeId ?? autoDetected.poseNodeId ?? '';
-        const bgNodeId = body.bgNodeId ?? autoDetected.bgNodeId ?? '';
-        const garmentNodeId = body.upperNodeIds?.[0] ?? autoDetected.garmentNodeId ?? '';
-        // Stage 2's prompt pair reuses facePhasePromptNode (negative) / garmentPhasePromptNode
-        // (positive) — same two columns every other workflowType uses for "the prompt that
-        // actually gets patched at runtime" — only stage 1 needs its own dedicated columns.
-        // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
-        const stage2NegativeNode = body.facePhasePromptNode!;
-        // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
-        const stage2PositiveNode = body.garmentPhasePromptNode!;
-        const stage1PositiveNode =
-          body.stage1PositivePromptNode ?? autoDetected.stage1PositivePromptNode ?? '';
-        const stage1NegativeNode =
-          body.stage1NegativePromptNode ?? autoDetected.stage1NegativePromptNode ?? '';
-
-        if (!faceNodeId)
-          throw new AppError(
-            'VALIDATION',
-            400,
-            'Could not detect face node — set faceNodeId manually',
-          );
-        if (!poseNodeId)
-          throw new AppError(
-            'VALIDATION',
-            400,
-            'Could not detect pose node — set poseNodeId manually',
-          );
-        if (!bgNodeId)
-          throw new AppError(
-            'VALIDATION',
-            400,
-            'Could not detect background node — set bgNodeId manually',
-          );
-        if (!garmentNodeId)
-          throw new AppError(
-            'VALIDATION',
-            400,
-            'Could not detect garment node — set upperNodeIds manually',
-          );
-        if (!stage1PositiveNode || !stage1NegativeNode)
-          throw new AppError(
-            'VALIDATION',
-            400,
-            'Could not detect stage-1 prompt nodes — set stage1PositivePromptNode/stage1NegativePromptNode manually',
-          );
-
-        validateNodeExists(body.jsonContent, faceNodeId, 'face');
-        validateNodeType(body.jsonContent, faceNodeId, 'image', 'face');
-        validateNodeExists(body.jsonContent, poseNodeId, 'pose');
-        validateNodeType(body.jsonContent, poseNodeId, 'image', 'pose');
-        validateNodeExists(body.jsonContent, bgNodeId, 'background');
-        validateNodeType(body.jsonContent, bgNodeId, 'image', 'background');
-        validateNodeExists(body.jsonContent, garmentNodeId, 'garment');
-        validateNodeType(body.jsonContent, garmentNodeId, 'image', 'garment');
-        validateNodeExists(body.jsonContent, stage2NegativeNode, 'stage-2 negative prompt');
-        validateNodeType(body.jsonContent, stage2NegativeNode, 'prompt', 'stage-2 negative prompt');
-        validateNodeExists(body.jsonContent, stage2PositiveNode, 'stage-2 positive prompt');
-        validateNodeType(body.jsonContent, stage2PositiveNode, 'prompt', 'stage-2 positive prompt');
-        validateNodeExists(body.jsonContent, stage1PositiveNode, 'stage-1 positive prompt');
-        validateNodeType(body.jsonContent, stage1PositiveNode, 'prompt', 'stage-1 positive prompt');
-        validateNodeExists(body.jsonContent, stage1NegativeNode, 'stage-1 negative prompt');
-        validateNodeType(body.jsonContent, stage1NegativeNode, 'prompt', 'stage-1 negative prompt');
-
-        const sizeNodeIds = body.sizeNodeIds ?? autoDetected.sizeNodeIds;
-        const defaultFacePhasePrompt = extractPromptText(
-          body.jsonContent[stage2NegativeNode] as WorkflowNode | undefined,
-        );
-        const defaultGarmentPhasePrompt = extractPromptText(
-          body.jsonContent[stage2PositiveNode] as WorkflowNode | undefined,
-        );
-        const defaultStage1PositivePrompt = extractPromptText(
-          body.jsonContent[stage1PositiveNode] as WorkflowNode | undefined,
-        );
-        const defaultStage1NegativePrompt = extractPromptText(
-          body.jsonContent[stage1NegativeNode] as WorkflowNode | undefined,
-        );
-
-        const row = await app.db.transaction(async (tx) => {
-          const [inserted] = await tx
-            .insert(schema.workflowTemplates)
-            .values({
-              slug: body.slug,
-              label: body.label,
-              jsonContent: body.jsonContent,
-              workflowType,
-              faceNodeId,
-              poseNodeId,
-              bgNodeId,
-              upperNodeIds: [garmentNodeId],
-              sizeNodeIds,
-              facePhasePromptNode: stage2NegativeNode,
-              garmentPhasePromptNode: stage2PositiveNode,
-              stage1PositivePromptNode: stage1PositiveNode,
-              stage1NegativePromptNode: stage1NegativeNode,
-              defaultFacePhasePrompt,
-              defaultGarmentPhasePrompt,
-              defaultStage1PositivePrompt,
-              defaultStage1NegativePrompt,
-            })
-            .returning();
-          if (!inserted)
-            throw new AppError('INSERT_FAILED', 500, 'failed to insert workflow template');
-
-          await recordAudit(tx, {
-            // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
-            actor: { userId: req.userId, role: req.adminRole! },
-            action: 'workflow.create',
-            resourceType: 'workflow',
-            resourceId: inserted.id,
-            after: {
-              id: inserted.id,
-              slug: inserted.slug,
-              label: inserted.label,
-              workflowType: inserted.workflowType,
-            },
-            request: req,
-          });
-
-          return inserted;
-        });
-
-        return {
-          id: row?.id,
-          slug: row?.slug,
-          label: row?.label,
-          workflowType: row?.workflowType,
-          isActive: row?.isActive,
-          poseCount: 0,
-          faceNodeId: row?.faceNodeId,
-          poseNodeId: row?.poseNodeId,
-          bgNodeId: row?.bgNodeId,
-          upperNodeIds: row?.upperNodeIds,
-          sizeNodeIds: row?.sizeNodeIds,
-          facePhasePromptNode: row?.facePhasePromptNode,
-          garmentPhasePromptNode: row?.garmentPhasePromptNode,
-          stage1PositivePromptNode: row?.stage1PositivePromptNode,
-          stage1NegativePromptNode: row?.stage1NegativePromptNode,
-          defaultFacePhasePrompt: row?.defaultFacePhasePrompt,
-          defaultGarmentPhasePrompt: row?.defaultGarmentPhasePrompt,
-          defaultStage1PositivePrompt: row?.defaultStage1PositivePrompt,
-          defaultStage1NegativePrompt: row?.defaultStage1NegativePrompt,
-          createdAt: row?.createdAt,
-        };
-      }
-
-      if (workflowType === 'tryon' || workflowType === 'saree_step1') {
-        // Auto-detect node IDs from JSON when not explicitly provided
-        const { detected: autoDetected } = detectTryonMappings(body.jsonContent);
-        const personNodeId = body.tryonPersonNodeId ?? autoDetected.personNodeId ?? '';
-        const garmentNodeId = body.tryonGarmentNodeId ?? autoDetected.garmentNodeId ?? '';
-        const outputNodeId = body.tryonOutputNodeId ?? autoDetected.outputNodeId ?? '';
-        // CreateWorkflowBody.superRefine() requires these fields for workflowType 'tryon',
-        // but the zod type itself keeps them optional — safe to assert here.
-        // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
-        const negNode = body.facePhasePromptNode!;
-        // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
-        const posNode = body.garmentPhasePromptNode!;
-
-        // personNodeId is optional — some tryon/saree_step1 workflows bake the
-        // face in directly (e.g. a fixed-URL node) instead of a patchable LoadImage.
-        if (!garmentNodeId)
-          throw new AppError(
-            'VALIDATION',
-            400,
-            'Could not detect garment node — set tryonGarmentNodeId manually',
-          );
-        if (!outputNodeId)
-          throw new AppError(
-            'VALIDATION',
-            400,
-            'Could not detect output node — set tryonOutputNodeId manually',
-          );
-
-        if (personNodeId) {
-          validateNodeExists(body.jsonContent, personNodeId, 'person');
-          validateNodeType(body.jsonContent, personNodeId, 'image', 'person');
-        }
-        validateNodeExists(body.jsonContent, garmentNodeId, 'garment');
-        validateNodeExists(body.jsonContent, outputNodeId, 'output');
-        validateNodeExists(body.jsonContent, negNode, 'negative prompt');
-        validateNodeExists(body.jsonContent, posNode, 'positive prompt');
-        validateNodeType(body.jsonContent, garmentNodeId, 'image', 'garment');
-        validateNodeType(body.jsonContent, negNode, 'prompt', 'negative prompt');
-        validateNodeType(body.jsonContent, posNode, 'prompt', 'positive prompt');
-
-        const { defaultFacePhasePrompt, defaultGarmentPhasePrompt } = extractDefaultPrompts(
-          body.jsonContent,
-          negNode,
-          posNode,
-        );
-
-        const row = await app.db.transaction(async (tx) => {
-          const [inserted] = await tx
-            .insert(schema.workflowTemplates)
-            .values({
-              slug: body.slug,
-              label: body.label,
-              jsonContent: body.jsonContent,
-              workflowType,
-              faceNodeId: '',
-              poseNodeId: '',
-              bgNodeId: '',
-              upperNodeIds: [],
-              facePhasePromptNode: negNode,
-              garmentPhasePromptNode: posNode,
-              defaultFacePhasePrompt,
-              defaultGarmentPhasePrompt,
-              tryonPersonNodeId: personNodeId || null,
-              tryonGarmentNodeId: garmentNodeId,
-              tryonOutputNodeId: outputNodeId,
-            })
-            .returning();
-          if (!inserted)
-            throw new AppError('INSERT_FAILED', 500, 'failed to insert workflow template');
-
-          await recordAudit(tx, {
-            // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
-            actor: { userId: req.userId, role: req.adminRole! },
-            action: 'workflow.create',
-            resourceType: 'workflow',
-            resourceId: inserted.id,
-            after: {
-              id: inserted.id,
-              slug: inserted.slug,
-              label: inserted.label,
-              workflowType: inserted.workflowType,
-            },
-            request: req,
-          });
-
-          return inserted;
-        });
-
-        return {
-          id: row?.id,
-          slug: row?.slug,
-          label: row?.label,
-          workflowType: row?.workflowType,
-          isActive: row?.isActive,
-          poseCount: 0,
-          defaultFacePhasePrompt: row?.defaultFacePhasePrompt,
-          defaultGarmentPhasePrompt: row?.defaultGarmentPhasePrompt,
-          tryonPersonNodeId: row?.tryonPersonNodeId,
-          tryonGarmentNodeId: row?.tryonGarmentNodeId,
-          tryonOutputNodeId: row?.tryonOutputNodeId,
-          createdAt: row?.createdAt,
-        };
-      }
-
-      // Regular workflow — full node validation.
-      // CreateWorkflowBody.superRefine() requires these fields for workflowType 'regular',
-      // but the zod type itself keeps them optional — safe to assert here.
-      // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
-      const poseNodeId = body.poseNodeId!;
-      // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
-      const garmentPhasePromptNode = body.garmentPhasePromptNode!;
-      const upperNodeIds = body.upperNodeIds ?? [];
-
-      validateNodeExists(body.jsonContent, poseNodeId, 'pose');
-      validateNodeType(body.jsonContent, poseNodeId, 'image', 'pose');
-      if (body.faceNodeId) {
-        validateNodeExists(body.jsonContent, body.faceNodeId, 'face');
-        validateNodeType(body.jsonContent, body.faceNodeId, 'image', 'face');
-      }
-      if (body.bgNodeId) {
-        validateNodeExists(body.jsonContent, body.bgNodeId, 'background');
-        validateNodeType(body.jsonContent, body.bgNodeId, 'image', 'background');
-      }
-      for (const uid of upperNodeIds) {
-        validateNodeExists(body.jsonContent, uid, 'upper garment');
-      }
-      if (body.lowerNodeId) validateNodeExists(body.jsonContent, body.lowerNodeId, 'lower garment');
-      if (body.shoeNodeId) validateNodeExists(body.jsonContent, body.shoeNodeId, 'shoes');
-      if (body.thirdNodeId) validateNodeExists(body.jsonContent, body.thirdNodeId, 'third garment');
-      for (const uid of body.sizeNodeIds ?? []) {
-        validateNodeExists(body.jsonContent, uid, 'size');
-      }
-      validateNodeExists(body.jsonContent, garmentPhasePromptNode, 'positive prompt');
-
-      for (const uid of upperNodeIds) {
-        validateNodeType(body.jsonContent, uid, 'image', 'upper garment');
-      }
-      if (body.lowerNodeId)
-        validateNodeType(body.jsonContent, body.lowerNodeId, 'image', 'lower garment');
-      if (body.shoeNodeId) validateNodeType(body.jsonContent, body.shoeNodeId, 'image', 'shoes');
-      if (body.thirdNodeId)
-        validateNodeType(body.jsonContent, body.thirdNodeId, 'image', 'third garment');
-      validateNodeType(body.jsonContent, garmentPhasePromptNode, 'prompt', 'positive prompt');
-      if (body.facePhasePromptNode) {
-        validateNodeExists(body.jsonContent, body.facePhasePromptNode, 'negative prompt');
-        validateNodeType(body.jsonContent, body.facePhasePromptNode, 'prompt', 'negative prompt');
-      }
-
-      const defaultGarmentPhasePrompt = extractPromptText(
-        body.jsonContent[garmentPhasePromptNode] as WorkflowNode | undefined,
-      );
-      const defaultFacePhasePrompt = body.facePhasePromptNode
-        ? extractPromptText(body.jsonContent[body.facePhasePromptNode] as WorkflowNode | undefined)
-        : '';
+      const values = extractWorkflowInsertFields(body);
 
       const row = await app.db.transaction(async (tx) => {
-        const [inserted] = await tx
-          .insert(schema.workflowTemplates)
-          .values({
-            slug: body.slug,
-            label: body.label,
-            jsonContent: body.jsonContent,
-            workflowType: 'regular',
-            faceNodeId: body.faceNodeId ?? null,
-            poseNodeId,
-            bgNodeId: body.bgNodeId ?? null,
-            upperNodeIds,
-            lowerNodeId: body.lowerNodeId ?? null,
-            shoeNodeId: body.shoeNodeId ?? null,
-            thirdNodeId: body.thirdNodeId ?? null,
-            sizeNodeIds: body.sizeNodeIds ?? [],
-            latentSizeNodeIds: body.latentSizeNodeIds ?? [],
-            ...(body.latentMaxPx !== undefined ? { latentMaxPx: body.latentMaxPx } : {}),
-            outputSizeNodeIds: body.outputSizeNodeIds ?? [],
-            ...(body.outputMaxPx !== undefined ? { outputMaxPx: body.outputMaxPx } : {}),
-            resultNodeId: body.resultNodeId ?? null,
-            facePhasePromptNode: body.facePhasePromptNode ?? null,
-            garmentPhasePromptNode,
-            defaultFacePhasePrompt,
-            defaultGarmentPhasePrompt,
-          })
-          .returning();
+        const [inserted] = await tx.insert(schema.workflowTemplates).values(values).returning();
         if (!inserted)
           throw new AppError('INSERT_FAILED', 500, 'failed to insert workflow template');
 
@@ -737,23 +646,10 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       });
 
       return {
-        id: row?.id,
-        slug: row?.slug,
-        label: row?.label,
-        workflowType: row?.workflowType,
-        isActive: row?.isActive,
+        ...row,
         poseCount: 0,
-        defaultFacePhasePrompt: row?.defaultFacePhasePrompt,
-        defaultGarmentPhasePrompt: row?.defaultGarmentPhasePrompt,
-        upperNodeIds: row?.upperNodeIds,
-        lowerNodeId: row?.lowerNodeId,
-        shoeNodeId: row?.shoeNodeId,
-        thirdNodeId: row?.thirdNodeId,
-        sizeNodeIds: row?.sizeNodeIds,
-        latentSizeNodeIds: row?.latentSizeNodeIds,
-        outputSizeNodeIds: row?.outputSizeNodeIds,
-        resultNodeId: row?.resultNodeId,
-        createdAt: row?.createdAt,
+        funnelCount: 0,
+        draining: null,
       };
     },
   );
@@ -773,14 +669,27 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         .where(eq(schema.workflowTemplates.id, id));
       if (!row) throw new AppError('NOT_FOUND', 404, 'workflow not found');
 
-      const [poseCountRow] = await app.db
-        .select({ cnt: count() })
-        .from(schema.modelPoseAssets)
-        .where(eq(schema.modelPoseAssets.workflowTemplateId, id));
+      const [[poseCountRow], [funnelCountRow], [archiveRow]] = await Promise.all([
+        app.db
+          .select({ cnt: count() })
+          .from(schema.modelPoseAssets)
+          .where(eq(schema.modelPoseAssets.workflowTemplateId, id)),
+        app.db
+          .select({ cnt: count() })
+          .from(schema.shopifyFunnelTemplates)
+          .where(eq(schema.shopifyFunnelTemplates.workflowTemplateId, id)),
+        app.db
+          .select({ version: schema.workflowTemplateArchives.version })
+          .from(schema.workflowTemplateArchives)
+          .where(eq(schema.workflowTemplateArchives.workflowTemplateId, id))
+          .limit(1),
+      ]);
 
       return {
         ...row,
         poseCount: Number(poseCountRow?.cnt ?? 0),
+        funnelCount: Number(funnelCountRow?.cnt ?? 0),
+        draining: archiveRow ? { fromVersion: archiveRow.version } : null,
         ksamplerNodes: extractKSamplerNodes(row.jsonContent as Record<string, unknown>),
       };
     },
@@ -816,6 +725,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         garmentPhasePromptNode?: string;
         garmentPhasePrompt?: string;
         facePhasePrompt?: string;
+        regenerationReasonPrompts?: { reason: string; prompt: string }[];
         ksamplerOverrides?: {
           nodeId: string;
           steps?: number;
@@ -1061,6 +971,14 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         updateValues.tryonGarmentNodeId2 = body.tryonGarmentNodeId2 ?? null;
       if ('tryonOutputNodeId' in body)
         updateValues.tryonOutputNodeId = body.tryonOutputNodeId ?? null;
+      if (body.regenerationReasonPrompts !== undefined) {
+        // Trim + drop rows with a blank reason or prompt here rather than trusting
+        // the client's array verbatim — an admin backspacing a row to empty
+        // shouldn't leave a pair regenerate could later match against or offer.
+        updateValues.regenerationReasonPrompts = body.regenerationReasonPrompts
+          .map((p) => ({ reason: p.reason.trim(), prompt: p.prompt.trim() }))
+          .filter((p) => p.reason.length > 0 && p.prompt.length > 0);
+      }
 
       await app.db.transaction(async (tx) => {
         const [locked] = await tx
@@ -1088,6 +1006,142 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       });
 
       return { ok: true };
+    },
+  );
+
+  // POST /admin/workflows/:id/replace
+  app.post(
+    '/admin/workflows/:id/replace',
+    {
+      preHandler: W,
+      schema: { params: uuidParam, body: ReplaceWorkflowBody },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const body = req.body as z.infer<typeof ReplaceWorkflowBody>;
+
+      const [adminRow] = await app.db
+        .select({ passwordHash: schema.adminUsers.passwordHash, status: schema.adminUsers.status })
+        .from(schema.adminUsers)
+        .where(eq(schema.adminUsers.userId, req.userId));
+      if (adminRow?.status !== 'active' || !adminRow.passwordHash) {
+        throw new AppError('INVALID', 401, 'invalid credentials');
+      }
+      if (!(await verifyPassword(adminRow.passwordHash, body.password))) {
+        throw new AppError('INVALID', 401, 'invalid password');
+      }
+
+      const values = extractWorkflowInsertFields(body);
+
+      const result = await app.db.transaction(async (tx) => {
+        const [existing] = await tx
+          .select()
+          .from(schema.workflowTemplates)
+          .where(eq(schema.workflowTemplates.id, id))
+          .for('update');
+        if (!existing) throw new AppError('NOT_FOUND', 404, 'workflow not found');
+
+        const [archive] = await tx
+          .select({ id: schema.workflowTemplateArchives.id })
+          .from(schema.workflowTemplateArchives)
+          .where(eq(schema.workflowTemplateArchives.workflowTemplateId, id))
+          .limit(1);
+        if (archive) {
+          throw new AppError(
+            'CONFLICT',
+            409,
+            'A previous version of this workflow is still draining. Wait for draining to complete before replacing again.',
+          );
+        }
+
+        if (body.slug !== existing.slug) {
+          const [conflict] = await tx
+            .select({ id: schema.workflowTemplates.id })
+            .from(schema.workflowTemplates)
+            .where(
+              and(
+                eq(schema.workflowTemplates.slug, body.slug),
+                ne(schema.workflowTemplates.id, id),
+              ),
+            );
+          if (conflict) {
+            throw new AppError('CONFLICT', 409, `Workflow with slug "${body.slug}" already exists`);
+          }
+        }
+
+        await tx.insert(schema.workflowTemplateArchives).values({
+          workflowTemplateId: existing.id,
+          version: existing.version,
+          jsonContent: existing.jsonContent,
+          faceNodeId: existing.faceNodeId,
+          poseNodeId: existing.poseNodeId,
+          bgNodeId: existing.bgNodeId,
+          upperNodeIds: existing.upperNodeIds,
+          lowerNodeId: existing.lowerNodeId,
+          shoeNodeId: existing.shoeNodeId,
+          thirdNodeId: existing.thirdNodeId,
+          sizeNodeIds: existing.sizeNodeIds,
+          latentSizeNodeIds: existing.latentSizeNodeIds,
+          latentMaxPx: existing.latentMaxPx,
+          outputSizeNodeIds: existing.outputSizeNodeIds,
+          outputMaxPx: existing.outputMaxPx,
+          resultNodeId: existing.resultNodeId,
+          facePhasePromptNode: existing.facePhasePromptNode,
+          garmentPhasePromptNode: existing.garmentPhasePromptNode,
+          tryonPersonNodeId: existing.tryonPersonNodeId,
+          tryonGarmentNodeId: existing.tryonGarmentNodeId,
+          tryonGarmentNodeId2: existing.tryonGarmentNodeId2,
+          tryonOutputNodeId: existing.tryonOutputNodeId,
+          stage1PositivePromptNode: existing.stage1PositivePromptNode,
+          stage1NegativePromptNode: existing.stage1NegativePromptNode,
+          defaultFacePhasePrompt: existing.defaultFacePhasePrompt,
+          defaultGarmentPhasePrompt: existing.defaultGarmentPhasePrompt,
+          defaultStage1PositivePrompt: existing.defaultStage1PositivePrompt,
+          defaultStage1NegativePrompt: existing.defaultStage1NegativePrompt,
+        });
+
+        const [updated] = await tx
+          .update(schema.workflowTemplates)
+          .set({
+            ...values,
+            version: existing.version + 1,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.workflowTemplates.id, id))
+          .returning();
+
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'workflow.replace',
+          resourceType: 'workflow',
+          resourceId: id,
+          before: { version: existing.version, slug: existing.slug, label: existing.label },
+          after: { version: updated.version, slug: updated.slug, label: updated.label },
+          request: req,
+        });
+
+        return { updated, fromVersion: existing.version };
+      });
+
+      const [[poseCountRow], [funnelCountRow]] = await Promise.all([
+        app.db
+          .select({ cnt: count() })
+          .from(schema.modelPoseAssets)
+          .where(eq(schema.modelPoseAssets.workflowTemplateId, id)),
+        app.db
+          .select({ cnt: count() })
+          .from(schema.shopifyFunnelTemplates)
+          .where(eq(schema.shopifyFunnelTemplates.workflowTemplateId, id)),
+      ]);
+
+      return {
+        ...result.updated,
+        poseCount: Number(poseCountRow?.cnt ?? 0),
+        funnelCount: Number(funnelCountRow?.cnt ?? 0),
+        draining: { fromVersion: result.fromVersion },
+        ksamplerNodes: extractKSamplerNodes(result.updated.jsonContent as Record<string, unknown>),
+      };
     },
   );
 
