@@ -1,3 +1,30 @@
+## 2026-08-26 — WordPress Integration Backend & API Key Scoping
+
+**Done**
+- **Schema & Migration (`0176_yummy_alice.sql`)**:
+  - Added `scope` text column (`'full' | 'widget'`, default `'full'`) and `integration` text column (`'generic' | 'wordpress'`, default `'generic'`) to `api_keys` table.
+- **Route Authorization & Scoping**:
+  - Implemented `requireDevScope(scope)` preHandler decorator in `apps/api/src/plugins/dev-api-auth.ts`, decorating `req.apiKeyScope` and `req.integration`.
+  - Restricted full-only dev routes with `requireDevScope('full')`: `/v1/dev/me`, `/v1/dev/saree-mannequin`, `/v1/dev/catalog/options`, `/v1/dev/catalog/generate`, `/v1/dev/catalogues/:id`.
+  - Kept `/v1/dev/tryon` and `/v1/dev/jobs/:id` callable with either scope.
+- **Job Source Attribution (`JOB_SOURCE.WORDPRESS_TRYON`)**:
+  - Added `WORDPRESS_TRYON = 'wordpress_tryon'` to `JOB_SOURCE` in `packages/types/src/job-taxonomy.ts`.
+  - Updated `createDevTryonJob` to resolve `source` server-side from `apiKey.integration` (stamps `wordpress_tryon` for WordPress keys, `api_tryon` for generic keys).
+  - Updated job-polling filter on `GET /v1/dev/jobs/:id` and merchant usage filter on `GET /v1/merchant/api-usage` to include `JOB_SOURCE.WORDPRESS_TRYON`.
+- **Widget Key Rate Limiting**:
+  - Added `DEV_WIDGET_KEY_RATE_LIMIT_PER_MIN = 20` to `packages/types/src/rate-limits.ts`.
+  - Created `assertWidgetKeyRateLimit` in `apps/api/src/lib/widget-key-rate-limit.ts` using fixed-window Redis key `widget-key-rate:${apiKeyId}:${bucket}` with fail-open on Redis errors.
+  - Wired rate limit checks into `/v1/dev/tryon` and `/v1/dev/jobs/:id` for widget-scoped keys.
+- **Merchant API Key Issuance & UI**:
+  - Extended `ApiKeyCreateBody` in `packages/types/src/dev.ts` with `kind: z.enum(['full', 'wordpress_widget']).optional()`.
+  - Updated `POST /v1/merchant/api-keys` and `GET /v1/merchant/api-keys` to manage and return `scope` and `integration`.
+  - Added "Create WordPress Widget Key" button and scope badge (`WP Widget` vs `Full Access`) to `KeysPanel.tsx` in `apps/catalogues-web`.
+- **Testing & Verification**:
+  - Created `apps/api/test/api-keys-schema.test.ts`, `apps/api/test/dev-widget-scope.test.ts`, and `apps/api/test/widget-key-rate-limit.test.ts`.
+  - Extended `apps/api/test/merchant-api-keys.test.ts`.
+  - Full API test suite (74 test files, 617 tests) passed.
+  - Monorepo `pnpm typecheck` and `pnpm lint` passed with 0 errors.
+
 ## 2026-08-26 — Workflow Template Replace with Drain & Version Snapshots
 
 **Done**
