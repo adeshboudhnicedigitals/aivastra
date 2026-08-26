@@ -1,0 +1,610 @@
+{
+  "615": {
+    "inputs": {
+      "image": "77af8aff-9b52-414a-9776-762890da422c.thumb.jpg"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "face"
+    }
+  },
+  "626": {
+    "inputs": {
+      "image": "ChatGPT Image Aug 17, 2026, 04_07_45 PM.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "background"
+    }
+  },
+  "875": {
+    "inputs": {
+      "image": "137821164900 1.jpg"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "pose"
+    }
+  },
+  "876": {
+    "inputs": {
+      "detect_hand": "enable",
+      "detect_body": "enable",
+      "detect_face": "enable",
+      "resolution": 512,
+      "bbox_detector": "yolox_l.onnx",
+      "pose_estimator": "dw-ll_ucoco_384_bs5.torchscript.pt",
+      "scale_stick_for_xinsr_cn": "disable",
+      "image": ["880", 0]
+    },
+    "class_type": "DWPreprocessor",
+    "_meta": {
+      "title": "DWPose Estimator"
+    }
+  },
+  "879": {
+    "inputs": {
+      "model": "RMBG-2.0",
+      "sensitivity": 1,
+      "process_res": 1024,
+      "mask_blur": 0,
+      "mask_offset": 0,
+      "invert_output": false,
+      "refine_foreground": false,
+      "background": "Color",
+      "background_color": "#ffffff",
+      "image": ["1003", 0]
+    },
+    "class_type": "RMBG",
+    "_meta": {
+      "title": "Remove Background (RMBG)"
+    }
+  },
+  "880": {
+    "inputs": {
+      "padding_left": 0,
+      "padding_right": 0,
+      "padding_top": 0,
+      "padding_bottom": 0,
+      "return_list": false,
+      "image": ["879", 0],
+      "mask": ["879", 1]
+    },
+    "class_type": "Bounded Image Crop with Mask",
+    "_meta": {
+      "title": "Bounded Image Crop with Mask"
+    }
+  },
+  "1003": {
+    "inputs": {
+      "yolo_model": "segm/person_yolov8m-seg.pt",
+      "mask_count": "all",
+      "select_mask_index": "none",
+      "images": ["875", 0]
+    },
+    "class_type": "AILab_YoloV8",
+    "_meta": {
+      "title": "YOLOv8 (RMBG)"
+    }
+  },
+  "1035": {
+    "inputs": {
+      "shift": 3,
+      "model": ["1044:1043", 0]
+    },
+    "class_type": "ModelSamplingAuraFlow",
+    "_meta": {
+      "title": "ModelSamplingAuraFlow"
+    }
+  },
+  "1036": {
+    "inputs": {
+      "strength": 1,
+      "pre_cfg": false,
+      "model": ["1035", 0]
+    },
+    "class_type": "CFGNorm",
+    "_meta": {
+      "title": "CFGNorm"
+    }
+  },
+  "1037": {
+    "inputs": {
+      "lora_name": "Qwen-Image-Lightning-8steps-V2.0-bf16.safetensors",
+      "strength_model": 1,
+      "strength_clip": 1,
+      "model": ["1044:1036", 0],
+      "clip": ["1044:1037", 0]
+    },
+    "class_type": "LoraLoader",
+    "_meta": {
+      "title": "Load LoRA (Model and CLIP)"
+    }
+  },
+  "1039": {
+    "inputs": {
+      "width": 2048,
+      "height": 2048,
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "Empty Latent Image"
+    }
+  },
+  "1040": {
+    "inputs": {
+      "filename_prefix": ["1042", 0],
+      "images": ["1086", 0]
+    },
+    "class_type": "Save Image With Callback",
+    "_meta": {
+      "title": "Save Image With Callback"
+    }
+  },
+  "1041": {
+    "inputs": {
+      "lora_name": "qwen-edit-skin.safetensors",
+      "strength_model": 1,
+      "model": ["1050", 0]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "Load LoRA"
+    }
+  },
+  "1042": {
+    "inputs": {
+      "style": "%Y%m%d%H%M%S"
+    },
+    "class_type": "Get Date Time String (JPS)",
+    "_meta": {
+      "title": "Get Date Time String (JPS)"
+    }
+  },
+  "1044": {
+    "inputs": {
+      "text": "plastics hands, extra or duplicate hands,keep image1 sleeve, keep image1 neck type. duplicate or extra head, extra buttons , extra zip, tuck upperwear, extra or duplicate hands.frayed edges, threads, torn fabric, distorted sleeves, extra cloth, artifacts tucked upperwear, inside pants, tight waist fit, unnatural fold, compress face, enlarge face, remove depth on face, plastic skin, wax figure, mannequin, doll-like, airbrushed skin, overly smooth skin, fake texture, unnatural skin tone, shiny skin, 3D render look, deformed chest. nude lower. nude upper.",
+      "clip": ["1052", 0]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)"
+    }
+  },
+  "1045": {
+    "inputs": {
+      "upscale_method": "lanczos",
+      "megapixels": 2,
+      "resolution_steps": 256,
+      "image": ["1047", 0]
+    },
+    "class_type": "ImageScaleToTotalPixels",
+    "_meta": {
+      "title": "ImageScaleToTotalPixels"
+    }
+  },
+  "1046": {
+    "inputs": {
+      "lora_name": "Qwen-Image-Lightning-4steps-V1.0.safetensors",
+      "strength_model": 1,
+      "model": ["1044:1036", 0]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "Load LoRA"
+    }
+  },
+  "1047": {
+    "inputs": {
+      "padding_left": 64,
+      "padding_right": 64,
+      "padding_top": 64,
+      "padding_bottom": 64,
+      "return_list": false,
+      "image": ["1064", 0],
+      "mask": ["1064", 1]
+    },
+    "class_type": "Bounded Image Crop with Mask",
+    "_meta": {
+      "title": "Bounded Image Crop with Mask"
+    }
+  },
+  "1050": {
+    "inputs": {
+      "lora_name": "qwen_image_edit_2511_upscale.safetensors",
+      "strength_model": 1,
+      "model": ["1046", 0]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "Load LoRA"
+    }
+  },
+  "1052": {
+    "inputs": {
+      "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "1055": {
+    "inputs": {
+      "seed": 12345,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": ["1041", 0],
+      "positive": ["1093", 0],
+      "negative": ["1044", 0],
+      "latent_image": ["1068", 0]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "1056": {
+    "inputs": {
+      "samples": ["1055", 0],
+      "vae": ["1044:1039", 0]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "1058": {
+    "inputs": {
+      "image": "DSC_0851.JPG (1).jpeg"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "garment"
+    }
+  },
+  "1062": {
+    "inputs": {
+      "model": "RMBG-2.0",
+      "sensitivity": 1,
+      "process_res": 2048,
+      "mask_blur": 0,
+      "mask_offset": 0,
+      "invert_output": false,
+      "refine_foreground": false,
+      "background": "Color",
+      "background_color": "#222222",
+      "image": ["1058", 0]
+    },
+    "class_type": "RMBG",
+    "_meta": {
+      "title": "Remove Background (RMBG)"
+    }
+  },
+  "1064": {
+    "inputs": {
+      "coat": true,
+      "jacket": true,
+      "cardigan": true,
+      "vest": true,
+      "sweater": true,
+      "hood": true,
+      "shirt, blouse": true,
+      "top, t-shirt, sweatshirt": true,
+      "sleeve": true,
+      "dress": true,
+      "jumpsuit": true,
+      "cape": true,
+      "pants": true,
+      "shorts": true,
+      "skirt": true,
+      "tights, stockings": true,
+      "sock": true,
+      "shoe": true,
+      "process_res": 2048,
+      "mask_blur": 0,
+      "mask_offset": 0,
+      "invert_output": false,
+      "background": "Color",
+      "background_color": "#ffffff",
+      "images": ["1062", 0],
+      "accessories_options": ["1065", 0]
+    },
+    "class_type": "FashionSegmentClothing",
+    "_meta": {
+      "title": "Fashion Segmentation (RMBG)"
+    }
+  },
+  "1065": {
+    "inputs": {
+      "hat": true,
+      "glasses": true,
+      "headband, head covering, hair accessory": false,
+      "scarf": true,
+      "tie": true,
+      "glove": true,
+      "watch": true,
+      "belt": true,
+      "leg warmer": true,
+      "bag, wallet": true,
+      "umbrella": true,
+      "collar": true,
+      "lapel": true,
+      "neckline": true,
+      "epaulette": true,
+      "pocket": true,
+      "buckle": true,
+      "zipper": true,
+      "applique": true,
+      "bow": true,
+      "flower": true,
+      "bead": true,
+      "fringe": true,
+      "ribbon": true,
+      "rivet": true,
+      "ruffle": true,
+      "sequin": true,
+      "tassel": true
+    },
+    "class_type": "FashionSegmentAccessories",
+    "_meta": {
+      "title": "Fashion Accessories Segmentation (RMBG)"
+    }
+  },
+  "1068": {
+    "inputs": {
+      "width": 2048,
+      "height": 2048,
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "Empty Latent Image"
+    }
+  },
+  "1074": {
+    "inputs": {
+      "images": ["1044:1030", 0]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "Preview Image"
+    }
+  },
+  "1086": {
+    "inputs": {
+      "clamp": true,
+      "gamma": 1,
+      "contrast": 0.85,
+      "exposure": 0.11,
+      "offset": 0,
+      "hue": 0,
+      "saturation": 1,
+      "value": 1,
+      "image": ["1056", 0]
+    },
+    "class_type": "Color Correct (mtb)",
+    "_meta": {
+      "title": "Color Correct (mtb)"
+    }
+  },
+  "1092": {
+    "inputs": {
+      "prompt": "generate a person using image1 pose ,image2 face wearing bra and panties in image3 background.\nwith no shadows on the face with proper lighting",
+      "target_size": 1024,
+      "target_vl_size": 384,
+      "upscale_method": "lanczos",
+      "crop_method": "pad",
+      "instruction": "",
+      "clip": ["1044:1043", 1],
+      "vae": ["1044:1039", 0],
+      "vl_resize_image1": ["876", 0],
+      "vl_resize_image2": ["651:759", 0],
+      "vl_resize_image3": ["626", 0]
+    },
+    "class_type": "TextEncodeQwenImageEditPlusAdvance_lrzjason",
+    "_meta": {
+      "title": "TextEncodeQwenImageEditPlusAdvance lrzjason"
+    }
+  },
+  "1093": {
+    "inputs": {
+      "prompt": "Remove every garment from the person. Dress the person in the exact clothing from the reference garment image — identical design, color, pattern, fabric type, texture, weave, stitching, seams, buttons, zippers, and all surface details. \n\nThe clothing must drape and fit naturally according to the body’s shape and pose, with realistic fabric folds, wrinkles, tension, and gravity. Preserve maximum garment texture quality and fine fabric detail at every distance and scale. Keep the person’s identity, body, pose, face, hair, skin, lighting, and background completely unchanged.",
+      "target_size": 1024,
+      "target_vl_size": 392,
+      "upscale_method": "lanczos",
+      "crop_method": "pad",
+      "instruction": "",
+      "clip": ["1052", 0],
+      "vae": ["1044:1039", 0],
+      "vl_resize_image1": ["1044:1030", 0],
+      "vl_resize_image2": ["1045", 0]
+    },
+    "class_type": "TextEncodeQwenImageEditPlusAdvance_lrzjason",
+    "_meta": {
+      "title": "TextEncodeQwenImageEditPlusAdvance lrzjason"
+    }
+  },
+  "1044:1037": {
+    "inputs": {
+      "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "1044:1036": {
+    "inputs": {
+      "unet_name": "qwen-image-edit-2511-Q8_0.gguf"
+    },
+    "class_type": "UnetLoaderGGUF",
+    "_meta": {
+      "title": "Unet Loader (GGUF)"
+    }
+  },
+  "1044:1039": {
+    "inputs": {
+      "vae_name": "Qwen_Image-VAE.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "1044:1038": {
+    "inputs": {
+      "text": "smoothing face and skin, plastic skin, airbrushed, CGI, 3d render,\nshoes, sandals, footwear, objects, items on floor,\ncompletely change image2 background in result,\nduplicate person,\nmultiple people,\nghost,\nextra footwear,\ndual bodies,\ndouble exposure,\ntransparent body,\noverlay,\nhanging footwear with hands,\nchange garment color,\nchange garment texture,\nchange garment fabric,\nchnage garment type,\nchnage dress height,\n\nsmall subject,\nfar subject,\nwide shot,\nzoomed out,\nextra head,\n\nsplit background,\ncollage,\nblended scene,\n\nbad anatomy,\ndistorted body,\nextra limbs,\nwrong body proportions,\n\nblur,\nlow detail,\n\nwrong brands,\ntext,\nlogos,\nwrong zip,\nwrong buttons,\nextra pockets,\nfolded trouser legs,\nunweared footwear,\n\nfried hair,\nplastic hair,\nmelted hair,\nblurry hair,\nhair artifacts,\n\nplastic skin,\nairbrushed skin,\nbeauty filter,\nskin smoothing,\nwax skin,\nfake pores,\nskin artifacts,\n\nflat lighting,\nfloating subject,\nmismatched lighting,\nmissing shadows,\nwrong color temperature,\n\noversaturated,\nartificial look,\nplastic fabric.\n\nstudio lighting, flat lighting, bright subject in dark background, floating subject, missing shadows, pasted look, cutout look, text on clothes, words on fabric, letters on dress, plastic skin, stiff clothes, hidden hands, arms glued to body, wrong scale, giant subject, tiny subject, perspective mismatch, floating feet, incorrect human proportions.",
+      "clip": ["1044:1037", 0]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "negative_prompt"
+    }
+  },
+  "651:740": {
+    "inputs": {
+      "model": "RMBG-2.0",
+      "sensitivity": 1,
+      "process_res": 1024,
+      "mask_blur": 0,
+      "mask_offset": 0,
+      "invert_output": false,
+      "refine_foreground": false,
+      "background": "Color",
+      "background_color": "#ffffff",
+      "image": ["615", 0]
+    },
+    "class_type": "RMBG",
+    "_meta": {
+      "title": "Remove Background (RMBG)"
+    }
+  },
+  "651:749": {
+    "inputs": {
+      "Hat": true,
+      "Hair": true,
+      "Face": true,
+      "Sunglasses": true,
+      "Upper-clothes": false,
+      "Skirt": false,
+      "Dress": false,
+      "Belt": false,
+      "Pants": false,
+      "Left-arm": false,
+      "Right-arm": false,
+      "Left-leg": false,
+      "Right-leg": false,
+      "Bag": false,
+      "Scarf": false,
+      "Left-shoe": false,
+      "Right-shoe": false,
+      "Background": false,
+      "process_res": 352,
+      "mask_blur": 0,
+      "mask_offset": -7,
+      "invert_output": false,
+      "background": "Color",
+      "background_color": "#ffffff",
+      "images": ["651:740", 0]
+    },
+    "class_type": "ClothesSegment",
+    "_meta": {
+      "title": "Clothing Segmentation (RMBG)"
+    }
+  },
+  "1044:1043": {
+    "inputs": {
+      "lora_name": "qwen-edit-skin.safetensors",
+      "strength_model": 1,
+      "strength_clip": 1,
+      "model": ["1037", 0],
+      "clip": ["1037", 1]
+    },
+    "class_type": "LoraLoader",
+    "_meta": {
+      "title": "Load LoRA (Model and CLIP)"
+    }
+  },
+  "651:620": {
+    "inputs": {
+      "padding_left": 118,
+      "padding_right": 60,
+      "padding_top": 60,
+      "padding_bottom": 60,
+      "return_list": false,
+      "image": ["651:749", 0],
+      "mask": ["651:749", 1]
+    },
+    "class_type": "Bounded Image Crop with Mask",
+    "_meta": {
+      "title": "Bounded Image Crop with Mask"
+    }
+  },
+  "651:762": {
+    "inputs": {
+      "model": "RMBG-2.0",
+      "sensitivity": 0.99,
+      "process_res": 1024,
+      "mask_blur": 0,
+      "mask_offset": 0,
+      "invert_output": false,
+      "refine_foreground": false,
+      "background": "Color",
+      "background_color": "#ffffff",
+      "image": ["651:620", 0]
+    },
+    "class_type": "RMBG",
+    "_meta": {
+      "title": "Remove Background (RMBG)"
+    }
+  },
+  "651:759": {
+    "inputs": {
+      "upscale_method": "lanczos",
+      "megapixels": 1,
+      "resolution_steps": 16,
+      "image": ["651:762", 0]
+    },
+    "class_type": "ImageScaleToTotalPixels",
+    "_meta": {
+      "title": "ImageScaleToTotalPixels"
+    }
+  },
+  "1044:1035": {
+    "inputs": {
+      "seed": 12345,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "euler_ancestral",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": ["1036", 0],
+      "positive": ["1092", 0],
+      "negative": ["1044:1038", 0],
+      "latent_image": ["1039", 0]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "1044:1030": {
+    "inputs": {
+      "samples": ["1044:1035", 0],
+      "vae": ["1044:1039", 0]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  }
+}

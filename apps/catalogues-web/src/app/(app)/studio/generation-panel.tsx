@@ -1,21 +1,28 @@
 'use client';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   CheckIcon,
   DownloadIcon,
   DriveIcon,
-  FullscreenIcon,
+  RegenerateIcon,
   SpinnerIcon,
   XIcon,
 } from '@/components/icons';
+import { SupportModal } from '@/components/SupportModal';
 import { C } from '@/components/tokens';
+import { PremiumSelect } from '@/components/ui/premium-select';
 import { useGoogleDriveStatus } from '@/hooks/use-google-drive-status';
 import { useJobStream } from '@/hooks/use-job-stream';
 import { api } from '@/lib/api';
-import { downloadErrorMessage } from '@/lib/errors';
+import { ApiError, downloadErrorMessage } from '@/lib/errors';
 import { GOOGLE_DRIVE_ENABLED } from '@/lib/feature-flags';
+
+// Mirrors FREE_REGENERATE_DAILY_LIMIT in apps/api/src/modules/jobs/regenerate.ts —
+// display-only copy; the actual cap is enforced server-side.
+const FREE_REGENERATE_DAILY_LIMIT = 5;
+const REGENERATE_LIMIT_SUPPORT_MESSAGE = `I've used all ${FREE_REGENERATE_DAILY_LIMIT} free regenerations for today and would like help getting more.`;
 
 export interface GenerationJob {
   id: string;
@@ -102,6 +109,20 @@ export function GenerationPanel({
   const [favorites, setFavorites] = useState<string[]>([]);
   const [zoomUrl, setZoomUrl] = useState<string | null>(null);
   const [zoomVisible, setZoomVisible] = useState(false);
+  const [downloadedJobIds, setDownloadedJobIds] = useState<Set<string>>(new Set());
+  const [regenerating, setRegenerating] = useState(false);
+  const regeneratingRef = useRef(false);
+  const [reasonModalJobId, setReasonModalJobId] = useState<string | null>(null);
+  const [regenerateReason, setRegenerateReason] = useState('');
+  const [showRegenerateLimitModal, setShowRegenerateLimitModal] = useState(false);
+  // Reasons configured on the job's workflow, fetched fresh each time the
+  // modal opens — always ends with a fixed "Other" the client appends itself.
+  const [reasonOptions, setReasonOptions] = useState<string[]>([]);
+  // Same slots as `jobs`, but a regenerated slot's id is swapped to the new
+  // job's id in place — this is what drives every status/progress/result
+  // lookup below, so a regenerate reactivates all the existing "generating…"
+  // UI for that slot instead of silently doing nothing visible.
+  const [displayJobs, setDisplayJobs] = useState<GenerationJob[]>(jobs);
   const [activeMessageIndex, setActiveMessageIndex] = useState(0);
 
   // Reset local status map + selection whenever a new batch of jobs arrives.
@@ -110,9 +131,10 @@ export function GenerationPanel({
     setSelected(0);
     setSelectedJobs(jobs.map((j) => j.id));
     setFavorites([]);
+    setDisplayJobs(jobs);
   }, [jobs]);
 
-  const jobIds = jobs.map((j) => j.id);
+  const jobIds = displayJobs.map((j) => j.id);
   useJobStream((evt) => {
     if (!jobIds.includes(evt.jobId)) return;
     setStatuses((prev) => ({ ...prev, [evt.jobId]: evt.status }));
@@ -187,7 +209,8 @@ export function GenerationPanel({
   }, [polledCatalogue]);
 
   const allSettled =
-    jobs.length > 0 && jobs.every((j) => TERMINAL_STATUSES.has(statuses[j.id] ?? 'QUEUED'));
+    displayJobs.length > 0 &&
+    displayJobs.every((j) => TERMINAL_STATUSES.has(statuses[j.id] ?? 'QUEUED'));
 
   // Rotate processing microcopy every 2.5s while active (Section 6)
   useEffect(() => {
@@ -203,13 +226,16 @@ export function GenerationPanel({
 
   // Notify the parent once every job in this batch has reached a terminal
   // status, so it can re-enable the Generate button while results still render.
+  // A regenerate flips this back to false and then true again once the new
+  // job settles — that's deliberate, not a bug: it re-disables Generate for
+  // the duration of the regenerate too.
   useEffect(() => {
     if (allSettled) onAllSettled?.();
   }, [allSettled, onAllSettled]);
 
-  const completedIds = jobs.filter((j) => statuses[j.id] === 'COMPLETED').map((j) => j.id);
+  const completedIds = displayJobs.filter((j) => statuses[j.id] === 'COMPLETED').map((j) => j.id);
   const resultQueries = useQueries({
-    queries: jobs.map((j) => ({
+    queries: displayJobs.map((j) => ({
       queryKey: ['job-result', j.id],
       queryFn: () => api.get<{ url: string }>(`/v1/jobs/${j.id}/result`),
       enabled: completedIds.includes(j.id),
@@ -217,16 +243,20 @@ export function GenerationPanel({
     })),
   });
 
-  const current = jobs[selected];
+  const current = displayJobs[selected];
   const currentStatus = current ? (statuses[current.id] ?? 'QUEUED') : 'QUEUED';
   const currentCompleted = currentStatus === 'COMPLETED';
   const currentFailed = currentStatus === 'FAILED' || currentStatus === 'CANCELLED';
   const currentResultUrl = resultQueries[selected]?.data?.url;
 
-  async function downloadImage(url: string, jobId: string) {
+  async function downloadImage(_url: string, jobId: string) {
     if (downloading) return;
     setDownloading(true);
     try {
+      // Real download signal — POST /download (not the cached result url) both
+      // refreshes the presigned URL and stamps downloadedAt server-side, which
+      // disables this job's regenerate option.
+      const { url } = await api.post<{ url: string }>(`/v1/jobs/${jobId}/download`, {});
       const res = await fetch(url);
       if (!res.ok) throw new Error(downloadErrorMessage(res.status));
       const blob = await res.blob();
@@ -238,10 +268,81 @@ export function GenerationPanel({
       a.click();
       a.remove();
       URL.revokeObjectURL(objectUrl);
+      setDownloadedJobIds((prev) => new Set(prev).add(jobId));
     } catch (e) {
       alert(e instanceof Error ? e.message : 'The image could not be downloaded. Try again.');
     } finally {
       setDownloading(false);
+    }
+  }
+
+  async function openReasonModal(jobId: string) {
+    setReasonModalJobId(jobId);
+    setRegenerateReason('');
+    setReasonOptions([]);
+    try {
+      const { reasons } = await api.get<{ reasons: string[] }>(
+        `/v1/jobs/${jobId}/regenerate-reasons`,
+      );
+      setReasonOptions(reasons);
+    } catch {
+      // No configured reasons is a normal outcome (falls back to "Other" only)
+      // — don't block opening the modal over this.
+      setReasonOptions([]);
+    }
+  }
+
+  async function handleRegenerate(jobId: string, reason: string) {
+    // regeneratingRef is checked synchronously so a second click landing
+    // before React re-renders the disabled button can't slip through —
+    // `regenerating` state alone updates too late to catch that race.
+    if (regeneratingRef.current) return;
+    regeneratingRef.current = true;
+    setRegenerating(true);
+    // One key per confirmed click, sent as Idempotency-Key: a retried/duplicate
+    // request for this exact click reuses the cached result instead of
+    // creating (and charging/refunding) a second job.
+    const idempotencyKey = crypto.randomUUID();
+    try {
+      const { jobId: newJobId } = await api.post<{ jobId: string }>(
+        `/v1/jobs/${jobId}/regenerate`,
+        { reason },
+        { headers: { 'Idempotency-Key': idempotencyKey } },
+      );
+      // Swap this slot to the new job in place — its status starts QUEUED,
+      // which reactivates the same "generating…" UI (hero panel, progress bar,
+      // grid tile) the original generation used, instead of the old completed
+      // image just sitting there with no feedback.
+      setDisplayJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, id: newJobId } : j)));
+      setStatuses((prev) => {
+        const next = { ...prev };
+        delete next[jobId];
+        next[newJobId] = 'QUEUED';
+        return next;
+      });
+      const renameId = (ids: string[]) => ids.map((x) => (x === jobId ? newJobId : x));
+      setSelectedJobs(renameId);
+      setFavorites(renameId);
+      setDownloadedJobIds((prev) => {
+        if (!prev.has(jobId)) return prev;
+        const next = new Set(prev);
+        next.delete(jobId);
+        return next;
+      });
+      qc.invalidateQueries({ queryKey: ['catalogue', catalogueId] });
+      setReasonModalJobId(null);
+      setRegenerateReason('');
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'FREE_REGENERATE_LIMIT') {
+        setReasonModalJobId(null);
+        setRegenerateReason('');
+        setShowRegenerateLimitModal(true);
+      } else {
+        alert((e as Error).message || 'Failed to regenerate. Check if you have enough credits.');
+      }
+    } finally {
+      regeneratingRef.current = false;
+      setRegenerating(false);
     }
   }
 
@@ -266,11 +367,12 @@ export function GenerationPanel({
   }
 
   // Calculate overall progress percentage (average of all jobs)
-  const totalProgress = jobs.reduce((acc, job) => {
+  const totalProgress = displayJobs.reduce((acc, job) => {
     const status = statuses[job.id] ?? 'QUEUED';
     return acc + (STATUS_PROGRESS[status] ?? 10);
   }, 0);
-  const progressPercent = jobs.length > 0 ? Math.round(totalProgress / jobs.length) : 0;
+  const progressPercent =
+    displayJobs.length > 0 ? Math.round(totalProgress / displayJobs.length) : 0;
 
   // Toggle selection for a single job
   const handleToggleSelectJob = (id: string) => {
@@ -279,18 +381,18 @@ export function GenerationPanel({
 
   // Toggle selection for all jobs
   const handleToggleSelectAll = () => {
-    if (selectedJobs.length === jobs.length) {
+    if (selectedJobs.length === displayJobs.length) {
       setSelectedJobs([]);
     } else {
-      setSelectedJobs(jobs.map((j) => j.id));
+      setSelectedJobs(displayJobs.map((j) => j.id));
     }
   };
 
   // Download all completed images
   const handleDownloadAll = async () => {
-    const completedSelected = jobs.filter((j) => statuses[j.id] === 'COMPLETED');
+    const completedSelected = displayJobs.filter((j) => statuses[j.id] === 'COMPLETED');
     for (const job of completedSelected) {
-      const idx = jobs.findIndex((j) => j.id === job.id);
+      const idx = displayJobs.findIndex((j) => j.id === job.id);
       const url = resultQueries[idx]?.data?.url;
       if (url) {
         await downloadImage(url, job.id);
@@ -645,7 +747,16 @@ export function GenerationPanel({
                       <img
                         src={currentResultUrl}
                         alt="Preview Output"
-                        style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                        draggable={false}
+                        onContextMenu={(e) => e.preventDefault()}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'contain',
+                          WebkitTouchCallout: 'none',
+                          WebkitUserSelect: 'none',
+                          userSelect: 'none',
+                        }}
                       />
                       <div
                         style={{
@@ -684,28 +795,6 @@ export function GenerationPanel({
                             Use this image
                           </button>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setZoomUrl(currentResultUrl);
-                            requestAnimationFrame(() => setZoomVisible(true));
-                          }}
-                          style={{
-                            width: 32,
-                            height: 32,
-                            borderRadius: 8,
-                            background: C.card,
-                            boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
-                            border: `1px solid ${C.border}`,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: C.text,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          <FullscreenIcon />
-                        </button>
                       </div>
                     </>
                   ) : current ? (
@@ -864,7 +953,7 @@ export function GenerationPanel({
               </div>
               <span style={{ fontSize: 13, color: C.mid }}>
                 {allSettled
-                  ? `${jobs.length} stunning variations generated for you`
+                  ? `${displayJobs.length} stunning variations generated for you`
                   : PROCESSING_MESSAGES[activeMessageIndex]}
               </span>
             </div>
@@ -874,7 +963,7 @@ export function GenerationPanel({
                 <button
                   type="button"
                   onClick={handleDownloadAll}
-                  disabled={downloading || jobs.every((j) => statuses[j.id] !== 'COMPLETED')}
+                  disabled={downloading || displayJobs.every((j) => statuses[j.id] !== 'COMPLETED')}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -887,11 +976,13 @@ export function GenerationPanel({
                     fontSize: 13,
                     fontWeight: 600,
                     cursor:
-                      downloading || jobs.every((j) => statuses[j.id] !== 'COMPLETED')
+                      downloading || displayJobs.every((j) => statuses[j.id] !== 'COMPLETED')
                         ? 'not-allowed'
                         : 'pointer',
                     opacity:
-                      downloading || jobs.every((j) => statuses[j.id] !== 'COMPLETED') ? 0.5 : 1,
+                      downloading || displayJobs.every((j) => statuses[j.id] !== 'COMPLETED')
+                        ? 0.5
+                        : 1,
                   }}
                 >
                   <DownloadIcon size={14} /> Download All
@@ -950,7 +1041,7 @@ export function GenerationPanel({
               width: '100%',
             }}
           >
-            {jobs.map((job, idx) => {
+            {displayJobs.map((job, idx) => {
               const status = statuses[job.id] ?? 'QUEUED';
               const isCompleted = status === 'COMPLETED';
               const isFailed = status === 'FAILED';
@@ -1003,11 +1094,23 @@ export function GenerationPanel({
                         <img
                           src={resultUrl}
                           alt={job.label}
+                          draggable={false}
+                          onContextMenu={(e) => e.preventDefault()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelected(idx);
+                            setZoomUrl(resultUrl);
+                            requestAnimationFrame(() => setZoomVisible(true));
+                          }}
                           style={{
                             width: '100%',
                             height: '100%',
                             objectFit: 'cover',
                             objectPosition: 'top center',
+                            cursor: 'pointer',
+                            WebkitTouchCallout: 'none',
+                            WebkitUserSelect: 'none',
+                            userSelect: 'none',
                           }}
                         />
                         {/* Completion Badge (Section 7) */}
@@ -1231,35 +1334,104 @@ export function GenerationPanel({
                         </div>
                       </>
                     )}
+                  </div>
 
-                    {/* Download icon on top right — only once a result actually exists */}
-                    {!hideDownload && isCompleted && resultUrl && (
+                  {/* Actions row — below the image, not overlaid on top of it.
+                      Order: Regenerate (or Use this, in embedded contexts) first, then Download,
+                      then Save to Drive. */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'stretch',
+                      borderTop: `1px solid ${C.border}`,
+                      padding: '0 6px',
+                    }}
+                  >
+                    {onUseImage && isCompleted && resultUrl && (
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          downloadImage(resultUrl, job.id);
+                          onUseImage({ url: resultUrl, jobId: job.id, poseLabel: job.label });
                         }}
                         style={{
-                          position: 'absolute',
-                          top: 8,
-                          right: 8,
-                          background: 'rgba(255, 255, 255, 0.85)',
-                          backdropFilter: 'blur(4px)',
-                          border: 'none',
-                          borderRadius: '50%',
-                          width: 28,
-                          height: 28,
+                          flex: 1,
                           display: 'flex',
+                          flexDirection: 'column',
                           alignItems: 'center',
                           justifyContent: 'center',
+                          gap: 3,
+                          minWidth: 0,
+                          padding: '8px 2px',
+                          background: 'none',
+                          border: 'none',
                           cursor: 'pointer',
-                          color: '#141414',
-                          boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-                          zIndex: 2,
+                          color: '#521D9C',
                         }}
                       >
-                        <DownloadIcon size={14} />
+                        <CheckIcon color="#521D9C" size={14} />
+                        <span style={{ fontSize: 9, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                          Use this
+                        </span>
+                      </button>
+                    )}
+                    {!onUseImage && isCompleted && resultUrl && !downloadedJobIds.has(job.id) && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openReasonModal(job.id);
+                        }}
+                        disabled={regenerating}
+                        style={{
+                          flex: 1,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 3,
+                          minWidth: 0,
+                          padding: '8px 2px',
+                          background: 'none',
+                          border: 'none',
+                          cursor: regenerating ? 'not-allowed' : 'pointer',
+                          opacity: regenerating ? 0.6 : 1,
+                          color: C.pink,
+                        }}
+                      >
+                        <RegenerateIcon size={16} />
+                        <span style={{ fontSize: 9, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                          Regenerate
+                        </span>
+                      </button>
+                    )}
+                    {!hideDownload && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (resultUrl) downloadImage(resultUrl, job.id);
+                        }}
+                        style={{
+                          flex: 1,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 3,
+                          minWidth: 0,
+                          padding: '8px 2px',
+                          background: 'none',
+                          border: 'none',
+                          cursor: isCompleted && resultUrl ? 'pointer' : 'not-allowed',
+                          opacity: isCompleted && resultUrl ? 1 : 0.45,
+                          color: C.mid,
+                        }}
+                      >
+                        <DownloadIcon size={16} />
+                        <span style={{ fontSize: 9, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                          Download
+                        </span>
                       </button>
                     )}
                     {GOOGLE_DRIVE_ENABLED && !hideGoogleDrive && isCompleted && resultUrl && (
@@ -1276,57 +1448,29 @@ export function GenerationPanel({
                             : 'Connect Google Drive'
                         }
                         style={{
-                          position: 'absolute',
-                          top: 8,
-                          right: hideDownload ? 8 : 42,
-                          background: 'rgba(255, 255, 255, 0.85)',
-                          backdropFilter: 'blur(4px)',
-                          border: 'none',
-                          borderRadius: '50%',
-                          width: 28,
-                          height: 28,
+                          flex: 1,
                           display: 'flex',
+                          flexDirection: 'column',
                           alignItems: 'center',
                           justifyContent: 'center',
+                          gap: 3,
+                          minWidth: 0,
+                          padding: '8px 2px',
+                          background: 'none',
+                          border: 'none',
                           cursor: exportingToDrive === job.id ? 'not-allowed' : 'pointer',
-                          opacity: exportingToDrive === job.id ? 0.45 : 1,
-                          color: '#141414',
-                          boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-                          zIndex: 2,
+                          opacity: exportingToDrive === job.id ? 0.6 : 1,
+                          color: C.mid,
                         }}
                       >
                         {exportingToDrive === job.id ? (
-                          <SpinnerIcon size={14} />
+                          <SpinnerIcon size={16} />
                         ) : (
-                          <DriveIcon size={14} />
+                          <DriveIcon size={16} />
                         )}
-                      </button>
-                    )}
-                    {onUseImage && isCompleted && resultUrl && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onUseImage({ url: resultUrl, jobId: job.id, poseLabel: job.label });
-                        }}
-                        style={{
-                          position: 'absolute',
-                          left: 8,
-                          right: 8,
-                          bottom: 8,
-                          height: 26,
-                          borderRadius: 8,
-                          background: 'linear-gradient(135deg, #521D9C 0%, #754AB0 100%)',
-                          color: '#fff',
-                          border: 'none',
-                          fontSize: 11,
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
-                          zIndex: 2,
-                        }}
-                      >
-                        Use this image
+                        <span style={{ fontSize: 9, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                          Save to Drive
+                        </span>
                       </button>
                     )}
                   </div>
@@ -1427,6 +1571,8 @@ export function GenerationPanel({
           <img
             src={zoomUrl}
             alt=""
+            draggable={false}
+            onContextMenu={(e) => e.preventDefault()}
             style={{
               maxWidth: '100%',
               maxHeight: '100%',
@@ -1436,9 +1582,118 @@ export function GenerationPanel({
               opacity: zoomVisible ? 1 : 0,
               transition: 'transform 300ms ease-out, opacity 300ms ease-out',
               pointerEvents: 'none',
+              WebkitTouchCallout: 'none',
+              WebkitUserSelect: 'none',
+              userSelect: 'none',
             }}
           />
         </div>
+      )}
+
+      {reasonModalJobId && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Regenerate reason"
+          onClick={() => !regenerating && setReasonModalJobId(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.6)',
+            zIndex: 1100,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 'min(420px, 100%)',
+              background: C.card,
+              borderRadius: 14,
+              padding: 24,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 14,
+            }}
+          >
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: C.text }}>
+              Why regenerate this image?
+            </h3>
+            <p style={{ margin: 0, fontSize: 12.5, color: C.mid, lineHeight: 1.5 }}>
+              You get {FREE_REGENERATE_DAILY_LIMIT} free regenerations a day. Once this image is
+              downloaded it can no longer be regenerated.
+            </p>
+            <div
+              style={{
+                border: `1px solid ${C.border}`,
+                borderRadius: 8,
+                background: C.lighter,
+              }}
+            >
+              <PremiumSelect
+                ariaLabel="Reason for regenerating"
+                value={regenerateReason}
+                onChange={(v) => setRegenerateReason(String(v))}
+                options={[...reasonOptions, 'Other'].map((r) => ({ value: r, label: r }))}
+                disabled={regenerating}
+                placeholder="Select a reason…"
+                fullWidth
+                height={42}
+                fontSize={13}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => setReasonModalJobId(null)}
+                disabled={regenerating}
+                style={{
+                  padding: '10px 18px',
+                  borderRadius: 8,
+                  background: 'transparent',
+                  color: C.mid,
+                  border: `1px solid ${C.border}`,
+                  fontSize: 13,
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={regenerating || !regenerateReason}
+                onClick={() => handleRegenerate(reasonModalJobId, regenerateReason)}
+                style={{
+                  padding: '10px 18px',
+                  borderRadius: 8,
+                  background: 'linear-gradient(135deg, var(--c-pink), var(--c-amber))',
+                  color: 'white',
+                  border: 'none',
+                  fontWeight: 600,
+                  fontSize: 13,
+                  cursor: regenerating || !regenerateReason ? 'not-allowed' : 'pointer',
+                  opacity: regenerating || !regenerateReason ? 0.6 : 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
+                {regenerating ? <SpinnerIcon size={16} /> : null}
+                Regenerate
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showRegenerateLimitModal && (
+        <SupportModal
+          initialMessage={REGENERATE_LIMIT_SUPPORT_MESSAGE}
+          onClose={() => setShowRegenerateLimitModal(false)}
+        />
       )}
     </>
   );

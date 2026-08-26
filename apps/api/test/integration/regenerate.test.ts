@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
-import { SIMPLE_TRYON_COST } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { signAccess } from '../../src/modules/auth/service.js';
@@ -67,6 +66,7 @@ describe('regenerate — reuses job-creation pipeline, never a separate implemen
       method: 'POST',
       url: `/v1/jobs/${randomUUID()}/regenerate`,
       headers: { authorization: `Bearer ${token}` },
+      payload: { reason: 'test reason' },
     });
     expect(res.statusCode).toBe(404);
   });
@@ -82,6 +82,7 @@ describe('regenerate — reuses job-creation pipeline, never a separate implemen
       method: 'POST',
       url: `/v1/jobs/${job.id}/regenerate`,
       headers: { authorization: `Bearer ${token}` },
+      payload: { reason: 'test reason' },
     });
     expect(res.statusCode).toBe(404);
   });
@@ -97,6 +98,7 @@ describe('regenerate — reuses job-creation pipeline, never a separate implemen
       method: 'POST',
       url: `/v1/jobs/${job.id}/regenerate`,
       headers: { authorization: `Bearer ${token}` },
+      payload: { reason: 'test reason' },
     });
     expect(res.statusCode).toBe(409);
   });
@@ -148,6 +150,7 @@ describe('regenerate — reuses job-creation pipeline, never a separate implemen
         method: 'POST',
         url: `/v1/jobs/${original.id}/regenerate`,
         headers: { authorization: `Bearer ${token}` },
+        payload: { reason: 'test reason' },
       });
       expect(res.statusCode).toBe(201);
       const { jobId: newJobId } = res.json();
@@ -248,6 +251,7 @@ describe('regenerate — reuses job-creation pipeline, never a separate implemen
         method: 'POST',
         url: `/v1/jobs/${tryonDirectJobId}/regenerate`,
         headers: { authorization: `Bearer ${token}` },
+        payload: { reason: 'test reason' },
       });
       expect(regenRes.statusCode).toBe(201);
       const { jobId: regenJobId } = regenRes.json();
@@ -257,7 +261,8 @@ describe('regenerate — reuses job-creation pipeline, never a separate implemen
         .from(schema.jobs)
         .where(eq(schema.jobs.id, regenJobId));
       expect(regenJob.parentJobId).toBe(tryonDirectJobId);
-      expect(regenJob.creditsCharged).toBe(SIMPLE_TRYON_COST);
+      // Free regenerate: never charged, not charged-then-refunded.
+      expect(regenJob.creditsCharged).toBe(0);
 
       const [regenInputs] = await app.db
         .select()
@@ -323,6 +328,7 @@ describe('regenerate — reuses job-creation pipeline, never a separate implemen
         method: 'POST',
         url: `/v1/jobs/${original.id}/regenerate`,
         headers: { authorization: `Bearer ${token}` },
+        payload: { reason: 'test reason' },
       });
       expect(response.statusCode).toBe(201);
     });
@@ -362,6 +368,7 @@ describe('regenerate — reuses job-creation pipeline, never a separate implemen
         method: 'POST',
         url: `/v1/jobs/${original.id}/regenerate`,
         headers: { authorization: `Bearer ${token}` },
+        payload: { reason: 'test reason' },
       });
       expect(response.statusCode).toBe(201);
     });
@@ -439,6 +446,7 @@ describe('regenerate — reuses job-creation pipeline, never a separate implemen
         method: 'POST',
         url: `/v1/jobs/${original.id}/regenerate`,
         headers: { authorization: `Bearer ${token}` },
+        payload: { reason: 'test reason' },
       });
       expect(response.statusCode).toBe(201);
       const [newInputs] = await app.db
@@ -499,6 +507,7 @@ describe('regenerate — reuses job-creation pipeline, never a separate implemen
         method: 'POST',
         url: `/v1/jobs/${original.id}/regenerate`,
         headers: { authorization: `Bearer ${token}` },
+        payload: { reason: 'test reason' },
       });
       expect(res.statusCode).toBe(201);
       const { jobId: newJobId } = res.json();
@@ -515,6 +524,285 @@ describe('regenerate — reuses job-creation pipeline, never a separate implemen
       const [newJob] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, newJobId));
       expect(newJob.parentJobId).toBe(original.id);
       expect(newJob.source).toBe('catalog');
+    });
+  });
+
+  describe('free regeneration gating', () => {
+    async function seedStudioJob(
+      userId: string,
+      opts?: { regenerationReasonPrompts?: { reason: string; prompt: string }[] },
+    ) {
+      const [face] = await app.db
+        .insert(schema.modelFaces)
+        .values({ gender: 'men', label: 'F', r2Key: 'f.jpg', thumbnailKey: 'f.jpg' })
+        .returning();
+      const [bg] = await app.db
+        .insert(schema.modelBackgrounds)
+        .values({ label: 'B', r2Key: 'b.jpg', thumbnailKey: 'b.jpg' })
+        .returning();
+      const [workflow] = await app.db
+        .insert(schema.workflowTemplates)
+        .values({
+          slug: `regen-gate-${randomUUID()}`,
+          label: 'Gate workflow',
+          jsonContent: {},
+          poseNodeId: '2',
+          upperNodeIds: ['4'],
+          garmentPhasePromptNode: '6',
+          regenerationReasonPrompts: opts?.regenerationReasonPrompts ?? [],
+        })
+        .returning();
+      const [pose] = await app.db
+        .insert(schema.modelPoseAssets)
+        .values({
+          label: 'Gate pose',
+          r2Key: 'p.jpg',
+          thumbnailKey: 'p.jpg',
+          workflowTemplateId: workflow.id,
+        })
+        .returning();
+      const garmentKey = `inputs/${userId}/garment-${randomUUID()}.jpg`;
+      await bindUploadKey(userId, garmentKey);
+      const [job] = await app.db
+        .insert(schema.jobs)
+        .values({ userId, status: 'COMPLETED', creditsCharged: 10 })
+        .returning();
+      await app.db.insert(schema.jobInputs).values({
+        jobId: job.id,
+        upperGarmentKey: garmentKey,
+        faceId: face.id,
+        backgroundId: bg.id,
+        poseId: pose.id,
+        params: { aspectRatio: '1:1', resolution: '2K' },
+      });
+      await app.db
+        .insert(schema.jobOutputs)
+        .values({ jobId: job.id, resultKey: keys.output(job.id) });
+      return { jobId: job.id, workflowId: workflow.id };
+    }
+
+    it('400s when no reason is provided', async () => {
+      await seedCreditPlan('free', false);
+      const { token, userId } = await registerUser('regen-no-reason@x.com', 'free');
+      await grantCredits(userId, 100);
+      const { jobId } = await seedStudioJob(userId);
+      const res = await app.inject({
+        method: 'POST',
+        url: `/v1/jobs/${jobId}/regenerate`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { reason: '' },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('409s once the result has been downloaded', async () => {
+      await seedCreditPlan('free', false);
+      const { token, userId } = await registerUser('regen-downloaded@x.com', 'free');
+      await grantCredits(userId, 100);
+      const { jobId } = await seedStudioJob(userId);
+
+      const downloadRes = await app.inject({
+        method: 'POST',
+        url: `/v1/jobs/${jobId}/download`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(downloadRes.statusCode).toBe(200);
+
+      const [output] = await app.db
+        .select()
+        .from(schema.jobOutputs)
+        .where(eq(schema.jobOutputs.jobId, jobId));
+      expect(output.downloadedAt).not.toBeNull();
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/v1/jobs/${jobId}/regenerate`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { reason: 'test reason' },
+      });
+      expect(res.statusCode).toBe(409);
+    });
+
+    it('never charges credits for each of the first 5 regenerations, then 429s on the 6th', async () => {
+      await seedCreditPlan('free', false);
+      const { token, userId } = await registerUser('regen-quota@x.com', 'free');
+      await grantCredits(userId, 1000);
+      const { jobId } = await seedStudioJob(userId);
+
+      for (let i = 0; i < 5; i++) {
+        const [{ balance: before }] = await app.db
+          .select({ balance: schema.userCredits.balance })
+          .from(schema.userCredits)
+          .where(eq(schema.userCredits.userId, userId));
+        const res = await app.inject({
+          method: 'POST',
+          url: `/v1/jobs/${jobId}/regenerate`,
+          headers: { authorization: `Bearer ${token}` },
+          payload: { reason: 'test reason' },
+        });
+        expect(res.statusCode).toBe(201);
+        const [{ balance: after }] = await app.db
+          .select({ balance: schema.userCredits.balance })
+          .from(schema.userCredits)
+          .where(eq(schema.userCredits.userId, userId));
+        // Never charged in the first place — no deduct, no refund, no ledger row.
+        expect(after).toBe(before);
+
+        const { jobId: newJobId } = res.json();
+        const [newJob] = await app.db
+          .select({ creditsCharged: schema.jobs.creditsCharged })
+          .from(schema.jobs)
+          .where(eq(schema.jobs.id, newJobId));
+        expect(newJob.creditsCharged).toBe(0);
+        const ledgerRows = await app.db
+          .select()
+          .from(schema.creditLedger)
+          .where(eq(schema.creditLedger.jobId, newJobId));
+        expect(ledgerRows.length).toBe(0);
+      }
+
+      const sixth = await app.inject({
+        method: 'POST',
+        url: `/v1/jobs/${jobId}/regenerate`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { reason: 'test reason' },
+      });
+      expect(sixth.statusCode).toBe(429);
+      expect(sixth.json().error.code).toBe('FREE_REGENERATE_LIMIT');
+    });
+
+    it('applies the prompt whose reason matches the one the user picked', async () => {
+      await seedCreditPlan('free', false);
+      const { token, userId } = await registerUser('regen-prompt@x.com', 'free');
+      await grantCredits(userId, 100);
+      const { jobId, workflowId } = await seedStudioJob(userId, {
+        regenerationReasonPrompts: [
+          { reason: 'Wrong pose or background', prompt: 'a completely different outfit angle' },
+          { reason: 'Artifacts or glitches', prompt: 'clean, artifact-free render' },
+        ],
+      });
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/v1/jobs/${jobId}/regenerate`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { reason: 'Wrong pose or background' },
+      });
+      expect(res.statusCode).toBe(201);
+      const { jobId: newJobId } = res.json();
+
+      const [newInputs] = await app.db
+        .select()
+        .from(schema.jobInputs)
+        .where(eq(schema.jobInputs.jobId, newJobId));
+      const params = newInputs.params as Record<string, unknown>;
+      expect(params.workflowTemplateId).toBe(workflowId);
+      expect(params.promptGarmentPhase).toBe('a completely different outfit angle');
+    });
+
+    it('falls back to the original prompt when the submitted reason matches none configured', async () => {
+      await seedCreditPlan('free', false);
+      const { token, userId } = await registerUser('regen-prompt-mismatch@x.com', 'free');
+      await grantCredits(userId, 100);
+      const { jobId } = await seedStudioJob(userId, {
+        regenerationReasonPrompts: [
+          { reason: 'Wrong pose or background', prompt: 'a completely different outfit angle' },
+        ],
+      });
+
+      // "Other" (or any free-text reason) never matches a configured label.
+      const res = await app.inject({
+        method: 'POST',
+        url: `/v1/jobs/${jobId}/regenerate`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { reason: 'Other' },
+      });
+      expect(res.statusCode).toBe(201);
+      const { jobId: newJobId } = res.json();
+
+      const [newInputs] = await app.db
+        .select()
+        .from(schema.jobInputs)
+        .where(eq(schema.jobInputs.jobId, newJobId));
+      const params = newInputs.params as Record<string, unknown>;
+      expect(params.promptGarmentPhase).toBeUndefined();
+    });
+
+    it('GET regenerate-reasons returns the configured reason labels for the job', async () => {
+      await seedCreditPlan('free', false);
+      const { token, userId } = await registerUser('regen-reasons@x.com', 'free');
+      await grantCredits(userId, 100);
+      const { jobId } = await seedStudioJob(userId, {
+        regenerationReasonPrompts: [
+          { reason: 'Wrong pose or background', prompt: 'a completely different outfit angle' },
+          { reason: 'Artifacts or glitches', prompt: 'clean, artifact-free render' },
+        ],
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: `/v1/jobs/${jobId}/regenerate-reasons`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().reasons).toEqual(['Wrong pose or background', 'Artifacts or glitches']);
+    });
+
+    it('GET regenerate-reasons 404s for a job belonging to another user', async () => {
+      await seedCreditPlan('free', false);
+      const { userId } = await registerUser('regen-reasons-owner@x.com', 'free');
+      const { jobId } = await seedStudioJob(userId);
+      const { token: thiefToken } = await registerUser('regen-reasons-thief@x.com', 'free');
+
+      const res = await app.inject({
+        method: 'GET',
+        url: `/v1/jobs/${jobId}/regenerate-reasons`,
+        headers: { authorization: `Bearer ${thiefToken}` },
+      });
+      expect(res.statusCode).toBe(404);
+    });
+
+    it('a repeated click (same Idempotency-Key) creates only one job, not two', async () => {
+      await seedCreditPlan('free', false);
+      const { token, userId } = await registerUser('regen-idempotent@x.com', 'free');
+      await grantCredits(userId, 100);
+      const { jobId } = await seedStudioJob(userId);
+
+      const idempotencyKey = randomUUID();
+      const first = await app.inject({
+        method: 'POST',
+        url: `/v1/jobs/${jobId}/regenerate`,
+        headers: { authorization: `Bearer ${token}`, 'idempotency-key': idempotencyKey },
+        payload: { reason: 'test reason' },
+      });
+      expect(first.statusCode).toBe(201);
+
+      const second = await app.inject({
+        method: 'POST',
+        url: `/v1/jobs/${jobId}/regenerate`,
+        headers: { authorization: `Bearer ${token}`, 'idempotency-key': idempotencyKey },
+        payload: { reason: 'test reason' },
+      });
+      expect(second.statusCode).toBe(201);
+
+      // Both requests resolved to the SAME new job — the second was served
+      // from the idempotency cache, not created fresh.
+      expect(second.json().jobId).toBe(first.json().jobId);
+
+      const childJobs = await app.db
+        .select()
+        .from(schema.jobs)
+        .where(eq(schema.jobs.parentJobId, jobId));
+      expect(childJobs.length).toBe(1);
+
+      // Only ONE regenerate was actually consumed against today's free quota.
+      const third = await app.inject({
+        method: 'POST',
+        url: `/v1/jobs/${jobId}/regenerate`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { reason: 'test reason' },
+      });
+      expect(third.statusCode).toBe(201);
     });
   });
 });
