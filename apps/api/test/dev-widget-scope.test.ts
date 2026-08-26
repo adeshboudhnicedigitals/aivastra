@@ -68,3 +68,39 @@ describe('requireDevScope', () => {
     expect(res.status).toBe(403);
   });
 });
+
+describe('full-only dev routes reject widget-scoped keys', () => {
+  it('rejects GET /v1/dev/me for a widget key with 403', async () => {
+    const m = await createTestMerchant(app);
+    const { key } = await createTestApiKey(app, m.merchantId, { scope: 'widget' });
+    const res = await fetch(`${base}/v1/dev/me`, { headers: { authorization: `Bearer ${key}` } });
+    expect(res.status).toBe(403);
+  });
+
+  it('allows GET /v1/dev/me for a full key', async () => {
+    const m = await createTestMerchant(app);
+    const { key } = await createTestApiKey(app, m.merchantId, { scope: 'full' });
+    const res = await fetch(`${base}/v1/dev/me`, { headers: { authorization: `Bearer ${key}` } });
+    expect(res.status).toBe(200);
+  });
+
+  it('rejects POST /v1/dev/saree-mannequin for a widget key with 403', async () => {
+    const m = await createTestMerchant(app);
+    const { key } = await createTestApiKey(app, m.merchantId, { scope: 'widget' });
+    const res = await fetch(`${base}/v1/dev/saree-mannequin`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ garment: 'aGVsbG8=' }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('rejects GET /v1/dev/catalog/options for a widget key with 403', async () => {
+    const m = await createTestMerchant(app);
+    const { key } = await createTestApiKey(app, m.merchantId, { scope: 'widget' });
+    const res = await fetch(`${base}/v1/dev/catalog/options?gender=women`, {
+      headers: { authorization: `Bearer ${key}` },
+    });
+    expect(res.status).toBe(403);
+  });
+});

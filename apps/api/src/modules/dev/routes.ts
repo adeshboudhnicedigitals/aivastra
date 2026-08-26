@@ -68,7 +68,7 @@ export async function devRoutes(app: FastifyInstance) {
   app.get(
     '/v1/dev/me',
     {
-      preHandler: app.requireApiKey,
+      preHandler: [app.requireApiKey, app.requireDevScope('full')],
       config: rateLimitConfig,
       schema: {
         tags: ['dev'],
@@ -258,7 +258,7 @@ export async function devRoutes(app: FastifyInstance) {
   app.post(
     '/v1/dev/saree-mannequin',
     {
-      preHandler: app.requireApiKey,
+      preHandler: [app.requireApiKey, app.requireDevScope('full')],
       config: rateLimitConfig,
       // One image, base64-inflated ~1.34x — 20MB source caps around 26.8MB of JSON text.
       bodyLimit: 30 * 1024 * 1024,
