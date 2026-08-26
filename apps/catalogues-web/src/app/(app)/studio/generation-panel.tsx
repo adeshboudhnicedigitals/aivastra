@@ -1410,7 +1410,7 @@ export function GenerationPanel({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          downloadImage(resultUrl, job.id);
+                          if (resultUrl) downloadImage(resultUrl, job.id);
                         }}
                         style={{
                           flex: 1,
