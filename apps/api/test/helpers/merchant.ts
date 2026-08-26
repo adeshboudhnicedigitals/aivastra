@@ -57,7 +57,12 @@ export async function createTestMerchant(
 export async function createTestApiKey(
   app: TestApp,
   merchantId: string,
-  opts: { revoked?: boolean; label?: string } = {},
+  opts: {
+    revoked?: boolean;
+    label?: string;
+    scope?: 'full' | 'widget';
+    integration?: 'generic' | 'wordpress';
+  } = {},
 ) {
   const { key, keyHash, keyPrefix } = generateApiKey();
   const [row] = await app.db
@@ -68,6 +73,8 @@ export async function createTestApiKey(
       keyHash,
       keyPrefix,
       revokedAt: opts.revoked ? new Date() : null,
+      scope: opts.scope ?? 'full',
+      integration: opts.integration ?? 'generic',
     })
     .returning();
   if (!row) throw new Error('failed to create test api key');
