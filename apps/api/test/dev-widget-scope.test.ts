@@ -162,3 +162,28 @@ describe('job source attribution', () => {
     expect(job?.source).toBe('api_tryon');
   });
 });
+
+describe('job polling includes wordpress_tryon jobs', () => {
+  it('GET /v1/dev/jobs/:id finds a wordpress_tryon job (not a 404)', async () => {
+    const m = await createTestMerchant(app, { balance: 1000, jobRateLimitPerMin: 1000 });
+    const { key } = await createTestApiKey(app, m.merchantId, {
+      scope: 'widget',
+      integration: 'wordpress',
+    });
+    await createTestDevTryonCategory(app, { slug: `wp-poll-${m.merchantId}` });
+
+    const createRes = await fetch(`${base}/v1/dev/tryon`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${key}` },
+      body: tryonForm(`wp-poll-${m.merchantId}`),
+    });
+    const { jobId } = await createRes.json();
+
+    const pollRes = await fetch(`${base}/v1/dev/jobs/${jobId}`, {
+      headers: { authorization: `Bearer ${key}` },
+    });
+    expect(pollRes.status).toBe(200);
+    const body = await pollRes.json();
+    expect(body.status).not.toBe(undefined);
+  });
+});

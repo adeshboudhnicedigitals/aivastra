@@ -404,6 +404,7 @@ export async function devRoutes(app: FastifyInstance) {
               JOB_SOURCE.API_TRYON,
               JOB_SOURCE.API_SAREE_MANNEQUIN,
               JOB_SOURCE.API_CATALOG,
+              JOB_SOURCE.WORDPRESS_TRYON,
               LEGACY_JOB_SOURCE.API,
             ]),
           ),
