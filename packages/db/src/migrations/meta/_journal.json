@@ -1214,10 +1214,10 @@
       "breakpoints": true
     },
     {
-      "idx": 173,
+      "idx": 176,
       "version": "7",
       "when": 1787743720013,
-      "tag": "0173_shopify_stores_delete_permission",
+      "tag": "0176_shopify_stores_delete_permission",
       "breakpoints": true
     }
   ]
