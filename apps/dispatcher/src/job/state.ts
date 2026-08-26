@@ -3,6 +3,7 @@ import type { Logger } from '@aivastra/logger';
 import { jobE2eDuration } from '@aivastra/observability';
 import { eq } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
+import { checkAndCleanupArchiveForJob } from '../workflow/drain-cleanup.js';
 
 export type JobStatus =
   | 'PENDING_MANNEQUIN'
@@ -66,6 +67,8 @@ export async function transitionJob(
         (now.getTime() - createdAt.getTime()) / 1000,
       );
     }
+
+    await checkAndCleanupArchiveForJob(db, jobId, log);
   }
 
   if (opts.resultKey && status === 'COMPLETED' && !opts.skipOutputInsert) {

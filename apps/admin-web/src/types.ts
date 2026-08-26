@@ -82,15 +82,25 @@ export interface WorkflowOption {
   id: string; // UUID from workflow_templates table
   slug: string;
   label: string;
-  workflowType: 'regular' | 'tryon' | 'saree_step1' | 'saree_step1_two_input';
+  workflowType: 'regular' | 'tryon' | 'saree_step1' | 'saree_step1_two_input' | 'two_stage';
   isActive: boolean;
   poseCount: number;
   defaultFacePhasePrompt: string;
   defaultGarmentPhasePrompt: string;
+  regenerationReasonPrompts: { reason: string; prompt: string }[];
   facePhasePromptNode: string | null;
-  ksamplerSteps: number | null;
-  ksamplerCfg: number | null;
-  ksamplerDenoise: number | null;
+  // two_stage only — stage 1's own prompt pair (stage 2's reuses the fields above)
+  stage1PositivePromptNode: string | null;
+  stage1NegativePromptNode: string | null;
+  defaultStage1PositivePrompt: string;
+  defaultStage1NegativePrompt: string;
+  ksamplerNodes: {
+    nodeId: string;
+    steps: number | null;
+    cfg: number | null;
+    denoise: number | null;
+    seed: number | null;
+  }[];
   lowerNodeId: string | null;
   shoeNodeId: string | null;
   thirdNodeId: string | null;
@@ -99,6 +109,9 @@ export interface WorkflowOption {
   tryonGarmentNodeId: string | null;
   tryonGarmentNodeId2: string | null;
   tryonOutputNodeId: string | null;
+  version?: number;
+  funnelCount?: number;
+  draining?: { fromVersion: number } | null;
   createdAt: string;
 }
 
@@ -278,6 +291,8 @@ export interface Job {
   jobType?: string;
   outputUrl?: string;
   userHint?: string;
+  /** Non-null = this job was created by the regenerate flow, not a fresh submission. */
+  parentJobId?: string | null;
 }
 
 export type WorkerStatus = 'IDLE' | 'BUSY' | 'DRAINING' | 'OFFLINE';

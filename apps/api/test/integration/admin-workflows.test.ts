@@ -496,7 +496,7 @@ describe('admin workflows - floor validation', () => {
     },
   };
 
-  it('PATCH updates ksamplerSteps/ksamplerCfg/ksamplerDenoise in jsonContent', async () => {
+  it('PATCH updates steps/cfg/denoise via ksamplerOverrides in jsonContent', async () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/admin/workflows',
@@ -517,7 +517,9 @@ describe('admin workflows - floor validation', () => {
       method: 'PATCH',
       url: `/admin/workflows/${id}`,
       headers,
-      payload: { ksamplerSteps: 8, ksamplerCfg: 2.5, ksamplerDenoise: 0.75 },
+      payload: {
+        ksamplerOverrides: [{ nodeId: 'ksampler_node', steps: 8, cfg: 2.5, denoise: 0.75 }],
+      },
     });
     expect(patchRes.statusCode).toBe(200);
 
@@ -534,7 +536,7 @@ describe('admin workflows - floor validation', () => {
     expect(stored.ksampler_node.inputs.denoise).toBe(0.75);
   });
 
-  it('PATCH rejects ksamplerSteps below 1', async () => {
+  it('PATCH rejects a ksamplerOverrides steps below 1', async () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/admin/workflows',
@@ -555,12 +557,12 @@ describe('admin workflows - floor validation', () => {
       method: 'PATCH',
       url: `/admin/workflows/${id}`,
       headers,
-      payload: { ksamplerSteps: 0 },
+      payload: { ksamplerOverrides: [{ nodeId: 'ksampler_node', steps: 0 }] },
     });
     expect(patchRes.statusCode).toBe(400);
   });
 
-  it('PATCH rejects a negative ksamplerCfg', async () => {
+  it('PATCH rejects a negative ksamplerOverrides cfg', async () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/admin/workflows',
@@ -581,12 +583,12 @@ describe('admin workflows - floor validation', () => {
       method: 'PATCH',
       url: `/admin/workflows/${id}`,
       headers,
-      payload: { ksamplerCfg: -1 },
+      payload: { ksamplerOverrides: [{ nodeId: 'ksampler_node', cfg: -1 }] },
     });
     expect(patchRes.statusCode).toBe(400);
   });
 
-  it('PATCH rejects a ksamplerDenoise outside [0, 1]', async () => {
+  it('PATCH rejects a ksamplerOverrides denoise outside [0, 1]', async () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/admin/workflows',
@@ -607,12 +609,12 @@ describe('admin workflows - floor validation', () => {
       method: 'PATCH',
       url: `/admin/workflows/${id}`,
       headers,
-      payload: { ksamplerDenoise: 1.5 },
+      payload: { ksamplerOverrides: [{ nodeId: 'ksampler_node', denoise: 1.5 }] },
     });
     expect(patchRes.statusCode).toBe(400);
   });
 
-  it('PATCH rejects ksampler fields when the workflow has no KSampler node', async () => {
+  it('PATCH rejects a ksamplerOverrides nodeId that does not exist in the workflow', async () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/admin/workflows',
@@ -633,12 +635,12 @@ describe('admin workflows - floor validation', () => {
       method: 'PATCH',
       url: `/admin/workflows/${id}`,
       headers,
-      payload: { ksamplerSteps: 10 },
+      payload: { ksamplerOverrides: [{ nodeId: 'ksampler_node', steps: 10 }] },
     });
     expect(patchRes.statusCode).toBe(400);
   });
 
-  it('GET list and GET detail agree on ksamplerSteps/ksamplerCfg/ksamplerDenoise for the same workflow', async () => {
+  it('GET list and GET detail agree on ksamplerNodes for the same workflow', async () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/admin/workflows',
@@ -661,28 +663,24 @@ describe('admin workflows - floor validation', () => {
       url: `/admin/workflows/${id}`,
       headers,
     });
-    const listItem = (
-      listRes.json() as {
-        id: string;
-        ksamplerSteps: number | null;
-        ksamplerCfg: number | null;
-        ksamplerDenoise: number | null;
-      }[]
-    ).find((w) => w.id === id);
-    const detail = detailRes.json() as {
-      ksamplerSteps: number | null;
-      ksamplerCfg: number | null;
-      ksamplerDenoise: number | null;
+    type KSamplerNode = {
+      nodeId: string;
+      steps: number | null;
+      cfg: number | null;
+      denoise: number | null;
+      seed: number | null;
     };
-    expect(listItem?.ksamplerSteps).toBe(4);
-    expect(listItem?.ksamplerCfg).toBe(1);
-    expect(listItem?.ksamplerDenoise).toBe(1);
-    expect(detail.ksamplerSteps).toBe(listItem?.ksamplerSteps);
-    expect(detail.ksamplerCfg).toBe(listItem?.ksamplerCfg);
-    expect(detail.ksamplerDenoise).toBe(listItem?.ksamplerDenoise);
+    const listItem = (listRes.json() as { id: string; ksamplerNodes: KSamplerNode[] }[]).find(
+      (w) => w.id === id,
+    );
+    const detail = detailRes.json() as { ksamplerNodes: KSamplerNode[] };
+    expect(listItem?.ksamplerNodes).toEqual([
+      { nodeId: 'ksampler_node', steps: 4, cfg: 1, denoise: 1, seed: 12345 },
+    ]);
+    expect(detail.ksamplerNodes).toEqual(listItem?.ksamplerNodes);
   });
 
-  it('PATCH with only ksamplerSteps leaves cfg/denoise unchanged', async () => {
+  it('PATCH with only steps in ksamplerOverrides leaves cfg/denoise unchanged', async () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/admin/workflows',
@@ -703,7 +701,7 @@ describe('admin workflows - floor validation', () => {
       method: 'PATCH',
       url: `/admin/workflows/${id}`,
       headers,
-      payload: { ksamplerSteps: 20 },
+      payload: { ksamplerOverrides: [{ nodeId: 'ksampler_node', steps: 20 }] },
     });
     expect(patchRes.statusCode).toBe(200);
 
@@ -718,5 +716,161 @@ describe('admin workflows - floor validation', () => {
     expect(stored.ksampler_node.inputs.steps).toBe(20);
     expect(stored.ksampler_node.inputs.cfg).toBe(1);
     expect(stored.ksampler_node.inputs.denoise).toBe(1);
+  });
+
+  describe('workflow replace with drain', () => {
+    it('rejects replace with wrong admin password', async () => {
+      const createRes = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `replace_bad_pw_${Date.now()}`,
+          label: 'Replace Bad PW',
+          jsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+        },
+      });
+      expect(createRes.statusCode).toBe(200);
+      const id = createRes.json().id as string;
+
+      const replaceRes = await app.inject({
+        method: 'POST',
+        url: `/admin/workflows/${id}/replace`,
+        headers,
+        payload: {
+          slug: `replace_bad_pw_${Date.now()}`,
+          label: 'Replaced Label',
+          jsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+          password: 'wrongpassword',
+        },
+      });
+      expect(replaceRes.statusCode).toBe(401);
+    });
+
+    it('replaces workflow, increments version to 2, archives old version, and reports draining', async () => {
+      const createRes = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `replace_success_${Date.now()}`,
+          label: 'Initial Label',
+          jsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+        },
+      });
+      expect(createRes.statusCode).toBe(200);
+      const id = createRes.json().id as string;
+
+      // Check initial GET returns version 1 and draining: null
+      const getInitial = await app.inject({
+        method: 'GET',
+        url: `/admin/workflows/${id}`,
+        headers,
+      });
+      expect(getInitial.statusCode).toBe(200);
+      expect(getInitial.json().version).toBe(1);
+      expect(getInitial.json().draining).toBeNull();
+
+      // Replace with new label and new positive prompt
+      const newJson = {
+        ...jsonContent,
+        positive_node: {
+          inputs: { prompt: 'replaced prompt' },
+          class_type: 'CLIPTextEncode',
+          _meta: { title: 'positive_prompt' },
+        },
+      };
+
+      const replaceRes = await app.inject({
+        method: 'POST',
+        url: `/admin/workflows/${id}/replace`,
+        headers,
+        payload: {
+          slug: `replace_success_${Date.now()}`,
+          label: 'Replaced Label',
+          jsonContent: newJson,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+          password: 'password123',
+        },
+      });
+      expect(replaceRes.statusCode).toBe(200);
+      const replacedBody = replaceRes.json();
+      expect(replacedBody.version).toBe(2);
+      expect(replacedBody.label).toBe('Replaced Label');
+      expect(replacedBody.defaultGarmentPhasePrompt).toBe('replaced prompt');
+      expect(replacedBody.draining).toEqual({ fromVersion: 1 });
+
+      // Verify DB state: live row is version 2
+      const [liveRow] = await app.db
+        .select()
+        .from(schema.workflowTemplates)
+        .where(eq(schema.workflowTemplates.id, id));
+      expect(liveRow?.version).toBe(2);
+      expect(liveRow?.label).toBe('Replaced Label');
+
+      // Verify DB state: archive row holds version 1
+      const [archiveRow] = await app.db
+        .select()
+        .from(schema.workflowTemplateArchives)
+        .where(eq(schema.workflowTemplateArchives.workflowTemplateId, id));
+      expect(archiveRow).toBeDefined();
+      expect(archiveRow?.version).toBe(1);
+      expect(archiveRow?.defaultGarmentPhasePrompt).toBe('default');
+
+      // Check GET /admin/workflows/:id returns draining status
+      const getReplaced = await app.inject({
+        method: 'GET',
+        url: `/admin/workflows/${id}`,
+        headers,
+      });
+      expect(getReplaced.statusCode).toBe(200);
+      expect(getReplaced.json().version).toBe(2);
+      expect(getReplaced.json().draining).toEqual({ fromVersion: 1 });
+
+      // Check GET /admin/workflows list also includes draining
+      const getList = await app.inject({
+        method: 'GET',
+        url: '/admin/workflows',
+        headers,
+      });
+      expect(getList.statusCode).toBe(200);
+      const listItem = getList.json().find((w: { id: string }) => w.id === id);
+      expect(listItem?.version).toBe(2);
+      expect(listItem?.draining).toEqual({ fromVersion: 1 });
+
+      // Attempting to replace again while draining must return 409 CONFLICT
+      const replaceAgainRes = await app.inject({
+        method: 'POST',
+        url: `/admin/workflows/${id}/replace`,
+        headers,
+        payload: {
+          slug: `replace_success_${Date.now()}`,
+          label: 'Replaced Again',
+          jsonContent: newJson,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+          password: 'password123',
+        },
+      });
+      expect(replaceAgainRes.statusCode).toBe(409);
+      expect(replaceAgainRes.json().error.message).toContain('draining');
+    });
   });
 });

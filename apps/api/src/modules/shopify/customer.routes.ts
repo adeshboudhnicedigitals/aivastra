@@ -175,10 +175,19 @@ async function requireStoreHasCredits(
  * job before deducting credits: enqueueing would burn a credit and produce a
  * FAILED row with NO_WORKFLOW_CONFIGURED for something no merchant can fix.
  */
-async function resolveWorkflowTemplateId(app: FastifyInstance): Promise<string | null> {
+async function resolveWorkflowTemplate(
+  app: FastifyInstance,
+): Promise<{ workflowTemplateId: string; version: number | null } | null> {
   const [row] = await app.db
-    .select({ workflowTemplateId: schema.shopifyFunnelTemplates.workflowTemplateId })
+    .select({
+      workflowTemplateId: schema.shopifyFunnelTemplates.workflowTemplateId,
+      version: schema.workflowTemplates.version,
+    })
     .from(schema.shopifyFunnelTemplates)
+    .leftJoin(
+      schema.workflowTemplates,
+      eq(schema.workflowTemplates.id, schema.shopifyFunnelTemplates.workflowTemplateId),
+    )
     .where(
       and(
         eq(schema.shopifyFunnelTemplates.isDefault, true),
@@ -186,7 +195,8 @@ async function resolveWorkflowTemplateId(app: FastifyInstance): Promise<string |
       ),
     )
     .limit(1);
-  return row?.workflowTemplateId ?? null;
+  if (!row?.workflowTemplateId) return null;
+  return { workflowTemplateId: row.workflowTemplateId, version: row.version };
 }
 
 /**
@@ -367,8 +377,8 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
           .send({ message: 'This product is not available for try-on right now.' });
       }
 
-      const workflowTemplateId = await resolveWorkflowTemplateId(app);
-      if (!workflowTemplateId) {
+      const resolvedWorkflow = await resolveWorkflowTemplate(app);
+      if (!resolvedWorkflow) {
         // error, not warn: after the funnel removal this can only mean no active
         // default template exists, which is ours to fix, not the merchant's. The
         // shopper still sees the same soft message as a disabled product — no
@@ -381,6 +391,7 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
           .code(202)
           .send({ message: 'This product is not available for try-on right now.' });
       }
+      const workflowTemplateId = resolvedWorkflow.workflowTemplateId;
 
       // Deployed widget versions did not send clientId. They still receive the
       // store cap, while shopper-specific limits wait until an identity exists.
@@ -456,6 +467,7 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
               // than re-resolving — a default promoted mid-flight can't change the
               // workflow under a job whose credits are already deducted.
               workflowTemplateId,
+              dispatchTemplateVersion: resolvedWorkflow.version ?? null,
             },
           });
           await atomicDeductStore(tx as never, storeId, jobCost, jobId);
