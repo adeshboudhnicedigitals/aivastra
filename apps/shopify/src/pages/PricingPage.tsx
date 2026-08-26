@@ -17,6 +17,7 @@ import {
 } from '@shopify/polaris';
 import { CheckIcon } from '@shopify/polaris-icons';
 import { useEffect, useState } from 'react';
+import { BalanceCard } from '../components/BalanceCard';
 import { apiFetch, navigateTopLevel } from '../lib/api';
 import { PACK_DISPLAY, SHARED_FEATURE_BULLETS, tryOnsFromCredits } from '../lib/packs';
 import type { ShopifyMe } from '../types';
@@ -26,7 +27,6 @@ export default function PricingPage() {
   const [me, setMe] = useState<ShopifyMe | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [buying, setBuying] = useState<string | null>(null);
   const [refillPack, setRefillPack] = useState('pack_25');
   const [refillCap, setRefillCap] = useState('100');
   // Percent of the selected pack's credits, not a raw credit count — matches
@@ -44,23 +44,6 @@ export default function PricingPage() {
       .catch((err) => setError((err as Error).message))
       .finally(() => setLoading(false));
   }, []);
-
-  async function buyPack(packId: string) {
-    setBuying(packId);
-    setError(null);
-    try {
-      const { confirmationUrl } = await apiFetch<{ purchaseId: string; confirmationUrl: string }>(
-        '/v1/shopify/billing/purchase',
-        { method: 'POST', body: JSON.stringify({ packId }) },
-      );
-      // Shopify's approval page is outside the embedded app's origin, so this
-      // must be a top-level navigation — an iframe navigation is blocked.
-      navigateTopLevel(confirmationUrl);
-    } catch (err) {
-      setError((err as Error).message);
-      setBuying(null);
-    }
-  }
 
   async function enableAutorefill() {
     setEnrolling(true);
@@ -123,7 +106,6 @@ export default function PricingPage() {
     );
   }
 
-  const balance = me?.creditBalance ?? 0;
   const autorefillStatus = me?.autorefill.status ?? null;
   // A CANCELLED or DECLINED subscription is dead at Shopify's end — nothing
   // further happens to it, so the merchant needs the enrolment form back, not
@@ -145,58 +127,7 @@ export default function PricingPage() {
 
         {me && <LowCreditsBanner me={me} hideCapReached />}
 
-        <Card>
-          <BlockStack gap="200">
-            <Text as="p" tone="subdued">
-              Current balance
-            </Text>
-            <Text as="p" variant="heading2xl">
-              {balance.toLocaleString()} credits
-            </Text>
-            <Text as="p" tone="subdued">
-              About {(me?.runway?.tryOnsRemaining ?? tryOnsFromCredits(balance)).toLocaleString()}{' '}
-              try-ons remaining
-              {me?.runway?.daysRemaining != null
-                ? ` — roughly ${Math.max(1, Math.round(me.runway.daysRemaining))} days at your current rate`
-                : ''}
-            </Text>
-          </BlockStack>
-        </Card>
-
-        <InlineGrid columns={{ xs: 1, sm: 2, lg: 4 }} gap="400">
-          {PACK_DISPLAY.map((pack) => (
-            <Card key={pack.id}>
-              <BlockStack gap="300">
-                <InlineStack align="space-between" blockAlign="center">
-                  <Text as="h2" variant="headingMd">
-                    {pack.label}
-                  </Text>
-                  {pack.bestValue && <Badge tone="success">Best value</Badge>}
-                </InlineStack>
-
-                <Text as="p" variant="heading2xl">
-                  ${pack.priceUsd}
-                </Text>
-
-                <BlockStack gap="100">
-                  <Text as="p">{pack.tryOns.toLocaleString()} try-ons</Text>
-                  <Text as="p" tone="subdued">
-                    {pack.credits.toLocaleString()} credits · never expire
-                  </Text>
-                </BlockStack>
-
-                <Button
-                  variant="primary"
-                  loading={buying === pack.id}
-                  disabled={buying !== null}
-                  onClick={() => buyPack(pack.id)}
-                >
-                  Buy credits
-                </Button>
-              </BlockStack>
-            </Card>
-          ))}
-        </InlineGrid>
+        <BalanceCard me={me} />
 
         <Card>
           <BlockStack gap="300">
