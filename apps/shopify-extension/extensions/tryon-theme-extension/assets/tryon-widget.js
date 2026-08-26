@@ -69,6 +69,13 @@
     const HISTORY_STORAGE_KEY = 'aivastra_tryon_history';
     const HISTORY_MAX_ITEMS = 12;
 
+    // Where backBtn should land while the result step is showing: 'flow'
+    // (the normal case — post-generation feed or the History grid itself)
+    // returns to the upload/ready flow via startOver(); 'history' means the
+    // shopper drilled into a single tile from the History grid, so back
+    // should pop one level to the grid instead of leaving history entirely.
+    let resultBackTarget = 'flow';
+
     const CLIENT_ID_STORAGE_KEY = 'aivastra_client_id';
 
     // One anonymous id per browser, minted once. This is a UX limiter, not a
@@ -496,6 +503,15 @@
 
       if (!actions) {
         card.classList.add('aivastra-tryon__result-card--compact');
+        card.setAttribute('role', 'button');
+        card.setAttribute('tabindex', '0');
+        card.addEventListener('click', () => openHistoryDetail(entry));
+        card.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            openHistoryDetail(entry);
+          }
+        });
         return card;
       }
 
@@ -534,6 +550,32 @@
       for (let i = 0; i < resolved.length; i++) {
         resultList.appendChild(buildResultCard(resolved[i], { actions: !grid }));
       }
+    }
+
+    // Tapping a History tile opens that one result full-size, same layout
+    // (single column, Add to Cart / Share) as the just-generated feed —
+    // browsing history shouldn't be a dead end without a purchase path.
+    function openHistoryDetail(entry) {
+      if (!resultList) return;
+      resultBackTarget = 'history';
+      resultList.classList.remove(RESULT_LIST_GRID_CLASS);
+      resultList.innerHTML = '';
+      resultList.appendChild(buildResultCard(entry, { actions: true }));
+      if (resultEmpty) resultEmpty.hidden = true;
+      showStep('result');
+    }
+
+    // backBtn's behavior depends on how the shopper got to the result step:
+    // popping one level back to the History grid when they drilled into a
+    // tile, otherwise leaving the result feed entirely for the main flow.
+    async function handleBack() {
+      if (resultBackTarget === 'history') {
+        resultBackTarget = 'flow';
+        await renderResultList({ grid: true });
+        showStep('result');
+        return;
+      }
+      startOver();
     }
 
     function resetReadyPreview() {
@@ -762,6 +804,7 @@
         }
         const resultUrl = await waitForResult(jobResult.jobId);
         addToHistory(resultUrl, jobResult.jobId);
+        resultBackTarget = 'flow';
         await renderResultList();
         showStep('result');
         trackEvent('result_view');
@@ -826,11 +869,12 @@
 
     button.addEventListener('click', openModal);
     closeBtn.addEventListener('click', closeModal);
-    if (backBtn) backBtn.addEventListener('click', startOver);
+    if (backBtn) backBtn.addEventListener('click', handleBack);
     if (ctaBtn) ctaBtn.addEventListener('click', confirmReady);
     if (changePhotoBtn) changePhotoBtn.addEventListener('click', () => fileInput.click());
     if (historyBtn) {
       historyBtn.addEventListener('click', async () => {
+        resultBackTarget = 'flow';
         await renderResultList({ grid: true });
         showStep('result');
       });
