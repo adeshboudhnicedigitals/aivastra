@@ -472,6 +472,15 @@ export const UpdateWorkflowBody = z.object({
   // be empty).
   garmentPhasePrompt: z.string().optional(),
   facePhasePrompt: z.string().optional(),
+  // Admin-curated (reason -> alternate prompt) pairs offered on regenerate —
+  // same graph, different prompt text chosen by the reason the user picked.
+  // [] clears the list (regenerate then reruns the original prompt for any
+  // reason, since nothing matches). Prompt gets the same 300-char cap as a
+  // user hint; reason is a short label shown verbatim in the reason picker.
+  regenerationReasonPrompts: z
+    .array(z.object({ reason: z.string().min(1).max(100), prompt: z.string().min(1).max(300) }))
+    .max(50)
+    .optional(),
   // KSampler settings — found by class_type scan, not a stored node-id column (every
   // real workflow has exactly one KSampler). steps<1 means no generation happens;
   // denoise is bounded to its defined semantic range [0,1]; cfg has no fixed ceiling

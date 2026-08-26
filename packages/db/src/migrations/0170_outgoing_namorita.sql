@@ -1,0 +1,2 @@
+ALTER TABLE "job_outputs" ADD COLUMN "downloaded_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "workflow_templates" ADD COLUMN "regeneration_prompts" text[] DEFAULT ARRAY[]::text[] NOT NULL;

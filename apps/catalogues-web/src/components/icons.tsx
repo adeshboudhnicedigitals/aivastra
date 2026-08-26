@@ -154,6 +154,12 @@ export const UploadIcon = ({ size = 16 }: { size?: number }) => (
 export const SparkleIcon = () => (
   <Icon d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z" size={14} />
 );
+export const RegenerateIcon = ({ size = 14 }: { size?: number }) => (
+  <Icon
+    d={['M3 12a9 9 0 0115.3-6.4L21 8', 'M21 4v4h-4', 'M21 12a9 9 0 01-15.3 6.4L3 16', 'M3 20v-4h4']}
+    size={size}
+  />
+);
 export const FullscreenIcon = () => (
   <Icon
     d={[

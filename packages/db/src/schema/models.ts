@@ -196,6 +196,17 @@ export const workflowTemplates = pgTable('workflow_templates', {
   defaultFacePhasePrompt: text('default_face_phase_prompt').notNull().default(''),
   defaultGarmentPhasePrompt: text('default_garment_phase_prompt').notNull().default(''),
 
+  // Admin-curated (reason -> alternate prompt) pairs offered when a user
+  // regenerates a result produced by this template — same graph, different
+  // prompt text chosen by which reason the user picked. The user's submitted
+  // reason string is matched exactly against `reason` here; no match (e.g. the
+  // user picked "Other") falls back to rerunning the original prompt unchanged
+  // (see regenerateJob in apps/api). Empty array = no alternates configured.
+  regenerationReasonPrompts: jsonb('regeneration_reason_prompts')
+    .notNull()
+    .default(sql`'[]'::jsonb`)
+    .$type<{ reason: string; prompt: string }[]>(),
+
   // 'regular' = catalogue-creation (pose-based) workflows; 'tryon' = person + garment
   // try-on workflows, used by both the studio Try-On feature and kiosk.
   workflowType: text('workflow_type').notNull().default('regular'), // 'regular' | 'tryon'

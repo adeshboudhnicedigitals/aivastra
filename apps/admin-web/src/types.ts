@@ -87,6 +87,7 @@ export interface WorkflowOption {
   poseCount: number;
   defaultFacePhasePrompt: string;
   defaultGarmentPhasePrompt: string;
+  regenerationReasonPrompts: { reason: string; prompt: string }[];
   facePhasePromptNode: string | null;
   ksamplerSteps: number | null;
   ksamplerCfg: number | null;
@@ -278,6 +279,8 @@ export interface Job {
   jobType?: string;
   outputUrl?: string;
   userHint?: string;
+  /** Non-null = this job was created by the regenerate flow, not a fresh submission. */
+  parentJobId?: string | null;
 }
 
 export type WorkerStatus = 'IDLE' | 'BUSY' | 'DRAINING' | 'OFFLINE';

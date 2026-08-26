@@ -109,6 +109,11 @@ export const jobOutputs = pgTable('job_outputs', {
   assetKind: text('asset_kind').notNull().default('ORIGINAL'),
   // The WatermarkService version used; null when assetKind='ORIGINAL'.
   watermarkVersion: smallint('watermark_version'),
+  // Stamped the first time this result is actually downloaded (GET /v1/jobs/:id/result
+  // when called from a real download action, not just viewing/zooming) — gates the
+  // "regenerate" option, which is disabled once a result has been downloaded. Null =
+  // never downloaded. Never cleared once set.
+  downloadedAt: timestamp('downloaded_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
