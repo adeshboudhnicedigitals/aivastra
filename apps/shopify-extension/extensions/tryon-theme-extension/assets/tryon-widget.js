@@ -48,6 +48,21 @@
       : [];
     let progressLineTimer = null;
     let progressLineIndex = 0;
+    const progressCanvas = root.querySelector('.aivastra-tryon__progress-canvas');
+
+    // Shows the shopper's own uploaded photo faintly behind the spinner
+    // while generating, via a CSS custom property rather than an <img> tag
+    // — a background-image avoids the "1x1 placeholder attribute" trap
+    // that bit .aivastra-tryon__lightbox-image, and paints below the
+    // canvas's own content by default with no z-index bookkeeping needed.
+    function setProgressBackground(url) {
+      if (!progressCanvas) return;
+      if (url) {
+        progressCanvas.style.setProperty('--aivastra-progress-bg-url', `url("${url}")`);
+      } else {
+        progressCanvas.style.removeProperty('--aivastra-progress-bg-url');
+      }
+    }
     const resultList = root.querySelector('.aivastra-tryon__result-list');
     const resultEmpty = root.querySelector('.aivastra-tryon__result-empty');
     const resultCardTemplate = root.querySelector('.aivastra-tryon__result-card-template');
@@ -881,6 +896,10 @@
       const reuseKey = pendingReuseKey;
       pendingFile = null;
       pendingReuseKey = null;
+      // readyImage.src is already the current photo (blob URL for a fresh
+      // upload, presigned preview URL for a reuse) regardless of which
+      // branch below runs, so grab it once before either path proceeds.
+      setProgressBackground(readyImage ? readyImage.src : null);
       if (file) {
         showStep('progress');
         try {

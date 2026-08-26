@@ -450,6 +450,12 @@
 }
 
 .aivastra-tryon__progress-canvas {
+  position: relative;
+  /* Isolates a local stacking context so the two pseudo-elements' negative
+     z-index below stays scoped to this element instead of escaping to
+     compete with unrelated z-index values elsewhere on the page. */
+  isolation: isolate;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -463,6 +469,36 @@
   text-align: center;
   font-size: 17px;
   font-weight: 500;
+  /* The photo behind now dominates (film below is a light touch, not a
+     wash), so text needs to read against a photo, not a flat #f2f2f2 —
+     white with a shadow holds up across light and dark regions of it. */
+  color: #fff;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+/* The shopper's own uploaded photo, full clarity, behind the spinner/text
+   — set via --aivastra-progress-bg-url (setProgressBackground() in
+   tryon-widget.js) rather than an <img> tag. No opacity here: fading the
+   image itself just blends it toward the canvas's #f2f2f2 background and
+   reads as washed-out gray. The darkening instead comes from ::after
+   below, a separate black scrim on top of the (still-crisp) photo — a
+   film over the image, not a faded/grayed-out image. */
+.aivastra-tryon__progress-canvas::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background-image: var(--aivastra-progress-bg-url, none);
+  background-size: cover;
+  background-position: center;
+}
+
+.aivastra-tryon__progress-canvas::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: rgba(0, 0, 0, 0.5);
 }
 
 .aivastra-tryon__progress-message {
@@ -507,8 +543,12 @@
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  border: 4px solid rgba(0, 0, 0, 0.12);
-  border-top-color: var(--aivastra-accent, var(--aivastra-button-color, #000000));
+  /* White, not the merchant's accent/button color: this now sits on the
+     shopper's own photo rather than the flat #f2f2f2 canvas, and a dark
+     accent color (the common case — button_color defaults to black) would
+     have poor contrast against it. */
+  border: 4px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
   animation: aivastra-progress-spin 0.9s linear infinite;
 }
 
