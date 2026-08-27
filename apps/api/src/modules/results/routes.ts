@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import AdmZip from 'adm-zip';
 import {
@@ -31,6 +32,15 @@ const FLAG_REASONS: { value: string; label: string }[] = [
   { value: 'wrong_input_uploaded', label: 'Wrong input/uploaded' },
 ];
 const FLAG_REASON_VALUES = FLAG_REASONS.map((r) => r.value) as [string, ...string[]];
+
+// Content hash of the generated client script, appended to its <script src> as a
+// cache-busting query param. This tool ships no build step, so the script is a
+// server-rendered string — a CDN in front of the app (Cloudflare on staging/prod)
+// can cache /results/app.js and ignore/override our Cache-Control header entirely,
+// serving a stale script for days after a deploy. A content-addressed URL sidesteps
+// that: every deploy that changes the script gets a new URL, which is a guaranteed
+// cache miss regardless of what the CDN does with the old one.
+const APP_JS_VERSION = createHash('sha256').update(appJs()).digest('hex').slice(0, 10);
 
 const LoginBody = z.object({ email: z.string().email(), password: z.string().min(1) });
 const ResultsQuery = z.object({
@@ -107,12 +117,18 @@ export async function resultsRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  app.get('/results/app.js', async (_req, reply) => {
-    // This tool ships no build/versioning step — the script is regenerated on every
-    // request from source. Without an explicit no-store, browsers can keep serving a
-    // stale cached copy after a deploy, making shipped changes look like they never
-    // landed.
-    reply.type('application/javascript').header('Cache-Control', 'no-store').send(appJs());
+  app.get('/results/app.js', async (req, reply) => {
+    // The HTML always points at the current build's content-addressed URL
+    // (?v=APP_JS_VERSION, see its definition above), so this specific URL's response
+    // never changes — safe to let any cache (including a CDN in front of this app)
+    // hold onto it indefinitely. A request for a stale ?v= (an old tab that hasn't
+    // reloaded) still gets served the current script, which is fine: it's the same
+    // contract a plain unversioned URL had, just without the CDN staleness trap.
+    const cacheControl =
+      'v' in (req.query as Record<string, unknown>)
+        ? 'public, max-age=31536000, immutable'
+        : 'no-store';
+    reply.type('application/javascript').header('Cache-Control', cacheControl).send(appJs());
   });
 
   app.get('/results', async (req, reply) => {
@@ -617,7 +633,7 @@ ${commonCss()}
     <div class="error-msg" id="error-msg"></div>
   </div>
 </div>
-<script src="/results/app.js"></script>
+<script src="/results/app.js?v=${APP_JS_VERSION}"></script>
 </body>
 </html>`;
 }
@@ -919,7 +935,7 @@ ${commonCss()}
 </div>
 
 <div class="toast-stack" id="toast-stack"></div>
-<script src="/results/app.js"></script>
+<script src="/results/app.js?v=${APP_JS_VERSION}"></script>
 </body>
 </html>`;
 }
