@@ -85,11 +85,15 @@ export async function adminAuditRoutes(app: FastifyInstance) {
       if (resourceType) conditions.push(eq(schema.auditLogs.resourceType, resourceType));
       if (resourceId) conditions.push(eq(schema.auditLogs.resourceId, resourceId));
       if (startDate) {
-        const fromInclusive = new Date(DATE_ONLY.test(startDate) ? `${startDate}T00:00:00.000Z` : startDate);
+        const fromInclusive = new Date(
+          DATE_ONLY.test(startDate) ? `${startDate}T00:00:00.000Z` : startDate,
+        );
         conditions.push(gte(schema.auditLogs.createdAt, fromInclusive));
       }
       if (endDate) {
-        const toInclusive = new Date(DATE_ONLY.test(endDate) ? `${endDate}T23:59:59.999Z` : endDate);
+        const toInclusive = new Date(
+          DATE_ONLY.test(endDate) ? `${endDate}T23:59:59.999Z` : endDate,
+        );
         conditions.push(lte(schema.auditLogs.createdAt, toInclusive));
       }
 

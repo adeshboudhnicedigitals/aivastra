@@ -57,11 +57,7 @@ async function main() {
       };
     });
 
-    const insertedUsers = await db
-      .insert(schema.users)
-      .values(userRecords)
-      .onConflictDoNothing()
-      .returning({ id: schema.users.id, createdAt: schema.users.createdAt, isBanned: schema.users.isBanned });
+    await db.insert(schema.users).values(userRecords).onConflictDoNothing();
 
     // Seed credit balances and merchants
     console.log('Seeding credits and merchant profiles...');

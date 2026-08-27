@@ -120,11 +120,15 @@ export async function adminJobsRoutes(app: FastifyInstance) {
     }
     const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
     if (createdFrom) {
-      const fromInclusive = new Date(DATE_ONLY.test(createdFrom) ? `${createdFrom}T00:00:00.000Z` : createdFrom);
+      const fromInclusive = new Date(
+        DATE_ONLY.test(createdFrom) ? `${createdFrom}T00:00:00.000Z` : createdFrom,
+      );
       conditions.push(gte(schema.jobs.createdAt, fromInclusive));
     }
     if (createdTo) {
-      const toInclusive = new Date(DATE_ONLY.test(createdTo) ? `${createdTo}T23:59:59.999Z` : createdTo);
+      const toInclusive = new Date(
+        DATE_ONLY.test(createdTo) ? `${createdTo}T23:59:59.999Z` : createdTo,
+      );
       conditions.push(lte(schema.jobs.createdAt, toInclusive));
     }
     if (search) {

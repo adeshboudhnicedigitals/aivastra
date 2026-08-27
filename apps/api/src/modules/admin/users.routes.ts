@@ -5,7 +5,20 @@ import {
   ResetPasswordBody,
   UpdateUserBody,
 } from '@aivastra/types';
-import { and, count, desc, eq, exists, gte, ilike, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
+import {
+  and,
+  count,
+  desc,
+  eq,
+  exists,
+  gte,
+  ilike,
+  isNotNull,
+  isNull,
+  lte,
+  or,
+  sql,
+} from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
