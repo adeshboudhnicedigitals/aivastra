@@ -118,9 +118,19 @@ export async function adminJobsRoutes(app: FastifyInstance) {
     if (jobType) {
       conditions.push(sql`${jobTypeSql()} = ${jobType}` as ReturnType<typeof eq>);
     }
-    if (workerId) conditions.push(eq(schema.jobs.workerId, workerId));
-    if (createdFrom) conditions.push(gte(schema.jobs.createdAt, new Date(createdFrom)));
-    if (createdTo) conditions.push(lte(schema.jobs.createdAt, new Date(createdTo)));
+    const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+    if (createdFrom) {
+      const fromInclusive = new Date(
+        DATE_ONLY.test(createdFrom) ? `${createdFrom}T00:00:00.000Z` : createdFrom,
+      );
+      conditions.push(gte(schema.jobs.createdAt, fromInclusive));
+    }
+    if (createdTo) {
+      const toInclusive = new Date(
+        DATE_ONLY.test(createdTo) ? `${createdTo}T23:59:59.999Z` : createdTo,
+      );
+      conditions.push(lte(schema.jobs.createdAt, toInclusive));
+    }
     if (search) {
       conditions.push(
         or(

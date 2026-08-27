@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
 import { KV } from '../components/KV';
@@ -66,6 +66,7 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [query, setQuery] = useState('');
   const [merchantsOnly, setMerchantsOnly] = useState(false);
   const [showBanned, setShowBanned] = useState(false);
+  const [planFilter, setPlanFilter] = useState('');
   const [page, setPage] = useState(0);
   const [sortKey, setSortKey] = useState<keyof User>('createdAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -114,6 +115,20 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [exportTo, setExportTo] = useState('');
   const [exportSortDir, setExportSortDir] = useState<'asc' | 'desc'>('desc');
   const [exportingFormat, setExportingFormat] = useState<'pdf' | 'xlsx' | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    if (menuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [menuOpen]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -122,6 +137,9 @@ export default function UsersPage({ onNav, toast }: Props) {
       if (query) params.set('search', query);
       if (merchantsOnly) params.set('merchant', 'true');
       if (showBanned) params.set('showBanned', 'true');
+      if (exportFrom) params.set('createdFrom', exportFrom);
+      if (exportTo) params.set('createdTo', exportTo);
+      if (planFilter) params.set('tier', planFilter);
       const data = await apiFetch<{ items: User[]; total: number }>(`/admin/users?${params}`);
       setUsers(data.items);
       setTotal(data.total);
@@ -134,7 +152,7 @@ export default function UsersPage({ onNav, toast }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [page, query, merchantsOnly, showBanned, toast]);
+  }, [page, query, merchantsOnly, showBanned, exportFrom, exportTo, planFilter, toast]);
 
   useEffect(() => {
     load();
@@ -166,6 +184,7 @@ export default function UsersPage({ onNav, toast }: Props) {
       if (showBanned) params.set('showBanned', 'true');
       if (exportFrom) params.set('createdFrom', exportFrom);
       if (exportTo) params.set('createdTo', exportTo);
+      if (planFilter) params.set('tier', planFilter);
       const blob = await apiFetchBlob(`/admin/users/export.${format}?${params}`);
       const href = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
@@ -1452,6 +1471,19 @@ export default function UsersPage({ onNav, toast }: Props) {
     );
   }
 
+  const hasActiveFilters = Boolean(
+    query || merchantsOnly || showBanned || exportFrom || exportTo || planFilter,
+  );
+  const clearFilters = () => {
+    setQuery('');
+    setMerchantsOnly(false);
+    setShowBanned(false);
+    setExportFrom('');
+    setExportTo('');
+    setPlanFilter('');
+    setPage(0);
+  };
+
   return (
     <>
       <div className="page-head">
@@ -1463,53 +1495,429 @@ export default function UsersPage({ onNav, toast }: Props) {
           </p>
         </div>
         <div className="head-tools">
-          <div className="search">
+          <button className="btn primary" onClick={openCreateUser}>
+            <Icon.Plus /> Create User
+          </button>
+        </div>
+      </div>
+
+      <div className="filter-card" style={{ marginBottom: 16 }}>
+        <div className="filter-row">
+          {/* User Segment Tabs */}
+          <div className="segmented-control" role="tablist">
+            <button
+              type="button"
+              className={`segmented-btn ${!merchantsOnly ? 'active' : ''}`}
+              onClick={() => {
+                setMerchantsOnly(false);
+                setPage(0);
+              }}
+            >
+              All users
+              <span className="badge-count">{total.toLocaleString()}</span>
+            </button>
+            <button
+              type="button"
+              className={`segmented-btn ${merchantsOnly ? 'active' : ''}`}
+              onClick={() => {
+                setMerchantsOnly(true);
+                setPage(0);
+              }}
+            >
+              Merchants
+            </button>
+          </div>
+
+          {/* Search Box */}
+          <div className="filter-search-box">
             <Icon.Search />
             <input
               placeholder="Search by name, email, or username…"
               value={query}
               onChange={(e) => handleSearch(e.target.value)}
             />
+            {query && (
+              <button
+                type="button"
+                className="filter-clear-btn"
+                onClick={() => handleSearch('')}
+                title="Clear search"
+              >
+                <Icon.Close />
+              </button>
+            )}
           </div>
-          <button
-            className="btn ghost"
-            onClick={() => handleExport('pdf')}
-            disabled={exportingFormat !== null}
-          >
-            <Icon.Download /> {exportingFormat === 'pdf' ? 'Exporting…' : 'Download PDF'}
-          </button>
-          <button
-            className="btn ghost"
-            onClick={() => handleExport('xlsx')}
-            disabled={exportingFormat !== null}
-          >
-            <Icon.Download /> {exportingFormat === 'xlsx' ? 'Exporting…' : 'Download Excel'}
-          </button>
-          <button className="btn" onClick={openCreateUser}>
-            <Icon.Plus /> Create User
-          </button>
-        </div>
-      </div>
 
-      <div className="tabs">
-        <button
-          className={`tab ${!merchantsOnly ? 'active' : ''}`}
-          onClick={() => {
-            setMerchantsOnly(false);
-            setPage(0);
-          }}
-        >
-          All users
-        </button>
-        <button
-          className={`tab ${merchantsOnly ? 'active' : ''}`}
-          onClick={() => {
-            setMerchantsOnly(true);
-            setPage(0);
-          }}
-        >
-          Merchants
-        </button>
+          {/* Options Menu Button & Popover */}
+          <div ref={menuRef} className="filter-popover-wrapper">
+            <button
+              type="button"
+              className={`filter-toggle-btn ${menuOpen || showBanned || exportFrom || exportTo || planFilter ? 'active' : ''}`}
+              onClick={() => setMenuOpen(!menuOpen)}
+              title="Filters & Export options"
+            >
+              <Icon.Filter />
+              <span>Options</span>
+              {(showBanned || exportFrom || exportTo || planFilter) && (
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: '50%',
+                    background: 'var(--accent)',
+                    display: 'inline-block',
+                  }}
+                />
+              )}
+            </button>
+
+            {menuOpen && (
+              <div className="filter-popover-menu">
+                {/* 1. Joined Date Filter */}
+                <div>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      display: 'block',
+                      marginBottom: 6,
+                    }}
+                  >
+                    Joined Date Range
+                  </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 12, color: 'var(--muted)', width: 40 }}>From:</span>
+                      <input
+                        type="date"
+                        className="filter-input"
+                        value={exportFrom}
+                        onChange={(e) => {
+                          setExportFrom(e.target.value);
+                          setPage(0);
+                        }}
+                        style={{ flex: 1, height: 32, fontSize: 12 }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 12, color: 'var(--muted)', width: 40 }}>To:</span>
+                      <input
+                        type="date"
+                        className="filter-input"
+                        value={exportTo}
+                        onChange={(e) => {
+                          setExportTo(e.target.value);
+                          setPage(0);
+                        }}
+                        style={{ flex: 1, height: 32, fontSize: 12 }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ borderTop: '1px solid var(--border)' }} />
+
+                {/* 2. Plan Filter */}
+                <div>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      display: 'block',
+                      marginBottom: 6,
+                    }}
+                  >
+                    Plan
+                  </span>
+                  <select
+                    className="filter-select"
+                    value={planFilter}
+                    onChange={(e) => {
+                      setPlanFilter(e.target.value);
+                      setPage(0);
+                    }}
+                    style={{ width: '100%', height: 32, fontSize: 12.5 }}
+                  >
+                    <option value="">All plans</option>
+                    {tierOptions.map((slug) => (
+                      <option key={slug} value={slug} style={{ textTransform: 'capitalize' }}>
+                        {slug}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ borderTop: '1px solid var(--border)' }} />
+
+                {/* 3. Show Suspended/Deleted Users */}
+                <div>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      display: 'block',
+                      marginBottom: 6,
+                    }}
+                  >
+                    User Status
+                  </span>
+                  <button
+                    type="button"
+                    className={`filter-toggle-btn ${showBanned ? 'active' : ''}`}
+                    onClick={() => {
+                      setShowBanned(!showBanned);
+                      setPage(0);
+                    }}
+                    style={{
+                      width: '100%',
+                      justifyContent: 'flex-start',
+                      height: 32,
+                      fontSize: 12.5,
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: '50%',
+                        background: showBanned ? 'var(--accent)' : 'var(--muted)',
+                        display: 'inline-block',
+                      }}
+                    />
+                    Show suspended/deleted
+                  </button>
+                </div>
+
+                <div style={{ borderTop: '1px solid var(--border)' }} />
+
+                {/* 4. Export Data (PDF & Excel) */}
+                <div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: 6,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: 'var(--muted)',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                      }}
+                    >
+                      Export Data
+                    </span>
+                    <select
+                      className="filter-select"
+                      value={exportSortDir}
+                      onChange={(e) => setExportSortDir(e.target.value as 'asc' | 'desc')}
+                      style={{ height: 24, fontSize: 11, padding: '0 20px 0 6px' }}
+                    >
+                      <option value="desc">Newest first</option>
+                      <option value="asc">Oldest first</option>
+                    </select>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                    <button
+                      type="button"
+                      className="btn sm ghost"
+                      onClick={() => {
+                        handleExport('pdf');
+                        setMenuOpen(false);
+                      }}
+                      disabled={exportingFormat !== null}
+                      style={{ flex: 1, justifyContent: 'center' }}
+                      title="Download PDF report"
+                    >
+                      <Icon.Download /> {exportingFormat === 'pdf' ? 'Exporting…' : 'PDF'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn sm ghost"
+                      onClick={() => {
+                        handleExport('xlsx');
+                        setMenuOpen(false);
+                      }}
+                      disabled={exportingFormat !== null}
+                      style={{ flex: 1, justifyContent: 'center' }}
+                      title="Download Excel spreadsheet"
+                    >
+                      <Icon.Download /> {exportingFormat === 'xlsx' ? 'Exporting…' : 'Excel'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Clear Filters Button */}
+          {hasActiveFilters && (
+            <button
+              type="button"
+              className="btn sm ghost"
+              onClick={clearFilters}
+              style={{ marginLeft: 'auto' }}
+            >
+              <Icon.Close /> Clear filters
+            </button>
+          )}
+        </div>
+
+        {/* Active Filter Chips */}
+        {hasActiveFilters && (
+          <div className="filter-chips-row">
+            <span style={{ color: 'var(--muted)', fontSize: 11.5, marginRight: 2 }}>Active:</span>
+            {query && (
+              <span className="filter-chip">
+                Search: <strong>"{query}"</strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => handleSearch('')}
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {merchantsOnly && (
+              <span className="filter-chip">
+                Filter: <strong>Merchants only</strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setMerchantsOnly(false);
+                    setPage(0);
+                  }}
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {showBanned && (
+              <span className="filter-chip">
+                Status: <strong>Including suspended/deleted</strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setShowBanned(false);
+                    setPage(0);
+                  }}
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {(exportFrom || exportTo) && (
+              <span className="filter-chip">
+                Joined:{' '}
+                <strong>
+                  {exportFrom || 'Any'} → {exportTo || 'Today'}
+                </strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setExportFrom('');
+                    setExportTo('');
+                    setPage(0);
+                  }}
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {planFilter && (
+              <span className="filter-chip">
+                Plan: <strong style={{ textTransform: 'capitalize' }}>{planFilter}</strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setPlanFilter('');
+                    setPage(0);
+                  }}
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Bulk Selection Actions Bar */}
+        {(() => {
+          const pagedUserIds = sorted.map((u) => u.id);
+          const pageSelected =
+            pagedUserIds.length > 0 && pagedUserIds.every((id) => selectedUserIds.includes(id));
+          return (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                paddingTop: 8,
+                borderTop: '1px solid var(--border)',
+                flexWrap: 'wrap',
+              }}
+            >
+              <button
+                type="button"
+                className="btn sm ghost"
+                onClick={() => {
+                  setSelectedUserIds((prev) =>
+                    pageSelected
+                      ? prev.filter((id) => !pagedUserIds.includes(id))
+                      : [...new Set([...prev, ...pagedUserIds])],
+                  );
+                }}
+              >
+                {pageSelected ? 'Deselect page' : 'Select page'}
+              </button>
+              {selectedUserIds.length > 0 && (
+                <>
+                  <span
+                    className="badge accent"
+                    style={{ fontSize: 12, padding: '3px 10px', fontWeight: 600 }}
+                  >
+                    {selectedUserIds.length} user{selectedUserIds.length > 1 ? 's' : ''} selected
+                  </span>
+                  <button
+                    type="button"
+                    className="btn sm ghost"
+                    onClick={() => setSelectedUserIds([])}
+                  >
+                    Clear selection
+                  </button>
+                  {isSuperAdmin && (
+                    <button
+                      type="button"
+                      className="btn sm danger"
+                      onClick={() => setShowBulkDeleteConfirm(true)}
+                      style={{ marginLeft: 'auto' }}
+                    >
+                      <Icon.Trash /> Delete selected ({selectedUserIds.length})
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {loading ? (
@@ -1518,119 +1926,6 @@ export default function UsersPage({ onNav, toast }: Props) {
         </p>
       ) : (
         <>
-          <div
-            style={{
-              display: 'flex',
-              gap: 8,
-              alignItems: 'center',
-              padding: '10px 0',
-              marginBottom: 4,
-              flexWrap: 'wrap',
-            }}
-          >
-            <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                fontSize: 13,
-                color: 'var(--muted)',
-                cursor: 'pointer',
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={showBanned}
-                onChange={(e) => {
-                  setShowBanned(e.target.checked);
-                  setPage(0);
-                }}
-              />
-              Show suspended/deleted
-            </label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span className="sub" style={{ fontSize: 13, color: 'var(--muted)' }}>
-                Joined:
-              </span>
-              <input
-                type="date"
-                value={exportFrom}
-                onChange={(e) => setExportFrom(e.target.value)}
-                style={{
-                  padding: '5px 8px',
-                  borderRadius: 6,
-                  border: '1px solid var(--border)',
-                  background: 'var(--surface)',
-                  color: 'var(--ink)',
-                  fontSize: 13,
-                }}
-              />
-              <span style={{ fontSize: 13, color: 'var(--muted)' }}>to</span>
-              <input
-                type="date"
-                value={exportTo}
-                onChange={(e) => setExportTo(e.target.value)}
-                style={{
-                  padding: '5px 8px',
-                  borderRadius: 6,
-                  border: '1px solid var(--border)',
-                  background: 'var(--surface)',
-                  color: 'var(--ink)',
-                  fontSize: 13,
-                }}
-              />
-              <select
-                value={exportSortDir}
-                onChange={(e) => setExportSortDir(e.target.value as 'asc' | 'desc')}
-                style={{
-                  padding: '5px 8px',
-                  borderRadius: 6,
-                  border: '1px solid var(--border)',
-                  background: 'var(--surface)',
-                  color: 'var(--ink)',
-                  fontSize: 13,
-                }}
-              >
-                <option value="desc">Newest first</option>
-                <option value="asc">Oldest first</option>
-              </select>
-              <span className="sub" style={{ fontSize: 12, color: 'var(--muted)' }}>
-                (applies to Download PDF/Excel)
-              </span>
-            </div>
-            {(() => {
-              const pagedUserIds = sorted.map((u) => u.id);
-              const pageSelected =
-                pagedUserIds.length > 0 && pagedUserIds.every((id) => selectedUserIds.includes(id));
-              return (
-                <button
-                  className="btn sm ghost"
-                  onClick={() => {
-                    setSelectedUserIds((prev) =>
-                      pageSelected
-                        ? prev.filter((id) => !pagedUserIds.includes(id))
-                        : [...new Set([...prev, ...pagedUserIds])],
-                    );
-                  }}
-                >
-                  {pageSelected ? 'Deselect page' : 'Select page'}
-                </button>
-              );
-            })()}
-            {selectedUserIds.length > 0 && (
-              <>
-                <span style={{ fontSize: 13, color: 'var(--muted)' }}>
-                  {selectedUserIds.length} selected
-                </span>
-                {isSuperAdmin && (
-                  <button className="btn sm danger" onClick={() => setShowBulkDeleteConfirm(true)}>
-                    Delete selected ({selectedUserIds.length})
-                  </button>
-                )}
-              </>
-            )}
-          </div>
-
           <div className="desktop-only table-wrap">
             <table>
               <thead>

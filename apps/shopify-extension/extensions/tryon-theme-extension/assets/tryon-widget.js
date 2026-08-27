@@ -23,12 +23,18 @@
 
     const button = root.querySelector('.aivastra-tryon__button');
     const modal = root.querySelector('.aivastra-tryon__modal');
+    const modalContent = root.querySelector('.aivastra-tryon__modal-content');
     const closeBtn = root.querySelector('.aivastra-tryon__close');
     const lightbox = root.querySelector('.aivastra-tryon__lightbox');
     const lightboxImage = root.querySelector('.aivastra-tryon__lightbox-image');
     const lightboxCloseBtn = root.querySelector('.aivastra-tryon__lightbox-close');
     const fileInput = root.querySelector('.aivastra-tryon__file-input');
     const avatarImage = root.querySelector('.aivastra-tryon__avatar-image');
+    const heading = root.querySelector('.aivastra-tryon__heading');
+    // The merchant's configured heading (default "Try It On") — swapped out
+    // for "History (N)" while the result step is showing, restored once the
+    // shopper leaves it.
+    const defaultHeading = heading ? heading.textContent : '';
     const steps = {
       upload: root.querySelector('.aivastra-tryon__step--upload'),
       ready: root.querySelector('.aivastra-tryon__step--ready'),
@@ -63,10 +69,44 @@
         progressCanvas.style.removeProperty('--aivastra-progress-bg-url');
       }
     }
+    // Sizes an image's box to the photo's own aspect ratio instead of a flat
+    // 3:4 default, so a 16:9 upload renders short and a portrait upload
+    // renders tall — the modal's own height then follows since it isn't a
+    // fixed box (see the --fit modifier toggled in showStep). Capped both
+    // ways so an extreme photo (a wide panorama, an ultra-tall crop) can't
+    // collapse the box to nothing or blow the layout out past what's usable.
+    // Setting aspect-ratio (not a computed pixel height) keeps this
+    // responsive to the container's actual rendered width for free, with no
+    // resize listener needed.
+    //
+    // `target` (whose style.aspectRatio gets set) and `img` (measured for its
+    // natural size) are usually the same element — result-image has
+    // height:auto, so its own aspect-ratio drives its rendered height. But
+    // ready-image is filled via width/height 100%/100% of a separately-sized
+    // wrapper (avoiding the placeholder-1x1-attribute trap on an element that
+    // can't use aspect-ratio itself, since both its dimensions are already
+    // definite), so there `target` is that wrapper, not the img.
+    const IMAGE_BOX_MIN_HEIGHT_RATIO = 0.7;
+    const IMAGE_BOX_MAX_HEIGHT_RATIO = 1.4;
+    function fitToPhotoAspectRatio(target, img) {
+      if (!target || !img) return;
+      const apply = () => {
+        const { naturalWidth, naturalHeight } = img;
+        if (!naturalWidth || !naturalHeight) return;
+        const ratio = Math.min(
+          IMAGE_BOX_MAX_HEIGHT_RATIO,
+          Math.max(IMAGE_BOX_MIN_HEIGHT_RATIO, naturalHeight / naturalWidth),
+        );
+        target.style.aspectRatio = `1 / ${ratio}`;
+      };
+      if (img.complete && img.naturalWidth) apply();
+      else img.addEventListener('load', apply, { once: true });
+    }
     const resultList = root.querySelector('.aivastra-tryon__result-list');
     const resultEmpty = root.querySelector('.aivastra-tryon__result-empty');
     const resultCardTemplate = root.querySelector('.aivastra-tryon__result-card-template');
     const readyImage = root.querySelector('.aivastra-tryon__ready-image');
+    const readyPreview = root.querySelector('.aivastra-tryon__ready-preview');
     const changePhotoBtn = root.querySelector('.aivastra-tryon__change-photo');
     const ctaBtn = root.querySelector('.aivastra-tryon__cta');
 
@@ -84,14 +124,13 @@
     const backBtn = root.querySelector('.aivastra-tryon__back-btn');
     const historyBtn = root.querySelector('.aivastra-tryon__history-btn');
     const historyBadge = root.querySelector('.aivastra-tryon__history-badge');
-    const HISTORY_STORAGE_KEY = 'aivastra_tryon_history';
-
     // Where backBtn should land while the result step is showing: 'flow'
-    // (the normal case — post-generation feed or the History grid itself)
+    // (the normal case — post-generation card or the History grid itself)
     // returns to the upload/ready flow via startOver(); 'history' means the
     // shopper drilled into a single tile from the History grid, so back
     // should pop one level to the grid instead of leaving history entirely.
     let resultBackTarget = 'flow';
+    const HISTORY_STORAGE_KEY = 'aivastra_tryon_history';
 
     const CLIENT_ID_STORAGE_KEY = 'aivastra_client_id';
 
@@ -194,6 +233,22 @@
     let pendingReuseKey = null;
 
     const reuseExpiredNote = root.querySelector('.aivastra-tryon__reuse-expired-note');
+
+    // Themes routinely give a section ancestor `transform`, `filter`, or
+    // `contain` (sticky headers, gallery/parallax sections). That makes the
+    // ancestor the containing block for `position: fixed`, so our modal gets
+    // trapped inside its stacking context — the header and product images
+    // then render on top no matter how high z-index goes. Reparenting to
+    // <body> escapes every ancestor's stacking context. The custom
+    // properties (button/text color, radius, accent) live on `root`'s inline
+    // style and are normally inherited; copy them over since the modal is no
+    // longer a descendant of root once moved.
+    for (const el of [modal, lightbox]) {
+      if (!el) continue;
+      el.style.cssText = root.style.cssText + el.style.cssText;
+      document.body.appendChild(el);
+    }
+
     const REUSE_STORAGE_KEY = 'aivastra_last_photo';
     const REUSE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
@@ -292,6 +347,17 @@
       }
       if (name === 'progress') startProgressRotator();
       else stopProgressRotator();
+      // 'ready', 'progress' and 'result' are the only steps whose box height
+      // should follow an actual photo's aspect ratio (see
+      // fitToPhotoAspectRatio) — every other step keeps the modal at its
+      // normal fixed size. Capped by the modal's own max-height either way,
+      // so a long History list still scrolls instead of growing unbounded.
+      if (modalContent) {
+        modalContent.classList.toggle(
+          'aivastra-tryon__modal-content--fit',
+          name === 'ready' || name === 'progress' || name === 'result',
+        );
+      }
       syncHeaderButton();
     }
 
@@ -323,18 +389,22 @@
       }
     }
 
-    // backBtn only ever appears next to historyBtn while the merged Result
-    // feed is the active step — it's how a shopper leaves the feed without
-    // closing the modal.
+    // backBtn appears whenever the result step (single card or History grid)
+    // is active. historyBtn additionally hides, and the heading names the
+    // view, specifically while the History grid itself is showing — a
+    // shopper already looking at their history has no need for a button that
+    // opens the same view.
     function syncHeaderButton() {
       const onResult = steps.result ? !steps.result.hidden : false;
+      const onHistoryGrid = onResult && !!resultList?.classList.contains(RESULT_LIST_GRID_CLASS);
       const count = getHistory().length;
       if (backBtn) backBtn.hidden = !onResult;
-      if (historyBtn) historyBtn.hidden = count === 0;
+      if (historyBtn) historyBtn.hidden = onHistoryGrid || count === 0;
       if (historyBadge) {
         historyBadge.hidden = count === 0;
         historyBadge.textContent = String(count);
       }
+      if (heading) heading.textContent = onHistoryGrid ? `History (${count})` : defaultHeading;
     }
 
     // Fires each time a job completes. resultUrl is a presigned R2 URL (1h
@@ -454,7 +524,12 @@
           return;
         }
 
-        btn.textContent = 'Added ✓';
+        if (btn.classList.contains('aivastra-tryon__add-to-cart-overlay')) {
+          btn.innerHTML =
+            '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+        } else {
+          btn.textContent = 'Added ✓';
+        }
         trackEvent('add_to_cart');
         if (viewCartEl) viewCartEl.hidden = false;
         // Themes that listen refresh their cart badge; the rest ignore an
@@ -512,10 +587,11 @@
     // time so its Add to Cart / Share state never needs resetting between
     // renders.
     //
-    // actions=false is the History grid view: browsing past results isn't a
-    // purchase moment the way the just-generated result is, so the actions
-    // row is hidden entirely (CSS, via the --compact modifier) rather than
-    // built with dead/unwired buttons.
+    // actions=false is the History grid view: the tile itself is tappable
+    // (opens the lightbox directly) and carries its own Add to Cart/Share/
+    // expand buttons. actions=true is the full-size single-result view shown
+    // right after a fresh generation, with the same actions below the image
+    // instead of overlaid on the tile.
     function buildResultCard(entry, { actions = true } = {}) {
       const fragment = resultCardTemplate.content.cloneNode(true);
       const card = fragment.querySelector('.aivastra-tryon__result-card');
@@ -525,9 +601,8 @@
       // Belt-and-braces: resolveHistoryEntry() already re-signs before this
       // card is built, so this only fires on a genuinely dead object (or a
       // legacy entry with no jobId to re-sign from). The History grid has a
-      // list to refresh; the single-result view (fresh generation or a
-      // tapped tile) has only this one card, so it just falls back to the
-      // empty state instead.
+      // list to refresh; the single-result view (fresh generation) has only
+      // this one card, so it just falls back to the empty state instead.
       img.addEventListener('error', () => {
         removeHistoryEntry(entry);
         if (resultList?.classList.contains(RESULT_LIST_GRID_CLASS)) {
@@ -538,52 +613,96 @@
         }
       });
 
+      const expandBtn = card.querySelector('.aivastra-tryon__expand');
+      const addToCartBtn = card.querySelector('.aivastra-tryon__add-to-cart');
+      const addToCartOverlayBtn = card.querySelector('.aivastra-tryon__add-to-cart-overlay');
+      const cartError = card.querySelector('.aivastra-tryon__cart-error');
+      const viewCartLink = card.querySelector('.aivastra-tryon__view-cart');
+      const shareBtn = card.querySelector('.aivastra-tryon__share');
+      const shareOverlayBtn = card.querySelector('.aivastra-tryon__share-overlay');
+      const shareFlash = card.querySelector('.aivastra-tryon__share-flash');
+      const tryAnotherBtn = card.querySelector('.aivastra-tryon__try-another');
+
       if (!actions) {
         card.classList.add('aivastra-tryon__result-card--compact');
         card.setAttribute('role', 'button');
         card.setAttribute('tabindex', '0');
         card.addEventListener('click', () => openHistoryDetail(entry));
         card.addEventListener('keydown', (e) => {
+          // Only the tile's own focus ring should open the detail view —
+          // Enter/Space on the nested expand/Add to Cart/Share buttons must
+          // not also bubble into this (their own click handlers below
+          // already stopPropagation, but keydown bubbles independently of
+          // that).
+          if (e.target !== card) return;
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             openHistoryDetail(entry);
           }
         });
+        // Expand, Add to Cart and Share act on the tile directly (fullscreen
+        // preview, quick purchase, sharing) instead of drilling into the
+        // full detail view — stopPropagation so they don't also trigger the
+        // tile's own click-through to openHistoryDetail.
+        if (expandBtn) {
+          expandBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openLightbox(entry.resultUrl);
+          });
+        }
+        if (addToCartBtn) {
+          addToCartBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            addVariantToCart(addToCartBtn, cartError, viewCartLink);
+          });
+        }
+        if (shareBtn) {
+          shareBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            shareResult(entry.resultUrl, shareFlash);
+          });
+        }
         return card;
       }
 
-      const expandBtn = card.querySelector('.aivastra-tryon__expand');
+      // Full-size view only — the History grid keeps every tile at the base
+      // 3:4 ratio so the 2-up layout stays uniform regardless of each
+      // result's actual shape.
+      fitToPhotoAspectRatio(img, img);
+
       if (expandBtn) {
         expandBtn.addEventListener('click', () => openLightbox(entry.resultUrl));
       }
-
-      const addToCartBtn = card.querySelector('.aivastra-tryon__add-to-cart');
-      const cartError = card.querySelector('.aivastra-tryon__cart-error');
-      const viewCartLink = card.querySelector('.aivastra-tryon__view-cart');
-      if (addToCartBtn) {
-        addToCartBtn.addEventListener('click', () =>
-          addVariantToCart(addToCartBtn, cartError, viewCartLink),
+      if (addToCartOverlayBtn) {
+        addToCartOverlayBtn.addEventListener('click', () =>
+          addVariantToCart(addToCartOverlayBtn, cartError, viewCartLink),
         );
       }
-
-      const shareBtn = card.querySelector('.aivastra-tryon__share');
-      const shareFlash = card.querySelector('.aivastra-tryon__share-flash');
-      if (shareBtn) {
-        shareBtn.addEventListener('click', () => shareResult(entry.resultUrl, shareFlash));
+      if (shareOverlayBtn) {
+        shareOverlayBtn.addEventListener('click', () => shareResult(entry.resultUrl, shareFlash));
       }
-
+      // Picking a file here reuses the same fileInput 'change' handler as the
+      // upload step and Change Photo — it always routes through showReady()
+      // for a confirm-and-generate step, same as any other photo pick.
+      if (tryAnotherBtn) {
+        tryAnotherBtn.addEventListener('click', () => fileInput.click());
+      }
       return card;
     }
 
     const RESULT_LIST_GRID_CLASS = 'aivastra-tryon__result-list--grid';
 
-    // The History button's view: a 2-up, no-actions gallery of everything
-    // the shopper has generated. The result step otherwise only ever shows
-    // a single card (see renderSingleResult) — this is the one place the
-    // full history list renders at once.
+    // The History button's view: a 2-up, no-actions-row gallery of everything
+    // the shopper has generated. The result step otherwise shows a single
+    // card (see renderSingleResult) — this is the one place the full history
+    // list renders at once.
     async function renderResultList() {
       const history = getHistory();
       syncHeaderButton();
+      // Fixed 70dvh instead of --fit's photo-driven auto height — a grid of
+      // many tiles has no single aspect ratio to size around, so it gets a
+      // constant, scrollable viewport instead.
+      if (modalContent) modalContent.classList.add('aivastra-tryon__modal-content--history');
       if (!resultList) return;
       resultList.classList.add(RESULT_LIST_GRID_CLASS);
       resultList.innerHTML = '';
@@ -594,11 +713,11 @@
       }
     }
 
-    // The result step's normal state: exactly one card, full-size, with Add
+    // The result step's other state: exactly one card, full-size, with Add
     // to Cart / Share — used both right after a fresh generation and when a
-    // History tile is tapped. Never the merged multi-result feed the result
-    // step used to show; that's what the History grid is for now.
+    // History tile is tapped.
     function renderSingleResult(entry) {
+      if (modalContent) modalContent.classList.remove('aivastra-tryon__modal-content--history');
       if (!resultList) return;
       resultList.classList.remove(RESULT_LIST_GRID_CLASS);
       resultList.innerHTML = '';
@@ -633,6 +752,7 @@
         if (readyImage.src) URL.revokeObjectURL(readyImage.src);
         readyImage.src = '';
       }
+      if (readyPreview) readyPreview.style.removeProperty('aspect-ratio');
       pendingFile = null;
       pendingReuseKey = null;
     }
@@ -646,11 +766,16 @@
     // it in handlePickedFile alone under-counts returning shoppers who never
     // touch the file input.
     function showReady({ file, reuseKey, previewUrl }) {
+      // A prior History grid visit could leave this class on modalContent —
+      // clear it so the ready step gets its normal photo-driven auto height
+      // instead of the grid's fixed 70dvh.
+      if (modalContent) modalContent.classList.remove('aivastra-tryon__modal-content--history');
       resetReadyPreview();
       pendingFile = file || null;
       pendingReuseKey = reuseKey || null;
       if (readyImage) {
         readyImage.src = file ? URL.createObjectURL(file) : previewUrl || '';
+        fitToPhotoAspectRatio(readyPreview, readyImage);
       }
       trackEvent('upload');
       showStep('ready');
@@ -900,6 +1025,10 @@
       // upload, presigned preview URL for a reuse) regardless of which
       // branch below runs, so grab it once before either path proceeds.
       setProgressBackground(readyImage ? readyImage.src : null);
+      // Same photo, same box-sizing approach as the ready step — otherwise
+      // the canvas stays at a flat 3:4 while the modal (now --fit here too)
+      // sizes around it, leaving empty space for any other aspect ratio.
+      if (readyImage) fitToPhotoAspectRatio(progressCanvas, readyImage);
       if (file) {
         showStep('progress');
         try {
@@ -960,7 +1089,7 @@
       showReady({ file });
     }
     fileInput.addEventListener('change', () => handlePickedFile(fileInput));
-    const retryBtns = root.querySelectorAll('.aivastra-tryon__retry');
+    const retryBtns = modal.querySelectorAll('.aivastra-tryon__retry');
     for (let k = 0; k < retryBtns.length; k++) {
       retryBtns[k].addEventListener('click', startOver);
     }

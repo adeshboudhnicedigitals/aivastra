@@ -51,6 +51,8 @@ async function resolveResourceLabels(
   return labels;
 }
 
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
 const AuditLogsQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
@@ -82,8 +84,18 @@ export async function adminAuditRoutes(app: FastifyInstance) {
       if (action) conditions.push(ilike(schema.auditLogs.action, `%${action}%`));
       if (resourceType) conditions.push(eq(schema.auditLogs.resourceType, resourceType));
       if (resourceId) conditions.push(eq(schema.auditLogs.resourceId, resourceId));
-      if (startDate) conditions.push(gte(schema.auditLogs.createdAt, new Date(startDate)));
-      if (endDate) conditions.push(lte(schema.auditLogs.createdAt, new Date(endDate)));
+      if (startDate) {
+        const fromInclusive = new Date(
+          DATE_ONLY.test(startDate) ? `${startDate}T00:00:00.000Z` : startDate,
+        );
+        conditions.push(gte(schema.auditLogs.createdAt, fromInclusive));
+      }
+      if (endDate) {
+        const toInclusive = new Date(
+          DATE_ONLY.test(endDate) ? `${endDate}T23:59:59.999Z` : endDate,
+        );
+        conditions.push(lte(schema.auditLogs.createdAt, toInclusive));
+      }
 
       const where = conditions.length > 0 ? and(...conditions) : undefined;
 
