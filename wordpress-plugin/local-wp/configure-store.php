@@ -44,6 +44,14 @@ foreach (['bacs', 'cheque', 'paypal'] as $gateway) {
 update_option('woocommerce_enable_guest_checkout', 'yes');
 update_option('woocommerce_calc_taxes', 'no');
 
+// Registration was off (WooCommerce default), which makes WooCommerce's own
+// my-account template skip its two-column login/register layout entirely
+// and render a bare, unstyled login form with no way for a new visitor to
+// create an account — not what a real storefront's account page looks like.
+update_option('woocommerce_enable_myaccount_registration', 'yes');
+update_option('woocommerce_registration_generate_username', 'yes');
+update_option('woocommerce_registration_generate_password', 'yes');
+
 $zoneExists = false;
 foreach (WC_Shipping_Zones::get_zones() as $zone) {
     if ($zone['zone_name'] === 'Everywhere') {
