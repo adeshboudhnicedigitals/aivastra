@@ -20,11 +20,22 @@ every other surface uses.
 - A product/catalog sync API. WooCommerce product data (image, title, ID)
   lives on the merchant's own server and is read directly by the plugin's PHP
   at render time — nothing to sync or cache.
-- Marketplace billing. WordPress.org plugins can't charge; credits stay
-  Razorpay-based through the existing merchant portal.
-- A new per-site multi-domain account model. `merchants` is already 1:1 with
-  a `users` row (`merchants.userId` unique, `packages/db/src/schema/merchant.ts:53-56`);
-  a WordPress site is just another API-key holder against that same account.
+- Marketplace billing. V1 does not introduce a second billing system. Credits
+  remain Razorpay-based through the existing merchant portal — no WooCommerce
+  Marketplace SaaS Billing, Woo billing webhooks, tax reconciliation,
+  subscription synchronization, or Marketplace-specific upgrade/downgrade
+  flows.
+- A new per-site multi-domain account model. `merchants` remains the account
+  boundary — it's already 1:1 with a `users` row (`merchants.userId` unique,
+  `packages/db/src/schema/merchant.ts:53-56`); a WordPress site is just another
+  API-key holder against that same account. This explicitly excludes
+  introducing WordPress-specific `organizations`, `stores`, or
+  entitlement/account-hierarchy tables.
+- Separate catalogue and virtual-try-on credit balances. The existing shared
+  merchant credit ledger remains the billing source of truth for v1. Whether
+  to split usage into feature-specific quotas is a product/pricing decision,
+  not a prerequisite for the WordPress integration — tracked as an open
+  question in §6.
 
 ## 2. Why this isn't a straight port of the Shopify architecture
 
@@ -33,7 +44,7 @@ every other surface uses.
 | Managed install + App Bridge session tokens (embedded iframe) | Shopify hosts the admin surface inside its own iframe | No iframe, no session-token concept — the plugin is plain server-side PHP |
 | Session-token exchange for offline token (no OAuth `code` flow) | Shopify's managed-installation contract | No install-time handshake at all — WP just downloads a zip and activates it |
 | App Proxy HMAC-signed storefront calls (`shopify-widget-auth.ts`) | Lets an embedded key sit in page source safely — Shopify signs each call server-side | No App Proxy equivalent off-platform; needs a different way to keep a page-embedded key safe (§4.2) |
-| Billing via Shopify App Pricing, polled subscriptions | Shopify's marketplace billing has no webhooks | No marketplace billing exists; reuse the existing Razorpay/credits flow |
+| Billing via Shopify App Pricing, polled subscriptions | Shopify's marketplace billing has no webhooks | V1 does not use marketplace billing; reuse the existing Razorpay/credits flow |
 | Theme app extension (Liquid block dragged into template) + shop metafield cache for widget config | Shopify data lives in Shopify's systems; the storefront can't call our API live for config on every page load | A WooCommerce hook renders server-side PHP with live access to product/site data — no cache-staleness problem to solve |
 
 ## 3. What already exists and gets reused as-is
@@ -61,18 +72,23 @@ Net: the account, credit, and job-execution machinery needs **no changes**.
 
 ## 4. What's new
 
-### 4.1 Connection flow: paste an API key, not OAuth
+### 4.1 Connection flow: paste two API keys, not OAuth
 
-Merchant logs into their aivastra merchant account → generates an API key
-under **Settings → API Keys** → pastes it into the WP plugin's own settings
-screen (**Settings → Aivastra Try-On**). The plugin stores the key server-side
-in `wp_options` — never rendered into a page the browser can read — and
-verifies it on save via `GET /v1/dev/me`.
+Merchant logs into their aivastra merchant account and generates two keys
+under **Settings → API Keys**:
+1. a full-scoped key — used once, at save time, to verify the account via
+   `GET /v1/dev/me`, then discarded (never persisted; see §4.3);
+2. a widget-scoped WordPress key (§4.2, §4.2a) — persisted server-side in
+   `wp_options` and exposed only to the storefront widget.
+
+Both are pasted into the WP plugin's own settings screen (**Settings →
+Aivastra Try-On**), which stores them server-side — never rendered into a page
+the browser can read. The plugin never mints keys itself.
 
 | | Paste-key (recommended) | OAuth-style "Connect" button |
 |---|---|---|
 | **Dev cost** | Zero new backend surface — reuses existing key issuance and `dev-api-auth` verbatim | New authorize/callback/state-nonce endpoint pair, open-redirect hardening, a hosted consent screen — real net-new surface and attack surface |
-| **User cost** | One manual copy/paste step | One-click, no copy/paste, but WordPress store owners are already comfortable pasting API keys (this is the standard pattern for Akismet/Yoast/Jetpack-style plugins) |
+| **User cost** | Two manual copy/paste steps (full key, widget key) | One-click, no copy/paste, but WordPress store owners are already comfortable pasting API keys (this is the standard pattern for Akismet/Yoast/Jetpack-style plugins) |
 
 **Recommendation:** ship paste-key for v1. Revisit a Connect-button flow only
 if onboarding friction shows up in support tickets — building OAuth machinery
@@ -106,9 +122,15 @@ explicit per-route allowlist, not a vague "restricted" designation:
 | `POST /v1/dev/saree-mannequin` | Yes | No |
 | `GET/POST /v1/dev/catalog/*` | Yes | No |
 
-Widget keys also get a tighter, per-site rate limit than the account-wide
-60/min, and are issued through the same `/v1/merchant/api-keys` route with
-`{label, scope: 'widget'}`.
+Widget keys also get a tighter, per-widget-key rate limit than the
+account-wide 60/min — one widget key is expected per WordPress site, but the
+backend only knows which key made a request, not which site, so the limit is
+per-key, not per-site (there is no trustworthy site/domain binding to key a
+limit on). Widget keys are issued through the same `/v1/merchant/api-keys`
+route, via a WordPress-specific **"Create WordPress Widget Key"** action that
+atomically sets both `scope: 'widget'` and `integration: 'wordpress'` (§4.2a)
+in the same insert — never as two independently settable fields a merchant
+could mismatch.
 
 **Enforcement is centralized, not scattered per-handler** — this codebase
 already has the exact pattern to follow:
@@ -127,8 +149,10 @@ resolved server-side from the authenticated key, never the request. A
 inherits this automatically; stating it here so the invariant isn't only
 implicit in code a future reader of this doc wouldn't otherwise check.
 
-This is the **only** backend/schema change this design requires. Everything
-else is new WordPress plugin code consuming endpoints that already exist.
+This is one of three small backend/schema changes this design requires — the
+second is the `integration` column and source-attribution wiring in §4.2a,
+the third is the CORS allowlist in §4.2b. Everything else is new WordPress
+plugin code consuming endpoints that already exist.
 
 **Decided: ship the `widget` scope at launch**, not deferred to a later
 release. The risk it closes (full account key sitting in public page source)
@@ -147,6 +171,19 @@ in the merchant portal (browser, JWT session) — the existing full key, and a
 second key created with `{label, scope: 'widget'}` — and pastes both into WP
 settings. §4.3 reflects this: two paste fields, not a generate-in-plugin
 button.
+
+**Future hardening options, not required for v1:**
+- Exchange the long-lived widget-scoped key for short-lived storefront
+  session tokens before shopper uploads/generations. This would reduce the
+  blast radius of a copied public widget key but requires new token/session
+  issuance infrastructure. The v1 security boundary remains the decided
+  `widget` API-key scope, centralized route allowlisting, and the
+  per-widget-key rate limit above.
+- Per-visitor limits, IP/session throttling, CAPTCHA/challenge escalation,
+  store-wide daily caps, and automatic VTO disabling at a configured quota
+  threshold. These require visitor/session state the platform does not
+  currently maintain and should be introduced only if real storefront abuse
+  or cost-control requirements justify the additional infrastructure.
 
 ### 4.2a Job source attribution — reuse the existing registry, don't invent one
 
@@ -167,9 +204,14 @@ reopen that decision.
 like its `api_tryon`/`merchant_tryon` siblings.
 
 **Never trust the client to declare its own source.** Extend `api_keys` with
-an `integration` column (`'generic' | 'wordpress'`, independent of the
-`scope` column above — one gates *what a key can call*, the other gates *what
-source gets stamped*). `dev-api-auth.ts`'s key lookup resolves
+an `integration` column (`'generic' | 'wordpress'`, default `'generic'`,
+independent of the `scope` column above — one gates *what a key can call*,
+the other gates *what source gets stamped*). **Assignment happens at
+issuance, never afterward and never as a separate merchant-facing field:**
+the "Create WordPress Widget Key" action (§4.2) is the only path that
+produces `integration: 'wordpress'`, setting it in the same insert as
+`scope: 'widget'`. A key created through the plain `{label, scope}` form
+always gets `integration: 'generic'`. `dev-api-auth.ts`'s key lookup resolves
 `req.integration` server-side from the authenticated key row, the same place
 it already resolves `req.merchantId`
 (`apps/api/src/plugins/dev-api-auth.ts:20-37`). `createDevTryonJob` then picks
@@ -187,6 +229,41 @@ CHECK constraint, by the same deliberate choice documented in the registry
 spec. If a WordPress-originated saree-mannequin flow is ever needed, add
 `wordpress_saree_mannequin` then, following the identical pattern — not now.
 
+### 4.2b Cross-origin access for the storefront widget
+
+**Problem, found during local end-to-end testing, not anticipated above:**
+`widget.js` calls `/v1/dev/tryon` and `/v1/dev/jobs/:id` directly from the
+shopper's browser (§4.2's "browser uploads direct" pattern), and that call
+is cross-origin from `https://<merchant's own domain>`. The API's CORS
+policy (`apps/api/src/server.ts`) only ever allowed a static
+`env.CORS_ORIGIN` list or an origin present in
+`shopifyStores.allowedOrigins` — no WordPress merchant's storefront domain
+was ever registered anywhere, so every real installation would have hit a
+browser-level CORS rejection on the very first try-on click, surfaced by the
+plugin only as a generic "Try-on is temporarily unavailable"
+(`widget.js`'s `.catch(renderUnavailable)` swallows the failed fetch).
+
+**Fix, mirroring the existing `shopifyStores.allowedOrigins` mechanism:**
+`api_keys` gets a nullable `allowedOrigin` column (one origin, not an array —
+one widget key is expected per WordPress site). The merchant supplies their
+store's URL when creating a WordPress widget key via
+**"Create WordPress Widget Key"** (§4.2); the server normalizes it to an
+origin (`new URL(siteUrl).origin`) and stores it alongside `scope: 'widget'`
+and `integration: 'wordpress'` in the same insert. The CORS origin callback
+in `server.ts` checks the incoming `Origin` header against
+`shopifyStores.allowedOrigins` first, then — only for origins that miss that
+check — against `api_keys` rows where `integration = 'wordpress'`,
+`revokedAt is null`, and `allowedOrigin` matches. Both checks share the
+existing 30s TTL cache.
+
+**Known gap, not solved here:** nothing enforces that the `siteUrl` supplied
+at key-creation time stays in sync if the merchant later moves the store to
+a new domain — a stale `allowedOrigin` would surface as a CORS failure with
+no specific error message pointing at the mismatch. Left for a future
+iteration (an "edit widget key" affordance, or a clearer plugin-side error
+message distinguishing CORS failures from other errors) unless real usage
+shows this matters.
+
 ### 4.3 WordPress plugin structure (spec — no implementation here)
 
 - `aivastra-tryon.php` — bootstrap, activation/deactivation hooks. No external
@@ -194,7 +271,9 @@ spec. If a WordPress-originated saree-mannequin flow is ever needed, add
 - `admin/settings-page.php` — native WP Settings API page: two paste fields —
   the full API key and the widget-scoped key (both generated by the merchant
   in the merchant portal, not by the plugin — see §4.2), held server-side
-  only; accent color, button copy, per-product-category enable toggle.
+  only; accent color, button copy, per-category workflow mapping (§4.3a,
+  supersedes the earlier "per-product-category enable toggle" placeholder —
+  the real need turned out to be *routing*, not an on/off switch).
 
   **Do not persist the full key.** It's used exactly once, at save time, for a
   `GET /v1/dev/me` connection check (company name, credit balance), then
@@ -233,13 +312,24 @@ spec. If a WordPress-originated saree-mannequin flow is ever needed, add
   to the parent image `widget-loader.php` already localized. Getting this
   wrong sends the wrong garment into the try-on job — a functional bug, not a
   cosmetic one — so it belongs in v1, not a follow-up.
+
+  **If add-to-cart ships in v1 (open question 3):** the same
+  `found_variation` listener must also capture `variationId` and the selected
+  attribute values, not just the image — WooCommerce's add-to-cart contract
+  for a variable product needs the variation ID and its attributes, not the
+  parent product ID. The VTO result's "Add to Cart" action must submit the
+  tracked variation, not the parent, or it silently adds the wrong SKU. If
+  open question 3 resolves to download-only, none of this variation/cart
+  tracking is needed for v1.
 - `assets/widget.js` — **new, WordPress-specific.** Not shared with Shopify's
   `tryon-widget.js`, which is tightly coupled to App Proxy HMAC signing,
   Liquid globals (`product`, `customer`, `shop.metafields`), and Shopify's own
   `/cart/add.js` AJAX API — none of that is portable. Calls the dev API
   directly (`Authorization: Bearer <widgetKey>`) for job creation + polling;
   on completion, offers download and WooCommerce's own add-to-cart AJAX
-  contract (`?add-to-cart={id}`).
+  contract — for a variable product this submits the tracked `variationId`
+  and its attributes (see variable-products note above), not the parent
+  `productId`.
 - No PHP-side proxying of image uploads or job calls — the shopper's browser
   talks to the API directly with the restricted widget key, so image bytes
   never round-trip through the merchant's own (often size/timeout-capped) WP
@@ -250,6 +340,39 @@ between Shopify's and WordPress's frontend JS. With exactly two platforms and
 Shopify's implementation deeply coupled to Shopify-only mechanisms, extracting
 a generic core now is speculative generalization from a sample size of two.
 Revisit if a third platform integration is actually scheduled.
+
+### 4.3a Per-category workflow routing
+
+**Found during local end-to-end testing, not anticipated above:** `/v1/dev/tryon`
+resolves its ComfyUI workflow off a `category` slug (§4.2a's `createDevTryonJob`
+looks it up in `dev_tryon_categories`). §4.3's original spec had `widget.js`
+send a single hardcoded slug for every product on a site — fine for a merchant
+whose whole catalog needs one workflow, but with no way for a second workflow
+(e.g. a separate saree template) to ever apply to any product, since nothing
+told the widget which one a given product needs.
+
+**Fix — reuse WooCommerce's own product-category taxonomy, don't invent a new
+one:** the plugin gets a one-time settings screen mapping each WooCommerce
+product category (`product_cat` term) to an aivastra category slug (fetched
+from `GET /v1/dev/categories`, which accepts the already-stored widget key —
+no new key needed). `class-widget-loader.php` resolves the current product's
+category terms against that mapping at render time and localizes the result
+as `config.category`; an unmapped category (or no mapping configured at all)
+falls through to `general`, preserving the original v1 behavior with zero
+merchant setup required until they actually add a second workflow.
+
+Resolution and validation are pure, unit-tested functions
+(`Aivastra_Category_Mapping::resolve()`/`::sanitize()`) — no WordPress
+mocking needed. `sanitize()` re-validates every posted mapping against both
+the live WooCommerce term list and the live `/v1/dev/categories` response at
+save time, so a deleted WooCommerce category or a deactivated aivastra
+category can never persist as a live (but silently broken) mapping.
+
+**Not solved here:** a product in more than one mapped WooCommerce category
+resolves to whichever mapped category comes first in WooCommerce's own term
+order — there's no merchant-facing priority control. Fine for the common case
+(one category per product); revisit only if multi-category products with
+conflicting mappings turn out to be common.
 
 ### 4.4 Distribution
 
@@ -272,7 +395,7 @@ this design doc staying here as the API-contract reference. A monorepo folder
 is a defensible minority choice if cross-repo doc discoverability matters more
 than tooling cleanliness — flagging it as your call, not re-deciding it here.
 
-## 5. Decided
+## 5. Decided (design-level — not yet implemented)
 
 - **`api_keys.scope` (`'full' | 'widget'`) ships at launch** (§4.2), not
   deferred — the full-key-in-page-source risk it closes exists from the first
@@ -289,6 +412,13 @@ than tooling cleanliness — flagging it as your call, not re-deciding it here.
   `api_tryon`/`merchant_tryon`/`shopify`. Attribution is always resolved
   server-side from the authenticated key's `integration` column — never from a
   client-supplied field on the job-creation request body.
+- **WordPress v1 does not introduce a new tenancy model or billing provider.**
+  The existing `merchants` account remains the paying account and the
+  existing credit ledger remains the billing source of truth. A WordPress
+  installation is another authenticated integration against that merchant.
+  Woo Marketplace SaaS billing, WordPress-specific organizations/stores/
+  entitlements, and feature-specific credit buckets require separate product
+  decisions and must not be introduced as incidental implementation work.
 
 ## 6. Open questions
 
@@ -299,3 +429,55 @@ than tooling cleanliness — flagging it as your call, not re-deciding it here.
 3. **Add-to-cart in v1** — does the try-on result need WooCommerce add-to-cart
    integration immediately, or is download-only sufficient for a first
    release?
+4. **Separate catalogue vs. VTO usage metering** — should catalogue generation
+   and shopper virtual try-on continue consuming the merchant's existing
+   shared credit balance, or should the platform introduce separately
+   metered usage pools?
+
+   **Keep the shared balance**
+   - Lowest development cost.
+   - Reuses the current credit ledger, atomic deduction, and terminal-failure
+     refund behavior unchanged.
+   - Gives the merchant one balance and one purchase flow.
+   - Risk: high storefront VTO traffic can consume credits the merchant
+     expected to use for catalogue generation.
+
+   **Split catalogue and VTO usage**
+   - Prevents shopper traffic from starving merchant-operated catalogue
+     workflows.
+   - Makes plan packaging and usage reporting easier to understand per
+     product.
+   - Requires a real platform change: a usage dimension or separate quota
+     representation in the ledger, feature-aware deduction/refund logic, API
+     changes, merchant UI changes, and migration/backward-compatibility
+     decisions.
+
+   **Decision required before implementation:** this is a product/pricing
+   decision, not part of the WordPress v1 technical contract. Do not
+   introduce separate usage buckets implicitly as part of the plugin
+   implementation.
+5. **Catalogue creation inside the WordPress admin** — should v1 add an
+   aivastra Catalogue Studio inside `wp-admin`, or should catalogue
+   generation remain in the existing aivastra merchant web application?
+
+   **Keep catalogue creation in the aivastra web app**
+   - Matches the current WordPress design, whose dev-API requirement is
+     limited to try-on creation and job polling.
+   - Avoids adding catalogue-generation endpoints, media-import flows,
+     product-selection UI, and additional full-scope credential handling to
+     the plugin.
+   - Keeps the first WordPress release focused on storefront VTO.
+
+   **Add Catalogue Studio to WordPress**
+   - Lets a merchant generate product catalogue assets without leaving
+     WooCommerce.
+   - Could later support importing approved outputs directly into the
+     WordPress Media Library and WooCommerce product gallery.
+   - Expands scope materially: catalogue-generation API surface, admin UI,
+     output selection/import, permissions, error handling, and potentially
+     stronger credential requirements than the storefront widget needs.
+
+   **Decision required before implementation:** catalogue creation in
+   WordPress is an independent feature expansion. Do not assume it is
+   included merely because the merchant account already supports catalogue
+   generation elsewhere.
