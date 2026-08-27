@@ -44,17 +44,36 @@ final class ConnectionSettingsTest extends TestCase
             ->with('aivastra_tryon_settings', [
                 'widget_key' => 'sk_live_new',
                 'company_name' => 'Acme Co',
+                'credits' => 500,
                 'credits_as_of' => '2026-08-26 00:00:00',
             ])
             ->andReturn(true);
 
         $settings = new Aivastra_Connection_Settings();
-        $settings->set_widget_key_and_snapshot('sk_live_new', 'Acme Co', '2026-08-26 00:00:00');
+        $settings->set_widget_key_and_snapshot('sk_live_new', 'Acme Co', 500, '2026-08-26 00:00:00');
 
         // The assertion is the Functions\expect(...)->once()->with(...) above,
         // verified by Monkey\tearDown() — this satisfies PHPUnit's "risky test"
         // check, which otherwise flags a test with no explicit assertion.
         $this->addToAssertionCount(1);
+    }
+
+    public function test_get_credits_reads_from_the_options_row(): void
+    {
+        Functions\expect('get_option')
+            ->once()
+            ->with('aivastra_tryon_settings', [])
+            ->andReturn(['credits' => 500]);
+
+        $settings = new Aivastra_Connection_Settings();
+        $this->assertSame(500, $settings->get_credits());
+    }
+
+    public function test_get_credits_returns_null_when_unset(): void
+    {
+        Functions\expect('get_option')->once()->andReturn([]);
+        $settings = new Aivastra_Connection_Settings();
+        $this->assertNull($settings->get_credits());
     }
 
     public function test_get_category_map_reads_from_the_options_row(): void

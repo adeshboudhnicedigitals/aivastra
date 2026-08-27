@@ -51,6 +51,11 @@ class Aivastra_Connection_Settings
         update_option(self::OPTION_KEY, $all);
     }
 
+    public function get_credits(): ?int
+    {
+        return $this->all()['credits'] ?? null;
+    }
+
     /**
      * The only write path for a successful connection — sets the widget key
      * and the display snapshot together, in one wp_options write.
@@ -58,11 +63,13 @@ class Aivastra_Connection_Settings
     public function set_widget_key_and_snapshot(
         string $widgetKey,
         string $companyName,
+        int $credits,
         string $creditsAsOf
     ): void {
         update_option(self::OPTION_KEY, [
             'widget_key' => $widgetKey,
             'company_name' => $companyName,
+            'credits' => $credits,
             'credits_as_of' => $creditsAsOf,
         ]);
     }
