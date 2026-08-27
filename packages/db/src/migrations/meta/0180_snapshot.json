@@ -1,6 +1,6 @@
 {
-  "id": "258c7300-65d6-41ba-a555-514f85fca517",
-  "prevId": "b486f380-4852-40e2-b690-bba933002303",
+  "id": "7fd2ccae-92d0-48d4-befe-eb69849ddfbf",
+  "prevId": "258c7300-65d6-41ba-a555-514f85fca517",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -128,6 +128,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'generic'"
+        },
+        "allowed_origin": {
+          "name": "allowed_origin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "last_used_at": {
           "name": "last_used_at",
