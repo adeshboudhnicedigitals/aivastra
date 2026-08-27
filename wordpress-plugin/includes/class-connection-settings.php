@@ -73,4 +73,30 @@ class Aivastra_Connection_Settings
             'credits_as_of' => $creditsAsOf,
         ]);
     }
+
+    /**
+     * Updates only the display snapshot (company/credits/timestamp) —
+     * deliberately leaves widget_key and category_map untouched. Used by the
+     * "Refresh balance" action, which re-verifies the full key but must never
+     * require re-entering the widget key to do so.
+     */
+    public function update_snapshot(string $companyName, int $credits, string $creditsAsOf): void
+    {
+        $all = $this->all();
+        $all['company_name'] = $companyName;
+        $all['credits'] = $credits;
+        $all['credits_as_of'] = $creditsAsOf;
+        update_option(self::OPTION_KEY, $all);
+    }
+
+    /**
+     * Wipes the entire stored option — widget key, snapshot, AND the category
+     * mapping. A fresh connect afterward could be a different aivastra
+     * account with an entirely different set of categories, so a stale
+     * mapping must not survive a disconnect.
+     */
+    public function clear(): void
+    {
+        delete_option(self::OPTION_KEY);
+    }
 }
