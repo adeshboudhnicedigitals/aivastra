@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import {
+  DevBalanceResponse,
   DevCategoriesResponse,
   DevErrorResponse,
   DevJobParams,
@@ -99,6 +100,38 @@ export async function devRoutes(app: FastifyInstance) {
         companyName: row.companyName,
         credits: row.credits ?? 0,
       };
+    },
+  );
+
+  app.get(
+    '/v1/dev/balance',
+    {
+      // No requireDevScope() — a credit count is not sensitive, and this is
+      // the one dev-API read a widget-scoped key needs directly (e.g. the
+      // WordPress plugin's "Refresh balance" button, which only ever holds
+      // the widget key day-to-day). Full-scoped keys may call it too.
+      preHandler: app.requireApiKey,
+      config: rateLimitConfig,
+      schema: {
+        tags: ['dev'],
+        summary: 'Get the current credit balance',
+        response: {
+          200: DevBalanceResponse,
+          401: DevErrorResponse,
+          404: DevErrorResponse,
+          429: DevErrorResponse,
+        },
+      },
+    },
+    async (req) => {
+      const [row] = await app.db
+        .select({ credits: schema.userCredits.balance })
+        .from(schema.merchants)
+        .leftJoin(schema.userCredits, eq(schema.userCredits.userId, schema.merchants.userId))
+        .where(eq(schema.merchants.id, req.merchantId as string))
+        .limit(1);
+      if (!row) throw new AppError('NOT_FOUND', 404, 'merchant not found');
+      return { credits: row.credits ?? 0 };
     },
   );
 

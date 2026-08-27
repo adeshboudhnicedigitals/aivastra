@@ -146,6 +146,13 @@ export const DevMeResponse = z.object({
   credits: z.number().int(),
 });
 
+// Deliberately available to both 'full' and 'widget' scoped keys (unlike
+// /v1/dev/me) — a credit count is not sensitive, and integrations like the
+// WordPress plugin only ever hold a widget-scoped key day-to-day.
+export const DevBalanceResponse = z.object({
+  credits: z.number().int(),
+});
+
 export const ApiKeyScope = z.enum(['full', 'widget']);
 export type ApiKeyScope = z.infer<typeof ApiKeyScope>;
 
