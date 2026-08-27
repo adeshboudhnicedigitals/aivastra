@@ -1,3 +1,26 @@
+## 2026-08-27 — WooCommerce Demo Storefront Theme, Catalog & Checkout
+
+**Done**
+- **Storefront Child Theme (`storefront-aivastra`)**:
+  - Installed upstream Storefront parent theme (`4.6.2`) and configured custom child theme (`themes/storefront-aivastra`) skinned with Aivastra's brand palette (`#0f172a`, `#6366f1` accent, `#f8fafc` surfaces).
+  - Restyled buttons, product grid cards with hover elevation, product price typography, and cart/checkout table surfaces.
+  - Activated child theme in WordPress container via WP-CLI.
+- **Catalog Import (`import-products.php`)**:
+  - Mounted garment asset folders (`men garments/`, `womens garments/`) read-only into `wpcli` container.
+  - Created idempotent catalog seed script importing 432 real garment images as WooCommerce simple products across 13 categories (Men: 9 subcategories with 372 products; Women: 4 subcategories with 60 products).
+  - Sideloaded local images into WP media library with generated metadata and assigned category-specific realistic INR pricing bands.
+  - Idempotency verified: re-running imports 0 duplicates and retains 433 total products (432 imported + 1 initial).
+- **Store Checkout & Shipping Configuration (`configure-store.php`)**:
+  - Configured store currency to `INR`.
+  - Enabled Cash-on-Delivery (COD) payment gateway and disabled non-functional gateways (BACS, cheque, PayPal).
+  - Enabled guest checkout and disabled tax calculations.
+  - Created flat-rate "Everywhere" shipping zone at ₹99 ("Standard Shipping").
+  - Verified core WooCommerce pages (Shop: 4, Cart: 5, Checkout: 6, My Account: 7).
+- **Verification & Design Context**:
+  - Verified theme activation, catalog category tree counts, store option values, and idempotency checks.
+  - Reference: `docs/superpowers/specs/2026-08-27-wp-storefront-ui-and-catalog-design.md` for the full design rationale.
+  - Note: VPS deployment is a deliberately separate follow-up phase.
+
 ## 2026-08-27 — WordPress Plugin Admin UX Redesign
 
 **Done**
