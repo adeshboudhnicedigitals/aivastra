@@ -59,6 +59,12 @@ export const userCredits = pgTable('user_credits', {
     .primaryKey()
     .references(() => users.id, { onDelete: 'cascade' }),
   balance: integer('balance').notNull().default(0),
+  // Stamped when the low-credit alert email fires (balance crossed below the
+  // threshold) so the scheduler sends it once per dip, not once per tick.
+  // Cleared when the balance recovers back to/above the threshold, re-arming
+  // the alert for a future dip — mirrors shopify_stores.last_alert_level's
+  // escalate-then-reset shape, just for a single threshold instead of levels.
+  lowCreditAlertSentAt: timestamp('low_credit_alert_sent_at', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

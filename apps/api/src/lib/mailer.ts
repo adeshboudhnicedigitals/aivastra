@@ -177,6 +177,39 @@ export async function sendPasswordResetEmail(
   await send(apiKey, { from, to, subject: 'Reset your Aivastra password', html: resetHtml(link) });
 }
 
+function userLowCreditsHtml(): string {
+  return `<!DOCTYPE html>
+<html>
+<body style="font-family:sans-serif;background:#f6f6f6;margin:0;padding:40px 0;">
+  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;padding:40px;">
+    <h1 style="font-size:20px;font-weight:700;color:#1a1a1a;margin:0 0 20px;">Your AI Vastra Credits Are Running Low 🚨</h1>
+    <p style="font-size:14px;color:#555;margin:0 0 16px;">Hi,</p>
+    <p style="font-size:14px;color:#555;margin:0 0 16px;">Your AI Vastra credits are running low.</p>
+    <p style="font-size:14px;color:#555;margin:0 0 16px;">Keep creating amazing AI catalogue photoshoots and offering Virtual Try-On to your customers without interruption.</p>
+    <p style="font-size:14px;color:#555;margin:0 0 24px;">✨ Top up your credits today and keep your fashion store running smoothly.</p>
+    <p style="font-size:14px;color:#555;margin:0 0 16px;">Need help choosing the right package? Our team is happy to assist.</p>
+    <p style="font-size:14px;color:#555;margin:0 0 4px;">📧 <a href="mailto:support@aivastra.com" style="color:#1a1a1a;">support@aivastra.com</a></p>
+    <p style="font-size:14px;color:#555;margin:0 0 24px;">📱 WhatsApp: +91 7729883692</p>
+    <p style="font-size:14px;color:#555;margin:0 0 24px;">Keep creating. Keep selling with AI Vastra! 🚀</p>
+    <p style="font-size:14px;color:#555;margin:0;">Best regards,<br/>Team AI Vastra</p>
+  </div>
+</body>
+</html>`;
+}
+
+export async function sendUserLowCreditsEmail(
+  apiKey: string,
+  from: string,
+  to: string,
+): Promise<void> {
+  await send(apiKey, {
+    from,
+    to,
+    subject: 'Your AI Vastra Credits Are Running Low',
+    html: userLowCreditsHtml(),
+  });
+}
+
 function lowCreditsHtml(p: {
   appUrl: string;
   level: 'warning' | 'critical' | 'empty';

@@ -3,6 +3,7 @@ import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { loadEnv } from './env.js';
 import { hashPassword } from './modules/auth/service.js';
+import { startUserLowCreditAlertScheduler } from './modules/credits/low-credit-alert-scheduler.js';
 import { startAlertScheduler } from './modules/shopify/alert-scheduler.js';
 import { startCollectionResyncScheduler } from './modules/shopify/collections-resync-scheduler.js';
 import { startSyncConsumer } from './modules/shopify/sync-consumer.js';
@@ -25,6 +26,7 @@ startSyncConsumer(app);
 startCollectionResyncScheduler(app);
 startUploadSweeper(app);
 startAlertScheduler(app);
+startUserLowCreditAlertScheduler(app);
 
 if (env.ADMIN_BOOTSTRAP_EMAIL && env.ADMIN_BOOTSTRAP_PASSWORD) {
   const [existing] = await app.db
