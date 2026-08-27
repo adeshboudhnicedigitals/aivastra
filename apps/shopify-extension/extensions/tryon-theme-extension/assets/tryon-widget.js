@@ -194,6 +194,22 @@
     let pendingReuseKey = null;
 
     const reuseExpiredNote = root.querySelector('.aivastra-tryon__reuse-expired-note');
+
+    // Themes routinely give a section ancestor `transform`, `filter`, or
+    // `contain` (sticky headers, gallery/parallax sections). That makes the
+    // ancestor the containing block for `position: fixed`, so our modal gets
+    // trapped inside its stacking context — the header and product images
+    // then render on top no matter how high z-index goes. Reparenting to
+    // <body> escapes every ancestor's stacking context. The custom
+    // properties (button/text color, radius, accent) live on `root`'s inline
+    // style and are normally inherited; copy them over since the modal is no
+    // longer a descendant of root once moved.
+    for (const el of [modal, lightbox]) {
+      if (!el) continue;
+      el.style.cssText = root.style.cssText + el.style.cssText;
+      document.body.appendChild(el);
+    }
+
     const REUSE_STORAGE_KEY = 'aivastra_last_photo';
     const REUSE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
@@ -960,7 +976,7 @@
       showReady({ file });
     }
     fileInput.addEventListener('change', () => handlePickedFile(fileInput));
-    const retryBtns = root.querySelectorAll('.aivastra-tryon__retry');
+    const retryBtns = modal.querySelectorAll('.aivastra-tryon__retry');
     for (let k = 0; k < retryBtns.length; k++) {
       retryBtns[k].addEventListener('click', startOver);
     }
