@@ -12,6 +12,7 @@ export const UsersExportQuery = z.object({
   showBanned: z.coerce.boolean().optional(),
   createdFrom: z.string().optional(),
   createdTo: z.string().optional(),
+  tier: z.string().optional(),
   sortDir: z.enum(['asc', 'desc']).default('desc'),
 });
 export type UsersExportQuery = z.infer<typeof UsersExportQuery>;
@@ -42,7 +43,7 @@ const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 // same rows, only the rendering differs.
 export async function loadUsersForExport(
   app: FastifyInstance,
-  { search, merchant, showBanned, createdFrom, createdTo, sortDir }: UsersExportQuery,
+  { search, merchant, showBanned, createdFrom, createdTo, tier, sortDir }: UsersExportQuery,
 ): Promise<UserExportRow[]> {
   const searchWhere = search
     ? or(
@@ -66,6 +67,7 @@ export async function loadUsersForExport(
     merchant === true ? isNotNull(schema.merchants.id) : undefined,
     fromInclusive ? gte(schema.users.createdAt, fromInclusive) : undefined,
     toInclusive ? lte(schema.users.createdAt, toInclusive) : undefined,
+    tier ? eq(schema.users.tier, tier) : undefined,
   );
 
   const [{ total }] = await app.db
