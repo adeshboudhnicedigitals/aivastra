@@ -2,10 +2,16 @@
   margin-bottom: 19px;
 }
 
+/* Bottom-right corner, nowhere near a theme's top nav bar to begin with. The
+   75dvh cap on .modal-content keeps it from ever growing tall enough to
+   reach the top of the viewport, and z-index is kept modest (not the old
+   9999) as a second safety net — if a theme's own sticky header ever did
+   overlap, it still wins the stacking conflict instead of this panel
+   covering it. */
 .aivastra-tryon__modal {
   position: fixed;
   inset: auto 24px 24px auto;
-  z-index: 9999;
+  z-index: 40;
   display: flex;
   align-items: flex-end;
   justify-content: flex-end;
@@ -23,9 +29,28 @@
   width: 400px;
   height: 700px;
   max-width: calc(100vw - 32px);
-  max-height: calc(100dvh - 48px);
+  max-height: 75dvh;
   overflow: hidden;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
+/* 'ready' and 'result' only (toggled in showStep) — the box shrinks/grows
+   with the photo actually being shown (see fitToPhotoAspectRatio in
+   tryon-widget.js) instead of a flat 700px. max-height above still caps it,
+   so a long History list scrolls (.modal-inner) rather than growing past
+   the viewport. */
+.aivastra-tryon__modal-content--fit {
+  height: auto;
+  min-height: 420px;
+}
+
+/* History grid overrides --fit's auto height — a grid of many tiles has no
+   single photo aspect ratio to size around, so it gets a constant height
+   instead (see renderResultList/renderSingleResult in tryon-widget.js).
+   Compound selector so it wins over --fit regardless of class order. */
+.aivastra-tryon__modal-content--fit.aivastra-tryon__modal-content--history {
+  height: 70dvh;
+  min-height: 70dvh;
 }
 
 @media (max-width: 480px) {
@@ -39,6 +64,14 @@
 }
 
 .aivastra-tryon__modal-inner {
+  /* Without this, height:100% (content-box by default) plus this padding
+     makes the rendered box 58px taller than .modal-content actually has —
+     silently clipped by its overflow:hidden rather than scrolled, since the
+     box itself (not just its children) was the part overflowing. Invisible
+     while every step's content stayed comfortably short of the limit, but
+     exactly why the ready/result steps' bottom-most content (the legal
+     text) was getting cut off once a tall photo pushed content further down. */
+  box-sizing: border-box;
   padding: 29px;
   height: 100%;
   overflow-y: auto;
@@ -62,12 +95,10 @@
   line-height: 1.2;
 }
 
-.aivastra-tryon__subheading {
-  margin: 2px 0 0;
-  font-size: 12px;
-  font-weight: 500;
-  color: #6b7280;
-  line-height: 1.2;
+.aivastra-tryon__header-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .aivastra-tryon__header-main[hidden] {
@@ -119,6 +150,15 @@
 
 .aivastra-tryon__history-btn:hover {
   background: #f3f4f6;
+}
+
+.aivastra-tryon__history-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.aivastra-tryon__history-btn[hidden] {
+  display: none;
 }
 
 .aivastra-tryon__history-badge {
@@ -179,13 +219,15 @@
   border-top: 1px solid rgba(17, 24, 39, 0.08);
 }
 
-/* History view: a 2-up scrollable gallery, no per-card actions (browsing
-   past results isn't the purchase moment the fresh result is). The result
-   step otherwise never uses this grid — it always shows exactly one card. */
+/* History view: a 2-up scrollable gallery (see renderResultList in
+   tryon-widget.js). Tapping a tile opens the lightbox directly; Add to Cart,
+   Share and expand are quick actions on the tile itself. The result step
+   otherwise shows a single full-size card — see renderSingleResult. */
 .aivastra-tryon__result-list--grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
+  column-gap: 12px;
+  row-gap: 24px;
 }
 
 .aivastra-tryon__result-list--grid .aivastra-tryon__result-card + .aivastra-tryon__result-card {
@@ -193,8 +235,19 @@
   border-top: none;
 }
 
+/* Flush against the image instead of the base row's gap. */
 .aivastra-tryon__result-card--compact .aivastra-tryon__result-actions {
-  display: none;
+  margin-top: 0;
+}
+
+.aivastra-tryon__result-card--compact .aivastra-tryon__add-to-cart {
+  padding: 7px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.aivastra-tryon__result-card--compact .aivastra-tryon__share {
+  width: 32px;
 }
 
 .aivastra-tryon__result-card--compact {
@@ -228,37 +281,6 @@
   display: none;
 }
 
-.aivastra-tryon__step-indicator {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
-  margin-bottom: 17px;
-}
-
-.aivastra-tryon__step-dot {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: #e9ecf2;
-  color: #697386;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.aivastra-tryon__step-dot.is-active {
-  background: var(--aivastra-accent, var(--aivastra-button-color, #000000));
-  color: var(--aivastra-text-color, #ffffff);
-}
-
-.aivastra-tryon__step-line {
-  width: 40px;
-  height: 1.5px;
-  background: #c9ced8;
-}
-
 .aivastra-tryon__upload-title {
   margin: 0;
   text-align: center;
@@ -275,13 +297,17 @@
   text-align: center;
   color: #6b7280;
   font-size: 13.5px;
+  font-weight: 500;
   line-height: 1.45;
 }
 
 .aivastra-tryon__avatar {
-  width: 220px;
-  height: 220px;
-  margin: 0 auto 20px;
+  /* Grows to fill whatever vertical space the upload step's other content
+     (title, lead, button, legal) leaves behind, instead of a fixed size. */
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  margin: 0 0 20px;
   overflow: hidden;
   border-radius: 24px;
   background: #f2f2f2;
@@ -290,7 +316,7 @@
 .aivastra-tryon__avatar-image {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .aivastra-tryon__avatar-image[hidden] {
@@ -335,11 +361,22 @@
 }
 
 .aivastra-tryon__legal {
-  margin: 18px 0 0;
+  margin: 8px 0 0;
   text-align: center;
-  color: #9ca3af;
+  color: #6b7280;
   font-size: 11px;
   line-height: 1.5;
+  /* Never squeezed by the shrink algorithm — see .aivastra-tryon__cta. */
+  flex-shrink: 0;
+  /* Pinned to exactly one line so its height is a known constant that
+     .aivastra-tryon__ready-preview's max-height budget can rely on — a
+     merchant-configured legalText that wraps to 2-3 lines was eating into
+     that budget unpredictably, which is what still let tall images push
+     content past the modal's max-height on some screens. A long custom
+     legalText now truncates with an ellipsis instead of wrapping. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .aivastra-tryon__step {
@@ -370,6 +407,32 @@
   align-items: center;
   justify-content: center;
   text-align: center;
+  gap: 12px;
+}
+
+.aivastra-tryon__error-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  /* #b42318 is this widget's one error red — also used by the email-gate
+     error, the cart error, and the reuse-expired note below. Not a custom
+     property: the modal is reparented to document.body in JS (escaping
+     .aivastra-tryon's subtree), so a property scoped to that class wouldn't
+     reach it there. */
+  background: #fef3f2;
+  color: #b42318;
+}
+
+.aivastra-tryon__step--pending p,
+.aivastra-tryon__step--error p {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: #374151;
 }
 
 .aivastra-tryon__ready-preview {
@@ -379,6 +442,22 @@
   justify-content: center;
   width: 100%;
   aspect-ratio: 3 / 4;
+  /* A tall/portrait upload's aspect-ratio-driven height (see
+     fitToPhotoAspectRatio in tryon-widget.js) can ask for more room than the
+     step actually has. Capping this box directly is what actually protects
+     the CTA/legal text below it: 75dvh is .modal-content's own cap in --fit
+     mode, minus a fixed budget for everything else sharing that space
+     (modal padding, header, gap, CTA button, legal text) — object-fit:
+     contain on the image then just letterboxes within whatever height this
+     resolves to, rather than the box growing past it. */
+  max-height: calc(75dvh - 200px);
+  /* Flex items default to a content-based automatic minimum size, which for
+     a box sized by aspect-ratio is that ratio's own height — without this,
+     a tall photo can't shrink below it even when the modal (auto-height in
+     --fit mode) doesn't have room, pushing the CTA/legal text below out of
+     view instead of just letting the photo (already object-fit: contain)
+     scale down further. */
+  min-height: 0;
   border-radius: 16px;
   overflow: hidden;
   background: #f9fafb;
@@ -417,7 +496,14 @@
 }
 
 .aivastra-tryon__cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   width: 100%;
+  /* Never squeezed by the shrink algorithm — the photo above (min-height:0)
+     is what should give way when space is tight, not this button. */
+  flex-shrink: 0;
   padding: 16px 24px;
   border: none;
   border-radius: 12px;
@@ -433,6 +519,7 @@
   filter: brightness(1.1);
 }
 
+.aivastra-tryon__step--pending .aivastra-tryon__retry,
 .aivastra-tryon__step--error .aivastra-tryon__retry {
   background: var(--aivastra-accent, var(--aivastra-button-color, #000000));
   color: var(--aivastra-text-color, #ffffff);
@@ -463,6 +550,16 @@
   gap: 19px;
   width: 100%;
   aspect-ratio: 3 / 4;
+  /* Sized to the shopper's own photo by fitToPhotoAspectRatio (see
+     confirmReady in tryon-widget.js) now that --fit applies to the progress
+     step too — this 3:4 is only the fallback before that inline style
+     lands. Capped so a tall/portrait upload can't ask for more room than
+     the modal has and push the spinner/text past its own edge — 75dvh is
+     .modal-content's cap in --fit mode, minus a budget for the header and
+     modal padding sharing that space (see the same reasoning on
+     .aivastra-tryon__ready-preview). */
+  max-height: calc(75dvh - 120px);
+  min-height: 0;
   border-radius: var(--aivastra-border-radius, 4px);
   background: #f2f2f2;
   padding: 19px;
@@ -489,7 +586,8 @@
   inset: 0;
   z-index: -2;
   background-image: var(--aivastra-progress-bg-url, none);
-  background-size: cover;
+  background-size: contain;
+  background-repeat: no-repeat;
   background-position: center;
 }
 
@@ -563,6 +661,12 @@
 }
 
 .aivastra-tryon__result-image {
+  /* img is inline by default, which reserves baseline descender space below
+     it and makes this block wrapper a few px taller than the image itself —
+     the expand button below (positioned against the wrapper) then sits
+     offset from the image's real bottom-right corner. display:block removes
+     that gap so the wrapper's height matches the image exactly. */
+  display: block;
   width: 100%;
   height: auto;
   aspect-ratio: 3 / 4;
@@ -580,22 +684,134 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
+  background: #fff;
+  color: #111827;
   border: none;
   border-radius: 50%;
   cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.aivastra-tryon__expand svg {
+  width: 16px;
+  height: 16px;
 }
 
 .aivastra-tryon__expand:hover {
-  background: rgba(0, 0, 0, 0.75);
+  background: #f3f4f6;
 }
 
-/* History grid tiles already open a full-size view on tap (see
-   openHistoryDetail in tryon-widget.js) — a second expand affordance on
-   the same tile would just be visual clutter. */
-.aivastra-tryon__result-card--compact .aivastra-tryon__expand {
+/* Full-size result page only (see buildResultCard's actions:true branch) —
+   the History grid tile keeps its own Add to Cart as a text pill below the
+   image, so this overlay stays hidden there. */
+.aivastra-tryon__add-to-cart-overlay {
   display: none;
+}
+
+.aivastra-tryon__result-card:not(.aivastra-tryon__result-card--compact)
+  .aivastra-tryon__add-to-cart-overlay {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  color: #111827;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.aivastra-tryon__add-to-cart-overlay svg {
+  width: 16px;
+  height: 16px;
+}
+
+.aivastra-tryon__add-to-cart-overlay:hover {
+  background: #f3f4f6;
+}
+
+.aivastra-tryon__add-to-cart-overlay:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Full-size result page only, same theme as the expand/cart overlays. The
+   History grid tile keeps its own Share button below the image. */
+.aivastra-tryon__share-overlay {
+  display: none;
+}
+
+.aivastra-tryon__result-card:not(.aivastra-tryon__result-card--compact)
+  .aivastra-tryon__share-overlay {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  color: #111827;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.aivastra-tryon__share-overlay svg {
+  width: 16px;
+  height: 16px;
+}
+
+.aivastra-tryon__share-overlay:hover {
+  background: #f3f4f6;
+}
+
+/* Both Add to Cart and Share moved onto the image as overlays on the full
+   result page — nothing left in this row there, so it's hidden outright
+   rather than left as an empty strip still taking up margin/padding. The
+   History grid's compact card keeps both buttons in this row untouched. */
+.aivastra-tryon__result-card:not(.aivastra-tryon__result-card--compact)
+.aivastra-tryon__result-actions {
+  display: none;
+}
+
+/* Full-size result page only, bottom-center over the image, same white
+   theme as the other overlays. Hidden on the History grid's compact tile. */
+.aivastra-tryon__try-another {
+  display: none;
+}
+
+.aivastra-tryon__result-card:not(.aivastra-tryon__result-card--compact)
+  .aivastra-tryon__try-another {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  border: none;
+  border-radius: 999px;
+  background: #fff;
+  color: #111827;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.aivastra-tryon__try-another:hover {
+  background: #f3f4f6;
 }
 
 .aivastra-tryon__lightbox {
@@ -605,7 +821,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.9);
+  background: rgba(255, 255, 255, 0.9);
   padding: 24px;
 }
 
@@ -613,42 +829,58 @@
   display: none;
 }
 
+.aivastra-tryon__lightbox-frame {
+  position: relative;
+  display: flex;
+  background: #fff;
+  padding: 28px;
+  border-radius: 16px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35);
+}
+
 /* width/height: auto (not left unset) overrides the tag's placeholder 1x1
    attributes (present only to satisfy theme-check's img-width-height rule)
    so the browser sizes from the loaded image's real dimensions instead of
    rendering an invisible 1px dot — same root cause as
    .aivastra-tryon__ready-image above, different fix: that one fills a
-   fixed-aspect-ratio parent, but here width/height 100% would stretch the
-   img's own box (and therefore its click target) to the full lightbox,
-   leaving no backdrop area outside the visible photo to click-to-close. */
+   fixed-aspect-ratio parent, but here percentage sizing can't be used at
+   all — .lightbox-frame's own height is auto (shrink-to-fit its padding +
+   this image), so a percentage on the image would resolve against an
+   indeterminate parent height and compute as none. Bounding directly off
+   the viewport instead sidesteps that: 104px is .lightbox's 24px padding
+   plus .lightbox-frame's 28px padding, doubled for both sides of each axis. */
 .aivastra-tryon__lightbox-image {
+  display: block;
   width: auto;
   height: auto;
-  max-width: 100%;
-  max-height: 100%;
+  max-width: calc(100vw - 104px);
+  max-height: calc(100dvh - 104px);
   border-radius: 8px;
 }
 
+/* Centered within the frame's 28px padding strip, clear of both the image
+   and the card's outer edge by 2px on either side (a 24px button in a 28px
+   strip) — no background of its own, just an icon resting on the card. */
 .aivastra-tryon__lightbox-close {
   position: absolute;
-  top: 16px;
-  right: 16px;
-  width: 40px;
-  height: 40px;
+  top: 2px;
+  right: 2px;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.15);
-  color: #fff;
+  background: transparent;
+  color: #111827;
   border: none;
   border-radius: 50%;
-  font-size: 24px;
+  font-size: 17px;
   line-height: 1;
   cursor: pointer;
 }
 
 .aivastra-tryon__lightbox-close:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: rgba(17, 24, 39, 0.06);
 }
 
 .aivastra-tryon__promo {
@@ -669,7 +901,9 @@
 .aivastra-tryon__reuse-expired-note {
   margin: 0 0 10px;
   font-size: 13px;
-  color: #a94442;
+  /* Matches .aivastra-tryon__email-error / __cart-error / __error-icon —
+     one error red across the widget instead of each picking its own shade. */
+  color: #b42318;
 }
 
 .aivastra-tryon__reuse-expired-note[hidden] {
@@ -719,6 +953,7 @@
   align-items: stretch;
   gap: 10px;
   margin-top: 14px;
+  padding-top: 8px;
 }
 
 .aivastra-tryon__add-to-cart {
@@ -742,10 +977,13 @@
   flex: 0 0 auto;
   width: 48px;
   border: 1px solid #e5e7eb;
-  border-radius: 12px;
+  border-radius: 10px;
   background: #fff;
   color: #111827;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .aivastra-tryon__cart-error {

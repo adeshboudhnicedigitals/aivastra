@@ -2,6 +2,7 @@ import { Badge, BlockStack, Button, Card, InlineGrid, InlineStack, Text } from '
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { apiFetch, navigateTopLevel } from '../lib/api';
+import { type ClassifiedError, classifyError } from '../lib/errors';
 import { PACK_DISPLAY } from '../lib/packs';
 
 // Shared between DashboardPage and PricingPage — same pattern as
@@ -17,7 +18,7 @@ export function PackGrid({
   onError,
   leadingCard,
 }: {
-  onError?: (message: string) => void;
+  onError?: (error: ClassifiedError) => void;
   leadingCard?: ReactNode;
 }) {
   const [buying, setBuying] = useState<string | null>(null);
@@ -33,7 +34,7 @@ export function PackGrid({
       // must be a top-level navigation — an iframe navigation is blocked.
       navigateTopLevel(confirmationUrl);
     } catch (err) {
-      onError?.((err as Error).message);
+      onError?.(classifyError(err));
       setBuying(null);
     }
   }

@@ -73,17 +73,6 @@ function handleReauthIfNeeded(code: string | undefined): void {
 // backend hang) would otherwise leave callers awaiting forever with no way to
 // recover short of a full page reload.
 const FETCH_TIMEOUT_MS = 12_000;
-// A save can legitimately spend almost 30 seconds waiting for the per-store
-// publication lock and then another 10 seconds on Shopify. Keep the ordinary
-// request deadline short, but leave enough headroom for the route to return
-// the committed widget plus `synced:false` instead of aborting in the SPA.
-const WIDGET_CONFIG_PATCH_TIMEOUT_MS = 45_000;
-
-function requestTimeoutMs(path: string, init: RequestInit): number {
-  return path === '/v1/shopify/widget-config' && init.method?.toUpperCase() === 'PATCH'
-    ? WIDGET_CONFIG_PATCH_TIMEOUT_MS
-    : FETCH_TIMEOUT_MS;
-}
 
 async function fetchWithTimeout(
   url: string,
@@ -96,7 +85,20 @@ async function fetchWithTimeout(
     return await fetch(url, { ...init, signal: controller.signal });
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
-      throw new Error('Request timed out — check your connection and try again.');
+      throw Object.assign(new Error('Request timed out — check your connection and try again.'), {
+        code: 'TIMEOUT',
+      });
+    }
+    // A dead tunnel, DNS failure, CORS block, or offline browser all surface
+    // here as a plain TypeError from fetch() itself — there's no response to
+    // parse an ApiError out of. Tag it the same way as the timeout above so
+    // lib/errors.ts's classifyError can recognize it without string-matching
+    // err.message.
+    if (err instanceof TypeError) {
+      throw Object.assign(
+        new Error("Couldn't reach AiVastra — check your connection and try again."),
+        { code: 'NETWORK_ERROR' },
+      );
     }
     throw err;
   } finally {
@@ -115,7 +117,6 @@ async function fetchWithTimeout(
  */
 export async function apiFetchResponse(path: string, init: RequestInit = {}): Promise<Response> {
   const url = `${API_BASE}${path}`;
-  const timeoutMs = requestTimeoutMs(path, init);
   const token = await getIdToken();
   const res = await fetchWithTimeout(
     url,
@@ -127,7 +128,7 @@ export async function apiFetchResponse(path: string, init: RequestInit = {}): Pr
         ...(init.body ? { 'Content-Type': 'application/json' } : {}),
       },
     },
-    timeoutMs,
+    FETCH_TIMEOUT_MS,
   );
 
   if (res.status === 401) {
@@ -143,7 +144,7 @@ export async function apiFetchResponse(path: string, init: RequestInit = {}): Pr
           ...(init.body ? { 'Content-Type': 'application/json' } : {}),
         },
       },
-      timeoutMs,
+      FETCH_TIMEOUT_MS,
     );
     if (!retryRes.ok) {
       const { message, code } = await parseErrorBody(retryRes);
@@ -163,5 +164,16 @@ export async function apiFetchResponse(path: string, init: RequestInit = {}): Pr
 
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await apiFetchResponse(path, init);
-  return res.json() as Promise<T>;
+  try {
+    return (await res.json()) as T;
+  } catch {
+    // A 2xx response with a non-JSON or empty body — a malformed proxy
+    // response, most likely — would otherwise throw a raw SyntaxError that
+    // bypasses ApiError entirely and can't be classified.
+    throw new ApiError(
+      res.status,
+      'Received an unexpected response from the server.',
+      'BAD_RESPONSE',
+    );
+  }
 }
