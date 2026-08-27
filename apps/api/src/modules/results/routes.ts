@@ -1,6 +1,19 @@
+import { createHash } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import AdmZip from 'adm-zip';
-import { and, count, desc, eq, gte, ilike, or, type SQL, sql } from 'drizzle-orm';
+import {
+  and,
+  count,
+  desc,
+  eq,
+  gte,
+  ilike,
+  isNotNull,
+  isNull,
+  or,
+  type SQL,
+  sql,
+} from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -20,6 +33,15 @@ const FLAG_REASONS: { value: string; label: string }[] = [
 ];
 const FLAG_REASON_VALUES = FLAG_REASONS.map((r) => r.value) as [string, ...string[]];
 
+// Content hash of the generated client script, appended to its <script src> as a
+// cache-busting query param. This tool ships no build step, so the script is a
+// server-rendered string — a CDN in front of the app (Cloudflare on staging/prod)
+// can cache /results/app.js and ignore/override our Cache-Control header entirely,
+// serving a stale script for days after a deploy. A content-addressed URL sidesteps
+// that: every deploy that changes the script gets a new URL, which is a guaranteed
+// cache miss regardless of what the CDN does with the old one.
+const APP_JS_VERSION = createHash('sha256').update(appJs()).digest('hex').slice(0, 10);
+
 const LoginBody = z.object({ email: z.string().email(), password: z.string().min(1) });
 const ResultsQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -28,7 +50,7 @@ const ResultsQuery = z.object({
   userId: z.string().uuid().optional(),
   date: z.enum(['any', 'today', '7d', '30d']).default('any'),
   status: z.enum(['completed', 'failed', 'all']).default('completed'),
-  flag: z.enum(['all', 'flagged', 'unflagged']).default('all'),
+  flag: z.enum(['all', 'flagged', 'resolved']).default('all'),
 });
 const FlagBody = z
   .object({
@@ -37,6 +59,7 @@ const FlagBody = z
     note: z.string().max(500).optional(),
   })
   .refine((v) => !v.flagged || !!v.reason, { message: 'reason is required when flagging' });
+const ResolveBody = z.object({ note: z.string().max(500).optional() });
 
 export async function resultsRoutes(app: FastifyInstance) {
   const secret = new TextEncoder().encode(app.env.JWT_SECRET);
@@ -94,8 +117,18 @@ export async function resultsRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  app.get('/results/app.js', async (_req, reply) => {
-    reply.type('application/javascript').send(appJs());
+  app.get('/results/app.js', async (req, reply) => {
+    // The HTML always points at the current build's content-addressed URL
+    // (?v=APP_JS_VERSION, see its definition above), so this specific URL's response
+    // never changes — safe to let any cache (including a CDN in front of this app)
+    // hold onto it indefinitely. A request for a stale ?v= (an old tab that hasn't
+    // reloaded) still gets served the current script, which is fine: it's the same
+    // contract a plain unversioned URL had, just without the CDN staleness trap.
+    const cacheControl =
+      'v' in (req.query as Record<string, unknown>)
+        ? 'public, max-age=31536000, immutable'
+        : 'no-store';
+    reply.type('application/javascript').header('Cache-Control', cacheControl).send(appJs());
   });
 
   app.get('/results', async (req, reply) => {
@@ -116,8 +149,9 @@ export async function resultsRoutes(app: FastifyInstance) {
       >;
       const conditions: (SQL | undefined)[] = [];
 
-      if (flag === 'flagged') conditions.push(eq(schema.jobs.flagged, true));
-      else if (flag === 'unflagged') conditions.push(eq(schema.jobs.flagged, false));
+      if (flag === 'flagged')
+        conditions.push(and(eq(schema.jobs.flagged, true), isNull(schema.jobs.resolvedAt)));
+      else if (flag === 'resolved') conditions.push(isNotNull(schema.jobs.resolvedAt));
 
       if (status === 'completed') {
         conditions.push(eq(schema.jobs.status, 'COMPLETED'));
@@ -169,10 +203,14 @@ export async function resultsRoutes(app: FastifyInstance) {
           creditsCharged: schema.jobs.creditsCharged,
           createdAt: schema.jobs.createdAt,
           status: schema.jobs.status,
+          workerId: schema.jobs.workerId,
+          workerLabel: schema.workers.label,
           flagged: schema.jobs.flagged,
           flagReason: schema.jobs.flagReason,
           flagNote: schema.jobs.flagNote,
           flaggedAt: schema.jobs.flaggedAt,
+          resolvedAt: schema.jobs.resolvedAt,
+          resolvedNote: schema.jobs.resolvedNote,
           upperGarmentKey: schema.jobInputs.upperGarmentKey,
           lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
           poseThumbKey: schema.modelPoseAssets.thumbnailKey,
@@ -194,6 +232,7 @@ export async function resultsRoutes(app: FastifyInstance) {
           eq(schema.modelBackgrounds.id, schema.jobInputs.backgroundId),
         )
         .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
+        .leftJoin(schema.workers, eq(schema.workers.id, schema.jobs.workerId))
         .where(where)
         .orderBy(desc(schema.jobs.createdAt))
         .limit(pageSize)
@@ -210,10 +249,14 @@ export async function resultsRoutes(app: FastifyInstance) {
           creditsCharged: r.creditsCharged,
           createdAt: r.createdAt,
           status: r.status,
+          workerId: r.workerId,
+          workerLabel: r.workerLabel,
           flagged: r.flagged,
           flagReason: r.flagReason,
           flagNote: r.flagNote,
           flaggedAt: r.flaggedAt,
+          resolvedAt: r.resolvedAt,
+          resolvedNote: r.resolvedNote,
           garmentUrl: await presign(r.upperGarmentKey ?? r.lowerGarmentKey),
           poseUrl: await presign(r.poseThumbKey),
           backgroundUrl: await presign(r.backgroundThumbKey),
@@ -276,6 +319,9 @@ export async function resultsRoutes(app: FastifyInstance) {
             flagNote: null,
             flaggedAt: null,
             flaggedBy: null,
+            resolvedAt: null,
+            resolvedNote: null,
+            resolvedBy: null,
           };
 
       await app.db.transaction(async (tx) => {
@@ -300,6 +346,54 @@ export async function resultsRoutes(app: FastifyInstance) {
     },
   );
 
+  app.patch(
+    '/results/:id/resolve',
+    {
+      preHandler: requireResultsUser,
+      schema: { params: z.object({ id: z.string().uuid() }), body: ResolveBody },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const { note } = req.body as z.infer<typeof ResolveBody>;
+
+      const [job] = await app.db
+        .select({
+          id: schema.jobs.id,
+          flagged: schema.jobs.flagged,
+          resolvedAt: schema.jobs.resolvedAt,
+        })
+        .from(schema.jobs)
+        .where(eq(schema.jobs.id, id));
+      if (!job) throw new AppError('NOT_FOUND', 404, 'job not found');
+      if (!job.flagged) throw new AppError('VALIDATION', 400, 'job is not flagged');
+      if (job.resolvedAt) throw new AppError('VALIDATION', 400, 'job is already resolved');
+
+      const admin = await resolveAdminAccess(app, req.userId);
+      const actorRole = admin?.role ?? 'ADMIN';
+
+      const patch = {
+        resolvedAt: new Date(),
+        resolvedNote: note ?? null,
+        resolvedBy: req.userId,
+      };
+
+      await app.db.transaction(async (tx) => {
+        await tx.update(schema.jobs).set(patch).where(eq(schema.jobs.id, id));
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: actorRole },
+          action: 'job.resolve',
+          resourceType: 'job',
+          resourceId: id,
+          before: { resolvedAt: null, resolvedNote: null },
+          after: { resolvedAt: patch.resolvedAt, resolvedNote: patch.resolvedNote },
+          request: req,
+        });
+      });
+
+      return { ok: true, resolvedAt: patch.resolvedAt, resolvedNote: patch.resolvedNote };
+    },
+  );
+
   app.get(
     '/results/:id/bundle',
     { preHandler: requireResultsUser, schema: { params: z.object({ id: z.string().uuid() }) } },
@@ -317,8 +411,11 @@ export async function resultsRoutes(app: FastifyInstance) {
           flagReason: schema.jobs.flagReason,
           flagNote: schema.jobs.flagNote,
           flaggedAt: schema.jobs.flaggedAt,
+          resolvedAt: schema.jobs.resolvedAt,
+          resolvedNote: schema.jobs.resolvedNote,
           upperGarmentKey: schema.jobInputs.upperGarmentKey,
           lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
+          faceThumbKey: schema.modelFaces.thumbnailKey,
           poseThumbKey: schema.modelPoseAssets.thumbnailKey,
           backgroundThumbKey: schema.modelBackgrounds.thumbnailKey,
           lowerThumbKey: sql<
@@ -332,6 +429,7 @@ export async function resultsRoutes(app: FastifyInstance) {
         .from(schema.jobs)
         .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
         .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+        .leftJoin(schema.modelFaces, eq(schema.modelFaces.id, schema.jobInputs.faceId))
         .leftJoin(schema.modelPoseAssets, eq(schema.modelPoseAssets.id, schema.jobInputs.poseId))
         .leftJoin(
           schema.modelBackgrounds,
@@ -369,6 +467,7 @@ export async function resultsRoutes(app: FastifyInstance) {
       };
 
       await addKey('inputs', 'garment', row.upperGarmentKey ?? row.lowerGarmentKey);
+      await addKey('inputs', 'face', row.faceThumbKey);
       await addKey('inputs', 'pose', row.poseThumbKey);
       await addKey('inputs', 'background', row.backgroundThumbKey);
       await addKey('inputs', 'lower', row.lowerThumbKey);
@@ -396,6 +495,8 @@ export async function resultsRoutes(app: FastifyInstance) {
               flagReason: row.flagReason,
               flagNote: row.flagNote,
               flaggedAt: row.flaggedAt,
+              resolvedAt: row.resolvedAt,
+              resolvedNote: row.resolvedNote,
             },
             null,
             2,
@@ -432,6 +533,9 @@ function commonCss(): string {
   --flag: oklch(0.62 0.15 55);
   --flag-soft: oklch(0.95 0.05 55);
   --flag-ink: oklch(0.42 0.13 55);
+  --resolved: oklch(0.6 0.14 145);
+  --resolved-soft: oklch(0.95 0.05 145);
+  --resolved-ink: oklch(0.4 0.12 145);
   --sans: 'Geist', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --mono: 'Geist Mono', 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   --r: 6px;
@@ -458,6 +562,9 @@ function commonCss(): string {
   --flag: oklch(0.72 0.15 55);
   --flag-soft: oklch(0.3 0.07 55);
   --flag-ink: oklch(0.82 0.12 60);
+  --resolved: oklch(0.7 0.14 145);
+  --resolved-soft: oklch(0.28 0.07 145);
+  --resolved-ink: oklch(0.82 0.12 150);
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 14px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
@@ -526,7 +633,7 @@ ${commonCss()}
     <div class="error-msg" id="error-msg"></div>
   </div>
 </div>
-<script src="/results/app.js"></script>
+<script src="/results/app.js?v=${APP_JS_VERSION}"></script>
 </body>
 </html>`;
 }
@@ -598,14 +705,15 @@ ${commonCss()}
 .col-when { width: 150px; }
 .col-flag { width: 150px; text-align: center; }
 
-.id-num { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--ink); }
-.id-sub { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 2px; }
+.id-num { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--ink); cursor: help; }
+.id-sub { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 2px; cursor: help; }
 .user-name { font-weight: 500; color: var(--ink); word-break: break-all; }
 .user-email { font-size: 12px; color: var(--muted); margin-top: 2px; word-break: break-all; }
 
 .thumb-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.thumb-img { position: relative; width: 100%; max-width: 110px; }
 .thumb {
-  width: 100%; max-width: 110px; aspect-ratio: 3/4; object-fit: cover;
+  display: block; width: 100%; aspect-ratio: 3/4; object-fit: cover;
   border-radius: var(--r); border: 1px solid var(--border); background: var(--surface-2);
   cursor: zoom-in; transition: transform 120ms ease, box-shadow 120ms ease;
 }
@@ -614,19 +722,26 @@ ${commonCss()}
   width: 100%; max-width: 110px; aspect-ratio: 3/4; border-radius: var(--r); border: 1px dashed var(--border);
   background: var(--surface-2); display: grid; place-items: center; color: var(--muted-2); font-size: 18px;
 }
-.img-links { display: flex; gap: 6px; justify-content: center; }
-.img-links a {
-  font-size: 11px; color: var(--accent-ink); text-decoration: none; padding: 3px 8px;
-  border: 1px solid var(--border); border-radius: var(--r); background: var(--surface-2);
-  transition: background 80ms ease, border-color 80ms ease;
+.thumb-dl {
+  position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 50%;
+  background: rgba(0,0,0,0.55); color: #fff; display: grid; place-items: center; text-decoration: none;
+  transition: background 120ms ease;
 }
-.img-links a:hover { background: var(--accent-soft); border-color: var(--accent); }
+.thumb-dl:hover { background: rgba(0,0,0,0.75); }
+.thumb-dl svg { width: 12px; height: 12px; }
 .credits-num { font-family: var(--mono); font-weight: 500; }
 .when-text { font-size: 12px; color: var(--muted); font-family: var(--mono); }
 
 .results-table tr.flagged-row td { background: var(--flag-soft); }
 .results-table tr.flagged-row:hover td { filter: brightness(0.97); }
-.flag-cell { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.results-table tr.resolved-row td { background: var(--resolved-soft); }
+.results-table tr.resolved-row:hover td { filter: brightness(0.97); }
+.flag-cell { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+.flag-status { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.flag-actions {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding-top: 8px; border-top: 1px dashed var(--border);
+}
 .flag-btn {
   display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 5px 10px;
   border-radius: var(--r); border: 1px solid var(--border); background: var(--surface); color: var(--muted);
@@ -634,12 +749,17 @@ ${commonCss()}
 }
 .flag-btn:hover { background: var(--surface-hover); border-color: var(--border-strong); color: var(--ink); }
 .flag-btn.active { background: var(--flag-soft); border-color: var(--flag); color: var(--flag-ink); }
+.flag-btn.resolved-active { background: var(--resolved-soft); border-color: var(--resolved); color: var(--resolved-ink); }
+.flag-btn.resolve { border-color: var(--resolved); color: var(--resolved-ink); }
+.flag-btn.resolve:hover { background: var(--resolved-soft); }
 .flag-badge {
   font-size: 11px; color: var(--flag-ink); background: var(--flag-soft); border: 1px solid var(--flag);
   border-radius: var(--r); padding: 2px 7px; max-width: 130px; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap;
 }
+.flag-badge.resolved { color: var(--resolved-ink); background: var(--resolved-soft); border-color: var(--resolved); }
 .flag-note-hint { font-size: 10.5px; color: var(--muted); max-width: 130px; text-align: center; word-break: break-word; }
+.flag-note-hint.resolved-hint { color: var(--resolved-ink); }
 .bundle-link {
   font-size: 11px; color: var(--accent-ink); text-decoration: none; padding: 3px 8px;
   border: 1px solid var(--border); border-radius: var(--r); background: var(--surface-2);
@@ -682,8 +802,8 @@ ${commonCss()}
   position: fixed; inset: 0; background: rgba(0,0,0,0.88); z-index: 100;
   display: none; justify-content: center; align-items: center; cursor: zoom-out; backdrop-filter: blur(2px);
 }
-.lightbox.active { display: flex; }
-.lightbox img { max-width: 92vw; max-height: 92vh; border-radius: var(--r-lg); box-shadow: 0 24px 64px rgba(0,0,0,0.6); }
+.lightbox.active { display: flex; overflow: hidden; }
+.lightbox img { max-width: 92vw; max-height: 92vh; border-radius: var(--r-lg); box-shadow: 0 24px 64px rgba(0,0,0,0.6); will-change: transform; user-select: none; -webkit-user-drag: none; }
 .lightbox-close {
   position: absolute; top: 20px; right: 24px; color: #fff; font-size: 32px; line-height: 1;
   cursor: pointer; opacity: 0.8; transition: opacity 120ms ease; user-select: none;
@@ -750,7 +870,7 @@ ${commonCss()}
       <select class="select" id="filter-flag">
         <option value="all">All</option>
         <option value="flagged">Flagged only</option>
-        <option value="unflagged">Unflagged only</option>
+        <option value="resolved">Resolved only</option>
       </select>
     </div>
     <div class="filter-group">
@@ -792,7 +912,7 @@ ${commonCss()}
   <div class="modal-card">
     <h2 id="flag-modal-title">Flag job</h2>
     <p class="modal-sub" id="flag-modal-sub">Mark this job for later review.</p>
-    <div class="modal-field">
+    <div class="modal-field" id="flag-reason-group">
       <label for="flag-reason">Reason</label>
       <select id="flag-reason"></select>
     </div>
@@ -811,11 +931,11 @@ ${commonCss()}
 
 <div class="lightbox" id="lightbox">
   <span class="lightbox-close" id="lightbox-close">&times;</span>
-  <img id="lightbox-img" src="" alt="Preview" />
+  <img id="lightbox-img" src="" alt="Preview" draggable="false" />
 </div>
 
 <div class="toast-stack" id="toast-stack"></div>
-<script src="/results/app.js"></script>
+<script src="/results/app.js?v=${APP_JS_VERSION}"></script>
 </body>
 </html>`;
 }
@@ -982,8 +1102,11 @@ function appJs(): string {
         var item = state.items[i];
         var seq = (state.page - 1) * state.pageSize + i + 1;
         var rev = state.total - ((state.page - 1) * state.pageSize + i);
+        var rowClass = item.resolvedAt ? 'resolved-row' : (item.flagged ? 'flagged-row' : '');
+        var workerLabel = item.workerLabel || item.workerId || 'unassigned';
+        var rowTitle = 'Job ID: ' + item.id + ' • Worker: ' + workerLabel;
         rows.push(
-          '<tr class="' + (item.flagged ? 'flagged-row' : '') + '">' +
+          '<tr class="' + rowClass + '" title="' + esc(rowTitle) + '">' +
           '<td class="col-id"><div class="id-num">' + rev + '</div><div class="id-sub">#' + seq + '</div></td>' +
           '<td class="col-user"><div class="user-name">' + esc(item.userEmail || '—') + '</div><div class="user-email">' + esc(item.userEmail || '') + '</div></td>' +
           '<td class="col-img">' + renderThumb(item.garmentUrl, 'Garment') + '</td>' +
@@ -1004,6 +1127,18 @@ function appJs(): string {
           return function() { openFlagModal(jobId); };
         })(flagBtns[fb].getAttribute('data-flag-btn')));
       }
+      var resolveBtns = resultsBody.querySelectorAll('[data-resolve-btn]');
+      for (var rb = 0; rb < resolveBtns.length; rb++) {
+        resolveBtns[rb].addEventListener('click', (function(jobId) {
+          return function() { openResolveModal(jobId); };
+        })(resolveBtns[rb].getAttribute('data-resolve-btn')));
+      }
+      var thumbImgs = resultsBody.querySelectorAll('img.thumb[data-lb]');
+      for (var ti = 0; ti < thumbImgs.length; ti++) {
+        thumbImgs[ti].addEventListener('click', (function(url) {
+          return function() { window.openLightbox(url); };
+        })(thumbImgs[ti].getAttribute('data-lb')));
+      }
     }
     renderPager(totalPages);
   }
@@ -1015,24 +1150,32 @@ function appJs(): string {
         ' Flag</button>';
     }
     var label = FLAG_REASON_LABELS[item.flagReason] || item.flagReason || 'Flagged';
+    var resolved = !!item.resolvedAt;
+    var flagIcon = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/></svg>';
     var html = '<div class="flag-cell">' +
-      '<button class="flag-btn active" data-flag-btn="' + esc(item.id) + '">' +
-        '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/></svg>' +
-        ' Flagged</button>' +
-      '<span class="flag-badge" title="' + esc(label) + '">' + esc(label) + '</span>';
+      '<div class="flag-status">' +
+        '<button class="flag-btn ' + (resolved ? 'resolved-active' : 'active') + '" data-flag-btn="' + esc(item.id) + '">' +
+          flagIcon + ' ' + (resolved ? 'Resolved' : 'Flagged') + '</button>' +
+        '<span class="flag-badge' + (resolved ? ' resolved' : '') + '" title="' + esc(label) + '">' + esc(label) + '</span>';
     if (item.flagNote) html += '<span class="flag-note-hint">' + esc(item.flagNote) + '</span>';
-    html += '<a class="bundle-link" href="/results/' + esc(item.id) + '/bundle">Download bundle</a>';
-    html += '</div>';
+    if (resolved && item.resolvedNote) html += '<span class="flag-note-hint resolved-hint">Resolved: ' + esc(item.resolvedNote) + '</span>';
+    html += '</div>' +
+      '<div class="flag-actions">' +
+        '<a class="bundle-link" href="/results/' + esc(item.id) + '/bundle">Download bundle</a>';
+    if (!resolved) html += '<button class="flag-btn resolve" data-resolve-btn="' + esc(item.id) + '">Mark resolved</button>';
+    html += '</div>' +
+    '</div>';
     return html;
   }
 
   function renderThumb(url, label) {
     if (!url) return '<div class="thumb-placeholder">—</div>';
     return '<div class="thumb-wrap">' +
-      '<img class="thumb" src="' + esc(url) + '" alt="' + esc(label) + '" loading="lazy" data-lb="' + esc(url) + '" onclick="window.openLightbox(this.dataset.lb)">' +
-      '<div class="img-links">' +
-        '<a href="' + esc(url) + '" target="_blank" rel="noreferrer">Open</a>' +
-        '<a href="' + esc(url) + '" target="_blank" rel="noreferrer" download="' + esc(label.toLowerCase()) + '.jpg">Download</a>' +
+      '<div class="thumb-img">' +
+        '<img class="thumb" src="' + esc(url) + '" alt="' + esc(label) + '" loading="lazy" data-lb="' + esc(url) + '">' +
+        '<a class="thumb-dl" href="' + esc(url) + '" target="_blank" rel="noreferrer" download="' + esc(label.toLowerCase()) + '.jpg" title="Download">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>' +
+        '</a>' +
       '</div>' +
     '</div>';
   }
@@ -1073,13 +1216,65 @@ function appJs(): string {
     localStorage.setItem('aivastra-theme', next);
   });
 
-  // Lightbox
+  // Lightbox — wheel zooms, left-click drag pans around the zoomed image.
+  var lbImg = $('lightbox-img');
+  var lbScale = 1, lbX = 0, lbY = 0;
+  var lbDragging = false, lbDragMoved = false, lbDragStartX = 0, lbDragStartY = 0;
+
+  function lbApply() {
+    lbImg.style.transform = 'translate(' + lbX + 'px, ' + lbY + 'px) scale(' + lbScale.toFixed(2) + ')';
+    lbImg.style.cursor = lbScale > 1 ? 'grab' : 'zoom-out';
+  }
+  function lbReset() {
+    lbScale = 1; lbX = 0; lbY = 0;
+    lbApply();
+  }
+
   window.openLightbox = function(url) {
-    $('lightbox-img').src = url;
+    lbReset();
+    lbImg.src = url;
     $('lightbox').classList.add('active');
   };
-  $('lightbox').addEventListener('click', function() { $('lightbox').classList.remove('active'); });
-  $('lightbox-close').addEventListener('click', function(e) { e.stopPropagation(); $('lightbox').classList.remove('active'); });
+  function closeLightbox() {
+    $('lightbox').classList.remove('active');
+    lbReset();
+  }
+  $('lightbox').addEventListener('click', function() {
+    if (lbDragMoved) { lbDragMoved = false; return; }
+    closeLightbox();
+  });
+  $('lightbox-close').addEventListener('click', function(e) { e.stopPropagation(); closeLightbox(); });
+  $('lightbox').addEventListener('wheel', function(e) {
+    if (!$('lightbox').classList.contains('active')) return;
+    e.preventDefault();
+    lbScale = Math.min(6, Math.max(1, lbScale + (e.deltaY < 0 ? 0.2 : -0.2)));
+    if (lbScale <= 1) { lbX = 0; lbY = 0; }
+    lbApply();
+  }, { passive: false });
+
+  lbImg.addEventListener('mousedown', function(e) {
+    if (lbScale <= 1) return;
+    e.preventDefault();
+    e.stopPropagation();
+    lbDragging = true;
+    lbDragMoved = false;
+    lbDragStartX = e.clientX - lbX;
+    lbDragStartY = e.clientY - lbY;
+    lbImg.style.cursor = 'grabbing';
+  });
+  window.addEventListener('mousemove', function(e) {
+    if (!lbDragging) return;
+    var nx = e.clientX - lbDragStartX;
+    var ny = e.clientY - lbDragStartY;
+    if (Math.abs(nx - lbX) > 2 || Math.abs(ny - lbY) > 2) lbDragMoved = true;
+    lbX = nx; lbY = ny;
+    lbApply();
+  });
+  window.addEventListener('mouseup', function() {
+    if (!lbDragging) return;
+    lbDragging = false;
+    lbApply();
+  });
 
   // Filters
   $('btn-apply').addEventListener('click', function() {
@@ -1109,6 +1304,7 @@ function appJs(): string {
   }).join('');
 
   var flagModalJobId = null;
+  var flagModalMode = null; // 'flag' | 'resolve'
   var flagModalSubmitting = false;
 
   function openFlagModal(jobId) {
@@ -1118,7 +1314,9 @@ function appJs(): string {
     }
     if (!item) return;
     flagModalJobId = jobId;
+    flagModalMode = 'flag';
     $('flag-modal-error').textContent = '';
+    $('flag-reason-group').style.display = '';
     if (item.flagged) {
       $('flag-modal-title').textContent = 'Update flag';
       $('flag-modal-sub').textContent = 'Update why job #' + jobId.slice(0, 8) + ' is flagged, or unflag it.';
@@ -1137,9 +1335,28 @@ function appJs(): string {
     $('flag-modal').classList.add('active');
   }
 
+  function openResolveModal(jobId) {
+    var item = null;
+    for (var i = 0; i < state.items.length; i++) {
+      if (state.items[i].id === jobId) { item = state.items[i]; break; }
+    }
+    if (!item) return;
+    flagModalJobId = jobId;
+    flagModalMode = 'resolve';
+    $('flag-modal-error').textContent = '';
+    $('flag-reason-group').style.display = 'none';
+    $('flag-modal-title').textContent = 'Mark resolved';
+    $('flag-modal-sub').textContent = 'Add a note on how job #' + jobId.slice(0, 8) + ' was resolved.';
+    $('flag-note').value = '';
+    $('flag-modal-confirm').textContent = 'Mark resolved';
+    $('flag-modal-unflag').style.display = 'none';
+    $('flag-modal').classList.add('active');
+  }
+
   function closeFlagModal() {
     $('flag-modal').classList.remove('active');
     flagModalJobId = null;
+    flagModalMode = null;
   }
 
   function submitFlag(flagged) {
@@ -1171,7 +1388,36 @@ function appJs(): string {
     });
   }
 
-  $('flag-modal-confirm').addEventListener('click', function() { submitFlag(true); });
+  function submitResolve() {
+    if (!flagModalJobId || flagModalSubmitting) return;
+    flagModalSubmitting = true;
+    $('flag-modal-error').textContent = '';
+    fetch('/results/' + flagModalJobId + '/resolve', {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note: $('flag-note').value.trim() || undefined }),
+    }).then(function(res) {
+      if (res.status === 401) { window.location.reload(); throw new Error('Session expired'); }
+      if (!res.ok) return res.json().then(function(b) {
+        throw new Error((b.error && b.error.message) || 'HTTP ' + res.status);
+      });
+      return res.json();
+    }).then(function() {
+      flagModalSubmitting = false;
+      closeFlagModal();
+      toast('Job marked resolved');
+      loadData();
+    }).catch(function(e) {
+      flagModalSubmitting = false;
+      $('flag-modal-error').textContent = e.message;
+    });
+  }
+
+  $('flag-modal-confirm').addEventListener('click', function() {
+    if (flagModalMode === 'resolve') submitResolve();
+    else submitFlag(true);
+  });
   $('flag-modal-unflag').addEventListener('click', function() { submitFlag(false); });
   $('flag-modal-cancel').addEventListener('click', closeFlagModal);
   $('flag-modal').addEventListener('click', function(e) { if (e.target === $('flag-modal')) closeFlagModal(); });
@@ -1187,7 +1433,7 @@ function appJs(): string {
 
   // Keyboard
   document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') { $('lightbox').classList.remove('active'); closeFlagModal(); }
+    if (e.key === 'Escape') { closeLightbox(); closeFlagModal(); }
   });
 
   // Boot

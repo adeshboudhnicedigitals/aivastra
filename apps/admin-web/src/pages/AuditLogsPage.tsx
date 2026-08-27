@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Icon } from '../components/Icons';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 
 interface AuditLogItem {
@@ -271,13 +272,8 @@ export default function AuditLogsPage({ toast }: Props) {
       if (resourceTypeFilter.trim()) params.set('resourceType', resourceTypeFilter.trim());
       if (resourceIdFilter.trim()) params.set('resourceId', resourceIdFilter.trim());
       if (actorFilter.trim()) params.set('actorUserId', actorFilter.trim());
-      if (startDateFilter) params.set('startDate', new Date(startDateFilter).toISOString());
-      if (endDateFilter) {
-        // End-of-day so the picked date is inclusive.
-        const end = new Date(endDateFilter);
-        end.setHours(23, 59, 59, 999);
-        params.set('endDate', end.toISOString());
-      }
+      if (startDateFilter) params.set('startDate', startDateFilter);
+      if (endDateFilter) params.set('endDate', endDateFilter);
 
       const data = await apiFetch<AuditLogsResponse>(`/admin/audit-logs?${params.toString()}`);
       setLogs(data.items);
@@ -330,210 +326,292 @@ export default function AuditLogsPage({ toast }: Props) {
     }
   };
 
+  const hasActiveFilters = Boolean(
+    actionFilter ||
+      resourceTypeFilter ||
+      resourceIdFilter ||
+      actorFilter ||
+      startDateFilter ||
+      endDateFilter,
+  );
+
+  const clearAllFilters = () => {
+    setActionFilter('');
+    setResourceTypeFilter('');
+    setResourceIdFilter('');
+    setActorFilter('');
+    setActorFilterLabel('');
+    setStartDateFilter('');
+    setEndDateFilter('');
+    setPage(1);
+  };
+
   return (
-    <div className="page-container">
-      <div className="page-header" style={{ marginBottom: '1.25rem' }}>
+    <>
+      <div className="page-head">
         <div>
-          <h1 style={{ fontSize: '1.25rem', fontWeight: 600, margin: 0 }}>Team Activity</h1>
-          <p style={{ color: 'var(--muted)', fontSize: '0.875rem', marginTop: '0.25rem' }}>
-            A permanent record of what your team has done in this admin panel — it can't be edited
-            or deleted, even by an admin.
+          <h1>Team Activity</h1>
+          <p className="lede">
+            {loading ? 'Loading…' : `${total.toLocaleString()} logged events`} — permanent audit
+            trail of administrative actions and permission changes.
           </p>
+        </div>
+        <div className="head-tools">
+          <button
+            type="button"
+            className="btn ghost"
+            onClick={() => void fetchLogs()}
+            disabled={loading}
+            title="Refresh activity logs"
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            <span
+              style={{
+                display: 'inline-block',
+                animation: loading ? 'spin 0.8s linear infinite' : 'none',
+              }}
+            >
+              <Icon.Refresh />
+            </span>
+            Refresh
+          </button>
         </div>
       </div>
 
       {/* Filter Bar */}
-      <div
-        style={{
-          display: 'flex',
-          gap: '0.75rem',
-          flexWrap: 'wrap',
-          marginBottom: '0.75rem',
-          alignItems: 'center',
-        }}
-      >
-        <select
-          value={actionFilter}
-          onChange={(e) => {
-            setActionFilter(e.target.value);
-            setPage(1);
-          }}
-          className="input"
-          style={{ flex: '0 1 200px', width: 'auto' }}
-        >
-          <option value="">All activity</option>
-          {ACTION_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-        <select
-          value={resourceTypeFilter}
-          onChange={(e) => {
-            setResourceTypeFilter(e.target.value);
-            setPage(1);
-          }}
-          className="input"
-          style={{ flex: '0 1 170px', width: 'auto' }}
-        >
-          <option value="">All categories</option>
-          {RESOURCE_TYPE_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-        <label
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.375rem',
-            fontSize: '0.75rem',
-            flex: '0 0 auto',
-          }}
-        >
-          From
-          <input
-            type="date"
-            value={startDateFilter}
+      <div className="filter-card" style={{ marginBottom: 16 }}>
+        <div className="filter-row">
+          {/* Action Filter */}
+          <select
+            value={actionFilter}
             onChange={(e) => {
-              setStartDateFilter(e.target.value);
+              setActionFilter(e.target.value);
               setPage(1);
             }}
-            className="input"
-            style={{ width: 'auto' }}
-          />
-        </label>
-        <label
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.375rem',
-            fontSize: '0.75rem',
-            flex: '0 0 auto',
-          }}
-        >
-          To
-          <input
-            type="date"
-            value={endDateFilter}
-            onChange={(e) => {
-              setEndDateFilter(e.target.value);
-              setPage(1);
-            }}
-            className="input"
-            style={{ width: 'auto' }}
-          />
-        </label>
-        <button
-          type="button"
-          onClick={() => {
-            setActionFilter('');
-            setResourceTypeFilter('');
-            setResourceIdFilter('');
-            setActorFilter('');
-            setActorFilterLabel('');
-            setStartDateFilter('');
-            setEndDateFilter('');
-            setPage(1);
-          }}
-          className="btn btn--secondary"
-          style={{ height: '36px', flex: '0 0 auto' }}
-        >
-          Reset
-        </button>
-        <button
-          type="button"
-          onClick={() => setShowAdvanced((v) => !v)}
-          className="btn btn--secondary"
-          style={{ height: '36px', flex: '0 0 auto', marginLeft: 'auto' }}
-        >
-          {showAdvanced ? 'Hide ID lookup' : 'Look up by ID'}
-        </button>
-      </div>
+            className="filter-select"
+            title="Filter by Activity"
+          >
+            <option value="">All activity</option>
+            {ACTION_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
 
-      {showAdvanced && (
-        <div
-          style={{
-            display: 'flex',
-            gap: '0.75rem',
-            flexWrap: 'wrap',
-            marginBottom: '0.75rem',
-            padding: '0.75rem',
-            background: 'var(--bg-subtle)',
-            borderRadius: '6px',
-          }}
-        >
-          <input
-            type="text"
-            placeholder="Record ID..."
-            value={resourceIdFilter}
+          {/* Category Filter */}
+          <select
+            value={resourceTypeFilter}
             onChange={(e) => {
-              setResourceIdFilter(e.target.value);
+              setResourceTypeFilter(e.target.value);
               setPage(1);
             }}
-            className="input"
-            style={{ flex: '0 1 220px', width: 'auto' }}
-          />
-          <input
-            type="text"
-            placeholder="Team member ID..."
-            value={actorFilter}
-            onChange={(e) => {
-              setActorFilter(e.target.value);
-              setActorFilterLabel('');
-              setPage(1);
-            }}
-            className="input"
-            style={{ flex: '0 1 220px', width: 'auto' }}
-          />
-        </div>
-      )}
+            className="filter-select"
+            title="Filter by Category"
+          >
+            <option value="">All categories</option>
+            {RESOURCE_TYPE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
 
-      {actorFilter && (
-        <div
-          style={{
-            marginBottom: '1rem',
-            fontSize: '0.8125rem',
-            color: 'var(--muted)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-          }}
-        >
-          Showing only: <strong>{actorFilterLabel || actorFilter}</strong>
+          {/* Date Range Picker */}
+          <div className="filter-date-group">
+            <span className="date-lbl">Date:</span>
+            <input
+              type="date"
+              value={startDateFilter}
+              onChange={(e) => {
+                setStartDateFilter(e.target.value);
+                setPage(1);
+              }}
+              title="Start date"
+            />
+            <span className="date-lbl" style={{ opacity: 0.6 }}>
+              to
+            </span>
+            <input
+              type="date"
+              value={endDateFilter}
+              onChange={(e) => {
+                setEndDateFilter(e.target.value);
+                setPage(1);
+              }}
+              title="End date"
+            />
+          </div>
+
+          {/* Advanced / ID Lookup Toggle Button */}
           <button
             type="button"
-            className="btn btn--sm btn--secondary"
-            onClick={() => {
-              setActorFilter('');
-              setActorFilterLabel('');
-              setPage(1);
+            onClick={() => setShowAdvanced((v) => !v)}
+            className={`filter-toggle-btn ${showAdvanced || resourceIdFilter || actorFilter ? 'active' : ''}`}
+          >
+            <Icon.Search />
+            {showAdvanced ? 'Hide ID lookup' : 'Look up by ID'}
+          </button>
+
+          {/* Clear Filters Button */}
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={clearAllFilters}
+              className="btn sm ghost"
+              style={{ marginLeft: 'auto' }}
+            >
+              <Icon.Close /> Clear filters
+            </button>
+          )}
+        </div>
+
+        {/* ID Lookup Drawer/Row */}
+        {showAdvanced && (
+          <div
+            style={{
+              display: 'flex',
+              gap: 10,
+              flexWrap: 'wrap',
+              paddingTop: 8,
+              borderTop: '1px solid var(--border)',
             }}
           >
-            Clear
-          </button>
-        </div>
-      )}
+            <input
+              type="text"
+              placeholder="Filter by Record / Resource ID…"
+              value={resourceIdFilter}
+              onChange={(e) => {
+                setResourceIdFilter(e.target.value);
+                setPage(1);
+              }}
+              className="filter-input"
+              style={{ flex: '1 1 240px' }}
+            />
+            <input
+              type="text"
+              placeholder="Filter by Team Member User ID…"
+              value={actorFilter}
+              onChange={(e) => {
+                setActorFilter(e.target.value);
+                setActorFilterLabel('');
+                setPage(1);
+              }}
+              className="filter-input"
+              style={{ flex: '1 1 240px' }}
+            />
+          </div>
+        )}
 
-      {/* Table */}
-      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        <table className="table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        {/* Active Filter Chips */}
+        {hasActiveFilters && (
+          <div className="filter-chips-row">
+            <span style={{ color: 'var(--muted)', fontSize: 11.5, marginRight: 2 }}>Active:</span>
+            {actorFilter && (
+              <span className="filter-chip">
+                Team member: <strong>{actorFilterLabel || actorFilter}</strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setActorFilter('');
+                    setActorFilterLabel('');
+                    setPage(1);
+                  }}
+                  title="Remove actor filter"
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {actionFilter && (
+              <span className="filter-chip">
+                Activity:{' '}
+                <strong>
+                  {ACTION_OPTIONS.find((o) => o.value === actionFilter)?.label || actionFilter}
+                </strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setActionFilter('');
+                    setPage(1);
+                  }}
+                  title="Remove activity filter"
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {resourceTypeFilter && (
+              <span className="filter-chip">
+                Category:{' '}
+                <strong>
+                  {RESOURCE_TYPE_OPTIONS.find((o) => o.value === resourceTypeFilter)?.label ||
+                    resourceTypeFilter}
+                </strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setResourceTypeFilter('');
+                    setPage(1);
+                  }}
+                  title="Remove category filter"
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {(startDateFilter || endDateFilter) && (
+              <span className="filter-chip">
+                Date:{' '}
+                <strong>
+                  {startDateFilter || 'Any'} → {endDateFilter || 'Today'}
+                </strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setStartDateFilter('');
+                    setEndDateFilter('');
+                    setPage(1);
+                  }}
+                  title="Remove date filter"
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {resourceIdFilter && (
+              <span className="filter-chip">
+                Record ID: <strong>{resourceIdFilter}</strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setResourceIdFilter('');
+                    setPage(1);
+                  }}
+                  title="Remove record ID filter"
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Desktop Table View */}
+      <div className="desktop-only table-wrap">
+        <table>
           <thead>
-            <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-subtle)' }}>
-              <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem' }}>
-                WHEN
-              </th>
-              <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem' }}>
-                TEAM MEMBER
-              </th>
-              <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem' }}>
-                WHAT HAPPENED
-              </th>
-              <th style={{ padding: '0.75rem 1rem', textAlign: 'right', fontSize: '0.75rem' }}>
-                DETAILS
-              </th>
+            <tr>
+              <th style={{ width: 160 }}>When</th>
+              <th style={{ width: 220 }}>Team Member</th>
+              <th>What Happened</th>
+              <th style={{ textAlign: 'right', width: 140 }}>Details</th>
             </tr>
           </thead>
           <tbody>
@@ -559,17 +637,17 @@ export default function AuditLogsPage({ toast }: Props) {
               logs.map((log) => {
                 const isExpanded = expandedLogId === log.id;
                 return (
-                  <tr key={log.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <tr key={log.id}>
                     <td
                       style={{
-                        padding: '0.75rem 1rem',
-                        fontSize: '0.8125rem',
+                        fontSize: 12.5,
                         whiteSpace: 'nowrap',
+                        color: 'var(--muted)',
                       }}
                     >
                       {formatDate(log.createdAt)}
                     </td>
-                    <td style={{ padding: '0.75rem 1rem', fontSize: '0.8125rem' }}>
+                    <td>
                       <button
                         type="button"
                         onClick={() =>
@@ -578,32 +656,33 @@ export default function AuditLogsPage({ toast }: Props) {
                             log.actorEmail ?? log.actorDisplayName ?? log.actorUserId,
                           )
                         }
-                        title="Filter to this actor"
+                        title="Filter to this team member"
                         style={{
                           background: 'none',
                           border: 'none',
                           padding: 0,
                           fontWeight: 500,
-                          color: 'inherit',
+                          color: 'var(--ink)',
                           cursor: 'pointer',
                           textDecoration: 'underline',
                           textDecorationStyle: 'dotted',
+                          fontSize: 13,
                         }}
                       >
                         {log.actorEmail ?? log.actorDisplayName ?? log.actorUserId}
                       </button>
-                      <div>
-                        <span className="badge" style={{ fontSize: '0.6875rem', marginTop: '2px' }}>
+                      <div style={{ marginTop: 2 }}>
+                        <span className="badge" style={{ fontSize: 10.5 }}>
                           {log.actorRole}
                         </span>
                       </div>
                     </td>
-                    <td style={{ padding: '0.75rem 1rem', fontSize: '0.875rem' }}>
+                    <td>
                       {(() => {
                         const tier = actionRiskTier(log.action);
                         const style = RISK_TIER_STYLE[tier];
                         return (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             {tier !== 'default' && (
                               <span
                                 title={
@@ -613,15 +692,15 @@ export default function AuditLogsPage({ toast }: Props) {
                                 }
                                 style={{
                                   display: 'inline-block',
-                                  width: '8px',
-                                  height: '8px',
+                                  width: 8,
+                                  height: 8,
                                   borderRadius: '50%',
                                   background: style.ink,
                                   flexShrink: 0,
                                 }}
                               />
                             )}
-                            <span>{describeAction(log)}</span>
+                            <span style={{ fontSize: 13.5 }}>{describeAction(log)}</span>
                           </div>
                         );
                       })()}
@@ -634,27 +713,28 @@ export default function AuditLogsPage({ toast }: Props) {
                             background: 'none',
                             border: 'none',
                             padding: 0,
-                            marginTop: '2px',
+                            marginTop: 3,
                             cursor: 'pointer',
                             color: 'var(--muted)',
-                            fontSize: '0.6875rem',
+                            fontSize: 11,
+                            fontFamily: 'var(--mono)',
                           }}
                         >
                           Record ID: {log.resourceId.slice(0, 8)}…
                         </button>
                       )}
                     </td>
-                    <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
+                    <td style={{ textAlign: 'right' }}>
                       {log.before || log.after ? (
                         <button
                           type="button"
-                          className="btn btn--sm btn--secondary"
+                          className="btn sm ghost"
                           onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
                         >
                           {isExpanded ? 'Hide Details' : 'View Details'}
                         </button>
                       ) : (
-                        <span style={{ color: 'var(--muted)', fontSize: '0.75rem' }}>—</span>
+                        <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>
                       )}
                     </td>
                   </tr>
@@ -665,76 +745,284 @@ export default function AuditLogsPage({ toast }: Props) {
         </table>
       </div>
 
-      {/* Expanded Modal / Details for selected log */}
-      {expandedLogId && (
-        <div
-          style={{
-            marginTop: '1rem',
-            padding: '1rem',
-            background: 'var(--bg-subtle)',
-            borderRadius: '6px',
-            border: '1px solid var(--border)',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-            <h3 style={{ fontSize: '0.875rem', fontWeight: 600, margin: 0 }}>What Changed</h3>
-            <button
-              type="button"
-              className="btn btn--sm btn--secondary"
-              onClick={() => setExpandedLogId(null)}
-            >
-              Close
-            </button>
+      {/* Mobile & Tablet Card View */}
+      <div className="mobile-only" style={{ gap: 10 }}>
+        {loading ? (
+          <div
+            className="card"
+            style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}
+          >
+            Loading activity…
           </div>
-          {(() => {
-            const item = logs.find((l) => l.id === expandedLogId);
-            if (!item) return null;
-            const diff = computeDiff(item.before, item.after);
-            if (diff.length === 0) {
-              return (
-                <p style={{ fontSize: '0.8125rem', color: 'var(--muted)', margin: 0 }}>
-                  Nothing else to show for this event.
-                </p>
-              );
-            }
+        ) : logs.length === 0 ? (
+          <div
+            className="card"
+            style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}
+          >
+            Nothing found for these filters.
+          </div>
+        ) : (
+          logs.map((log) => {
+            const isMobileExpanded = expandedLogId === log.id;
+            const tier = actionRiskTier(log.action);
+            const style = RISK_TIER_STYLE[tier];
+            const diff = isMobileExpanded ? computeDiff(log.before, log.after) : [];
             return (
-              <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                {diff.map((row) => {
-                  const style = DIFF_ROW_STYLE[row.status];
-                  return (
-                    <li
-                      key={row.key}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'flex-start',
-                        gap: '0.5rem',
-                        padding: '0.5rem 0.625rem',
-                        marginBottom: '0.375rem',
-                        background: style.bg,
-                        borderRadius: '4px',
-                        fontSize: '0.8125rem',
-                      }}
+              <div
+                key={log.id}
+                className="card"
+                style={{
+                  padding: '12px 14px',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--r)',
+                  background: 'var(--surface)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10,
+                }}
+              >
+                {/* Header row: WHEN and TEAM MEMBER name */}
+                <div
+                  onClick={() => setExpandedLogId(isMobileExpanded ? null : log.id)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 10,
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 2,
+                      minWidth: 0,
+                      flex: 1,
+                    }}
+                  >
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}
                     >
                       <span
                         style={{
-                          display: 'inline-block',
-                          width: '8px',
-                          height: '8px',
-                          borderRadius: '50%',
-                          background: style.ink,
-                          marginTop: '5px',
-                          flexShrink: 0,
+                          fontWeight: 600,
+                          fontSize: 13.5,
+                          color: 'var(--ink)',
+                          wordBreak: 'break-word',
                         }}
-                      />
-                      <span style={{ color: style.ink }}>{describeFieldChange(row)}</span>
-                    </li>
-                  );
-                })}
-              </ul>
+                      >
+                        {log.actorEmail ?? log.actorDisplayName ?? log.actorUserId}
+                      </span>
+                      <span className="badge" style={{ fontSize: 10 }}>
+                        {log.actorRole}
+                      </span>
+                    </div>
+                    <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                      {formatDate(log.createdAt)}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      color: 'var(--muted)',
+                      transform: isMobileExpanded ? 'rotate(90deg)' : 'none',
+                      transition: 'transform 0.15s ease',
+                    }}
+                  >
+                    <Icon.Chevron />
+                  </div>
+                </div>
+
+                {/* Expanded Section: Displays WHAT HAPPENED when clicked */}
+                {isMobileExpanded && (
+                  <div
+                    style={{
+                      paddingTop: 10,
+                      borderTop: '1px solid var(--border)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 8,
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {tier !== 'default' && (
+                        <span
+                          title={
+                            tier === 'destructive'
+                              ? 'This removed access, data, or a resource'
+                              : 'This changed permissions or credits'
+                          }
+                          style={{
+                            display: 'inline-block',
+                            width: 8,
+                            height: 8,
+                            borderRadius: '50%',
+                            background: style.ink,
+                            flexShrink: 0,
+                          }}
+                        />
+                      )}
+                      <span style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
+                        {describeAction(log)}
+                      </span>
+                    </div>
+
+                    {log.resourceId && (
+                      <button
+                        type="button"
+                        onClick={() => void navigator.clipboard.writeText(log.resourceId ?? '')}
+                        title="Click to copy record ID"
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          padding: 0,
+                          cursor: 'pointer',
+                          color: 'var(--muted)',
+                          fontSize: 11,
+                          fontFamily: 'var(--mono)',
+                          textAlign: 'left',
+                        }}
+                      >
+                        Record ID: {log.resourceId}
+                      </button>
+                    )}
+
+                    {/* What Changed Diff */}
+                    {(log.before || log.after) && diff.length > 0 && (
+                      <div style={{ marginTop: 4 }}>
+                        <span
+                          style={{
+                            fontSize: 11.5,
+                            fontWeight: 600,
+                            color: 'var(--muted)',
+                            display: 'block',
+                            marginBottom: 4,
+                          }}
+                        >
+                          What Changed:
+                        </span>
+                        <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                          {diff.map((row) => {
+                            const rowStyle = DIFF_ROW_STYLE[row.status];
+                            return (
+                              <li
+                                key={row.key}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'flex-start',
+                                  gap: 8,
+                                  padding: '5px 8px',
+                                  marginBottom: 4,
+                                  background: rowStyle.bg,
+                                  borderRadius: 4,
+                                  fontSize: 12,
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    display: 'inline-block',
+                                    width: 6,
+                                    height: 6,
+                                    borderRadius: '50%',
+                                    background: rowStyle.ink,
+                                    marginTop: 5,
+                                    flexShrink: 0,
+                                  }}
+                                />
+                                <span style={{ color: rowStyle.ink }}>
+                                  {describeFieldChange(row)}
+                                </span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             );
-          })()}
-        </div>
-      )}
+          })
+        )}
+      </div>
+
+      {/* Expanded Modal / Details for selected log (Desktop) */}
+      <div className="desktop-only">
+        {expandedLogId && (
+          <div
+            className="card"
+            style={{
+              marginTop: 14,
+              padding: 16,
+              background: 'var(--surface-2)',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                marginBottom: 8,
+                alignItems: 'center',
+              }}
+            >
+              <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>What Changed</h3>
+              <button type="button" className="btn sm ghost" onClick={() => setExpandedLogId(null)}>
+                <Icon.Close /> Close
+              </button>
+            </div>
+            {(() => {
+              const item = logs.find((l) => l.id === expandedLogId);
+              if (!item) return null;
+              const diff = computeDiff(item.before, item.after);
+              if (diff.length === 0) {
+                return (
+                  <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: 0 }}>
+                    Nothing else to show for this event.
+                  </p>
+                );
+              }
+              return (
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                  {diff.map((row) => {
+                    const style = DIFF_ROW_STYLE[row.status];
+                    return (
+                      <li
+                        key={row.key}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: 8,
+                          padding: '6px 10px',
+                          marginBottom: 4,
+                          background: style.bg,
+                          borderRadius: 4,
+                          fontSize: 12.5,
+                        }}
+                      >
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            width: 7,
+                            height: 7,
+                            borderRadius: '50%',
+                            background: style.ink,
+                            marginTop: 5,
+                            flexShrink: 0,
+                          }}
+                        />
+                        <span style={{ color: style.ink }}>{describeFieldChange(row)}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              );
+            })()}
+          </div>
+        )}
+      </div>
 
       {/* Pagination */}
       {totalPages > 1 && (
@@ -743,27 +1031,27 @@ export default function AuditLogsPage({ toast }: Props) {
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            marginTop: '1rem',
+            marginTop: 14,
           }}
         >
-          <span style={{ fontSize: '0.8125rem', color: 'var(--muted)' }}>
+          <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>
             Showing {logs.length} of {total} events
           </span>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <button
               type="button"
-              className="btn btn--sm btn--secondary"
+              className="btn sm ghost"
               disabled={page <= 1}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
             >
               Previous
             </button>
-            <span style={{ padding: '0.25rem 0.5rem', fontSize: '0.8125rem' }}>
+            <span style={{ padding: '0 8px', fontSize: 12.5, color: 'var(--muted)' }}>
               Page {page} of {totalPages}
             </span>
             <button
               type="button"
-              className="btn btn--sm btn--secondary"
+              className="btn sm ghost"
               disabled={page >= totalPages}
               onClick={() => setPage((p) => p + 1)}
             >
@@ -772,6 +1060,6 @@ export default function AuditLogsPage({ toast }: Props) {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

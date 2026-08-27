@@ -5,7 +5,20 @@ import {
   ResetPasswordBody,
   UpdateUserBody,
 } from '@aivastra/types';
-import { and, count, desc, eq, exists, ilike, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import {
+  and,
+  count,
+  desc,
+  eq,
+  exists,
+  gte,
+  ilike,
+  isNotNull,
+  isNull,
+  lte,
+  or,
+  sql,
+} from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -18,12 +31,17 @@ import { renderUsersExportPdf } from './users-export-pdf.js';
 import { loadUsersForExport, UsersExportQuery } from './users-export-query.js';
 import { renderUsersExportXlsx } from './users-export-xlsx.js';
 
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
 const PaginatedSearch = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   search: z.string().optional(),
   merchant: z.coerce.boolean().optional(),
   showBanned: z.coerce.boolean().optional(),
+  createdFrom: z.string().optional(),
+  createdTo: z.string().optional(),
+  tier: z.string().optional(),
 });
 
 export async function adminUsersRoutes(app: FastifyInstance) {
@@ -34,9 +52,8 @@ export async function adminUsersRoutes(app: FastifyInstance) {
     '/admin/users',
     { preHandler: ALL, schema: { querystring: PaginatedSearch } },
     async (req) => {
-      const { page, pageSize, search, merchant, showBanned } = req.query as z.infer<
-        typeof PaginatedSearch
-      >;
+      const { page, pageSize, search, merchant, showBanned, createdFrom, createdTo, tier } =
+        req.query as z.infer<typeof PaginatedSearch>;
 
       const searchWhere = search
         ? or(
@@ -46,10 +63,19 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           )
         : undefined;
       const bannedWhere = showBanned === true ? undefined : eq(schema.users.isBanned, false);
+      const toInclusive = createdTo
+        ? new Date(DATE_ONLY.test(createdTo) ? `${createdTo}T23:59:59.999Z` : createdTo)
+        : undefined;
+      const fromInclusive = createdFrom
+        ? new Date(DATE_ONLY.test(createdFrom) ? `${createdFrom}T00:00:00.000Z` : createdFrom)
+        : undefined;
       const where = and(
         searchWhere,
         bannedWhere,
         merchant === true ? isNotNull(schema.merchants.id) : undefined,
+        fromInclusive ? gte(schema.users.createdAt, fromInclusive) : undefined,
+        toInclusive ? lte(schema.users.createdAt, toInclusive) : undefined,
+        tier ? eq(schema.users.tier, tier) : undefined,
       );
 
       const [{ total }] = await app.db
@@ -132,6 +158,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           showBanned: query.showBanned,
           createdFrom: query.createdFrom,
           createdTo: query.createdTo,
+          tier: query.tier,
           sortDir: query.sortDir,
         },
       });
@@ -158,6 +185,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           showBanned: query.showBanned,
           createdFrom: query.createdFrom,
           createdTo: query.createdTo,
+          tier: query.tier,
           sortDir: query.sortDir,
         },
       });

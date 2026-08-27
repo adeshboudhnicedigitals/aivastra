@@ -73,17 +73,6 @@ function handleReauthIfNeeded(code: string | undefined): void {
 // backend hang) would otherwise leave callers awaiting forever with no way to
 // recover short of a full page reload.
 const FETCH_TIMEOUT_MS = 12_000;
-// A save can legitimately spend almost 30 seconds waiting for the per-store
-// publication lock and then another 10 seconds on Shopify. Keep the ordinary
-// request deadline short, but leave enough headroom for the route to return
-// the committed widget plus `synced:false` instead of aborting in the SPA.
-const WIDGET_CONFIG_PATCH_TIMEOUT_MS = 45_000;
-
-function requestTimeoutMs(path: string, init: RequestInit): number {
-  return path === '/v1/shopify/widget-config' && init.method?.toUpperCase() === 'PATCH'
-    ? WIDGET_CONFIG_PATCH_TIMEOUT_MS
-    : FETCH_TIMEOUT_MS;
-}
 
 async function fetchWithTimeout(
   url: string,
@@ -115,7 +104,6 @@ async function fetchWithTimeout(
  */
 export async function apiFetchResponse(path: string, init: RequestInit = {}): Promise<Response> {
   const url = `${API_BASE}${path}`;
-  const timeoutMs = requestTimeoutMs(path, init);
   const token = await getIdToken();
   const res = await fetchWithTimeout(
     url,
@@ -127,7 +115,7 @@ export async function apiFetchResponse(path: string, init: RequestInit = {}): Pr
         ...(init.body ? { 'Content-Type': 'application/json' } : {}),
       },
     },
-    timeoutMs,
+    FETCH_TIMEOUT_MS,
   );
 
   if (res.status === 401) {
@@ -143,7 +131,7 @@ export async function apiFetchResponse(path: string, init: RequestInit = {}): Pr
           ...(init.body ? { 'Content-Type': 'application/json' } : {}),
         },
       },
-      timeoutMs,
+      FETCH_TIMEOUT_MS,
     );
     if (!retryRes.ok) {
       const { message, code } = await parseErrorBody(retryRes);

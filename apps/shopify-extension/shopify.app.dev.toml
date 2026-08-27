@@ -7,7 +7,7 @@
 
 client_id = "2619ec2b9dab42d4468aa50cab0d6714"
 name = "AiVastra Dev"
-application_url = "https://wispy-plaza-mullets.ngrok-free.dev"
+application_url = "https://aplanatic-unreciprocated-susy.ngrok-free.dev"
 embedded = true
 
 [access_scopes]
@@ -19,13 +19,13 @@ optional_scopes = [ ]
 
 [auth]
 redirect_urls = [
-  "https://wispy-plaza-mullets.ngrok-free.dev/v1/shopify/auth/callback"
+  "https://aplanatic-unreciprocated-susy.ngrok-free.dev/v1/shopify/auth/callback"
 ]
 
 # Mirrors shopify.app.toml — see that file for why. Update alongside the ngrok
 # host above whenever the tunnel rotates.
 [app_proxy]
-url = "https://wispy-plaza-mullets.ngrok-free.dev/v1/shopify/proxy"
+url = "https://aplanatic-unreciprocated-susy.ngrok-free.dev/v1/shopify/proxy"
 subpath = "widget"
 prefix = "apps"
 
@@ -33,24 +33,24 @@ prefix = "apps"
 api_version = "2026-07"
 
   [webhooks.privacy_compliance]
-  customer_deletion_url = "https://wispy-plaza-mullets.ngrok-free.dev/v1/shopify/webhooks/customers_redact"
-  customer_data_request_url = "https://wispy-plaza-mullets.ngrok-free.dev/v1/shopify/webhooks/customers_data_request"
-  shop_deletion_url = "https://wispy-plaza-mullets.ngrok-free.dev/v1/shopify/webhooks/shop_redact"
+  customer_deletion_url = "https://aplanatic-unreciprocated-susy.ngrok-free.dev/v1/shopify/webhooks/customers_redact"
+  customer_data_request_url = "https://aplanatic-unreciprocated-susy.ngrok-free.dev/v1/shopify/webhooks/customers_data_request"
+  shop_deletion_url = "https://aplanatic-unreciprocated-susy.ngrok-free.dev/v1/shopify/webhooks/shop_redact"
 
   # Mirrors shopify.app.toml — see that file for why this is declared here
   # rather than relying solely on the per-shop registration call. Update
   # alongside the ngrok host above whenever the tunnel rotates.
   [[webhooks.subscriptions]]
   topics = [ "app_purchases_one_time/update" ]
-  uri = "https://wispy-plaza-mullets.ngrok-free.dev/v1/shopify/webhooks/app_purchases_one_time_update"
+  uri = "https://aplanatic-unreciprocated-susy.ngrok-free.dev/v1/shopify/webhooks/app_purchases_one_time_update"
 
   # Mirrors shopify.app.toml — see that file for why this is declared here
   # rather than relying solely on the per-shop registration call. Update
   # alongside the ngrok host above whenever the tunnel rotates.
   [[webhooks.subscriptions]]
   topics = [ "app_subscriptions/update" ]
-  uri = "https://wispy-plaza-mullets.ngrok-free.dev/v1/shopify/webhooks/app_subscriptions_update"
+  uri = "https://aplanatic-unreciprocated-susy.ngrok-free.dev/v1/shopify/webhooks/app_subscriptions_update"
 
   [[webhooks.subscriptions]]
   topics = [ "app_subscriptions/approaching_capped_amount" ]
-  uri = "https://wispy-plaza-mullets.ngrok-free.dev/v1/shopify/webhooks/app_subscriptions_approaching_capped_amount"
+  uri = "https://aplanatic-unreciprocated-susy.ngrok-free.dev/v1/shopify/webhooks/app_subscriptions_approaching_capped_amount"
