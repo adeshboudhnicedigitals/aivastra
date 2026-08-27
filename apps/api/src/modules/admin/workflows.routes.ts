@@ -1,6 +1,7 @@
 import { schema } from '@aivastra/db';
 import {
   CreateWorkflowBody,
+  DEFAULT_REGENERATION_REASON_PROMPTS,
   ParseWorkflowBody,
   ReassignWorkflowBody,
   ReplaceWorkflowBody,
@@ -620,7 +621,14 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         throw new AppError('CONFLICT', 409, `Workflow with slug "${body.slug}" already exists`);
       }
 
-      const values = extractWorkflowInsertFields(body);
+      // Every new workflow starts with the default reason pool (blank prompts —
+      // "no override yet") so the regenerate reason picker is never empty for
+      // it. /replace intentionally never sets this field, so an existing
+      // workflow's curated list survives a jsonContent swap untouched.
+      const values = {
+        ...extractWorkflowInsertFields(body),
+        regenerationReasonPrompts: DEFAULT_REGENERATION_REASON_PROMPTS,
+      };
 
       const row = await app.db.transaction(async (tx) => {
         const [inserted] = await tx.insert(schema.workflowTemplates).values(values).returning();
@@ -972,12 +980,16 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       if ('tryonOutputNodeId' in body)
         updateValues.tryonOutputNodeId = body.tryonOutputNodeId ?? null;
       if (body.regenerationReasonPrompts !== undefined) {
-        // Trim + drop rows with a blank reason or prompt here rather than trusting
-        // the client's array verbatim — an admin backspacing a row to empty
-        // shouldn't leave a pair regenerate could later match against or offer.
+        // Trim + drop rows with a blank REASON here rather than trusting the
+        // client's array verbatim — an admin backspacing a reason label to
+        // empty shouldn't leave a nameless row the picker can't render. A
+        // blank PROMPT is kept deliberately: it means "no override configured
+        // yet" for that reason (regenerate then falls back to the original
+        // prompt) — dropping it would silently erase default reasons an admin
+        // hasn't gotten to yet every time they save an unrelated field.
         updateValues.regenerationReasonPrompts = body.regenerationReasonPrompts
           .map((p) => ({ reason: p.reason.trim(), prompt: p.prompt.trim() }))
-          .filter((p) => p.reason.length > 0 && p.prompt.length > 0);
+          .filter((p) => p.reason.length > 0);
       }
 
       await app.db.transaction(async (tx) => {

@@ -1306,7 +1306,7 @@ export default function CataloguePage({
               }}
             >
               <option value="">Select a reason…</option>
-              {[...reasonOptions, 'Other'].map((r) => (
+              {reasonOptions.map((r) => (
                 <option key={r} value={r}>
                   {r}
                 </option>
