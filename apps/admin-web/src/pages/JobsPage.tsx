@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icons';
 import { JobTypeBadge } from '../components/JobTypeBadge';
 import { KV } from '../components/KV';
@@ -184,12 +184,25 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
   const [deletingAssets, setDeletingAssets] = useState(false);
   const [flushing, setFlushing] = useState(false);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
-  const [isNavOpen, setIsNavOpen] = useState(false);
   const [expandedSubTabsMap, setExpandedSubTabsMap] = useState<
     Record<string, 'input' | 'output' | 'events' | null>
   >({});
   const [jobDetailsMap, setJobDetailsMap] = useState<Record<string, JobDetail>>({});
   const [exportingXlsx, setExportingXlsx] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    if (menuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [menuOpen]);
 
   const toggleMobileJobExpand = async (j: Job) => {
     const willExpand = expandedJobId !== j.id;
@@ -374,14 +387,6 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
     } finally {
       setExportingXlsx(false);
     }
-  };
-  const hasExtraFilters = !!(jobTypeFilter || workerFilter || createdFrom || createdTo);
-  const clearExtraFilters = () => {
-    setJobTypeFilter('');
-    setWorkerFilter('');
-    setCreatedFrom('');
-    setCreatedTo('');
-    setPage(0);
   };
 
   const sorted = [...jobs].sort((a, b) => {
@@ -912,477 +917,226 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
     );
   }
 
+  const hasAnyFilter = Boolean(
+    filter !== 'all' ||
+      dateFilter ||
+      query ||
+      jobTypeFilter ||
+      workerFilter ||
+      createdFrom ||
+      createdTo,
+  );
+
+  const clearAllFilters = () => {
+    setFilter('all');
+    setDateFilter(null);
+    setQuery('');
+    setJobTypeFilter('');
+    setWorkerFilter('');
+    setCreatedFrom('');
+    setCreatedTo('');
+    setPage(0);
+  };
+
   return (
     <>
       <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
-      {/* Desktop header & tools */}
-      <div className="desktop-only">
-        <div className="page-head">
-          <div>
-            <h1>Jobs</h1>
-            <p className="lede">
-              {loading ? '…' : total.toLocaleString()} jobs &middot; Monitor and manage try-on jobs.
-            </p>
-          </div>
-          <div className="head-tools">
-            <div className="search">
-              <Icon.Search />
-              <input
-                placeholder="Search by job ID or user email…"
-                value={query}
-                onChange={(e) => handleSearch(e.target.value)}
-              />
-            </div>
-
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <span
-                className="sub"
-                style={{ fontSize: 13, whiteSpace: 'nowrap', color: 'var(--muted)' }}
-              >
-                Sort by:
-              </span>
-              <select
-                value={`${sortKey}-${sortDir}`}
-                onChange={(e) => {
-                  const [key, dir] = e.target.value.split('-');
-                  setSortKey(key as keyof Job);
-                  setSortDir(dir as SortDir);
-                }}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: 6,
-                  border: '1px solid var(--border)',
-                  background: 'var(--surface)',
-                  color: 'var(--ink)',
-                  fontSize: 13,
-                  cursor: 'pointer',
-                  outline: 'none',
-                }}
-              >
-                <option value="createdAt-desc">Newest Created</option>
-                <option value="createdAt-asc">Oldest Created</option>
-                <option value="userEmail-asc">User Email (A-Z)</option>
-                <option value="userEmail-desc">User Email (Z-A)</option>
-                <option value="creditsCharged-desc">Credits (High-Low)</option>
-                <option value="creditsCharged-asc">Credits (Low-High)</option>
-                <option value="status-asc">Status</option>
-              </select>
-            </div>
-
-            {confirmFlush ? (
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}>Cancel all queued jobs?</span>
-                <button
-                  className="btn sm danger"
-                  onClick={() => void flushQueue()}
-                  disabled={flushing}
-                >
-                  {flushing ? 'Flushing…' : 'Confirm'}
-                </button>
-                <button className="btn sm ghost" onClick={() => setConfirmFlush(false)}>
-                  No
-                </button>
-              </div>
-            ) : (
-              <button className="btn sm ghost" onClick={() => setConfirmFlush(true)}>
-                Flush queue
-              </button>
-            )}
-            <button
-              className="btn sm ghost"
-              onClick={() => void handleExportXlsx()}
-              disabled={exportingXlsx}
-            >
-              <Icon.Download /> {exportingXlsx ? 'Exporting…' : 'Download Excel'}
-            </button>
-            <button
-              className="btn sm ghost"
-              onClick={() => void load()}
-              disabled={loading}
-              title="Refresh"
-              style={{ display: 'flex', alignItems: 'center', gap: 4 }}
-            >
-              <span
-                style={{
-                  display: 'inline-block',
-                  animation: loading ? 'spin 0.8s linear infinite' : 'none',
-                }}
-              >
-                <Icon.Refresh />
-              </span>
-              Refresh
-            </button>
-          </div>
+      {/* Top page header */}
+      <div className="page-head">
+        <div>
+          <h1>Jobs</h1>
+          <p className="lede">
+            {loading ? 'Loading…' : `${total.toLocaleString()} jobs`} — real-time generation queue,
+            worker allocation &amp; processing history.
+          </p>
         </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-          <div className="tabs" style={{ marginBottom: 0 }}>
-            {FILTERS.map((f) => (
+        <div className="head-tools" style={{ flexWrap: 'wrap' }}>
+          {confirmFlush ? (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>Cancel all queued jobs?</span>
               <button
-                key={f.k}
-                className={`tab ${filter === f.k ? 'active' : ''}`}
-                onClick={() => handleFilter(f.k)}
+                className="btn sm danger"
+                onClick={() => void flushQueue()}
+                disabled={flushing}
               >
-                {f.l}
+                {flushing ? 'Flushing…' : 'Confirm Flush'}
               </button>
-            ))}
-          </div>
-          {dateFilter && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span
-                className="badge"
-                style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}
-              >
-                Date: {dateFilter}
-              </span>
-              <button
-                className="btn sm ghost"
-                onClick={() => {
-                  setDateFilter(null);
-                  setPage(0);
-                }}
-                style={{ padding: '4px 8px' }}
-              >
-                Clear
+              <button className="btn sm ghost" onClick={() => setConfirmFlush(false)}>
+                Cancel
               </button>
             </div>
-          )}
-        </div>
-
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            marginBottom: 16,
-            flexWrap: 'wrap',
-          }}
-        >
-          <select
-            value={jobTypeFilter}
-            onChange={(e) => handleJobTypeFilter(e.target.value)}
-            style={{
-              padding: '6px 12px',
-              borderRadius: 6,
-              border: '1px solid var(--border)',
-              background: 'var(--surface)',
-              color: 'var(--ink)',
-              fontSize: 13,
-              cursor: 'pointer',
-              outline: 'none',
-            }}
-          >
-            <option value="">All Job Types</option>
-            {jobTypeOptions.map((jt) => (
-              <option key={jt} value={jt}>
-                {jt}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={workerFilter}
-            onChange={(e) => handleWorkerFilter(e.target.value)}
-            style={{
-              padding: '6px 12px',
-              borderRadius: 6,
-              border: '1px solid var(--border)',
-              background: 'var(--surface)',
-              color: 'var(--ink)',
-              fontSize: 13,
-              cursor: 'pointer',
-              outline: 'none',
-            }}
-          >
-            <option value="">All Workers</option>
-            {workerOptions.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.label || w.id}
-              </option>
-            ))}
-          </select>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span className="sub" style={{ fontSize: 13, color: 'var(--muted)' }}>
-              Created:
-            </span>
-            <input
-              type="datetime-local"
-              value={createdFrom}
-              onChange={(e) => handleCreatedFrom(e.target.value)}
-              style={{
-                padding: '5px 8px',
-                borderRadius: 6,
-                border: '1px solid var(--border)',
-                background: 'var(--surface)',
-                color: 'var(--ink)',
-                fontSize: 13,
-              }}
-            />
-            <span style={{ fontSize: 13, color: 'var(--muted)' }}>to</span>
-            <input
-              type="datetime-local"
-              value={createdTo}
-              onChange={(e) => handleCreatedTo(e.target.value)}
-              style={{
-                padding: '5px 8px',
-                borderRadius: 6,
-                border: '1px solid var(--border)',
-                background: 'var(--surface)',
-                color: 'var(--ink)',
-                fontSize: 13,
-              }}
-            />
-            <span className="sub" style={{ fontSize: 12, color: 'var(--muted)' }}>
-              (applies to Download Excel)
-            </span>
-          </div>
-
-          {hasExtraFilters && (
-            <button className="btn sm ghost" onClick={clearExtraFilters}>
-              Clear filters
+          ) : (
+            <button
+              className="btn ghost sm"
+              onClick={() => setConfirmFlush(true)}
+              title="Cancel all pending jobs in queue and refund credits"
+            >
+              Flush queue
             </button>
           )}
+          <button
+            className="btn ghost"
+            onClick={() => void load()}
+            disabled={loading}
+            title="Refresh jobs list"
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            <span
+              style={{
+                display: 'inline-block',
+                animation: loading ? 'spin 0.8s linear infinite' : 'none',
+              }}
+            >
+              <Icon.Refresh />
+            </span>
+            Refresh
+          </button>
         </div>
       </div>
 
-      {/* Mobile/Tablet single vertical bar header */}
-      <div className="mobile-only" style={{ marginBottom: 20 }}>
+      {/* Main Filter Toolbar Card */}
+      <div className="filter-card" style={{ marginBottom: 16 }}>
+        {/* Status Pills Strip */}
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            marginBottom: 12,
+            gap: 10,
+            flexWrap: 'wrap',
           }}
         >
-          <h1 style={{ margin: 0 }}>Jobs</h1>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              className="btn sm ghost"
-              onClick={() => void handleExportXlsx()}
-              disabled={exportingXlsx}
-              title="Download Excel"
-              style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+          <div className="segmented-control" role="tablist">
+            {FILTERS.map((f) => {
+              const isActive = filter === f.k;
+              return (
+                <button
+                  key={f.k}
+                  type="button"
+                  className={`segmented-btn ${isActive ? 'active' : ''}`}
+                  onClick={() => handleFilter(f.k)}
+                >
+                  <span
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: '50%',
+                      display: 'inline-block',
+                      background:
+                        f.k === 'all'
+                          ? 'var(--accent)'
+                          : f.k === 'QUEUED'
+                            ? 'var(--warn)'
+                            : f.k === 'GENERATING'
+                              ? 'var(--info)'
+                              : f.k === 'COMPLETED'
+                                ? 'var(--success)'
+                                : f.k === 'FAILED'
+                                  ? 'var(--danger)'
+                                  : 'var(--muted)',
+                    }}
+                  />
+                  {f.l}
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span
+              className="sub"
+              style={{ fontSize: 12.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}
             >
-              <Icon.Download />
-            </button>
-            <button
-              className="btn sm ghost"
-              onClick={() => void load()}
-              disabled={loading}
-              title="Refresh"
-              style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+              Sort by:
+            </span>
+            <select
+              className="filter-select"
+              value={`${sortKey}-${sortDir}`}
+              onChange={(e) => {
+                const [key, dir] = e.target.value.split('-');
+                setSortKey(key as keyof Job);
+                setSortDir(dir as SortDir);
+              }}
+              style={{ height: 32, fontSize: 12.5, padding: '0 24px 0 10px' }}
             >
-              <span
-                style={{
-                  display: 'inline-block',
-                  animation: loading ? 'spin 0.8s linear infinite' : 'none',
-                }}
-              >
-                <Icon.Refresh />
-              </span>
-              Refresh
-            </button>
+              <option value="createdAt-desc">Newest Created</option>
+              <option value="createdAt-asc">Oldest Created</option>
+              <option value="userEmail-asc">User Email (A-Z)</option>
+              <option value="userEmail-desc">User Email (Z-A)</option>
+              <option value="creditsCharged-desc">Credits (High-Low)</option>
+              <option value="creditsCharged-asc">Credits (Low-High)</option>
+              <option value="status-asc">Status</option>
+            </select>
           </div>
         </div>
 
-        <div style={{ position: 'relative' }}>
-          <button
-            type="button"
-            onClick={() => setIsNavOpen(!isNavOpen)}
-            style={{
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '14px 20px',
-              background: 'var(--surface)',
-              border: '1px solid var(--border)',
-              borderRadius: 8,
-              cursor: 'pointer',
-              textAlign: 'left',
-              color: 'var(--ink)',
-              fontSize: 15,
-              fontWeight: 600,
-              boxShadow: 'var(--shadow-sm)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span
-                style={{
-                  display: 'inline-block',
-                  width: 8,
-                  height: 8,
-                  borderRadius: '50%',
-                  background: 'var(--accent)',
-                }}
-              />
-              Jobs — {FILTERS.find((f) => f.k === filter)?.l || 'All'}
-            </div>
-            <span
-              style={{
-                color: 'var(--muted-2)',
-                transform: isNavOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                transition: 'transform 0.2s',
-                display: 'inline-flex',
-              }}
-            >
-              <Icon.Chevron />
-            </span>
-          </button>
-
-          {isNavOpen && (
-            <>
-              <div
-                onClick={() => setIsNavOpen(false)}
-                style={{
-                  position: 'fixed',
-                  inset: 0,
-                  zIndex: 99,
-                  background: 'transparent',
-                }}
-              />
-              <div
-                style={{
-                  position: 'absolute',
-                  top: 'calc(100% + 6px)',
-                  left: 0,
-                  right: 0,
-                  background: 'var(--surface)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 8,
-                  boxShadow: 'var(--shadow-lg)',
-                  zIndex: 100,
-                  padding: '12px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 12,
-                  maxHeight: '400px',
-                  overflowY: 'auto',
-                }}
+        {/* Search and Options Row */}
+        <div className="filter-row" style={{ paddingTop: 4 }}>
+          {/* Search Box */}
+          <div className="filter-search-box">
+            <Icon.Search />
+            <input
+              placeholder="Search by Job ID or user email…"
+              value={query}
+              onChange={(e) => handleSearch(e.target.value)}
+            />
+            {query && (
+              <button
+                type="button"
+                className="filter-clear-btn"
+                onClick={() => handleSearch('')}
+                title="Clear search"
               >
-                {/* Search input starting with Search */}
-                <div className="search" style={{ width: '100%' }}>
-                  <Icon.Search />
-                  <input
-                    placeholder="Search jobs..."
-                    value={query}
-                    onChange={(e) => handleSearch(e.target.value)}
-                  />
-                </div>
+                <Icon.Close />
+              </button>
+            )}
+          </div>
 
-                {/* Sort dropdown */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <span className="sub" style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    Sort by:
-                  </span>
-                  <select
-                    value={`${sortKey}-${sortDir}`}
-                    onChange={(e) => {
-                      const [key, dir] = e.target.value.split('-');
-                      setSortKey(key as keyof Job);
-                      setSortDir(dir as SortDir);
-                    }}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: 6,
-                      border: '1px solid var(--border)',
-                      background: 'var(--bg-2)',
-                      color: 'var(--ink)',
-                      fontSize: 13,
-                    }}
-                  >
-                    <option value="createdAt-desc">Newest Created</option>
-                    <option value="createdAt-asc">Oldest Created</option>
-                    <option value="userEmail-asc">User Email (A-Z)</option>
-                    <option value="userEmail-desc">User Email (Z-A)</option>
-                    <option value="creditsCharged-desc">Credits (High-Low)</option>
-                    <option value="creditsCharged-asc">Credits (Low-High)</option>
-                    <option value="status-asc">Status</option>
-                  </select>
-                </div>
-
-                {/* Filter options one by one */}
-                <div
+          {/* Options Menu Button & Popover */}
+          <div ref={menuRef} className="filter-popover-wrapper">
+            <button
+              type="button"
+              className={`filter-toggle-btn ${menuOpen || jobTypeFilter || workerFilter || createdFrom || createdTo ? 'active' : ''}`}
+              onClick={() => setMenuOpen(!menuOpen)}
+              title="Filter options and export"
+            >
+              <Icon.Filter />
+              <span>Options</span>
+              {(jobTypeFilter || workerFilter || createdFrom || createdTo) && (
+                <span
                   style={{
-                    borderTop: '1px solid var(--border)',
-                    paddingTop: 8,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 4,
+                    width: 6,
+                    height: 6,
+                    borderRadius: '50%',
+                    background: 'var(--accent)',
+                    display: 'inline-block',
                   }}
-                >
+                />
+              )}
+            </button>
+
+            {menuOpen && (
+              <div className="filter-popover-menu">
+                {/* 1. Job Type Filter */}
+                <div>
                   <span
-                    className="sub"
-                    style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      display: 'block',
+                      marginBottom: 6,
+                    }}
                   >
-                    Filter Status:
-                  </span>
-                  {FILTERS.map((f) => (
-                    <button
-                      key={f.k}
-                      type="button"
-                      onClick={() => {
-                        handleFilter(f.k);
-                        setIsNavOpen(false);
-                      }}
-                      style={{
-                        width: '100%',
-                        padding: '10px 14px',
-                        background: filter === f.k ? 'var(--bg-2)' : 'none',
-                        border: 'none',
-                        borderRadius: 6,
-                        textAlign: 'left',
-                        cursor: 'pointer',
-                        fontSize: 14,
-                        fontWeight: filter === f.k ? 600 : 400,
-                        color: filter === f.k ? 'var(--accent)' : 'var(--ink)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 10,
-                      }}
-                    >
-                      <span
-                        style={{
-                          width: 6,
-                          height: 6,
-                          borderRadius: '50%',
-                          background: filter === f.k ? 'var(--accent)' : 'transparent',
-                          display: 'inline-block',
-                        }}
-                      />
-                      {f.l}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Job type / worker / created-at range */}
-                <div
-                  style={{
-                    borderTop: '1px solid var(--border)',
-                    paddingTop: 8,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 8,
-                  }}
-                >
-                  <span className="sub" style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    Job Type:
+                    Job Type
                   </span>
                   <select
+                    className="filter-select"
                     value={jobTypeFilter}
                     onChange={(e) => handleJobTypeFilter(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: 6,
-                      border: '1px solid var(--border)',
-                      background: 'var(--bg-2)',
-                      color: 'var(--ink)',
-                      fontSize: 13,
-                    }}
+                    style={{ width: '100%', height: 32, fontSize: 12.5 }}
                   >
                     <option value="">All Job Types</option>
                     {jobTypeOptions.map((jt) => (
@@ -1391,22 +1145,30 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                       </option>
                     ))}
                   </select>
+                </div>
 
-                  <span className="sub" style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    Worker:
+                <div style={{ borderTop: '1px solid var(--border)' }} />
+
+                {/* 2. Worker Pool Filter */}
+                <div>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      display: 'block',
+                      marginBottom: 6,
+                    }}
+                  >
+                    Worker Pool
                   </span>
                   <select
+                    className="filter-select"
                     value={workerFilter}
                     onChange={(e) => handleWorkerFilter(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: 6,
-                      border: '1px solid var(--border)',
-                      background: 'var(--bg-2)',
-                      color: 'var(--ink)',
-                      fontSize: 13,
-                    }}
+                    style={{ width: '100%', height: 32, fontSize: 12.5 }}
                   >
                     <option value="">All Workers</option>
                     {workerOptions.map((w) => (
@@ -1415,61 +1177,194 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                       </option>
                     ))}
                   </select>
+                </div>
 
-                  <span className="sub" style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    Created from:
-                  </span>
-                  <input
-                    type="datetime-local"
-                    value={createdFrom}
-                    onChange={(e) => handleCreatedFrom(e.target.value)}
+                <div style={{ borderTop: '1px solid var(--border)' }} />
+
+                {/* 3. Created Date & Time Range */}
+                <div>
+                  <span
                     style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: 6,
-                      border: '1px solid var(--border)',
-                      background: 'var(--bg-2)',
-                      color: 'var(--ink)',
-                      fontSize: 13,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      display: 'block',
+                      marginBottom: 6,
                     }}
-                  />
-
-                  <span className="sub" style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    Created to:
+                  >
+                    Created Date Range
                   </span>
-                  <input
-                    type="datetime-local"
-                    value={createdTo}
-                    onChange={(e) => handleCreatedTo(e.target.value)}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 12, color: 'var(--muted)', width: 40 }}>From:</span>
+                      <input
+                        type="datetime-local"
+                        className="filter-input"
+                        value={createdFrom}
+                        onChange={(e) => handleCreatedFrom(e.target.value)}
+                        style={{ flex: 1, height: 32, fontSize: 12 }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 12, color: 'var(--muted)', width: 40 }}>To:</span>
+                      <input
+                        type="datetime-local"
+                        className="filter-input"
+                        value={createdTo}
+                        onChange={(e) => handleCreatedTo(e.target.value)}
+                        style={{ flex: 1, height: 32, fontSize: 12 }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ borderTop: '1px solid var(--border)' }} />
+
+                {/* 4. Download Excel */}
+                <div>
+                  <span
                     style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: 6,
-                      border: '1px solid var(--border)',
-                      background: 'var(--bg-2)',
-                      color: 'var(--ink)',
-                      fontSize: 13,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      display: 'block',
+                      marginBottom: 6,
                     }}
-                  />
-                  <span className="sub" style={{ fontSize: 11, color: 'var(--muted)' }}>
-                    Applies to Download Excel too
+                  >
+                    Export Data
                   </span>
-
-                  {hasExtraFilters && (
-                    <button
-                      type="button"
-                      className="btn sm ghost"
-                      onClick={clearExtraFilters}
-                      style={{ width: '100%' }}
-                    >
-                      Clear filters
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className="btn sm ghost"
+                    onClick={() => {
+                      void handleExportXlsx();
+                      setMenuOpen(false);
+                    }}
+                    disabled={exportingXlsx}
+                    style={{ width: '100%', justifyContent: 'center' }}
+                    title="Download Excel export"
+                  >
+                    <Icon.Download /> {exportingXlsx ? 'Exporting…' : 'Export Excel'}
+                  </button>
                 </div>
               </div>
-            </>
+            )}
+          </div>
+
+          {/* Clear Filters Button */}
+          {hasAnyFilter && (
+            <button
+              type="button"
+              className="btn sm ghost"
+              onClick={clearAllFilters}
+              style={{ marginLeft: 'auto' }}
+            >
+              <Icon.Close /> Clear filters
+            </button>
           )}
         </div>
+
+        {/* Active Filter Chips */}
+        {hasAnyFilter && (
+          <div className="filter-chips-row">
+            <span style={{ color: 'var(--muted)', fontSize: 11.5, marginRight: 2 }}>Active:</span>
+            {filter !== 'all' && (
+              <span className="filter-chip">
+                Status: <strong>{FILTERS.find((f) => f.k === filter)?.l || filter}</strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => handleFilter('all')}
+                  title="Remove status filter"
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {query && (
+              <span className="filter-chip">
+                Search: <strong>"{query}"</strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => handleSearch('')}
+                  title="Remove search query"
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {jobTypeFilter && (
+              <span className="filter-chip">
+                Type: <strong>{jobTypeFilter}</strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => handleJobTypeFilter('')}
+                  title="Remove job type filter"
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {workerFilter && (
+              <span className="filter-chip">
+                Worker:{' '}
+                <strong>
+                  {workerOptions.find((w) => w.id === workerFilter)?.label || workerFilter}
+                </strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => handleWorkerFilter('')}
+                  title="Remove worker filter"
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {(createdFrom || createdTo) && (
+              <span className="filter-chip">
+                Created:{' '}
+                <strong>
+                  {createdFrom || 'Anytime'} → {createdTo || 'Now'}
+                </strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setCreatedFrom('');
+                    setCreatedTo('');
+                    setPage(0);
+                  }}
+                  title="Remove created date filter"
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {dateFilter && (
+              <span className="filter-chip">
+                Day: <strong>{dateFilter}</strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setDateFilter(null);
+                    setPage(0);
+                  }}
+                  title="Remove day filter"
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {loading ? (

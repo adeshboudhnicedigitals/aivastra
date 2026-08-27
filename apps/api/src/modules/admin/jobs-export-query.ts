@@ -62,11 +62,13 @@ export interface JobExportRow {
   jobId: string;
   userName: string;
   userEmail: string | null;
+  jobType: string;
   startedAt: Date | null;
   completedAt: Date | null;
   creditsUsed: number;
   creditsRemaining: number | null;
   status: string;
+  errorCode: string | null;
 }
 
 // Safety valve, not a real-world limit — see the identical comment on the
@@ -129,13 +131,24 @@ export async function loadJobsForExport(
   app: FastifyInstance,
   { status, search, date, jobType, workerId, createdFrom, createdTo }: JobsExportQuery,
 ): Promise<JobExportRow[]> {
+  const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
   const conditions = [
     status ? eq(schema.jobs.status, status) : undefined,
     date ? sql`${schema.jobs.createdAt}::date = ${date}::date` : undefined,
     jobType ? sql`${jobTypeSql()} = ${jobType}` : undefined,
     workerId ? eq(schema.jobs.workerId, workerId) : undefined,
-    createdFrom ? gte(schema.jobs.createdAt, new Date(createdFrom)) : undefined,
-    createdTo ? lte(schema.jobs.createdAt, new Date(createdTo)) : undefined,
+    createdFrom
+      ? gte(
+          schema.jobs.createdAt,
+          new Date(DATE_ONLY.test(createdFrom) ? `${createdFrom}T00:00:00.000Z` : createdFrom),
+        )
+      : undefined,
+    createdTo
+      ? lte(
+          schema.jobs.createdAt,
+          new Date(DATE_ONLY.test(createdTo) ? `${createdTo}T23:59:59.999Z` : createdTo),
+        )
+      : undefined,
     search
       ? or(
           ilike(sql`${schema.jobs.id}::text`, `%${search}%`),
@@ -174,6 +187,8 @@ export async function loadJobsForExport(
       startedAt: schema.jobs.startedAt,
       completedAt: schema.jobs.completedAt,
       status: schema.jobs.status,
+      errorCode: schema.jobs.errorCode,
+      jobType: jobTypeSql(),
     })
     .from(schema.jobs)
     .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
@@ -190,11 +205,13 @@ export async function loadJobsForExport(
       jobId: r.jobId,
       userName: r.displayName || r.username || r.email || 'User',
       userEmail: r.email,
+      jobType: r.jobType,
       startedAt: r.startedAt,
       completedAt: r.completedAt,
       creditsUsed: snapshot?.creditsUsed ?? 0,
       creditsRemaining: snapshot?.creditsRemaining ?? null,
       status: r.status,
+      errorCode: r.errorCode,
     };
   });
 }
