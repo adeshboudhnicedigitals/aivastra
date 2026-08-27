@@ -1,3 +1,44 @@
+## 2026-08-27 — WordPress Plugin Admin UX Redesign
+
+**Done**
+- **Settings Page Admin UX Redesign (`Aivastra_Settings_Page`, `settings-page.css`)**:
+  - Implemented connected vs not-connected visual hierarchy using card-based layout (`.aivastra-card`) and WordPress core admin design tokens.
+  - Added visible, dismissible WordPress admin notices (`.notice.notice-success`, `.notice.notice-error`) for connect, refresh, disconnect, category map saves, and detailed error feedback.
+  - Wrapped try-on category mapping in a consistent card layout matching the settings page design system.
+- **Credit Balance Exposure & Refresh Action (`Aivastra_Connection_Settings`, `Aivastra_Connection_Service`)**:
+  - Captured and stored `credits` and `credits_as_of` in the connection snapshot from `GET /v1/dev/me`.
+  - Added `update_snapshot()` and `refresh()` action that re-verifies full API key against `/v1/dev/me` and updates credits balance and timestamp without requiring the merchant to re-enter their widget key.
+- **Disconnect Action (`handle_disconnect`)**:
+  - Added `clear()` method in `Aivastra_Connection_Settings` and `aivastra_tryon_disconnect` admin-post handler to wipe stored connection settings and category mappings on disconnect.
+- **Version Bump & Asset Enqueue Scoping**:
+  - Scoped `settings-page.css` loading exclusively to `settings_page_aivastra-tryon` hook suffix.
+  - Bumped plugin version to `0.4.0` in `aivastra-tryon.php` and `AIVASTRA_TRYON_VERSION`.
+- **Verification & Testing**:
+  - Unit tests: PHPUnit suite passed (35 tests, 54 assertions).
+  - JS tests: Node test suite passed (10 tests).
+  - PHP syntax check passed across all files (`aivastra-tryon.php`, `admin/class-settings-page.php`, etc.).
+  - Reference: `docs/superpowers/specs/2026-08-27-wordpress-plugin-admin-ux-design.md` for the full design rationale.
+
+## 2026-08-27 — WordPress Plugin Widget UI Premium Overhaul
+
+**Done**
+- **Modal Layout & Zero-Overflow**:
+  - Eliminated horizontal scrollbar bug caused by button width and box-sizing overflow.
+  - Added strict `box-sizing: border-box`, `overflow-x: hidden`, custom slim scrollbars, and `backdrop-filter: blur(8px)`.
+  - Added backdrop click-outside dismissal and `Escape` keyboard dismissal with background scroll lock.
+- **Luxury Aesthetic & Modern Design System**:
+  - Replaced dated neon gradient (`#ff5c7a` to `#7c5cff`) and emoji icons (`✨`, `📷`, `⚠️`) with a refined luxury palette (`#0f172a`, `#6366f1` accent, `#f8fafc` surfaces) and crisp vector SVGs.
+  - Added header badges (`AI Fitting Room`, `Ready`), subtitle hierarchy, and refined typography.
+  - Restyled trigger button into an elegant dark pill with inline vector sparkle and hover elevation.
+- **Workflow & Step Experience**:
+  - **Upload Step**: Modern dashed dropzone with upload icon, privacy guarantee (`🔒`), instant photo preview with "Change photo" badge, and disabled/active state handling.
+  - **Loading Step**: Dual-ring orbital glowing spinner with step feedback ("Generating virtual try-on").
+  - **Result Step**: Showcase frame with "✨ AI Generated" pill tag, "Download Result" button, and "Try Another Photo" action.
+  - **Error Step**: Rose alert icon container, clear instructions, and "Try Again" retry action.
+- **Verification**:
+  - `node --test wordpress-plugin/tests/js/widget-logic.test.js` passed (10/10 tests).
+  - Biome formatting and lint check passed cleanly on all widget assets.
+
 ## 2026-08-26 — WordPress Integration Backend & API Key Scoping
 
 **Done**
