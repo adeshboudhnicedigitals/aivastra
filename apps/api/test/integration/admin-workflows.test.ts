@@ -718,6 +718,77 @@ describe('admin workflows - floor validation', () => {
     expect(stored.ksampler_node.inputs.denoise).toBe(1);
   });
 
+  it('POST seeds every new workflow with the 5 default regeneration reasons', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `default_reasons_${Date.now()}`,
+        label: 'Default reasons',
+        jsonContent,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        garmentPhasePromptNode: 'positive_node',
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.regenerationReasonPrompts).toEqual([
+      { reason: 'Multiple body parts', prompt: '' },
+      { reason: 'Nudity', prompt: '' },
+      { reason: 'Draping issue', prompt: '' },
+      { reason: 'Additional assets', prompt: '' },
+      { reason: 'Texture issue', prompt: '' },
+    ]);
+  });
+
+  it('PATCH keeps blank-prompt regeneration reasons instead of dropping them', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `keep_blank_reasons_${Date.now()}`,
+        label: 'Keep blank reasons',
+        jsonContent,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        garmentPhasePromptNode: 'positive_node',
+      },
+    });
+    const id = createRes.json().id as string;
+
+    // Simulates the admin edit screen: save right after opening, with the
+    // default reasons still present but none of them given a prompt yet.
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/admin/workflows/${id}`,
+      headers,
+      payload: {
+        regenerationReasonPrompts: [
+          { reason: 'Multiple body parts', prompt: '' },
+          { reason: 'Nudity', prompt: '' },
+          { reason: 'Draping issue', prompt: 'garment sits flat, no fabric warping' },
+          { reason: '  ', prompt: 'should be dropped — blank reason label' },
+        ],
+      },
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const [row] = await app.db
+      .select({ regenerationReasonPrompts: schema.workflowTemplates.regenerationReasonPrompts })
+      .from(schema.workflowTemplates)
+      .where(eq(schema.workflowTemplates.id, id));
+    expect(row?.regenerationReasonPrompts).toEqual([
+      { reason: 'Multiple body parts', prompt: '' },
+      { reason: 'Nudity', prompt: '' },
+      { reason: 'Draping issue', prompt: 'garment sits flat, no fabric warping' },
+    ]);
+  });
+
   describe('workflow replace with drain', () => {
     it('rejects replace with wrong admin password', async () => {
       const createRes = await app.inject({
