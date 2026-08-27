@@ -1285,7 +1285,118 @@ git commit -m "feat: add storefront widget — job creation, polling, download"
 
 ---
 
-## Task 8: Packaging and full regression pass
+## Task 8: Per-category workflow routing (§4.3a)
+
+**Found during local end-to-end testing, not in the original plan.** The dev
+API resolves its ComfyUI workflow off a `category` slug
+(`createDevTryonJob` → `dev_tryon_categories`), but Task 7's `widget.js`
+hardcodes `form.set('category', 'general')` for every product on every site.
+That's fine for a merchant with exactly one workflow, but leaves no way for a
+second workflow (e.g. a saree-specific template) to ever apply to any
+product. See `docs/wordpress-plugin-design.md` §4.3a for the full writeup —
+this task implements it.
+
+**Files:**
+- Create: `includes/class-category-mapping.php`
+- Modify: `includes/class-connection-settings.php`
+- Modify: `includes/class-connection-service.php`
+- Modify: `admin/class-settings-page.php`
+- Modify: `public/class-widget-loader.php`
+- Modify: `assets/widget.js`
+- Create: `tests/php/CategoryMappingTest.php`
+- Modify: `tests/php/ConnectionServiceTest.php`
+- Modify: `tests/php/ConnectionSettingsTest.php`
+
+- [x] **Step 1: Pure resolve/sanitize functions**
+
+`Aivastra_Category_Mapping::resolve(array $productCategoryTermIds, array $map): string`
+returns the first `$map[$termId]` that's set and non-empty across the
+product's WooCommerce `product_cat` term IDs, else `'general'`.
+`::sanitize(array $rawMap, array $validTermIds, array $validSlugs): array`
+drops any entry whose term ID isn't a real WooCommerce category or whose
+slug isn't a currently-active aivastra category — a stale mapping (deleted
+category, deactivated aivastra category) must never persist. Both are pure
+— no WordPress function calls — so no Brain\Monkey mocking is needed;
+`tests/php/CategoryMappingTest.php` covers both directly (8 cases: mapped
+hit, unmapped fallback, no categories at all, first-match-wins with
+multiple categories, and 4 sanitize rejection/acceptance cases).
+
+- [x] **Step 2: Storage — one more key in the existing `wp_options` row**
+
+`Aivastra_Connection_Settings::get_category_map(): array` /
+`::set_category_map(array $map): void`, stored under `category_map` inside
+the same `aivastra_tryon_settings` option array Task 2 already owns — no new
+option row, consistent with that class being "the ONLY class that touches
+the options row."
+
+- [x] **Step 3: Fetch the merchant's aivastra categories**
+
+`Aivastra_Connection_Service::list_categories(string $widgetKey): array`
+calls `GET /v1/dev/categories` with the widget key (that route accepts a
+`widget`-scoped key — `apps/api/src/modules/dev/routes.ts` gates it on
+`requireApiKey` only, no `requireDevScope('full')` — so no new key is
+needed). Mirrors `connect()`'s `wp_remote_get`/`is_wp_error` shape exactly.
+
+- [x] **Step 4: Settings page — the mapping screen**
+
+Only rendered once connected (`$companyName !== null`). Lists every
+WooCommerce `product_cat` term (`get_terms(['taxonomy' => 'product_cat',
+'hide_empty' => false])`) with a `<select>` of the merchant's active
+aivastra categories (from Step 3), defaulting to "Default (general)". A new
+`admin_post_aivastra_tryon_save_category_map` action re-fetches both the
+live WooCommerce term list and the live aivastra category list at save time
+and runs the posted map through `::sanitize()` before persisting — never
+trusts what the form posted without re-validating against current state.
+
+- [x] **Step 5: Widget loader resolves the product's category**
+
+`class-widget-loader.php`'s `render()` now calls
+`wp_get_post_terms($product->get_id(), 'product_cat', ['fields' => 'ids'])`,
+resolves it via `Aivastra_Category_Mapping::resolve()` against
+`$settings->get_category_map()`, and adds `'category' => $category` to the
+`wp_localize_script` payload.
+
+- [x] **Step 6: Widget sends the resolved category**
+
+`assets/widget.js`: `form.set('category', 'general')` →
+`form.set('category', config.category || 'general')`.
+
+- [x] **Step 7: Tests**
+
+```bash
+docker run --rm -v "$(pwd):/app" -w /app composer:2 dump-autoload
+docker run --rm -v "$(pwd):/app" -w /app php:8.2-cli php vendor/bin/phpunit --testsuite unit
+node --test "tests/js/*.test.js"
+```
+Expected: PASS — 27 PHP tests (13 original + 14 new: 8 in
+`CategoryMappingTest.php`, 3 new `list_categories` cases in
+`ConnectionServiceTest.php`, 3 new `category_map` cases in
+`ConnectionSettingsTest.php`), 10 JS tests unchanged.
+
+- [x] **Step 8: Bump the asset version and manual QA**
+
+`AIVASTRA_TRYON_VERSION` → `0.3.0` (both the doc header and the `define()`)
+— required for the browser to pick up the changed `widget.js`; WordPress
+appends this constant as `?ver=` on every enqueued asset URL, so leaving it
+unchanged serves the cached pre-change file.
+
+Manual QA on the local dev site: Settings → Aivastra Try-On → confirm the
+"Try-on category mapping" section appears once connected, lists every
+WooCommerce product category, map one to a real aivastra category, save,
+reload a product in that category, and confirm the network request to
+`/v1/dev/tryon` sends the mapped `category` field (not `general`) — then
+confirm an unmapped category's product still sends `general`.
+
+- [x] **Step 9: Commit**
+
+```bash
+git add includes/class-category-mapping.php includes/class-connection-settings.php includes/class-connection-service.php admin/class-settings-page.php public/class-widget-loader.php assets/widget.js tests/php/CategoryMappingTest.php tests/php/ConnectionServiceTest.php tests/php/ConnectionSettingsTest.php aivastra-tryon.php
+git commit -m "feat: per-category workflow routing via WooCommerce category mapping"
+```
+
+---
+
+## Task 9: Packaging and full regression pass
 
 - [ ] **Step 1: Run the full PHP test suite**
 

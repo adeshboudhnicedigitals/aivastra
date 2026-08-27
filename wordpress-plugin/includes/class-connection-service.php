@@ -43,4 +43,34 @@ class Aivastra_Connection_Service
 
         return ['ok' => true];
     }
+
+    /**
+     * Lists the merchant's active aivastra dev-API categories, for the category
+     * mapping screen (§ category mapping) — GET /v1/dev/categories accepts a
+     * widget-scoped key (apps/api/src/modules/dev/routes.ts), so no full key is
+     * needed here.
+     *
+     * @return array{ok: bool, categories: array<int, array{slug: string, name: string}>, error?: string}
+     */
+    public function list_categories(string $widgetKey): array
+    {
+        $response = wp_remote_get($this->apiBase . '/v1/dev/categories', [
+            'headers' => ['Authorization' => 'Bearer ' . $widgetKey],
+            'timeout' => 15,
+        ]);
+
+        if (is_wp_error($response)) {
+            return ['ok' => false, 'categories' => [], 'error' => 'Could not reach the aivastra API.'];
+        }
+
+        $code = wp_remote_retrieve_response_code($response);
+        if ($code !== 200) {
+            return ['ok' => false, 'categories' => [], 'error' => 'The widget key was rejected (HTTP ' . $code . ').'];
+        }
+
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+        $categories = is_array($body) ? ($body['categories'] ?? []) : [];
+
+        return ['ok' => true, 'categories' => is_array($categories) ? $categories : []];
+    }
 }

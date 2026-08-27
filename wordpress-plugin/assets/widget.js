@@ -23,8 +23,13 @@
     });
   }
 
-  function renderModal(html) {
-    modal.innerHTML = `<div class="aivastra-tryon-modal-content">${html}</div>`;
+  function renderModal(title, bodyHtml) {
+    modal.innerHTML =
+      '<div class="aivastra-tryon-modal-content">' +
+      '<button type="button" class="aivastra-modal-close" data-close aria-label="Close">&times;</button>' +
+      (title ? `<h3 class="aivastra-modal-title">${title}</h3>` : '') +
+      bodyHtml +
+      '</div>';
     modal.hidden = false;
   }
 
@@ -35,7 +40,12 @@
 
   function renderUnavailable() {
     renderModal(
-      '<p>Try-on is temporarily unavailable.</p><button type="button" data-close>Close</button>',
+      'Try it on',
+      '<div class="aivastra-error">' +
+        '<span class="aivastra-error-icon">⚠️</span>' +
+        '<p>Try-on is temporarily unavailable. Please try again in a moment.</p>' +
+        '</div>' +
+        '<button type="button" class="aivastra-secondary-btn" data-close>Close</button>',
     );
   }
 
@@ -57,9 +67,10 @@
         }
         if (classified.state === 'completed') {
           renderModal(
-            `<img src="${classified.imageUrl}" alt="Try-on result" style="max-width:100%">` +
-              `<p><a href="${classified.imageUrl}" download>Download</a></p>` +
-              '<button type="button" data-close>Close</button>',
+            'Your try-on is ready',
+            `<img class="aivastra-result-image" src="${classified.imageUrl}" alt="Try-on result">` +
+              `<a class="aivastra-primary-btn" href="${classified.imageUrl}" download style="text-decoration:none; text-align:center;">Download</a>` +
+              '<button type="button" class="aivastra-secondary-btn" data-close>Close</button>',
           );
           return;
         }
@@ -69,7 +80,13 @@
   }
 
   function startTryOn(personDataUrl) {
-    renderModal('<p>Generating your try-on…</p>');
+    renderModal(
+      'Generating your try-on',
+      '<div class="aivastra-loading">' +
+        '<div class="aivastra-spinner"></div>' +
+        '<p>This usually takes under a minute…</p>' +
+        '</div>',
+    );
 
     fetch(currentImage)
       .then((r) => r.blob())
@@ -78,7 +95,7 @@
           .then((r) => r.blob())
           .then((personBlob) => {
             const form = new FormData();
-            form.set('category', 'general');
+            form.set('category', config.category || 'general');
             form.set('person', personBlob, 'person.jpg');
             form.set('garment', garmentBlob, 'garment.jpg');
             return fetch(`${config.apiBase}/v1/dev/tryon`, {
@@ -99,14 +116,40 @@
       .catch(renderUnavailable);
   }
 
-  button.addEventListener('click', () => {
+  function renderUploadStep() {
     renderModal(
-      '<p>Upload your photo</p>' +
+      'Try it on',
+      '<label class="aivastra-upload-label" id="aivastra-upload-label">' +
+        '<img id="aivastra-upload-preview" class="aivastra-upload-preview" hidden alt="Your photo">' +
+        '<span class="aivastra-upload-icon" id="aivastra-upload-icon">📷</span>' +
+        '<span id="aivastra-upload-hint">Click to upload a full-length photo of yourself</span>' +
         '<input type="file" accept="image/*" id="aivastra-tryon-file">' +
-        '<p><button type="button" id="aivastra-tryon-generate">Generate Try-On</button></p>' +
-        '<button type="button" data-close>Close</button>',
+        '</label>' +
+        '<button type="button" class="aivastra-primary-btn" id="aivastra-tryon-generate" disabled>Generate Try-On</button>',
     );
-  });
+
+    const fileInput = document.getElementById('aivastra-tryon-file');
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files?.[0];
+      const generateBtn = document.getElementById('aivastra-tryon-generate');
+      if (!file) {
+        generateBtn.disabled = true;
+        return;
+      }
+      generateBtn.disabled = false;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const preview = document.getElementById('aivastra-upload-preview');
+        preview.src = reader.result;
+        preview.hidden = false;
+        document.getElementById('aivastra-upload-icon').hidden = true;
+        document.getElementById('aivastra-upload-hint').textContent = file.name;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  button.addEventListener('click', renderUploadStep);
 
   modal.addEventListener('click', (event) => {
     if (event.target.hasAttribute('data-close')) {

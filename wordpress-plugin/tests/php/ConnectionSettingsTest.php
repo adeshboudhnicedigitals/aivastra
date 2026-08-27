@@ -57,6 +57,44 @@ final class ConnectionSettingsTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
+    public function test_get_category_map_reads_from_the_options_row(): void
+    {
+        Functions\expect('get_option')
+            ->once()
+            ->with('aivastra_tryon_settings', [])
+            ->andReturn(['category_map' => [12 => 'saree']]);
+
+        $settings = new Aivastra_Connection_Settings();
+        $this->assertSame([12 => 'saree'], $settings->get_category_map());
+    }
+
+    public function test_get_category_map_returns_empty_array_when_unset(): void
+    {
+        Functions\expect('get_option')->once()->andReturn([]);
+        $settings = new Aivastra_Connection_Settings();
+        $this->assertSame([], $settings->get_category_map());
+    }
+
+    public function test_set_category_map_merges_into_the_existing_options_row(): void
+    {
+        Functions\expect('get_option')
+            ->once()
+            ->with('aivastra_tryon_settings', [])
+            ->andReturn(['widget_key' => 'sk_live_widget']);
+        Functions\expect('update_option')
+            ->once()
+            ->with('aivastra_tryon_settings', [
+                'widget_key' => 'sk_live_widget',
+                'category_map' => [12 => 'saree'],
+            ])
+            ->andReturn(true);
+
+        $settings = new Aivastra_Connection_Settings();
+        $settings->set_category_map([12 => 'saree']);
+
+        $this->addToAssertionCount(1);
+    }
+
     public function test_never_exposes_a_setter_for_the_full_key(): void
     {
         $methods = get_class_methods(Aivastra_Connection_Settings::class);

@@ -36,6 +36,21 @@ class Aivastra_Connection_Settings
         return $this->all()['credits_as_of'] ?? null;
     }
 
+    /** @return array<int, string> WooCommerce product_cat term_id => aivastra category slug. */
+    public function get_category_map(): array
+    {
+        $map = $this->all()['category_map'] ?? [];
+        return is_array($map) ? $map : [];
+    }
+
+    /** @param array<int, string> $map */
+    public function set_category_map(array $map): void
+    {
+        $all = $this->all();
+        $all['category_map'] = $map;
+        update_option(self::OPTION_KEY, $all);
+    }
+
     /**
      * The only write path for a successful connection — sets the widget key
      * and the display snapshot together, in one wp_options write.

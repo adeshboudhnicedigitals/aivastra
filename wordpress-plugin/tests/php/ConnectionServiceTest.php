@@ -75,4 +75,54 @@ final class ConnectionServiceTest extends TestCase
 
         $this->assertFalse($result['ok']);
     }
+
+    public function test_list_categories_returns_the_categories_using_the_widget_key(): void
+    {
+        Functions\expect('wp_remote_get')
+            ->once()
+            ->with(
+                'https://api.aivastra.com/v1/dev/categories',
+                Mockery::on(fn ($args) => $args['headers']['Authorization'] === 'Bearer sk_live_widget')
+            )
+            ->andReturn(['response' => ['code' => 200]]);
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+        Functions\expect('wp_remote_retrieve_response_code')->once()->andReturn(200);
+        Functions\expect('wp_remote_retrieve_body')
+            ->once()
+            ->andReturn(json_encode(['categories' => [['slug' => 'general', 'name' => 'General']]]));
+
+        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
+        $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
+        $result = $service->list_categories('sk_live_widget');
+
+        $this->assertTrue($result['ok']);
+        $this->assertSame([['slug' => 'general', 'name' => 'General']], $result['categories']);
+    }
+
+    public function test_list_categories_returns_not_ok_on_network_error(): void
+    {
+        Functions\expect('wp_remote_get')->once()->andReturn(new WP_Error('http_request_failed'));
+        Functions\expect('is_wp_error')->once()->andReturn(true);
+
+        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
+        $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
+        $result = $service->list_categories('sk_live_widget');
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame([], $result['categories']);
+    }
+
+    public function test_list_categories_returns_not_ok_when_the_widget_key_is_rejected(): void
+    {
+        Functions\expect('wp_remote_get')->once()->andReturn(['response' => ['code' => 401]]);
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+        Functions\expect('wp_remote_retrieve_response_code')->once()->andReturn(401);
+
+        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
+        $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
+        $result = $service->list_categories('sk_live_widget');
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame([], $result['categories']);
+    }
 }
