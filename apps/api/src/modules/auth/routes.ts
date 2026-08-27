@@ -6,7 +6,11 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
-import { sendPasswordResetEmail, sendVerificationEmail } from '../../lib/mailer.js';
+import {
+  sendPasswordResetEmail,
+  sendVerificationEmail,
+  sendWelcomeEmail,
+} from '../../lib/mailer.js';
 import { resolveMerchantStatus } from '../merchant/status.js';
 import { resolveCampaignId } from './campaign.js';
 import { parseAcceptedAudiences, verifyGoogleIdToken } from './google-id-token.js';
@@ -369,6 +373,14 @@ export async function authRoutes(app: FastifyInstance) {
         );
       } catch (err) {
         app.log.error({ err }, 'Failed to send verification email');
+      }
+
+      // Separate try/catch: a welcome-email failure shouldn't be logged as a
+      // verification-email failure, and vice versa — they can fail independently.
+      try {
+        await sendWelcomeEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, email);
+      } catch (err) {
+        app.log.error({ err }, 'Failed to send welcome email');
       }
 
       reply.code(201);
