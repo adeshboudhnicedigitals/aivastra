@@ -203,9 +203,13 @@ export default function WorkflowsPage({ toast }: Props) {
     if (!editingWf) return;
     setEditSaving(true);
     try {
+      // A blank prompt is kept — it means "no override yet" for that reason
+      // (regenerate then falls back to the original prompt), not "delete this
+      // reason." Only a blank REASON label is dropped, since the picker can't
+      // render a nameless row.
       const cleanedRegenerationReasonPrompts = editForm.regenerationReasonPrompts
         .map((p) => ({ reason: p.reason.trim(), prompt: p.prompt.trim() }))
-        .filter((p) => p.reason.length > 0 && p.prompt.length > 0);
+        .filter((p) => p.reason.length > 0);
       const patch: Record<string, unknown> = {
         label: editForm.label.trim(),
         slug: editForm.slug.trim(),

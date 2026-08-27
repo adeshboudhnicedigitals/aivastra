@@ -518,11 +518,16 @@ export const UpdateWorkflowBody = z.object({
   facePhasePrompt: z.string().optional(),
   // Admin-curated (reason -> alternate prompt) pairs offered on regenerate —
   // same graph, different prompt text chosen by the reason the user picked.
-  // [] clears the list (regenerate then reruns the original prompt for any
-  // reason, since nothing matches). Prompt gets the same 300-char cap as a
-  // user hint; reason is a short label shown verbatim in the reason picker.
+  // A blank prompt is valid and deliberate: it means "no override configured
+  // yet" for that reason, so regenerateJob() falls back to rerunning the
+  // original prompt (see DEFAULT_REGENERATION_REASON_PROMPTS below, which
+  // ships every new/not-yet-configured workflow with 5 reasons and blank
+  // prompts).
+  // Prompt has no length cap — these are often a full original prompt plus
+  // added corrective clauses, which can run well past a short user-hint's
+  // length; reason is a short label shown verbatim in the reason picker.
   regenerationReasonPrompts: z
-    .array(z.object({ reason: z.string().min(1).max(100), prompt: z.string().min(1).max(300) }))
+    .array(z.object({ reason: z.string().min(1).max(100), prompt: z.string() }))
     .max(50)
     .optional(),
   // Same TEXT vs node-id-column distinction as above, for two_stage's own stage-1
@@ -552,6 +557,20 @@ export const UpdateWorkflowBody = z.object({
   tryonGarmentNodeId2: z.string().min(1).nullable().optional(),
   tryonOutputNodeId: z.string().min(1).nullable().optional(),
 });
+
+// Seeded onto every newly-created workflow template (POST /admin/workflows
+// only — never on /replace, which must never overwrite an already-curated
+// list) so the regenerate reason picker is never empty for a brand-new
+// workflow. Blank prompts mean "no override yet"; an admin fills them in
+// later from the workflow's edit screen. Existing pre-this-feature workflows
+// were backfilled once via migration 0178_seed_default_regen_reasons.
+export const DEFAULT_REGENERATION_REASON_PROMPTS: { reason: string; prompt: string }[] = [
+  { reason: 'Multiple body parts', prompt: '' },
+  { reason: 'Nudity', prompt: '' },
+  { reason: 'Draping issue', prompt: '' },
+  { reason: 'Additional assets', prompt: '' },
+  { reason: 'Texture issue', prompt: '' },
+];
 
 export const ReassignWorkflowBody = z.object({
   targetWorkflowId: z.string().uuid(),
