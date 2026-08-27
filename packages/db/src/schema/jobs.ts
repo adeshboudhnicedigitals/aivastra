@@ -79,6 +79,13 @@ export const jobs = pgTable(
     flagNote: text('flag_note'),
     flaggedAt: timestamp('flagged_at', { withTimezone: true }),
     flaggedBy: uuid('flagged_by').references(() => users.id, { onDelete: 'set null' }),
+    // Set when a flagged job's issue has been addressed — distinct from unflagging
+    // (which clears the flag entirely). A resolved job stays flagged=true so the
+    // original reason/note survive for tracking; resolvedAt gates the 'resolved'
+    // filter in the /results webtool.
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    resolvedNote: text('resolved_note'),
+    resolvedBy: uuid('resolved_by').references(() => users.id, { onDelete: 'set null' }),
   },
   (t) => ({
     // Every Shopify analytics query filters on exactly this pair. Without it
@@ -86,6 +93,7 @@ export const jobs = pgTable(
     byShopifyStoreTime: index('jobs_shopify_store_created_idx').on(t.shopifyStoreId, t.createdAt),
     byBatch: index('jobs_batch_idx').on(t.batchId),
     byFlagged: index('jobs_flagged_idx').on(t.flagged),
+    byResolved: index('jobs_resolved_idx').on(t.resolvedAt),
     // GET /v1/merchant/tryon/history groups by (merchant_id, day) — without
     // this, that query sequential-scans the whole jobs table as it grows.
     byMerchant: index('jobs_merchant_created_idx').on(t.merchantId, t.createdAt),
