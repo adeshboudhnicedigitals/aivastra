@@ -65,8 +65,8 @@ const FALLBACK_RATES: Record<string, number> = {
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
-// Per-plan metadata — index matches sortOrder (0=Starter, 1=Growth, 2=Business)
-export const PLAN_META = [
+// Per-plan metadata — index matches sortOrder (0=Starter, 1=Growth, 2=Pro, 3=Enterprise)
+export const CATALOGUE_PLAN_META = [
   {
     Icon: Rocket,
     subtext: 'Perfect for Small Businesses',
@@ -75,35 +75,84 @@ export const PLAN_META = [
     iconSrc: undefined,
     iconBg: C.mid,
     checkGrad: false,
-    // icon2k: `${BASE}/assets/2k-b-vec.svg`,
-    // icon4k: `${BASE}/assets/4k-b-vec.svg`,
     invertUsage: true,
   },
   {
     Icon: BarChart2,
-    subtext: 'Best for Growing Businesses',
+    subtext: 'Most Popular Choice',
     accent: C.mint,
     iconColor: undefined,
     iconSrc: `${BASE}/assets/gro-vec.svg`,
     iconBg: C.mid,
     checkGrad: true,
-    // icon2k: `${BASE}/assets/2k-vec.svg`,
-    // icon4k: `${BASE}/assets/4k-vec.svg`,
     invertUsage: false,
   },
   {
     Icon: Building2,
-    subtext: 'Ideal for Large Businesses',
+    subtext: 'Best for Growing Businesses',
     accent: C.mid,
     iconColor: C.text,
     iconSrc: `${BASE}/assets/pro-vec.svg`,
     iconBg: C.mid,
     checkGrad: false,
-    // icon2k: `${BASE}/assets/2k-b-vec.svg`,
-    // icon4k: `${BASE}/assets/4k-b-vec.svg`,
+    invertUsage: true,
+  },
+  {
+    Icon: Building2,
+    subtext: 'Enterprises & High Volume',
+    accent: C.mid,
+    iconColor: C.text,
+    iconSrc: `${BASE}/assets/pro-vec.svg`,
+    iconBg: C.mid,
+    checkGrad: false,
     invertUsage: true,
   },
 ] as const;
+
+export const TRYON_PLAN_META = [
+  {
+    Icon: Rocket,
+    subtext: 'Perfect for Startups',
+    accent: C.mid,
+    iconColor: C.text,
+    iconSrc: undefined,
+    iconBg: C.mid,
+    checkGrad: false,
+    invertUsage: true,
+  },
+  {
+    Icon: BarChart2,
+    subtext: 'Most Popular Choice',
+    accent: C.mint,
+    iconColor: undefined,
+    iconSrc: `${BASE}/assets/gro-vec.svg`,
+    iconBg: C.mid,
+    checkGrad: true,
+    invertUsage: false,
+  },
+  {
+    Icon: Building2,
+    subtext: 'Best for Growing Businesses',
+    accent: C.mid,
+    iconColor: C.text,
+    iconSrc: `${BASE}/assets/pro-vec.svg`,
+    iconBg: C.mid,
+    checkGrad: false,
+    invertUsage: true,
+  },
+  {
+    Icon: Building2,
+    subtext: 'Enterprises & High Volume',
+    accent: C.mid,
+    iconColor: C.text,
+    iconSrc: `${BASE}/assets/pro-vec.svg`,
+    iconBg: C.mid,
+    checkGrad: false,
+    invertUsage: true,
+  },
+] as const;
+
+export const PLAN_META = CATALOGUE_PLAN_META;
 
 export const PLAN_FEATURES = [
   [

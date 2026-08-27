@@ -21,7 +21,7 @@ import { useGoogleDriveStatus } from '@/hooks/use-google-drive-status';
 import { useJobStream } from '@/hooks/use-job-stream';
 import { api } from '@/lib/api';
 import { ApiError, downloadErrorMessage } from '@/lib/errors';
-import { GOOGLE_DRIVE_ENABLED } from '@/lib/feature-flags';
+import { GOOGLE_DRIVE_ENABLED, REGENERATE_ENABLED } from '@/lib/feature-flags';
 
 const REGENERATE_LIMIT_SUPPORT_MESSAGE =
   "I've used all 5 free regenerations for today and would like help getting more.";
@@ -610,7 +610,7 @@ function ImageCard({
                 >
                   {downloading ? <SpinnerIcon size={14} /> : <DownloadIcon size={16} />}
                 </button>
-                {!job.alreadyDownloaded && (
+                {REGENERATE_ENABLED && !job.alreadyDownloaded && (
                   <button
                     type="button"
                     onClick={() => onRegenerate(job.id)}
@@ -1223,7 +1223,7 @@ export default function CataloguePage({
               userSelect: 'none',
             }}
           />
-          {zoom.job.status === 'COMPLETED' && !zoom.job.alreadyDownloaded && (
+          {REGENERATE_ENABLED && zoom.job.status === 'COMPLETED' && !zoom.job.alreadyDownloaded && (
             <button
               type="button"
               onClick={(e) => {
@@ -1256,7 +1256,7 @@ export default function CataloguePage({
         </div>
       )}
 
-      {reasonModalJobId && (
+      {REGENERATE_ENABLED && reasonModalJobId && (
         <div
           role="dialog"
           aria-modal="true"
@@ -1356,7 +1356,7 @@ export default function CataloguePage({
         </div>
       )}
 
-      {showRegenerateLimitModal && (
+      {REGENERATE_ENABLED && showRegenerateLimitModal && (
         <SupportModal
           initialMessage={REGENERATE_LIMIT_SUPPORT_MESSAGE}
           onClose={() => setShowRegenerateLimitModal(false)}

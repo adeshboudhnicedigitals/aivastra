@@ -38,6 +38,7 @@ export default function ShopifyStoresPage({ toast }: Props) {
   const [stores, setStores] = useState<ShopifyStore[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedStore, setSelectedStore] = useState<ShopifyStore | null>(null);
+  const [expandedStoreId, setExpandedStoreId] = useState<string | null>(null);
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [ledgerLoading, setLedgerLoading] = useState(false);
@@ -135,76 +136,210 @@ export default function ShopifyStoresPage({ toast }: Props) {
           )}
         </div>
 
-        <div className="kv-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
-          <div className="kv">
-            <span className="k">Credit balance</span>
-            <span className="v">{selectedStore.balance.toLocaleString()}</span>
+        {/* Desktop Detail View */}
+        <div className="desktop-only">
+          <div
+            className="kv-grid"
+            style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 20 }}
+          >
+            <div className="kv">
+              <span className="k">Credit balance</span>
+              <span className="v">{selectedStore.balance.toLocaleString()}</span>
+            </div>
+            <div className="kv">
+              <span className="k">Installed</span>
+              <span className="v">{formatDate(selectedStore.installedAt)}</span>
+            </div>
+            <div className="kv">
+              <span className="k">Uninstalled</span>
+              <span className="v">{formatDate(selectedStore.uninstalledAt)}</span>
+            </div>
           </div>
-          <div className="kv">
-            <span className="k">Installed</span>
-            <span className="v">{formatDate(selectedStore.installedAt)}</span>
-          </div>
-          <div className="kv">
-            <span className="k">Uninstalled</span>
-            <span className="v">{formatDate(selectedStore.uninstalledAt)}</span>
+
+          <div className="card">
+            <div className="card-head">
+              <h3>Credit activity</h3>
+            </div>
+            <div className="card-body">
+              {ledgerLoading ? (
+                <p style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</p>
+              ) : ledger.length === 0 ? (
+                <p style={{ color: 'var(--muted)', fontSize: 13 }}>No ledger entries yet.</p>
+              ) : (
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Reason</th>
+                        <th style={{ textAlign: 'right' }}>Delta</th>
+                        <th>Timestamp</th>
+                        <th>Job ID</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ledger.map((entry) => (
+                        <tr key={entry.id}>
+                          <td>{entry.reason}</td>
+                          <td
+                            style={{
+                              textAlign: 'right',
+                              color: entry.delta < 0 ? 'var(--danger)' : 'var(--success)',
+                              fontWeight: 500,
+                            }}
+                          >
+                            {signedDelta(entry.delta)}
+                          </td>
+                          <td>{formatDate(entry.createdAt)}</td>
+                          <td>
+                            {entry.jobId ? (
+                              <code style={{ fontSize: 12 }}>{entry.jobId}</code>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {nextCursor && (
+                <button
+                  type="button"
+                  className="btn ghost"
+                  style={{ marginTop: 16 }}
+                  disabled={loadingMore}
+                  onClick={() => void loadLedger(selectedStore.id, nextCursor)}
+                >
+                  {loadingMore ? 'Loading…' : 'Load more'}
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
-        <div className="card">
-          <div className="card-head">
-            <h3>Credit activity</h3>
+        {/* Mobile & Tablet Detail View */}
+        <div className="mobile-only" style={{ gap: 14 }}>
+          {/* Summary Card */}
+          <div
+            className="card"
+            style={{
+              padding: '14px',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--r)',
+              background: 'var(--surface)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>Credit balance:</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>
+                {selectedStore.balance.toLocaleString()}
+              </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>Installed:</span>
+              <span style={{ fontSize: 12, color: 'var(--ink)' }}>
+                {formatDate(selectedStore.installedAt)}
+              </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>Uninstalled:</span>
+              <span style={{ fontSize: 12, color: 'var(--ink)' }}>
+                {formatDate(selectedStore.uninstalledAt)}
+              </span>
+            </div>
           </div>
-          <div className="card-body">
-            {ledgerLoading ? (
-              <p style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</p>
-            ) : ledger.length === 0 ? (
-              <p style={{ color: 'var(--muted)', fontSize: 13 }}>No ledger entries yet.</p>
-            ) : (
-              <div className="table-wrap">
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>Reason</th>
-                      <th style={{ textAlign: 'right' }}>Delta</th>
-                      <th>Timestamp</th>
-                      <th>Job ID</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ledger.map((entry) => (
-                      <tr key={entry.id}>
-                        <td>{entry.reason}</td>
-                        <td
-                          style={{
-                            textAlign: 'right',
-                            color: entry.delta < 0 ? 'var(--danger)' : 'var(--success)',
-                            fontWeight: 500,
-                          }}
-                        >
-                          {signedDelta(entry.delta)}
-                        </td>
-                        <td>{formatDate(entry.createdAt)}</td>
-                        <td>
-                          {entry.jobId ? <code style={{ fontSize: 12 }}>{entry.jobId}</code> : '—'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            {nextCursor && (
-              <button
-                type="button"
-                className="btn ghost"
-                style={{ marginTop: 16 }}
-                disabled={loadingMore}
-                onClick={() => void loadLedger(selectedStore.id, nextCursor)}
+
+          <h3 style={{ fontSize: 13.5, fontWeight: 600, margin: '8px 0 0', color: 'var(--ink)' }}>
+            Recent Activity
+          </h3>
+
+          {ledgerLoading ? (
+            <div
+              className="card"
+              style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}
+            >
+              Loading activity…
+            </div>
+          ) : ledger.length === 0 ? (
+            <div
+              className="card"
+              style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}
+            >
+              No ledger entries yet.
+            </div>
+          ) : (
+            ledger.map((entry) => (
+              <div
+                key={entry.id}
+                className="card"
+                style={{
+                  padding: '12px 14px',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--r)',
+                  background: 'var(--surface)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                }}
               >
-                {loadingMore ? 'Loading…' : 'Load more'}
-              </button>
-            )}
-          </div>
+                {/* 1. Reason & 2. Delta */}
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 10,
+                  }}
+                >
+                  <span style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--ink)' }}>
+                    {entry.reason}
+                  </span>
+                  <span
+                    style={{
+                      fontWeight: 700,
+                      fontSize: 13.5,
+                      color: entry.delta < 0 ? 'var(--danger)' : 'var(--success)',
+                    }}
+                  >
+                    {signedDelta(entry.delta)}
+                  </span>
+                </div>
+
+                {/* 3. Timestamp */}
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  {formatDate(entry.createdAt)}
+                </div>
+
+                {/* 4. Job ID */}
+                <div
+                  style={{
+                    fontSize: 11,
+                    fontFamily: 'var(--mono)',
+                    color: 'var(--muted)',
+                    wordBreak: 'break-all',
+                  }}
+                >
+                  {entry.jobId ? `Job ID: ${entry.jobId}` : 'Job ID: —'}
+                </div>
+              </div>
+            ))
+          )}
+
+          {nextCursor && (
+            <button
+              type="button"
+              className="btn ghost"
+              style={{ width: '100%', marginTop: 8 }}
+              disabled={loadingMore}
+              onClick={() => void loadLedger(selectedStore.id, nextCursor)}
+            >
+              {loadingMore ? 'Loading…' : 'Load more'}
+            </button>
+          )}
         </div>
 
         {confirmDelete && (
@@ -268,33 +403,183 @@ export default function ShopifyStoresPage({ toast }: Props) {
           No Shopify stores yet.
         </div>
       ) : (
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Shop domain</th>
-                <th style={{ textAlign: 'right' }}>Balance</th>
-                <th>Installed</th>
-                <th>Uninstalled</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stores.map((store) => (
-                <tr
-                  key={store.id}
-                  onClick={() => openStore(store)}
-                  style={{ cursor: 'pointer' }}
-                  title={`View ${store.shopDomain} credit activity`}
-                >
-                  <td style={{ fontWeight: 500 }}>{store.shopDomain}</td>
-                  <td style={{ textAlign: 'right' }}>{store.balance.toLocaleString()}</td>
-                  <td>{formatDate(store.installedAt)}</td>
-                  <td>{formatDate(store.uninstalledAt)}</td>
+        <>
+          {/* Desktop Table View */}
+          <div className="desktop-only table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Shop domain</th>
+                  <th style={{ textAlign: 'right' }}>Balance</th>
+                  <th>Installed</th>
+                  <th>Uninstalled</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {stores.map((store) => (
+                  <tr
+                    key={store.id}
+                    onClick={() => openStore(store)}
+                    style={{ cursor: 'pointer' }}
+                    title={`View ${store.shopDomain} credit activity`}
+                  >
+                    <td style={{ fontWeight: 500 }}>{store.shopDomain}</td>
+                    <td style={{ textAlign: 'right' }}>{store.balance.toLocaleString()}</td>
+                    <td>{formatDate(store.installedAt)}</td>
+                    <td>{formatDate(store.uninstalledAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile & Tablet Card View */}
+          <div className="mobile-only" style={{ gap: 10 }}>
+            {stores.map((store) => {
+              const isExpanded = expandedStoreId === store.id;
+              return (
+                <div
+                  key={store.id}
+                  className="card"
+                  style={{
+                    padding: '12px 14px',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--r)',
+                    background: 'var(--surface)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 10,
+                  }}
+                >
+                  {/* Shop domain header */}
+                  <div
+                    onClick={() => setExpandedStoreId(isExpanded ? null : store.id)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 10,
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        minWidth: 0,
+                        flex: 1,
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontWeight: 600,
+                          fontSize: 13.5,
+                          color: 'var(--ink)',
+                          wordBreak: 'break-word',
+                        }}
+                      >
+                        {store.shopDomain}
+                      </span>
+                      {store.uninstalledAt ? (
+                        <span className="badge danger" style={{ fontSize: 10 }}>
+                          Uninstalled
+                        </span>
+                      ) : (
+                        <span className="badge success" style={{ fontSize: 10 }}>
+                          Active
+                        </span>
+                      )}
+                    </div>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        color: 'var(--muted)',
+                        transform: isExpanded ? 'rotate(90deg)' : 'none',
+                        transition: 'transform 0.15s ease',
+                      }}
+                    >
+                      <Icon.Chevron />
+                    </div>
+                  </div>
+
+                  {/* Expanded Section: Balance, Installed, Uninstalled, Credit Activity button */}
+                  {isExpanded && (
+                    <div
+                      style={{
+                        paddingTop: 10,
+                        borderTop: '1px solid var(--border)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 8,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>Balance:</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>
+                          {store.balance.toLocaleString()} credits
+                        </span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>Installed:</span>
+                        <span style={{ fontSize: 12, color: 'var(--ink)' }}>
+                          {formatDate(store.installedAt)}
+                        </span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>Uninstalled:</span>
+                        <span style={{ fontSize: 12, color: 'var(--ink)' }}>
+                          {formatDate(store.uninstalledAt)}
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        className="btn sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openStore(store);
+                        }}
+                        style={{
+                          width: '100%',
+                          marginTop: 6,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 6,
+                        }}
+                      >
+                        Credit activity &rarr;
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
     </div>
   );
