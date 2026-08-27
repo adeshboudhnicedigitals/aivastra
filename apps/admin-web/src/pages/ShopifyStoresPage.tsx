@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Icon } from '../components/Icons';
+import { useAuth } from '../context/AuthContext';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 
 interface ShopifyStore {
@@ -32,6 +33,8 @@ function signedDelta(delta: number): string {
 }
 
 export default function ShopifyStoresPage({ toast }: Props) {
+  const { role: myRole } = useAuth();
+  const isSuperAdmin = myRole === 'SUPER_ADMIN';
   const [stores, setStores] = useState<ShopifyStore[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedStore, setSelectedStore] = useState<ShopifyStore | null>(null);
@@ -40,6 +43,8 @@ export default function ShopifyStoresPage({ toast }: Props) {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<ShopifyStore | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -94,6 +99,26 @@ export default function ShopifyStoresPage({ toast }: Props) {
     void loadLedger(store.id);
   }
 
+  async function handleDeleteConfirm() {
+    if (!confirmDelete) return;
+    setDeleting(true);
+    try {
+      await apiFetch(`/admin/shopify-stores/${confirmDelete.id}`, { method: 'DELETE' });
+      toast({ title: `${confirmDelete.shopDomain} deleted` });
+      setConfirmDelete(null);
+      setSelectedStore(null);
+      await load();
+    } catch (err) {
+      toast({
+        kind: 'error',
+        title: 'Failed to delete store',
+        body: apiErrorMessage(err, 'Please try again.'),
+      });
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   if (selectedStore) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -104,6 +129,11 @@ export default function ShopifyStoresPage({ toast }: Props) {
             </button>
             <h1 style={{ marginTop: 8 }}>{selectedStore.shopDomain}</h1>
           </div>
+          {isSuperAdmin && (
+            <button className="btn danger" onClick={() => setConfirmDelete(selectedStore)}>
+              <Icon.Trash /> Delete store data
+            </button>
+          )}
         </div>
 
         {/* Desktop Detail View */}
@@ -311,6 +341,35 @@ export default function ShopifyStoresPage({ toast }: Props) {
             </button>
           )}
         </div>
+
+        {confirmDelete && (
+          <div className="modal-overlay" onClick={() => setConfirmDelete(null)}>
+            <div className="modal confirm" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <h3>Delete Shopify store</h3>
+              </div>
+              <div className="modal-body">
+                <p>
+                  Permanently delete <strong>{confirmDelete.shopDomain}</strong> and all its data —
+                  credit balance, ledger, synced products, shoppers, and settings? This cannot be
+                  undone. Use this only to reset a test store for a clean reinstall.
+                </p>
+              </div>
+              <div className="modal-foot">
+                <button
+                  className="btn ghost"
+                  onClick={() => setConfirmDelete(null)}
+                  disabled={deleting}
+                >
+                  Cancel
+                </button>
+                <button className="btn danger" onClick={handleDeleteConfirm} disabled={deleting}>
+                  {deleting ? 'Deleting…' : 'Confirm delete'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -320,7 +379,7 @@ export default function ShopifyStoresPage({ toast }: Props) {
       <div>
         <h2 style={{ margin: 0, fontSize: '1.125rem', fontWeight: 600 }}>Shopify Stores</h2>
         <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
-          Read-only store credit balances and credit activity.
+          Store credit balances and credit activity. Open a store for the option to delete it.
         </p>
       </div>
 

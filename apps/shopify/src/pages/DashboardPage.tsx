@@ -16,6 +16,9 @@ import {
 } from '@shopify/polaris';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { BalanceCard } from '../components/BalanceCard';
+import { EmailBonusModal } from '../components/EmailBonusModal';
+import { PackGrid } from '../components/PackGrid';
 import { apiFetch } from '../lib/api';
 import type { ShopifyMe, ShopifyOnboardingConfirmResponse, ShopifyStats } from '../types';
 
@@ -128,6 +131,16 @@ const STATUS_LABEL: Record<StatusKey, string> = {
   disabled: 'Disabled',
 };
 
+// Global mode alone satisfies "enable try-on on a product" — under global
+// mode literally every synced product is enabled except exclusions, so this
+// must not depend on `enabledProductCount`'s precision (e.g. zero synced
+// products yet, or an edge case where every product is individually
+// excluded) to reflect that. See apps/api/src/modules/shopify/me.routes.ts.
+function isTryOnEnabled(me: ShopifyMe | null): boolean {
+  const globalModeOn = me?.store.settings.activation?.mode === 'global';
+  return globalModeOn || (me?.stats.enabledProductCount ?? 0) > 0;
+}
+
 function StepRow({
   done,
   title,
@@ -168,6 +181,10 @@ export default function DashboardPage() {
   const [openingEditor, setOpeningEditor] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  // Auto-opens on first load (see showEmailBonusModal below); "Maybe later"
+  // sets this false without touching emailBonusClaimed, so the persistent
+  // card further down stays as the way back in.
+  const [emailBonusModalOpen, setEmailBonusModalOpen] = useState(true);
   const navigate = useNavigate();
 
   const load = useCallback(() => {
@@ -187,7 +204,19 @@ export default function DashboardPage() {
     setError(null);
     try {
       await apiFetch('/v1/shopify/products/sync', { method: 'POST' });
-      setToastMessage('Products synced from Shopify.');
+      // Onboarding convenience: a merchant's first sync should make try-on
+      // live without a separate trip to Manage. Gated on nothing being
+      // enabled yet so a later re-sync (e.g. after adding products) never
+      // clobbers a deliberate switch to selective mode.
+      if (!isTryOnEnabled(me)) {
+        await apiFetch('/v1/shopify/activation/mode', {
+          method: 'PATCH',
+          body: JSON.stringify({ mode: 'global' }),
+        });
+        setToastMessage('Products synced — try-on is now live on your store.');
+      } else {
+        setToastMessage('Products synced from Shopify.');
+      }
       load();
     } catch (err) {
       setError((err as Error).message);
@@ -235,17 +264,18 @@ export default function DashboardPage() {
   }
 
   const synced = (me?.stats.syncedProductCount ?? 0) > 0;
-  // Global mode alone satisfies "enable try-on on a product" — under global
-  // mode literally every synced product is enabled except exclusions, so the
-  // gate must not depend on `enabledProductCount`'s precision (e.g. zero
-  // synced products yet, or an edge case where every product is individually
-  // excluded) to reflect that. See apps/api/src/modules/shopify/me.routes.ts.
-  const globalModeOn = me?.store.settings.activation?.mode === 'global';
-  const enabled = globalModeOn || (me?.stats.enabledProductCount ?? 0) > 0;
+  const enabled = isTryOnEnabled(me);
   const themeBlockDone = me?.store.settings.themeBlockConfirmed ?? false;
   const doneCount = [synced, enabled, themeBlockDone].filter(Boolean).length;
   const allDone = doneCount === 3;
   const collapsed = allDone && !expanded;
+  const emailBonusClaimed = me?.store.settings.emailBonusClaimed ?? false;
+  // The tile itself stays up until the store has bought a pack at least
+  // once — claiming the bonus only changes what the tile says, not whether
+  // it's there. The popup auto-open is still gated on the bonus itself,
+  // since re-showing it after it's claimed would have nothing left to offer.
+  const showFreeCreditsTile = me != null && !me.hasPurchasedPack;
+  const showEmailBonusModal = me != null && !emailBonusClaimed && emailBonusModalOpen;
 
   return (
     <Page title="Dashboard" subtitle="Here's how virtual try-on is performing on your store.">
@@ -254,17 +284,50 @@ export default function DashboardPage() {
 
         {me && <LowCreditsBanner me={me} />}
 
-        <Card>
-          <BlockStack gap="200">
-            <Text as="p" tone="subdued">
-              Credit balance
-            </Text>
-            <Text as="p" variant="heading2xl">
-              {(me?.creditBalance ?? 0).toLocaleString()}
-            </Text>
-            <Button onClick={() => navigate('/pricing')}>Buy credits</Button>
-          </BlockStack>
-        </Card>
+        <BalanceCard me={me} />
+
+        <PackGrid
+          onError={setError}
+          leadingCard={
+            showFreeCreditsTile ? (
+              <Card>
+                <BlockStack gap="300">
+                  <InlineStack align="space-between" blockAlign="center">
+                    <Text as="h2" variant="headingMd">
+                      Free
+                    </Text>
+                    <Badge tone="success">
+                      {emailBonusClaimed ? 'Credits availed' : 'No purchase required'}
+                    </Badge>
+                  </InlineStack>
+
+                  <Text as="p" variant="headingLg">
+                    Free Credits
+                  </Text>
+
+                  {emailBonusClaimed ? (
+                    <Text as="p" tone="subdued">
+                      Already added to your balance.
+                    </Text>
+                  ) : (
+                    <>
+                      <BlockStack gap="100">
+                        <Text as="p">5 try-ons</Text>
+                        <Text as="p" tone="subdued">
+                          Confirm your contact email to claim them.
+                        </Text>
+                      </BlockStack>
+
+                      <Button variant="primary" onClick={() => setEmailBonusModalOpen(true)}>
+                        Claim credits
+                      </Button>
+                    </>
+                  )}
+                </BlockStack>
+              </Card>
+            ) : undefined
+          }
+        />
 
         <Card>
           <BlockStack gap="400">
@@ -287,7 +350,7 @@ export default function DashboardPage() {
                 <StepRow
                   done={synced}
                   title="Sync your products"
-                  description="Import your Shopify catalog so AiVastra can generate try-on images."
+                  description="Import your Shopify catalog and turn on virtual try-on for every product — you can exclude specific ones afterward in Manage."
                 >
                   <Button variant="primary" onClick={syncProducts} loading={syncing}>
                     Sync products now
@@ -404,6 +467,21 @@ export default function DashboardPage() {
           )}
         </InlineStack>
       </BlockStack>
+
+      {showEmailBonusModal && me && (
+        <EmailBonusModal
+          me={me}
+          onClose={() => setEmailBonusModalOpen(false)}
+          onClaimed={(result) => {
+            load();
+            setToastMessage(
+              result.creditsGranted > 0
+                ? `You got ${result.creditsGranted.toLocaleString()} free credits!`
+                : 'Thanks for confirming your email.',
+            );
+          }}
+        />
+      )}
 
       {toastMessage && <Toast content={toastMessage} onDismiss={() => setToastMessage(null)} />}
     </Page>
