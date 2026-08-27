@@ -38,8 +38,43 @@ class Aivastra_Connection_Service
 
         $body = json_decode(wp_remote_retrieve_body($response), true);
         $companyName = is_array($body) ? ($body['companyName'] ?? '') : '';
+        $credits = is_array($body) ? (int) ($body['credits'] ?? 0) : 0;
 
-        $this->settings->set_widget_key_and_snapshot($widgetKey, $companyName, current_time('mysql'));
+        $this->settings->set_widget_key_and_snapshot($widgetKey, $companyName, $credits, current_time('mysql'));
+
+        return ['ok' => true];
+    }
+
+    /**
+     * Re-verifies the full key and updates only the display snapshot —
+     * never the widget key. Exists as a separate method from connect() so
+     * refreshing the balance never requires re-entering the widget key,
+     * which a merchant is unlikely to still have (it's shown once, at
+     * creation, and never again).
+     *
+     * @return array{ok: bool, error?: string}
+     */
+    public function refresh(string $fullKey): array
+    {
+        $response = wp_remote_get($this->apiBase . '/v1/dev/me', [
+            'headers' => ['Authorization' => 'Bearer ' . $fullKey],
+            'timeout' => 15,
+        ]);
+
+        if (is_wp_error($response)) {
+            return ['ok' => false, 'error' => 'Could not reach the aivastra API.'];
+        }
+
+        $code = wp_remote_retrieve_response_code($response);
+        if ($code !== 200) {
+            return ['ok' => false, 'error' => 'The full API key was rejected (HTTP ' . $code . ').'];
+        }
+
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+        $companyName = is_array($body) ? ($body['companyName'] ?? '') : '';
+        $credits = is_array($body) ? (int) ($body['credits'] ?? 0) : 0;
+
+        $this->settings->update_snapshot($companyName, $credits, current_time('mysql'));
 
         return ['ok' => true];
     }
