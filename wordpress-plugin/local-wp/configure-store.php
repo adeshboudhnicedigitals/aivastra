@@ -1,9 +1,19 @@
 <?php
 /**
- * One-time WooCommerce settings for the local demo store: INR currency,
- * Cash-on-Delivery-only checkout, guest checkout, no tax, and a flat-rate
- * shipping zone. Every change here is an option update — naturally
+ * One-time WooCommerce/WordPress settings for the local demo store: INR
+ * currency, Cash-on-Delivery-only checkout, guest checkout, no tax, a
+ * flat-rate shipping zone, pretty permalinks, and disabling WooCommerce's
+ * "Coming Soon" mode. Every change here is an option update — naturally
  * idempotent, safe to re-run.
+ *
+ * The last two are fresh-install defaults that silently block the entire
+ * storefront if left as-is: Plain permalinks mean /shop/ and friends 404
+ * through to the blog homepage instead of resolving, and Coming Soon mode
+ * shows every visitor a placeholder page regardless of how the catalog or
+ * theme are configured underneath. Both were found the hard way — the
+ * theme/catalog/checkout work landed and was reported "verified" before
+ * either was fixed, so nothing after that point could actually have been
+ * loaded in a browser.
  *
  * Run with: wp eval-file wp-content/plugins/aivastra-tryon/local-wp/configure-store.php
  */
@@ -11,6 +21,11 @@
 if (!defined('ABSPATH')) {
     exit;
 }
+
+update_option('permalink_structure', '/%postname%/');
+flush_rewrite_rules();
+
+update_option('woocommerce_coming_soon', 'no');
 
 update_option('woocommerce_currency', 'INR');
 
