@@ -1,0 +1,87 @@
+/*
+Theme Name: Storefront Aivastra
+Template: storefront
+Description: Storefront child theme skinned with Aivastra's brand palette for the demo storefront.
+Version: 1.0.0
+*/
+
+:root {
+  --aivastra-primary: #0f172a;
+  --aivastra-primary-hover: #1e293b;
+  --aivastra-accent: #6366f1;
+  --aivastra-surface: #ffffff;
+  --aivastra-surface-subtle: #f8fafc;
+  --aivastra-border: #e2e8f0;
+  --aivastra-text-main: #0f172a;
+  --aivastra-text-muted: #64748b;
+}
+
+.main-navigation ul li a:hover,
+.main-navigation ul li a:focus {
+  color: var(--aivastra-accent);
+}
+
+/* Buttons: add to cart, place order, proceed to checkout, apply coupon, etc. */
+.woocommerce a.button,
+.woocommerce button.button,
+.woocommerce input.button,
+.woocommerce #respond input#submit,
+a.button.alt,
+button.button.alt,
+input.button.alt {
+  background-color: var(--aivastra-primary) !important;
+  border-color: var(--aivastra-primary) !important;
+  color: #fff !important;
+  border-radius: 8px;
+}
+
+.woocommerce a.button:hover,
+.woocommerce button.button:hover,
+.woocommerce input.button:hover,
+a.button.alt:hover,
+button.button.alt:hover,
+input.button.alt:hover {
+  background-color: var(--aivastra-primary-hover) !important;
+  border-color: var(--aivastra-primary-hover) !important;
+}
+
+/* Product grid cards (shop page, category archives) */
+ul.products li.product {
+  background: var(--aivastra-surface);
+  border: 1px solid var(--aivastra-border);
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition:
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
+}
+
+ul.products li.product:hover {
+  box-shadow: 0 8px 24px -8px rgba(15, 23, 42, 0.16);
+  transform: translateY(-2px);
+}
+
+ul.products li.product .price {
+  color: var(--aivastra-primary);
+  font-weight: 700;
+}
+
+/* Single product page */
+.single-product div.product p.price,
+.single-product div.product span.price {
+  color: var(--aivastra-primary);
+  font-weight: 700;
+}
+
+/* Cart & checkout */
+.woocommerce table.shop_table {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--aivastra-border);
+}
+
+.woocommerce-checkout #payment {
+  background: var(--aivastra-surface-subtle);
+  border-radius: 12px;
+}
