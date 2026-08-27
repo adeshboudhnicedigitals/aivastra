@@ -54,7 +54,10 @@ async function withWidgetConfigPublishLock<T>(
     await sleep(WIDGET_CONFIG_LOCK_WAIT_MS);
   }
 
-  throw new AppError('SHOPIFY', 503, 'Widget config publish in progress, retry shortly');
+  // LOCKED, not SHOPIFY: this is our own publish-lock contention, not an
+  // upstream Shopify failure — see the identical reasoning in token.ts's
+  // refresh lock.
+  throw new AppError('LOCKED', 409, 'Widget config publish in progress, retry shortly');
 }
 
 async function getCurrentStore(app: FastifyInstance, storeId: string): Promise<Store> {
