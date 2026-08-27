@@ -51,6 +51,12 @@ export function classifyError(err: unknown): ClassifiedError {
       status,
     };
   }
+  if (code === 'LOCKED') {
+    // A background operation (token refresh, widget-config publish) is
+    // already in flight for this store — our own lock contention, not an
+    // upstream Shopify failure, and always resolves within seconds.
+    return { message, tone: 'warning', retryable: true, code, status };
+  }
   if (code === 'TIMEOUT') {
     return {
       message: `${message} If it keeps happening, reload the page.`,
@@ -75,9 +81,10 @@ export function classifyError(err: unknown): ClassifiedError {
       status,
     };
   }
-  // SHOPIFY covers upstream Shopify call failures (throttling, timeouts,
-  // "operation in progress, retry shortly") — transient by nature. Any other
-  // 5xx is presumed transient too.
+  // SHOPIFY covers genuine upstream Shopify call failures (throttling,
+  // timeouts, a bad response) — transient by nature. Any other 5xx is
+  // presumed transient too. (Our own lock contention uses LOCKED, above, not
+  // this code — see token.ts/widget-config.routes.ts.)
   if (code === 'SHOPIFY' || (status !== null && status >= 500)) {
     return {
       message: `${message} This usually clears up on its own — try again in a moment, and contact support if it keeps happening.`,

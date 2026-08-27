@@ -125,12 +125,21 @@
     // The backend's own AppError/Zod-validation message is never shown
     // verbatim (it can be raw Zod-issue text, or just phrased for a
     // developer, not a shopper) — every 4xx from presign/createJob is mapped
-    // through this instead, keyed on the error code alone.
-    function friendlyClientErrorMessage(code) {
+    // through this instead, keyed on status/code alone. The one exception is
+    // a 413 (BAD_UPLOAD's "too large" flavor — see customer.routes.ts): its
+    // message is deterministic ("uploaded photo exceeds NMB limit") and N is
+    // an admin-configurable value (default 20MB, but not fixed) with no safe
+    // number to hardcode here instead — a hardcoded "under 25MB" would just
+    // drift out of sync with whatever the store is actually configured for.
+    function friendlyClientErrorMessage(status, code, backendMessage) {
       if (code === 'RATE_LIMITED' || code === 'RATE_LIMIT') {
         return 'Lots of people are trying this on right now. Please wait a moment and try again.';
       }
-      return "We had trouble with that photo. Please make sure it's a JPG or PNG under 25MB and try again.";
+      if (status === 413 && backendMessage) {
+        const capitalized = backendMessage.charAt(0).toUpperCase() + backendMessage.slice(1);
+        return `${capitalized}. Please choose a smaller photo and try again.`;
+      }
+      return "We had trouble with that photo. Please make sure it's a clear JPG or PNG and try again.";
     }
 
     const emailInput = root.querySelector('.aivastra-tryon__email-input');
@@ -836,7 +845,11 @@
         const errBody = await presignRes.json().catch(() => ({}));
         const err = new Error('presign failed');
         if (presignRes.status < 500) {
-          err.userMessage = friendlyClientErrorMessage(errBody?.error?.code);
+          err.userMessage = friendlyClientErrorMessage(
+            presignRes.status,
+            errBody?.error?.code,
+            errBody?.error?.message,
+          );
         }
         throw err;
       }
@@ -899,8 +912,10 @@
             "We're experiencing high demand right now. You haven't been charged — please try again in a moment.";
         } else if (res.status < 500) {
           // Same as uploadPhoto: never show the backend's own AppError/Zod
-          // text verbatim, only map its code to fixed friendly copy.
-          err.userMessage = friendlyClientErrorMessage(code);
+          // text verbatim, only map its status/code to fixed friendly copy
+          // (with the one deliberate exception inside
+          // friendlyClientErrorMessage itself, for a 413).
+          err.userMessage = friendlyClientErrorMessage(res.status, code, errBody?.error?.message);
         }
         throw err;
       }

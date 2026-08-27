@@ -55,6 +55,15 @@ describe('classifyError', () => {
     expect(result.retryable).toBe(true);
   });
 
+  it('gives LOCKED (our own lock contention, not an upstream Shopify failure) a retryable warning', () => {
+    const result = classifyError(
+      new ApiError(409, 'Token refresh in progress, retry shortly', 'LOCKED'),
+    );
+    expect(result.tone).toBe('warning');
+    expect(result.retryable).toBe(true);
+    expect(result.message).toBe('Token refresh in progress, retry shortly');
+  });
+
   it('treats any other 5xx as retryable even without a recognized code', () => {
     const result = classifyError(new ApiError(503, 'temporarily unavailable'));
     expect(result.retryable).toBe(true);

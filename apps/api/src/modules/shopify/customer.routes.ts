@@ -354,6 +354,11 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
       }
       const maxCustomerPhotoBytes = await getUploadLimitBytes(app, 'shopifyCustomerPhotoMaxBytes');
       if (photoHead.contentLength > maxCustomerPhotoBytes) {
+        // BAD_UPLOAD at 413 here, 400 above: matches the same code covering
+        // both "file missing/corrupt" and "file too large" used identically
+        // across upload-ownership.ts, merchant/upload-guard.ts,
+        // merchant/upload-sessions.routes.ts, admin/demo-upload-guard.ts —
+        // an established convention, not something to diverge from here.
         throw new AppError(
           'BAD_UPLOAD',
           413,
