@@ -17,7 +17,7 @@ import { useGoogleDriveStatus } from '@/hooks/use-google-drive-status';
 import { useJobStream } from '@/hooks/use-job-stream';
 import { api } from '@/lib/api';
 import { ApiError, downloadErrorMessage } from '@/lib/errors';
-import { GOOGLE_DRIVE_ENABLED } from '@/lib/feature-flags';
+import { GOOGLE_DRIVE_ENABLED, REGENERATE_ENABLED } from '@/lib/feature-flags';
 
 // Mirrors FREE_REGENERATE_DAILY_LIMIT in apps/api/src/modules/jobs/regenerate.ts —
 // display-only copy; the actual cap is enforced server-side.
@@ -1138,6 +1138,36 @@ export function GenerationPanel({
                           <CheckIcon size={11} color="#FFFFFF" />
                           <span>Ready</span>
                         </div>
+                        {!hideDownload && (
+                          <button
+                            type="button"
+                            title="Download"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (resultUrl) downloadImage(resultUrl, job.id);
+                            }}
+                            style={{
+                              position: 'absolute',
+                              top: 8,
+                              right: 8,
+                              zIndex: 2,
+                              width: 28,
+                              height: 28,
+                              borderRadius: '50%',
+                              background: 'rgba(20, 20, 20, 0.55)',
+                              backdropFilter: 'blur(4px)',
+                              border: 'none',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: '#FFFFFF',
+                              boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                            }}
+                          >
+                            <DownloadIcon size={14} />
+                          </button>
+                        )}
                       </>
                     ) : isTerminalFailed ? (
                       <>
@@ -1336,144 +1366,124 @@ export function GenerationPanel({
                     )}
                   </div>
 
-                  {/* Actions row — below the image, not overlaid on top of it.
-                      Order: Regenerate (or Use this, in embedded contexts) first, then Download,
-                      then Save to Drive. */}
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'stretch',
-                      borderTop: `1px solid ${C.border}`,
-                      padding: '0 6px',
-                    }}
-                  >
-                    {onUseImage && isCompleted && resultUrl && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onUseImage({ url: resultUrl, jobId: job.id, poseLabel: job.label });
-                        }}
-                        style={{
-                          flex: 1,
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 3,
-                          minWidth: 0,
-                          padding: '8px 2px',
-                          background: 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          color: '#521D9C',
-                        }}
-                      >
-                        <CheckIcon color="#521D9C" size={14} />
-                        <span style={{ fontSize: 9, fontWeight: 600, whiteSpace: 'nowrap' }}>
-                          Use this
-                        </span>
-                      </button>
-                    )}
-                    {!onUseImage && isCompleted && resultUrl && !downloadedJobIds.has(job.id) && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openReasonModal(job.id);
-                        }}
-                        disabled={regenerating}
-                        style={{
-                          flex: 1,
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 3,
-                          minWidth: 0,
-                          padding: '8px 2px',
-                          background: 'none',
-                          border: 'none',
-                          cursor: regenerating ? 'not-allowed' : 'pointer',
-                          opacity: regenerating ? 0.6 : 1,
-                          color: C.pink,
-                        }}
-                      >
-                        <RegenerateIcon size={16} />
-                        <span style={{ fontSize: 9, fontWeight: 600, whiteSpace: 'nowrap' }}>
-                          Regenerate
-                        </span>
-                      </button>
-                    )}
-                    {!hideDownload && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (resultUrl) downloadImage(resultUrl, job.id);
-                        }}
-                        style={{
-                          flex: 1,
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 3,
-                          minWidth: 0,
-                          padding: '8px 2px',
-                          background: 'none',
-                          border: 'none',
-                          cursor: isCompleted && resultUrl ? 'pointer' : 'not-allowed',
-                          opacity: isCompleted && resultUrl ? 1 : 0.45,
-                          color: C.mid,
-                        }}
-                      >
-                        <DownloadIcon size={16} />
-                        <span style={{ fontSize: 9, fontWeight: 600, whiteSpace: 'nowrap' }}>
-                          Download
-                        </span>
-                      </button>
-                    )}
-                    {GOOGLE_DRIVE_ENABLED && !hideGoogleDrive && isCompleted && resultUrl && (
-                      <button
-                        type="button"
-                        disabled={exportingToDrive === job.id}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          saveToDrive(job.id);
-                        }}
-                        title={
-                          driveStatus.data?.status === 'CONNECTED'
-                            ? 'Save to Google Drive'
-                            : 'Connect Google Drive'
-                        }
-                        style={{
-                          flex: 1,
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 3,
-                          minWidth: 0,
-                          padding: '8px 2px',
-                          background: 'none',
-                          border: 'none',
-                          cursor: exportingToDrive === job.id ? 'not-allowed' : 'pointer',
-                          opacity: exportingToDrive === job.id ? 0.6 : 1,
-                          color: C.mid,
-                        }}
-                      >
-                        {exportingToDrive === job.id ? (
-                          <SpinnerIcon size={16} />
-                        ) : (
-                          <DriveIcon size={16} />
+                  {/* Actions row — below the image, not overlaid on top of it. Download now
+                      lives as an icon on the image itself; this row only carries actions that
+                      still need a labeled button (Use this in embedded contexts, Save to Drive),
+                      and disappears entirely when neither applies. */}
+                  {(onUseImage ||
+                    (GOOGLE_DRIVE_ENABLED && !hideGoogleDrive) ||
+                    REGENERATE_ENABLED) && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'stretch',
+                        borderTop: `1px solid ${C.border}`,
+                        padding: '0 6px',
+                      }}
+                    >
+                      {onUseImage && isCompleted && resultUrl && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onUseImage({ url: resultUrl, jobId: job.id, poseLabel: job.label });
+                          }}
+                          style={{
+                            flex: 1,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 3,
+                            minWidth: 0,
+                            padding: '8px 2px',
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: '#521D9C',
+                          }}
+                        >
+                          <CheckIcon color="#521D9C" size={14} />
+                          <span style={{ fontSize: 9, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            Use this
+                          </span>
+                        </button>
+                      )}
+                      {REGENERATE_ENABLED &&
+                        !onUseImage &&
+                        isCompleted &&
+                        resultUrl &&
+                        !downloadedJobIds.has(job.id) && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openReasonModal(job.id);
+                            }}
+                            disabled={regenerating}
+                            style={{
+                              flex: 1,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: 3,
+                              minWidth: 0,
+                              padding: '8px 2px',
+                              background: 'none',
+                              border: 'none',
+                              cursor: regenerating ? 'not-allowed' : 'pointer',
+                              opacity: regenerating ? 0.6 : 1,
+                              color: C.pink,
+                            }}
+                          >
+                            <RegenerateIcon size={16} />
+                            <span style={{ fontSize: 9, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                              Regenerate
+                            </span>
+                          </button>
                         )}
-                        <span style={{ fontSize: 9, fontWeight: 600, whiteSpace: 'nowrap' }}>
-                          Save to Drive
-                        </span>
-                      </button>
-                    )}
-                  </div>
+                      {GOOGLE_DRIVE_ENABLED && !hideGoogleDrive && isCompleted && resultUrl && (
+                        <button
+                          type="button"
+                          disabled={exportingToDrive === job.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            saveToDrive(job.id);
+                          }}
+                          title={
+                            driveStatus.data?.status === 'CONNECTED'
+                              ? 'Save to Google Drive'
+                              : 'Connect Google Drive'
+                          }
+                          style={{
+                            flex: 1,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 3,
+                            minWidth: 0,
+                            padding: '8px 2px',
+                            background: 'none',
+                            border: 'none',
+                            cursor: exportingToDrive === job.id ? 'not-allowed' : 'pointer',
+                            opacity: exportingToDrive === job.id ? 0.6 : 1,
+                            color: C.mid,
+                          }}
+                        >
+                          {exportingToDrive === job.id ? (
+                            <SpinnerIcon size={16} />
+                          ) : (
+                            <DriveIcon size={16} />
+                          )}
+                          <span style={{ fontSize: 9, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            Save to Drive
+                          </span>
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -1590,7 +1600,7 @@ export function GenerationPanel({
         </div>
       )}
 
-      {reasonModalJobId && (
+      {REGENERATE_ENABLED && reasonModalJobId && (
         <div
           role="dialog"
           aria-modal="true"
@@ -1689,7 +1699,7 @@ export function GenerationPanel({
         </div>
       )}
 
-      {showRegenerateLimitModal && (
+      {REGENERATE_ENABLED && showRegenerateLimitModal && (
         <SupportModal
           initialMessage={REGENERATE_LIMIT_SUPPORT_MESSAGE}
           onClose={() => setShowRegenerateLimitModal(false)}
