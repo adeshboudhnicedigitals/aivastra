@@ -1,3 +1,13 @@
+## 2026-08-27 — WooCommerce Demo Storefront: Real Navigation, Homepage & Fresh-Install Fixes
+
+**Done**
+- **Fixed two fresh-install defaults that were silently blocking the whole storefront**, found and fixed after the theme/catalog/checkout work above was implemented and reported "verified" — neither could have actually been checked without hitting a 404-equivalent:
+  - `permalink_structure` was empty ("Plain" permalinks, `?page_id=4` style) — pretty URLs like `/shop/` resolved to the default blog homepage instead of the intended page. Fixed: set to `/%postname%/`, flushed rewrite rules.
+  - `woocommerce_coming_soon` was `yes` (WooCommerce's fresh-install default) — every visitor saw a "Great things are on the horizon" placeholder instead of the real store. Fixed: disabled.
+- **Real navigation** (`local-wp/setup-navigation.php`, one-time/re-runnable via `wp eval-file`): built an actual "Main Menu" — Home, Shop, Men (dropdown: all 9 subcategories), Women (dropdown: all 4 subcategories), Cart, My Account — assigned to Storefront's `primary` menu location. Previously there was no menu at all; the header was silently falling back to WordPress's default page-listing behavior.
+- **Real homepage** (`local-wp/setup-homepage.php`, one-time/re-runnable): a proper static front page — dark hero banner (brand navy `#0f172a` / accent `#6366f1`) with a "Shop Now" CTA, Men/Women category tiles using real imported product photos as backgrounds, and a "New Arrivals" product grid (`[products limit="8"]`). Set as the site's static front page (`show_on_front=page`), replacing the default "latest posts" blog view. Also trashes WordPress's default seed content ("Hello world!" post, "Sample Page") so the site doesn't read as a fresh install with a store bolted on.
+- Verified end-to-end against the live site (not just script exit codes): `/shop/` renders the real catalog, `/product-category/men/blazers/` correctly filters to just that category, the homepage renders the hero/tiles/grid with real data, the Aivastra "Try It On" button/modal still render correctly on product pages reached via the new nav, and the plugin's own PHPUnit suite remains 36/36 passing.
+
 ## 2026-08-27 — WooCommerce Demo Storefront Theme, Catalog & Checkout
 
 **Done**
