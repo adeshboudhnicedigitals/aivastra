@@ -75,15 +75,14 @@ class Aivastra_Connection_Settings
     }
 
     /**
-     * Updates only the display snapshot (company/credits/timestamp) —
-     * deliberately leaves widget_key and category_map untouched. Used by the
-     * "Refresh balance" action, which re-verifies the full key but must never
-     * require re-entering the widget key to do so.
+     * Updates only the credit balance and its timestamp — deliberately
+     * leaves widget_key, company_name, and category_map untouched. Used by
+     * the "Refresh balance" action, which reads GET /v1/dev/balance with the
+     * already-stored widget key and so never needs to re-verify identity.
      */
-    public function update_snapshot(string $companyName, int $credits, string $creditsAsOf): void
+    public function update_credits(int $credits, string $creditsAsOf): void
     {
         $all = $this->all();
-        $all['company_name'] = $companyName;
         $all['credits'] = $credits;
         $all['credits_as_of'] = $creditsAsOf;
         update_option(self::OPTION_KEY, $all);

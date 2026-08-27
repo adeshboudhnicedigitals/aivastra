@@ -76,44 +76,61 @@ final class ConnectionServiceTest extends TestCase
         $this->assertFalse($result['ok']);
     }
 
-    public function test_successful_refresh_updates_the_snapshot_without_touching_the_widget_key(): void
+    public function test_successful_refresh_updates_credits_using_the_stored_widget_key(): void
     {
+        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
+        $settings->shouldReceive('get_widget_key')->once()->andReturn('sk_live_widget');
+
         Functions\expect('wp_remote_get')
             ->once()
             ->with(
-                'https://api.aivastra.com/v1/dev/me',
-                Mockery::on(fn ($args) => $args['headers']['Authorization'] === 'Bearer sk_live_full')
+                'https://api.aivastra.com/v1/dev/balance',
+                Mockery::on(fn ($args) => $args['headers']['Authorization'] === 'Bearer sk_live_widget')
             )
             ->andReturn(['response' => ['code' => 200]]);
         Functions\expect('is_wp_error')->once()->andReturn(false);
         Functions\expect('wp_remote_retrieve_response_code')->once()->andReturn(200);
         Functions\expect('wp_remote_retrieve_body')
             ->once()
-            ->andReturn(json_encode(['companyName' => 'Acme Co', 'credits' => 750]));
+            ->andReturn(json_encode(['credits' => 750]));
         Functions\expect('current_time')->once()->with('mysql')->andReturn('2026-08-27 00:00:00');
 
-        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
-        $settings->shouldReceive('update_snapshot')
+        $settings->shouldReceive('update_credits')
             ->once()
-            ->with('Acme Co', 750, '2026-08-27 00:00:00');
+            ->with(750, '2026-08-27 00:00:00');
         $settings->shouldNotReceive('set_widget_key_and_snapshot');
 
         $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
-        $result = $service->refresh('sk_live_full');
+        $result = $service->refresh();
 
         $this->assertTrue($result['ok']);
     }
 
+    public function test_refresh_without_a_stored_widget_key_does_not_call_the_api(): void
+    {
+        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
+        $settings->shouldReceive('get_widget_key')->once()->andReturn(null);
+        $settings->shouldNotReceive('update_credits');
+
+        Functions\expect('wp_remote_get')->never();
+
+        $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
+        $result = $service->refresh();
+
+        $this->assertFalse($result['ok']);
+    }
+
     public function test_refresh_network_error_does_not_touch_settings(): void
     {
+        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
+        $settings->shouldReceive('get_widget_key')->once()->andReturn('sk_live_widget');
+        $settings->shouldNotReceive('update_credits');
+
         Functions\expect('wp_remote_get')->once()->andReturn(new WP_Error('http_request_failed'));
         Functions\expect('is_wp_error')->once()->andReturn(true);
 
-        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
-        $settings->shouldNotReceive('update_snapshot');
-
         $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
-        $result = $service->refresh('sk_live_full');
+        $result = $service->refresh();
 
         $this->assertFalse($result['ok']);
         $this->assertNotEmpty($result['error']);
@@ -121,15 +138,16 @@ final class ConnectionServiceTest extends TestCase
 
     public function test_refresh_non_200_response_does_not_touch_settings(): void
     {
+        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
+        $settings->shouldReceive('get_widget_key')->once()->andReturn('sk_live_widget');
+        $settings->shouldNotReceive('update_credits');
+
         Functions\expect('wp_remote_get')->once()->andReturn(['response' => ['code' => 401]]);
         Functions\expect('is_wp_error')->once()->andReturn(false);
         Functions\expect('wp_remote_retrieve_response_code')->once()->andReturn(401);
 
-        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
-        $settings->shouldNotReceive('update_snapshot');
-
         $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
-        $result = $service->refresh('sk_live_full');
+        $result = $service->refresh();
 
         $this->assertFalse($result['ok']);
     }

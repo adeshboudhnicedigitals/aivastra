@@ -14,16 +14,17 @@ if (!defined('ABSPATH')) {
  */
 class Aivastra_Widget_Loader
 {
-    // LOCAL DEV OVERRIDE: this API_BASE is sent to the BROWSER (via
-    // wp_localize_script below) — widget.js runs on the shopper's machine,
-    // not inside the WordPress container, so it must use the host's own
-    // view of the network (`localhost`), NOT `host.docker.internal` (a
-    // Docker-internal DNS alias a normal browser can't resolve). Contrast
-    // with Aivastra_Settings_Page::API_BASE, which runs server-side inside
-    // the container and does need host.docker.internal. Points at
-    // `pnpm --filter @aivastra/api dev` (port 4000, apps/api/src/env.ts).
-    // Revert to 'https://api.aivastra.com' before any real/staging use.
-    private const API_BASE = 'http://localhost:4000';
+    // This API_BASE is sent to the BROWSER (via wp_localize_script below) —
+    // widget.js runs on the shopper's machine. Production serves the API
+    // from the SAME host as the web app, reverse-proxied at /v1/* (see
+    // infra/docker-compose.prod.yml) — there is no separate api.aivastra.com.
+    // For local development, override this to 'http://localhost:4000'
+    // (`pnpm --filter @aivastra/api dev`, port 4000) — `localhost`, NOT
+    // `host.docker.internal` (a Docker-internal DNS alias a normal browser
+    // can't resolve). Contrast with Aivastra_Settings_Page::API_BASE, which
+    // runs server-side inside the container and does need
+    // host.docker.internal.
+    private const API_BASE = 'https://app.aivastra.com';
 
     public static function init(): void
     {
@@ -67,7 +68,12 @@ class Aivastra_Widget_Loader
             'category' => $category,
         ]));
 
-        echo '<button type="button" id="aivastra-tryon-button" class="aivastra-tryon-button">Try It On</button>';
+        echo '<button type="button" id="aivastra-tryon-button" class="aivastra-tryon-button">' .
+            '<svg class="aivastra-button-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' .
+            '<path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>' .
+            '</svg>' .
+            '<span>Try It On</span>' .
+            '</button>';
         echo '<div id="aivastra-tryon-modal" class="aivastra-tryon-modal" hidden></div>';
     }
 }

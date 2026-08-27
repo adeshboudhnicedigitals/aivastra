@@ -76,28 +76,29 @@ final class ConnectionSettingsTest extends TestCase
         $this->assertNull($settings->get_credits());
     }
 
-    public function test_update_snapshot_merges_company_credits_and_timestamp_without_touching_widget_key_or_category_map(): void
+    public function test_update_credits_merges_balance_and_timestamp_without_touching_widget_key_company_name_or_category_map(): void
     {
         Functions\expect('get_option')
             ->once()
             ->with('aivastra_tryon_settings', [])
             ->andReturn([
                 'widget_key' => 'sk_live_widget',
+                'company_name' => 'Acme Co',
                 'category_map' => [12 => 'saree'],
             ]);
         Functions\expect('update_option')
             ->once()
             ->with('aivastra_tryon_settings', [
                 'widget_key' => 'sk_live_widget',
-                'category_map' => [12 => 'saree'],
                 'company_name' => 'Acme Co',
+                'category_map' => [12 => 'saree'],
                 'credits' => 750,
                 'credits_as_of' => '2026-08-27 00:00:00',
             ])
             ->andReturn(true);
 
         $settings = new Aivastra_Connection_Settings();
-        $settings->update_snapshot('Acme Co', 750, '2026-08-27 00:00:00');
+        $settings->update_credits(750, '2026-08-27 00:00:00');
 
         $this->addToAssertionCount(1);
     }

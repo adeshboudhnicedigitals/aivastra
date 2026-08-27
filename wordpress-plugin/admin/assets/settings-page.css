@@ -1,80 +1,340 @@
-.aivastra-settings-wrap .aivastra-card {
-  background: #fff;
-  border: 1px solid #dcdcde;
-  border-radius: 8px;
-  padding: 24px;
-  margin: 20px 0;
-  max-width: 640px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+/* ==========================================================================
+   Aivastra Try-On - Admin Settings Page
+   Palette mirrors assets/widget.css so the storefront widget and the admin
+   screen read as one product, not two plugins bolted together.
+   ========================================================================== */
+
+.aivastra-settings-wrap {
+  --aivastra-primary: #0f172a;
+  --aivastra-primary-hover: #1e293b;
+  --aivastra-accent: #6366f1;
+  --aivastra-accent-soft: #eef2ff;
+  --aivastra-accent-border: #c7d2fe;
+  --aivastra-surface: #ffffff;
+  --aivastra-surface-subtle: #f8fafc;
+  --aivastra-surface-muted: #f1f5f9;
+  --aivastra-border: #e2e8f0;
+  --aivastra-text-main: #0f172a;
+  --aivastra-text-muted: #64748b;
+  --aivastra-text-subtle: #94a3b8;
+  --aivastra-success: #15803d;
+  --aivastra-success-soft: #f0fdf4;
+  --aivastra-success-border: #bbf7d0;
+  --aivastra-danger: #b91c1c;
+  --aivastra-danger-soft: #fef2f2;
+  --aivastra-danger-border: #fecaca;
+  --aivastra-radius-card: 16px;
+  --aivastra-radius-control: 10px;
+  --aivastra-shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px -12px rgba(15, 23, 42, 0.12);
+  max-width: 720px;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
-.aivastra-status-line {
+.aivastra-settings-wrap h1 {
+  font-size: 23px;
+  font-weight: 700;
+  color: var(--aivastra-text-main);
+  margin: 0 0 4px;
+  padding: 0;
+}
+
+.aivastra-page-header {
+  margin-bottom: 20px;
+}
+
+.aivastra-page-subtitle {
+  color: var(--aivastra-text-muted);
+  font-size: 14px;
+  margin: 0;
+}
+
+.aivastra-notice.notice {
+  border-radius: 8px;
+  border-left-width: 4px;
+  margin: 0 0 20px;
+}
+
+.aivastra-card {
+  background: var(--aivastra-surface);
+  border: 1px solid var(--aivastra-border);
+  border-radius: var(--aivastra-radius-card);
+  box-shadow: var(--aivastra-shadow-card);
+  padding: 28px;
+  margin-bottom: 24px;
+}
+
+/* Status card */
+.aivastra-status-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.aivastra-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.aivastra-badge-success {
+  background: var(--aivastra-success-soft);
+  color: var(--aivastra-success);
+  border: 1px solid var(--aivastra-success-border);
+}
+
+.aivastra-status-company {
+  color: var(--aivastra-text-muted);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.aivastra-credit-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+}
+
+.aivastra-credit-number {
+  font-size: 36px;
+  font-weight: 700;
+  color: var(--aivastra-text-main);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.aivastra-credit-label {
+  font-size: 14px;
+  color: var(--aivastra-text-muted);
+  font-weight: 500;
+}
+
+.aivastra-credit-meta {
+  color: var(--aivastra-text-subtle);
+  font-size: 12.5px;
+  margin: 4px 0 24px;
+}
+
+/* Action row — a plain one-click Refresh button next to the "Update
+   connection keys" accordion. flex-basis: 100% on the open accordion forces
+   it onto its own full-width line instead of squeezing the reveal into
+   whatever space happens to be left beside the Refresh button. */
+.aivastra-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.aivastra-refresh-form {
+  margin: 0;
+}
+
+.aivastra-accordion {
+  border-radius: var(--aivastra-radius-control);
+}
+
+.aivastra-accordion[open] {
+  flex-basis: 100%;
+  border: 1px solid var(--aivastra-accent-border);
+  border-radius: var(--aivastra-radius-control);
+  overflow: hidden;
+}
+
+.aivastra-accordion[open] > summary {
+  border: none;
+  border-bottom: 1px solid var(--aivastra-border);
+  border-radius: 0;
+}
+
+/* Same box model as .aivastra-btn (box-sizing, padding, border width) so the
+   closed accordion trigger sits at the exact same height as the plain
+   Refresh button beside it — the border lives on the trigger itself, not on
+   the (borderless-when-closed) .aivastra-accordion wrapper. */
+.aivastra-accordion > summary {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 15px;
-  margin: 0 0 4px;
-}
-
-.aivastra-status-dot {
-  display: inline-block;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: #00a32a;
-  flex-shrink: 0;
-}
-
-.aivastra-status-sub {
-  margin: 0 0 18px;
-  color: #646970;
-  font-size: 13px;
-}
-
-.aivastra-status-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: flex-start;
-}
-
-.aivastra-inline-action > summary {
-  list-style: none;
+  padding: 9px 16px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--aivastra-text-main);
   cursor: pointer;
+  list-style: none;
+  background: var(--aivastra-surface-subtle);
+  border: 1px solid var(--aivastra-border);
+  border-radius: var(--aivastra-radius-control);
 }
 
-.aivastra-inline-action > summary::-webkit-details-marker {
+.aivastra-accordion > summary::-webkit-details-marker {
   display: none;
 }
 
-.aivastra-inline-form {
-  margin-top: 10px;
-  padding: 14px;
-  background: #f6f7f7;
-  border: 1px solid #dcdcde;
-  border-radius: 6px;
+.aivastra-accordion > summary > svg:first-child {
+  color: var(--aivastra-text-muted);
+  flex-shrink: 0;
+}
+
+.aivastra-chevron {
+  margin-left: auto;
+  color: var(--aivastra-text-subtle) !important;
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+.aivastra-accordion[open] > summary .aivastra-chevron {
+  transform: rotate(180deg);
+}
+
+.aivastra-accordion-body {
+  padding: 18px 16px;
+  border-top: 1px solid var(--aivastra-border);
+}
+
+/* Forms & inputs, shared by every form on this page */
+.aivastra-form {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  max-width: 360px;
+  gap: 10px;
+  margin: 0;
 }
 
-.aivastra-inline-form label {
-  font-weight: 600;
+.aivastra-form label {
   font-size: 13px;
+  font-weight: 600;
+  color: var(--aivastra-text-main);
 }
 
-.aivastra-btn-danger {
-  color: #b32d2e;
-  border-color: #b32d2e !important;
+.aivastra-input,
+.aivastra-select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 12px;
+  font-size: 13.5px;
+  border: 1px solid var(--aivastra-border);
+  border-radius: var(--aivastra-radius-control);
+  background: var(--aivastra-surface);
+  color: var(--aivastra-text-main);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
-.aivastra-btn-danger:hover {
-  background: #b32d2e !important;
-  color: #fff !important;
+.aivastra-input:focus,
+.aivastra-select:focus {
+  outline: none;
+  border-color: var(--aivastra-accent);
+  box-shadow: 0 0 0 3px var(--aivastra-accent-soft);
 }
 
-.aivastra-connect-step {
+/* Buttons */
+.aivastra-btn {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 16px;
+  font-size: 13.5px;
+  font-weight: 600;
+  border-radius: var(--aivastra-radius-control);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.aivastra-btn-primary {
+  background: var(--aivastra-primary);
+  color: #fff;
+  align-self: flex-start;
+}
+
+.aivastra-btn-primary:hover {
+  background: var(--aivastra-primary-hover);
+  color: #fff;
+}
+
+.aivastra-btn-secondary {
+  background: var(--aivastra-surface-subtle);
+  color: var(--aivastra-text-main);
+  border-color: var(--aivastra-border);
+}
+
+.aivastra-btn-secondary:hover {
+  background: var(--aivastra-surface-muted);
+  color: var(--aivastra-text-main);
+}
+
+.aivastra-btn-block {
+  align-self: stretch;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.aivastra-btn-danger-ghost {
+  background: transparent;
+  color: var(--aivastra-danger);
+  border-color: var(--aivastra-danger-border);
+  flex-shrink: 0;
+}
+
+.aivastra-btn-danger-ghost:hover {
+  background: var(--aivastra-danger-soft);
+  color: var(--aivastra-danger);
+}
+
+/* Danger zone */
+.aivastra-danger-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--aivastra-border);
+}
+
+.aivastra-danger-copy strong {
+  display: block;
+  font-size: 13.5px;
+  color: var(--aivastra-text-main);
+  margin-bottom: 2px;
+}
+
+.aivastra-danger-copy p {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--aivastra-text-muted);
+  max-width: 380px;
+  line-height: 1.5;
+}
+
+/* Connect card / connect form (shared with the "Update connection keys" reveal) */
+.aivastra-connect-heading {
+  font-size: 17px;
+  margin: 0 0 6px;
+  color: var(--aivastra-text-main);
+}
+
+.aivastra-connect-description {
+  color: var(--aivastra-text-muted);
+  font-size: 13.5px;
+  margin: 0 0 24px;
+}
+
+.aivastra-step {
   display: flex;
   gap: 14px;
   margin-bottom: 20px;
@@ -85,10 +345,10 @@
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  background: #2271b1;
+  background: var(--aivastra-accent);
   color: #fff;
-  font-weight: 600;
-  font-size: 13px;
+  font-weight: 700;
+  font-size: 12.5px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -100,16 +360,79 @@
 
 .aivastra-step-body label {
   display: block;
-  font-weight: 600;
   margin-bottom: 4px;
 }
 
-.aivastra-step-body .description {
+.aivastra-step-hint {
   margin: 0 0 8px;
-  color: #646970;
+  color: var(--aivastra-text-muted);
   font-size: 12.5px;
+  line-height: 1.5;
 }
 
-.aivastra-category-card h2 {
-  margin-top: 0;
+/* Category mapping card */
+.aivastra-card-heading {
+  font-size: 16px;
+  margin: 0 0 8px;
+  color: var(--aivastra-text-main);
+}
+
+.aivastra-card-description {
+  color: var(--aivastra-text-muted);
+  font-size: 13px;
+  margin: 0 0 18px;
+}
+
+.aivastra-empty-state {
+  color: var(--aivastra-text-muted);
+  font-size: 13.5px;
+  margin: 0;
+  line-height: 1.6;
+}
+
+.aivastra-mapping-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.aivastra-mapping-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 14px;
+  background: var(--aivastra-surface-subtle);
+  border-radius: var(--aivastra-radius-control);
+}
+
+.aivastra-mapping-label {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--aivastra-text-main);
+}
+
+.aivastra-mapping-row .aivastra-select {
+  width: auto;
+  min-width: 200px;
+}
+
+.aivastra-settings-wrap code {
+  background: var(--aivastra-surface-muted);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+@media (max-width: 600px) {
+  .aivastra-danger-zone,
+  .aivastra-mapping-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .aivastra-mapping-row .aivastra-select {
+    width: 100%;
+  }
 }
