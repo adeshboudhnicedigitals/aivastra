@@ -24,8 +24,31 @@ class Aivastra_Settings_Page
     public static function init(): void
     {
         add_action('admin_menu', [self::class, 'register_menu']);
+        add_action('admin_enqueue_scripts', [self::class, 'enqueue_assets']);
         add_action('admin_post_aivastra_tryon_connect', [self::class, 'handle_connect']);
+        add_action('admin_post_aivastra_tryon_refresh', [self::class, 'handle_refresh']);
+        add_action('admin_post_aivastra_tryon_disconnect', [self::class, 'handle_disconnect']);
         add_action('admin_post_aivastra_tryon_save_category_map', [self::class, 'handle_save_category_map']);
+    }
+
+    /**
+     * Loads the admin-only stylesheet, scoped to just this settings screen —
+     * add_options_page() gives submenus of options-general.php the hook
+     * suffix "settings_page_{menu_slug}" (a standard WordPress convention,
+     * not specific to this plugin), so this never loads on any other admin
+     * screen.
+     */
+    public static function enqueue_assets(string $hookSuffix): void
+    {
+        if ($hookSuffix !== 'settings_page_aivastra-tryon') {
+            return;
+        }
+        wp_enqueue_style(
+            'aivastra-tryon-settings',
+            AIVASTRA_TRYON_URL . 'admin/assets/settings-page.css',
+            [],
+            AIVASTRA_TRYON_VERSION
+        );
     }
 
     public static function register_menu(): void
@@ -72,6 +95,53 @@ class Aivastra_Settings_Page
         }
 
         wp_safe_redirect(add_query_arg($redirectArgs, admin_url('options-general.php')));
+        exit;
+    }
+
+    /**
+     * Re-verifies the full key and updates the displayed company/credits
+     * snapshot — deliberately does NOT touch the stored widget key, so
+     * refreshing the balance never requires re-entering it.
+     */
+    public static function handle_refresh(): void
+    {
+        check_admin_referer('aivastra_tryon_refresh');
+
+        $fullKey = self::sanitize_key_input((string) ($_POST['aivastra_full_key'] ?? ''));
+        $redirectArgs = ['page' => 'aivastra-tryon'];
+
+        if ($fullKey === '') {
+            $redirectArgs['aivastra_error'] = 'invalid_key_format';
+        } else {
+            $settings = new Aivastra_Connection_Settings();
+            $service = new Aivastra_Connection_Service($settings, self::API_BASE);
+            $result = $service->refresh($fullKey);
+            $redirectArgs[$result['ok'] ? 'aivastra_refreshed' : 'aivastra_error'] =
+                $result['ok'] ? '1' : ($result['error'] ?? 'unknown');
+        }
+
+        wp_safe_redirect(add_query_arg($redirectArgs, admin_url('options-general.php')));
+        exit;
+    }
+
+    /**
+     * Wipes the entire connection — widget key, snapshot, and category
+     * mapping — via Aivastra_Connection_Settings::clear(). No fields, no
+     * confirmation dance beyond WordPress's own nonce check; the button
+     * itself is the confirmation (see the manual QA note in the plan this
+     * was implemented from about not over-building a confirm-modal for a
+     * reversible action — reconnecting just requires pasting keys again).
+     */
+    public static function handle_disconnect(): void
+    {
+        check_admin_referer('aivastra_tryon_disconnect');
+
+        (new Aivastra_Connection_Settings())->clear();
+
+        wp_safe_redirect(add_query_arg(
+            ['page' => 'aivastra-tryon', 'aivastra_disconnected' => '1'],
+            admin_url('options-general.php')
+        ));
         exit;
     }
 
