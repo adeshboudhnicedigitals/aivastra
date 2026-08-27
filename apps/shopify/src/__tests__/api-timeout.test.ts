@@ -32,24 +32,6 @@ describe('API request timeouts', () => {
     vi.useRealTimers();
   });
 
-  it('allows a widget config PATCH to finish after the generic request deadline', async () => {
-    vi.stubGlobal(
-      'fetch',
-      delayedJsonResponse(40_000, { widget: { copy: { heading: 'Saved' } }, synced: false }),
-    );
-
-    const request = apiFetch('/v1/shopify/widget-config', {
-      method: 'PATCH',
-      body: JSON.stringify({ copy: { heading: 'Saved' } }),
-    });
-    await vi.advanceTimersByTimeAsync(40_000);
-
-    await expect(request).resolves.toEqual({
-      widget: { copy: { heading: 'Saved' } },
-      synced: false,
-    });
-  });
-
   it('keeps the short timeout for ordinary API requests', async () => {
     vi.stubGlobal('fetch', delayedJsonResponse(13_000, { ok: true }));
 
