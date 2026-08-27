@@ -2,7 +2,7 @@
 Theme Name: Storefront Aivastra
 Template: storefront
 Description: Storefront child theme skinned with Aivastra's brand palette for the demo storefront.
-Version: 1.1.0
+Version: 1.3.0
 */
 
 :root {
@@ -166,6 +166,14 @@ ul.products li.product .price {
   text-decoration: none;
 }
 
+/* Storefront's built-in icon-font glyphs (::before) use currentColor, so the
+   active item's glyph picks up the accent color while every other item stays
+   WooCommerce's default grey — a mismatched, half-colored icon set. A clean
+   text-only list reads more intentional than that. */
+.woocommerce-account .woocommerce-MyAccount-navigation ul li a::before {
+  display: none;
+}
+
 .woocommerce-account .woocommerce-MyAccount-navigation ul li a:hover {
   background: var(--aivastra-surface-subtle);
 }
@@ -179,4 +187,13 @@ ul.products li.product .price {
 .woocommerce-account .woocommerce-MyAccount-content {
   flex: 1 1 400px;
   min-width: 0;
+  background: var(--aivastra-surface);
+  border: 1px solid var(--aivastra-border);
+  border-radius: 12px;
+  padding: 24px 28px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.woocommerce-account .woocommerce-MyAccount-content p:last-child {
+  margin-bottom: 0;
 }
