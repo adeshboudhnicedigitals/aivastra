@@ -6,7 +6,14 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { CouponModal } from '../CouponModal';
 import { GstinConfirmModal } from '../GstinConfirmModal';
 import { PaymentResultModal } from '../PaymentResultModal';
-import { COUNTRIES, FLAGS, PLAN_FEATURES, PLAN_META, TRYON_FEATURES } from '../use-pricing-data';
+import {
+  CATALOGUE_PLAN_META,
+  COUNTRIES,
+  FLAGS,
+  PLAN_FEATURES,
+  TRYON_FEATURES,
+  TRYON_PLAN_META,
+} from '../use-pricing-data';
 import type { PricingLayoutProps } from './types';
 
 export function Tablet(props: PricingLayoutProps): React.ReactElement {
@@ -402,8 +409,8 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
                   />
                 ))
               : cataloguePlans.map((plan, idx) => {
-                  // biome-ignore lint/style/noNonNullAssertion: PLAN_META has entries for every plan index
-                  const meta = PLAN_META[idx] ?? PLAN_META[0]!;
+                  // biome-ignore lint/style/noNonNullAssertion: CATALOGUE_PLAN_META has entries for every plan index
+                  const meta = CATALOGUE_PLAN_META[idx] ?? CATALOGUE_PLAN_META[0]!;
                   const features = PLAN_FEATURES[idx] ?? PLAN_FEATURES[0];
                   const accent = meta.accent;
                   const highlighted = plan.isHighlighted;
@@ -710,8 +717,8 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
                   />
                 ))
               : tryonPlans.map((plan, idx) => {
-                  // biome-ignore lint/style/noNonNullAssertion: PLAN_META has entries for every plan index
-                  const meta = PLAN_META[idx] ?? PLAN_META[0]!;
+                  // biome-ignore lint/style/noNonNullAssertion: TRYON_PLAN_META has entries for every plan index
+                  const meta = TRYON_PLAN_META[idx] ?? TRYON_PLAN_META[0]!;
                   const features = TRYON_FEATURES;
                   const accent = meta.accent;
                   const highlighted = plan.isHighlighted;
