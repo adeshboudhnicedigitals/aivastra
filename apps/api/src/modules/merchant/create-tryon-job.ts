@@ -12,6 +12,7 @@ interface CreateMerchantTryonJobInput {
   secondGarmentKey?: string;
   customerPhotoKey: string;
   workflowTemplateId: string;
+  dispatchTemplateVersion?: number | null;
 }
 
 export async function createMerchantTryonJob(
@@ -41,7 +42,10 @@ export async function createMerchantTryonJob(
       faceId: null,
       backgroundId: null,
       poseId: null,
-      params: { workflowTemplateId: input.workflowTemplateId },
+      params: {
+        workflowTemplateId: input.workflowTemplateId,
+        dispatchTemplateVersion: input.dispatchTemplateVersion ?? null,
+      },
     });
 
     // biome-ignore lint/suspicious/noExplicitAny: tx type narrowing loses the custom methods added by the merchant ledger helper.

@@ -107,11 +107,12 @@ export default function ShopifyCreditsTab({ toast }: Props) {
           <>
             <div style={{ marginTop: 24, marginBottom: 8 }}>
               <div className="setting-lbl" style={{ marginBottom: 4 }}>
-                Shopify Free Trial
+                Shopify Email Bonus
               </div>
               <div className="setting-desc" style={{ marginBottom: 12 }}>
-                Credits granted once, automatically, the first time a Shopify store links to an
-                AiVastra account — before the merchant buys any credit pack. This is the free tier.
+                Credits granted once when a store owner confirms their contact email from the
+                Dashboard popup — before the merchant buys any credit pack. This is the only free
+                tier; nothing is granted automatically at install anymore.
               </div>
               <div
                 style={{

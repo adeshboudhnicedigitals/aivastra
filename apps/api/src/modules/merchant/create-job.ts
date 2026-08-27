@@ -61,14 +61,20 @@ export async function createMerchantCatalogJob(
     secondFlatImageKey?: string;
   },
 ): Promise<{ jobId: string }> {
+  const mannequinTwoInputWf = aliasedTable(schema.workflowTemplates, 'mannequin_two_input_wf');
   const [garmentType] = await app.db
     .select({
       defaultPoseId: schema.garmentSubcategories.defaultPoseId,
       requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep,
       mannequinTwoInputWorkflowTemplateId:
         schema.garmentSubcategories.mannequinTwoInputWorkflowTemplateId,
+      mannequinTwoInputWorkflowVersion: mannequinTwoInputWf.version,
     })
     .from(schema.garmentSubcategories)
+    .leftJoin(
+      mannequinTwoInputWf,
+      eq(schema.garmentSubcategories.mannequinTwoInputWorkflowTemplateId, mannequinTwoInputWf.id),
+    )
     .where(
       and(
         eq(schema.garmentSubcategories.id, params.garmentSubcategoryId),
@@ -120,7 +126,9 @@ export async function createMerchantCatalogJob(
     .select({
       defaultLowerNodeId: defaultWorkflow.lowerNodeId,
       defaultShoeNodeId: defaultWorkflow.shoeNodeId,
+      defaultWorkflowVersion: defaultWorkflow.version,
       configWorkflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
+      overrideWorkflowVersion: overrideWorkflow.version,
       overrideLowerNodeId: overrideWorkflow.lowerNodeId,
       overrideShoeNodeId: overrideWorkflow.shoeNodeId,
     })
@@ -193,6 +201,7 @@ export async function createMerchantCatalogJob(
         .from(schema.catalogItems)
         .where(
           and(
+            // biome-ignore lint/style/noNonNullAssertion: guaranteed by the needsLower/lowerCatalogId check above (line 159)
             eq(schema.catalogItems.id, categoryDefaults.lowerCatalogId!),
             eq(schema.catalogItems.isActive, true),
           ),
@@ -204,6 +213,7 @@ export async function createMerchantCatalogJob(
         .from(schema.catalogItems)
         .where(
           and(
+            // biome-ignore lint/style/noNonNullAssertion: guaranteed by the needsShoes/shoeCatalogId check above (line 166)
             eq(schema.catalogItems.id, categoryDefaults.shoeCatalogId!),
             eq(schema.catalogItems.isActive, true),
           ),
@@ -249,6 +259,11 @@ export async function createMerchantCatalogJob(
 
   const jobId = randomUUID();
 
+  const effectiveWorkflowVersion =
+    poseWorkflow?.configWorkflowTemplateId != null
+      ? poseWorkflow.overrideWorkflowVersion
+      : poseWorkflow?.defaultWorkflowVersion;
+
   if (params.secondFlatImageKey) {
     // Two-input path: create a standalone mannequin job now (0 credits, matches
     // Studio's createSareeMannequinJob convention — the real charge is on the step-2
@@ -279,7 +294,11 @@ export async function createMerchantCatalogJob(
         // faceId when the template's tryonPersonNodeId is set.
         faceId: face.id,
         garmentTypeId: params.garmentSubcategoryId,
-        params: { kind: 'saree_mannequin' },
+        params: {
+          kind: 'saree_mannequin',
+          workflowTemplateId: garmentType.mannequinTwoInputWorkflowTemplateId,
+          dispatchTemplateVersion: garmentType.mannequinTwoInputWorkflowVersion ?? null,
+        },
       });
 
       await tx.insert(schema.jobs).values({
@@ -309,6 +328,7 @@ export async function createMerchantCatalogJob(
           aspectRatio,
           resolution,
           mannequinJobId,
+          dispatchTemplateVersion: effectiveWorkflowVersion ?? null,
           ...(params.hold ? { heldBatch: true } : {}),
         },
       });
@@ -366,6 +386,7 @@ export async function createMerchantCatalogJob(
         // before the real generation. See apps/dispatcher/src/job/processor.ts's
         // requiresMannequinStep branch.
         needsMannequinStep: garmentType.requiresMannequinStep,
+        dispatchTemplateVersion: effectiveWorkflowVersion ?? null,
         // Marks the job for POST /v1/merchant/catalog/reconcile-held, which turns
         // it into a product row once it completes — the merchant is long gone by
         // then and cannot call /import themselves.
@@ -414,15 +435,24 @@ export async function createMerchantSareeMannequinJob(
     secondFlatImageKey?: string;
   },
 ): Promise<{ jobId: string }> {
+  // No join/version lookup for the plain mannequinWorkflowTemplateId here —
+  // that id is deliberately never snapshotted into the job (see the params
+  // comment below), so there is nothing to pair a version with.
+  const mannequinTwoInputWf = aliasedTable(schema.workflowTemplates, 'mannequin_two_input_wf');
   const [garmentType] = await app.db
     .select({
       requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep,
       mannequinWorkflowTemplateId: schema.garmentSubcategories.mannequinWorkflowTemplateId,
       mannequinTwoInputWorkflowTemplateId:
         schema.garmentSubcategories.mannequinTwoInputWorkflowTemplateId,
+      mannequinTwoInputWorkflowVersion: mannequinTwoInputWf.version,
       isActive: schema.garmentSubcategories.isActive,
     })
     .from(schema.garmentSubcategories)
+    .leftJoin(
+      mannequinTwoInputWf,
+      eq(schema.garmentSubcategories.mannequinTwoInputWorkflowTemplateId, mannequinTwoInputWf.id),
+    )
     .where(eq(schema.garmentSubcategories.id, params.garmentSubcategoryId))
     .limit(1);
   if (!garmentType?.isActive) {
@@ -436,16 +466,26 @@ export async function createMerchantSareeMannequinJob(
   }
 
   let styleWorkflowTemplateId: string | undefined;
+  let styleWorkflowVersion: number | null = null;
   if (params.sareeStyleId) {
     // Matched by label (case-insensitive), not id — see MerchantCatalogGenerateBody.
+    const styleWf = aliasedTable(schema.workflowTemplates, 'style_wf');
+    const styleTwoInputWf = aliasedTable(schema.workflowTemplates, 'style_two_input_wf');
     const [style] = await app.db
       .select({
         isActive: schema.sareeMannequinStyles.isActive,
         mannequinWorkflowTemplateId: schema.sareeMannequinStyles.mannequinWorkflowTemplateId,
+        mannequinWorkflowVersion: styleWf.version,
         mannequinTwoInputWorkflowTemplateId:
           schema.sareeMannequinStyles.mannequinTwoInputWorkflowTemplateId,
+        mannequinTwoInputWorkflowVersion: styleTwoInputWf.version,
       })
       .from(schema.sareeMannequinStyles)
+      .leftJoin(styleWf, eq(schema.sareeMannequinStyles.mannequinWorkflowTemplateId, styleWf.id))
+      .leftJoin(
+        styleTwoInputWf,
+        eq(schema.sareeMannequinStyles.mannequinTwoInputWorkflowTemplateId, styleTwoInputWf.id),
+      )
       .where(ilike(schema.sareeMannequinStyles.label, params.sareeStyleId))
       .limit(1);
     if (!style?.isActive) {
@@ -460,8 +500,10 @@ export async function createMerchantSareeMannequinJob(
         );
       }
       styleWorkflowTemplateId = style.mannequinTwoInputWorkflowTemplateId;
+      styleWorkflowVersion = style.mannequinTwoInputWorkflowVersion ?? null;
     } else {
       styleWorkflowTemplateId = style.mannequinWorkflowTemplateId;
+      styleWorkflowVersion = style.mannequinWorkflowVersion ?? null;
     }
   }
 
@@ -507,10 +549,26 @@ export async function createMerchantSareeMannequinJob(
       garmentTypeId: params.garmentSubcategoryId,
       params: {
         kind: 'saree_mannequin',
+        // No entry at all (not even a null workflowTemplateId) in the final
+        // fallback case — that is load-bearing, not an oversight: omitting
+        // the snapshot is what lets the dispatcher re-resolve
+        // garmentType.mannequinWorkflowTemplateId fresh at dispatch time, so
+        // an admin who changes a garment type's default mannequin workflow
+        // after this job is created (but before it dispatches) has that
+        // change take effect. Stamping a version here too would be
+        // meaningless without a snapshotted template id to pair it with —
+        // the dispatcher's own fresh lookup also resolves that template's
+        // current live content, with nothing to compare a version against.
         ...(styleWorkflowTemplateId
-          ? { workflowTemplateId: styleWorkflowTemplateId }
+          ? {
+              workflowTemplateId: styleWorkflowTemplateId,
+              dispatchTemplateVersion: styleWorkflowVersion,
+            }
           : params.secondFlatImageKey
-            ? { workflowTemplateId: garmentType.mannequinTwoInputWorkflowTemplateId }
+            ? {
+                workflowTemplateId: garmentType.mannequinTwoInputWorkflowTemplateId,
+                dispatchTemplateVersion: garmentType.mannequinTwoInputWorkflowVersion ?? null,
+              }
             : {}),
       },
     });

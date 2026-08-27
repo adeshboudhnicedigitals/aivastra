@@ -1,3 +1,53 @@
+## 2026-08-26 — Workflow Template Replace with Drain & Version Snapshots
+
+**Done**
+- **Schema & Migration (`0175_nervous_shen.sql`, renumbered from `0174` after `origin/dev` independently claimed `0174_foamy_tyger_tiger` — see `docs/version-control.md`'s Migration Index Conflicts rule)**:
+  - Added `version` integer column (default 1) to `workflow_templates`.
+  - Added `workflow_template_archives` table mirroring all workflow template fields, keyed by `(workflow_template_id, version)` with unique constraint on `workflow_template_id` (at most 1 active draining version per workflow).
+- **Dispatcher Versioned Resolution & Patcher**:
+  - Created `resolveWorkflowTemplateVersion` (`apps/dispatcher/src/workflow/resolve-template-version.ts`) resolving live or archived workflow template rows based on `snapshotVersion` stamped in `job_inputs.params.dispatchTemplateVersion`.
+  - Updated `patchWorkflowTemplate` in `patcher.ts` to accept `snapshotVersion` and resolve the correct version snapshot.
+  - Wired versioned resolution across all dispatcher job processor paths (`processJob`, `processTryonDirectJob`, `processSareeMannequinJob`, `processSareeJob`, `processWidgetJob`, `processShopifyJob`).
+- **Drain Cleanup Mechanism**:
+  - Created `maybeCleanupArchive` (`apps/dispatcher/src/workflow/drain-cleanup.ts`) which deletes the archive row once 0 non-terminal jobs reference that `(workflowTemplateId, version)` pair.
+  - Wired into `terminateJob` (`processor.ts`) and `transitionJob` (`state.ts`) on terminal state transitions (`COMPLETED`, `FAILED`, `CANCELLED`).
+- **Version Stamping on Job Creation**:
+  - Stamped `dispatchTemplateVersion` and `workflowTemplateId` across all job creation entry points: studio & tryon-from-garment (`create.ts`), saree (`createSaree.ts`), saree mannequin (`createSareeMannequin.ts`), dev tryon & saree mannequin (`dev/`), merchant catalog, mannequin & tryon (`merchant/`), and shopify widget tryon (`shopify/customer.routes.ts`).
+- **Admin API Replacement Route & Impact Metadata**:
+  - Added `POST /admin/workflows/:id/replace` (`apps/api/src/modules/admin/workflows.routes.ts`) with `ReplaceWorkflowBody` requiring admin password re-verification (`verifyPassword`). Transactionally creates archive row, increments live version, and logs `workflow.replace` audit event. Rejects replacement with `409 Conflict` if an archive is already draining.
+  - Updated `GET /admin/workflows` and `GET /admin/workflows/:id` to include `version`, `funnelCount`, `poseCount`, and `draining: { fromVersion } | null`.
+- **Admin-Web UI**:
+  - Created `ReplaceWorkflowModal.tsx` (`apps/admin-web/src/components/ReplaceWorkflowModal.tsx`) with impact banner, JSON drag-and-drop parsing, node mappings, and admin password confirmation.
+  - Updated `WorkflowsPage.tsx` with version badges (`vX`), draining badges (`Draining vX`), and "Replace" action buttons (disabled when draining).
+- **Verification**:
+  - All unit tests pass (`@aivastra/types`, `@aivastra/dispatcher`).
+  - Integration tests in `admin-workflows.test.ts` pass (replace, 401 on bad password, 409 on already-draining).
+  - End-to-end drain integration test `workflow-replace-drain.test.ts` passes (Job 1 draining v1, archive deleted upon completion, Job 2 resolving live v2).
+  - Full repo-wide typecheck (`pnpm typecheck`) and admin build (`pnpm --filter @aivastra/admin build`) pass cleanly with 0 errors.
+- **Post-review fixes** (found during independent re-verification of the above):
+  - Deduplicated the archive-cleanup resolution query — `transitionJob` (`state.ts`) and `terminateJob` (`processor.ts`) each had their own copy; extracted into one shared `checkAndCleanupArchiveForJob` in `drain-cleanup.ts`.
+  - Moved `resolve-template-version.test.ts` and `drain-cleanup.test.ts` from `src/workflow/` (picked up by the unit-test glob despite needing live Postgres) into `test/integration/`, where they belong.
+  - Strengthened `workflow-replace-drain.test.ts` with a content-level assertion (an untouched `marker` field on the fixture's output node) proving the archived vs. live *graph* was actually dispatched to ComfyUI, not just that job status/archive-lifecycle timing was correct — prompt text alone can't distinguish versions here since `patcher.ts` always lets the job's own `promptGarmentPhase` override the template's baked-in prompt.
+
+## 2026-08-26 — Super-Admin Selective Job Asset Deletion
+
+**Done**
+- **Endpoint**: Added `POST /admin/jobs/:id/delete-assets` in `apps/api/src/modules/admin/jobs.routes.ts`. Gated strictly to `SUPER_ADMIN` role and requires the calling admin to re-enter their login password (verified against `admin_users.passwordHash` via Argon2id).
+- **Invariants & Gates**:
+  - Gated on terminal job statuses: `COMPLETED`, `FAILED`, `CANCELLED`. Non-terminal jobs (`QUEUED`, `GENERATING`, `PREPROCESSING`) reject with `409 CONFLICT`.
+  - Target selection: allows selectively deleting `result` (resultKey and thumbnailKey) and/or `person` (customer's uploaded photo, resolving both merchant/Shopify `jobs.customerPhotoKey` and tryon-direct `job_inputs.params.personKey`).
+  - Purges R2/MinIO objects before updating PostgreSQL pointers in a single transaction.
+  - Leaves the job row, its status, credits charged, events, and all configuration parameters intact (using PostgreSQL JSONB subtraction `params - 'personKey'`).
+  - Transactionally records an audit log under action `jobs.delete_assets` without exposing the admin password.
+- **Frontend UI**: In `apps/admin-web/src/pages/JobsPage.tsx`:
+  - Added checkboxes on the Output card and Input Images (person tile) gated on `role === 'SUPER_ADMIN' && TERMINAL_JOB_STATUSES.includes(j.status)`.
+  - Added sticky "Delete selected" action bar showing selected count and opening confirmation modal.
+  - Added password confirmation modal explaining permanent asset deletion. Retains modal on 403 (wrong password) for easy correction while closing on success or fatal errors.
+  - Automatically resets delete selection and modals on job navigation.
+- **Testing & Verification**:
+  - Added integration test suite `apps/api/test/integration/admin-jobs-delete-assets.test.ts` covering 403 role & password gates, 409 non-terminal state rejection, selective result deletion, selective customer photo deletion, selective tryon direct personKey deletion, and full dual deletion with audit log verification (all 7 integration tests passing).
+  - Executed automated end-to-end verification checklist with Playwright against live API (`http://localhost:4000`) and Admin Web (`http://localhost:5173`) covering all 6 manual verification steps (super admin login, checkbox visibility on completed tryon direct job, wrong password error handling with modal retention, successful result deletion and live card removal, successful person image deletion and live input tile removal, non-terminal queued/generating suppression of checkboxes, and moderator role suppression of checkboxes).
+
 ## 2026-08-25 — Admin panel password desync general fix & reset-password audit logging
 
 **Done**
