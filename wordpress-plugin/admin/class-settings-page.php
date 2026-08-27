@@ -21,6 +21,15 @@ class Aivastra_Settings_Page
     // Revert to 'https://api.aivastra.com' before any real/staging use.
     private const API_BASE = 'http://host.docker.internal:4000';
 
+    // Two internal short-codes get a friendly rewrite; every other value in
+    // $_GET['aivastra_error'] already IS a human-readable message coming
+    // straight from Aivastra_Connection_Service (e.g. "The full API key was
+    // rejected (HTTP 401).") and is shown as-is.
+    private const ERROR_MESSAGES = [
+        'invalid_key_format' => 'Please paste both keys — check they match the sk_live_… format exactly.',
+        'not_connected' => 'Connect your account before mapping categories.',
+    ];
+
     public static function init(): void
     {
         add_action('admin_menu', [self::class, 'register_menu']);
@@ -194,37 +203,117 @@ class Aivastra_Settings_Page
     {
         $settings = new Aivastra_Connection_Settings();
         $companyName = $settings->get_company_name();
+        $credits = $settings->get_credits();
         $creditsAsOf = $settings->get_credits_as_of();
+        $connected = $companyName !== null;
         ?>
-        <div class="wrap">
+        <div class="wrap aivastra-settings-wrap">
           <h1>Aivastra Try-On</h1>
-          <?php if ($companyName !== null): ?>
-            <p>Connected as <strong><?php echo esc_html($companyName); ?></strong>
-               (as of <?php echo esc_html($creditsAsOf ?? 'unknown'); ?>).</p>
-          <?php else: ?>
-            <p>Not connected yet.</p>
-          <?php endif; ?>
-          <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-            <input type="hidden" name="action" value="aivastra_tryon_connect">
-            <?php wp_nonce_field('aivastra_tryon_connect'); ?>
-            <table class="form-table">
-              <tr>
-                <th><label for="aivastra_full_key">Full API key</label></th>
-                <td><input type="password" id="aivastra_full_key" name="aivastra_full_key" class="regular-text" autocomplete="off"></td>
-              </tr>
-              <tr>
-                <th><label for="aivastra_widget_key">Widget API key</label></th>
-                <td><input type="password" id="aivastra_widget_key" name="aivastra_widget_key" class="regular-text" autocomplete="off"></td>
-              </tr>
-            </table>
-            <?php submit_button('Test connection'); ?>
-          </form>
+          <?php self::render_notices(); ?>
 
-          <?php if ($companyName !== null): ?>
+          <?php if ($connected): ?>
+            <div class="aivastra-card aivastra-status-card">
+              <p class="aivastra-status-line">
+                <span class="aivastra-status-dot"></span>
+                Connected as <strong><?php echo esc_html($companyName); ?></strong>
+              </p>
+              <p class="aivastra-status-sub">
+                <?php echo esc_html(number_format_i18n((int) $credits)); ?> credits ·
+                balance as of <?php echo esc_html($creditsAsOf ?? 'unknown'); ?>
+              </p>
+              <div class="aivastra-status-actions">
+                <details class="aivastra-inline-action">
+                  <summary class="button">Refresh balance</summary>
+                  <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="aivastra-inline-form">
+                    <input type="hidden" name="action" value="aivastra_tryon_refresh">
+                    <?php wp_nonce_field('aivastra_tryon_refresh'); ?>
+                    <label for="aivastra_refresh_full_key">Full API key</label>
+                    <input type="password" id="aivastra_refresh_full_key" name="aivastra_full_key" class="regular-text" autocomplete="off">
+                    <?php submit_button('Refresh', 'secondary', 'submit', false); ?>
+                  </form>
+                </details>
+
+                <details class="aivastra-inline-action">
+                  <summary class="button">Update connection keys</summary>
+                  <?php self::render_connect_form(); ?>
+                </details>
+
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="aivastra-inline-form aivastra-disconnect-form">
+                  <input type="hidden" name="action" value="aivastra_tryon_disconnect">
+                  <?php wp_nonce_field('aivastra_tryon_disconnect'); ?>
+                  <button type="submit" class="button aivastra-btn-danger">Disconnect</button>
+                </form>
+              </div>
+            </div>
+          <?php else: ?>
+            <div class="aivastra-card aivastra-connect-card">
+              <?php self::render_connect_form(); ?>
+            </div>
+          <?php endif; ?>
+
+          <?php if ($connected): ?>
             <?php self::render_category_mapping($settings); ?>
           <?php endif; ?>
         </div>
         <?php
+    }
+
+    /** Shared by the not-connected default view and the "Update connection keys" reveal. */
+    private static function render_connect_form(): void
+    {
+        ?>
+        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="aivastra-connect-form">
+          <input type="hidden" name="action" value="aivastra_tryon_connect">
+          <?php wp_nonce_field('aivastra_tryon_connect'); ?>
+          <div class="aivastra-connect-step">
+            <div class="aivastra-step-number">1</div>
+            <div class="aivastra-step-body">
+              <label for="aivastra_full_key">Full API key</label>
+              <p class="description">From your aivastra account → API Keys. Verified once against your account, then discarded — never stored.</p>
+              <input type="password" id="aivastra_full_key" name="aivastra_full_key" class="regular-text" autocomplete="off">
+            </div>
+          </div>
+          <div class="aivastra-connect-step">
+            <div class="aivastra-step-number">2</div>
+            <div class="aivastra-step-body">
+              <label for="aivastra_widget_key">Widget API key</label>
+              <p class="description">From "Create WordPress Widget Key" in the same screen. This is the key that powers the storefront button.</p>
+              <input type="password" id="aivastra_widget_key" name="aivastra_widget_key" class="regular-text" autocomplete="off">
+            </div>
+          </div>
+          <?php submit_button('Test connection'); ?>
+        </form>
+        <?php
+    }
+
+    private static function render_notices(): void
+    {
+        if (isset($_GET['aivastra_connected'])) {
+            self::render_notice('success', 'Connected successfully.');
+        }
+        if (isset($_GET['aivastra_refreshed'])) {
+            self::render_notice('success', 'Balance refreshed.');
+        }
+        if (isset($_GET['aivastra_disconnected'])) {
+            self::render_notice('success', 'Disconnected. All stored settings, including the category mapping, have been cleared.');
+        }
+        if (isset($_GET['aivastra_category_map_saved'])) {
+            self::render_notice('success', 'Category mapping saved.');
+        }
+        if (isset($_GET['aivastra_error'])) {
+            $code = (string) $_GET['aivastra_error'];
+            $message = self::ERROR_MESSAGES[$code] ?? $code;
+            self::render_notice('error', $message);
+        }
+    }
+
+    private static function render_notice(string $type, string $message): void
+    {
+        printf(
+            '<div class="notice notice-%s is-dismissible"><p>%s</p></div>',
+            esc_attr($type),
+            esc_html($message)
+        );
     }
 
     /**
@@ -241,42 +330,43 @@ class Aivastra_Settings_Page
         $productCategories = is_wp_error($terms) ? [] : $terms;
         $currentMap = $settings->get_category_map();
         ?>
-        <hr>
-        <h2>Try-on category mapping</h2>
-        <?php if (!$result['ok']): ?>
-          <p>Could not load your aivastra categories right now — try reloading this page.</p>
-        <?php elseif (empty($result['categories'])): ?>
-          <p>No active try-on categories are configured on your aivastra account yet. Every product
-             will use the <code>general</code> category until one exists.</p>
-        <?php elseif (empty($productCategories)): ?>
-          <p>No WooCommerce product categories found — every product uses the
-             <code>general</code> try-on category.</p>
-        <?php else: ?>
-          <p>Pick which aivastra try-on workflow applies to each WooCommerce product category.
-             A category left as "Default" falls back to <code>general</code>.</p>
-          <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-            <input type="hidden" name="action" value="aivastra_tryon_save_category_map">
-            <?php wp_nonce_field('aivastra_tryon_save_category_map'); ?>
-            <table class="form-table">
-              <?php foreach ($productCategories as $term): ?>
-                <tr>
-                  <th><label for="aivastra-cat-map-<?php echo esc_attr($term->term_id); ?>"><?php echo esc_html($term->name); ?></label></th>
-                  <td>
-                    <select id="aivastra-cat-map-<?php echo esc_attr($term->term_id); ?>" name="aivastra_category_map[<?php echo esc_attr($term->term_id); ?>]">
-                      <option value="">Default (general)</option>
-                      <?php foreach ($result['categories'] as $cat): ?>
-                        <option value="<?php echo esc_attr($cat['slug']); ?>" <?php selected($currentMap[$term->term_id] ?? '', $cat['slug']); ?>>
-                          <?php echo esc_html($cat['name']); ?>
-                        </option>
-                      <?php endforeach; ?>
-                    </select>
-                  </td>
-                </tr>
-              <?php endforeach; ?>
-            </table>
-            <?php submit_button('Save category mapping'); ?>
-          </form>
-        <?php endif; ?>
+        <div class="aivastra-card aivastra-category-card">
+          <h2>Try-on category mapping</h2>
+          <?php if (!$result['ok']): ?>
+            <p>Could not load your aivastra categories right now — try reloading this page.</p>
+          <?php elseif (empty($result['categories'])): ?>
+            <p>No active try-on categories are configured on your aivastra account yet. Every product
+               will use the <code>general</code> category until one exists.</p>
+          <?php elseif (empty($productCategories)): ?>
+            <p>No WooCommerce product categories found — every product uses the
+               <code>general</code> try-on category.</p>
+          <?php else: ?>
+            <p class="description">Pick which aivastra try-on workflow applies to each WooCommerce product category.
+               A category left as "Default" falls back to <code>general</code>.</p>
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+              <input type="hidden" name="action" value="aivastra_tryon_save_category_map">
+              <?php wp_nonce_field('aivastra_tryon_save_category_map'); ?>
+              <table class="form-table">
+                <?php foreach ($productCategories as $term): ?>
+                  <tr>
+                    <th><label for="aivastra-cat-map-<?php echo esc_attr($term->term_id); ?>"><?php echo esc_html($term->name); ?></label></th>
+                    <td>
+                      <select id="aivastra-cat-map-<?php echo esc_attr($term->term_id); ?>" name="aivastra_category_map[<?php echo esc_attr($term->term_id); ?>]">
+                        <option value="">Default (general)</option>
+                        <?php foreach ($result['categories'] as $cat): ?>
+                          <option value="<?php echo esc_attr($cat['slug']); ?>" <?php selected($currentMap[$term->term_id] ?? '', $cat['slug']); ?>>
+                            <?php echo esc_html($cat['name']); ?>
+                          </option>
+                        <?php endforeach; ?>
+                      </select>
+                    </td>
+                  </tr>
+                <?php endforeach; ?>
+              </table>
+              <?php submit_button('Save category mapping'); ?>
+            </form>
+          <?php endif; ?>
+        </div>
         <?php
     }
 }
