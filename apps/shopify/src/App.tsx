@@ -18,7 +18,6 @@ import ManagePage from './pages/ManagePage';
 import PricingPage from './pages/PricingPage';
 import SettingsPage from './pages/SettingsPage';
 import SupportPage from './pages/SupportPage';
-import WidgetDesignPage from './pages/WidgetDesignPage';
 import type { ShopifyMe } from './types';
 
 export default function App() {
@@ -121,7 +120,6 @@ export default function App() {
           <Route path="/manage" element={<ManagePage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/pricing" element={<PricingPage />} />
-          <Route path="/widget-design" element={<WidgetDesignPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/support" element={<SupportPage />} />
           <Route path="/billing/callback" element={<BillingCallbackPage />} />
@@ -130,6 +128,9 @@ export default function App() {
               product surface. */}
           <Route path="/products" element={<Navigate to="/manage" replace />} />
           <Route path="/embedded" element={<Navigate to="/" replace />} />
+          {/* Widget Design page removed — merchants may have it bookmarked or
+              pinned in Shopify admin's nav history. */}
+          <Route path="/widget-design" element={<Navigate to="/" replace />} />
         </Routes>
       </Frame>
     </AppProvider>

@@ -802,9 +802,7 @@ export default function ManagePage() {
                 `string | string[]` (Button.d.ts), so it cannot wrap the
                 BlockStack/Text stat block below — the brief's literal
                 `<Button variant="plain">…</Button>` here fails to typecheck
-                (TS2322). A native `<button>` is used instead, matching the
-                existing precedent for this exact situation in
-                WidgetDesignPage.tsx (`<button onClick={discard}>`). Reset to
+                (TS2322). A native `<button>` is used instead. Reset to
                 block-level, full-width, no default chrome so it reads as the
                 same plain clickable stat card the brief intended. */}
             <button
