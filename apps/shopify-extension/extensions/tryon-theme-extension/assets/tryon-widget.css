@@ -65,9 +65,15 @@
 .aivastra-tryon__subheading {
   margin: 2px 0 0;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
   color: #6b7280;
   line-height: 1.2;
+}
+
+.aivastra-tryon__header-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .aivastra-tryon__header-main[hidden] {
@@ -119,6 +125,10 @@
 
 .aivastra-tryon__history-btn:hover {
   background: #f3f4f6;
+}
+
+.aivastra-tryon__history-btn[hidden] {
+  display: none;
 }
 
 .aivastra-tryon__history-badge {
@@ -174,27 +184,31 @@
   display: block;
 }
 
-.aivastra-tryon__result-card + .aivastra-tryon__result-card {
-  padding-top: 20px;
-  border-top: 1px solid rgba(17, 24, 39, 0.08);
-}
-
-/* History view: a 2-up scrollable gallery, no per-card actions (browsing
-   past results isn't the purchase moment the fresh result is). The result
-   step otherwise never uses this grid — it always shows exactly one card. */
+/* The result step's only view now: a 2-up scrollable gallery of everything
+   the shopper has generated (see renderResultList in tryon-widget.js), for
+   both a fresh generation and the History button. Tapping a tile opens the
+   lightbox directly; Add to Cart, Share and expand are quick actions on the
+   tile itself. */
 .aivastra-tryon__result-list--grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
+  column-gap: 12px;
+  row-gap: 24px;
 }
 
-.aivastra-tryon__result-list--grid .aivastra-tryon__result-card + .aivastra-tryon__result-card {
-  padding-top: 0;
-  border-top: none;
-}
-
+/* Flush against the image instead of the base row's gap. */
 .aivastra-tryon__result-card--compact .aivastra-tryon__result-actions {
-  display: none;
+  margin-top: 0;
+}
+
+.aivastra-tryon__result-card--compact .aivastra-tryon__add-to-cart {
+  padding: 7px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.aivastra-tryon__result-card--compact .aivastra-tryon__share {
+  width: 32px;
 }
 
 .aivastra-tryon__result-card--compact {
@@ -388,12 +402,12 @@
    Those attributes exist only to satisfy theme-check's img-width-height rule and
    carry a placeholder 1x1; with max-width/max-height alone the browser would size
    this image from them and render a 1px dot. The parent .ready-preview is already
-   3/4 with overflow hidden, so filling it and letting object-fit letterbox is
-   equivalent to the intended max-* behaviour. */
+   3/4 with overflow hidden, so filling it and letting object-fit cover crop to
+   that frame is equivalent to the intended max-* behaviour. */
 .aivastra-tryon__ready-image {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
 }
 
 .aivastra-tryon__change-photo {
@@ -563,10 +577,16 @@
 }
 
 .aivastra-tryon__result-image {
+  /* img is inline by default, which reserves baseline descender space below
+     it and makes this block wrapper a few px taller than the image itself —
+     the expand button below (positioned against the wrapper) then sits
+     offset from the image's real bottom-right corner. display:block removes
+     that gap so the wrapper's height matches the image exactly. */
+  display: block;
   width: 100%;
   height: auto;
   aspect-ratio: 3 / 4;
-  object-fit: contain;
+  object-fit: cover;
   background: #f2f2f2;
   border-radius: 5px;
 }
@@ -575,8 +595,8 @@
   position: absolute;
   bottom: 10px;
   right: 10px;
-  width: 32px;
-  height: 32px;
+  width: 26px;
+  height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -587,15 +607,13 @@
   cursor: pointer;
 }
 
-.aivastra-tryon__expand:hover {
-  background: rgba(0, 0, 0, 0.75);
+.aivastra-tryon__expand svg {
+  width: 13px;
+  height: 13px;
 }
 
-/* History grid tiles already open a full-size view on tap (see
-   openHistoryDetail in tryon-widget.js) — a second expand affordance on
-   the same tile would just be visual clutter. */
-.aivastra-tryon__result-card--compact .aivastra-tryon__expand {
-  display: none;
+.aivastra-tryon__expand:hover {
+  background: rgba(0, 0, 0, 0.75);
 }
 
 .aivastra-tryon__lightbox {
@@ -719,6 +737,7 @@
   align-items: stretch;
   gap: 10px;
   margin-top: 14px;
+  padding-top: 8px;
 }
 
 .aivastra-tryon__add-to-cart {
@@ -742,10 +761,13 @@
   flex: 0 0 auto;
   width: 48px;
   border: 1px solid #e5e7eb;
-  border-radius: 12px;
+  border-radius: 10px;
   background: #fff;
   color: #111827;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .aivastra-tryon__cart-error {
