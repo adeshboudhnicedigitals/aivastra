@@ -15,8 +15,9 @@ export function listApiKeys(): Promise<ApiKeyListResponse> {
 export function createApiKey(
   label: string,
   kind?: 'wordpress_widget',
+  siteUrl?: string,
 ): Promise<ApiKeyCreateResponse> {
-  return api.post<ApiKeyCreateResponse>('/v1/merchant/api-keys', { label, kind });
+  return api.post<ApiKeyCreateResponse>('/v1/merchant/api-keys', { label, kind, siteUrl });
 }
 
 export function revokeApiKey(id: string): Promise<void> {

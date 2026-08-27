@@ -13,7 +13,7 @@ import sensible from '@fastify/sensible';
 import swagger from '@fastify/swagger';
 import scalar from '@scalar/fastify-api-reference';
 import * as Sentry from '@sentry/node';
-import { and, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import Fastify, { type FastifyInstance } from 'fastify';
 import {
   jsonSchemaTransform,
@@ -171,7 +171,7 @@ export async function buildServer(env: Env) {
       const cached = originCache.get(origin);
       if (cached && cached.expiresAt > now) return cached.allowed;
 
-      const [row] = await app.db
+      const [shopifyRow] = await app.db
         .select({ id: schema.shopifyStores.id })
         .from(schema.shopifyStores)
         .where(
@@ -181,7 +181,25 @@ export async function buildServer(env: Env) {
           ),
         )
         .limit(1);
-      const allowed = !!row;
+
+      // Mirrors the shopifyStores check above, one row per WordPress widget key
+      // instead of an array column (one widget key is expected per site — see
+      // api-keys.ts's allowedOrigin comment). Without this, every WooCommerce
+      // storefront's widget.js is CORS-blocked calling /v1/dev/tryon directly.
+      const [wordpressRow] = shopifyRow
+        ? []
+        : await app.db
+            .select({ id: schema.apiKeys.id })
+            .from(schema.apiKeys)
+            .where(
+              and(
+                eq(schema.apiKeys.integration, 'wordpress'),
+                isNull(schema.apiKeys.revokedAt),
+                eq(schema.apiKeys.allowedOrigin, origin),
+              ),
+            )
+            .limit(1);
+      const allowed = !!shopifyRow || !!wordpressRow;
       // Cap unbounded growth from a flood of distinct attacker-supplied Origins; a full
       // clear is simple and fine since worst case is a handful of extra DB hits.
       if (originCache.size >= ORIGIN_CACHE_MAX_ENTRIES) originCache.clear();

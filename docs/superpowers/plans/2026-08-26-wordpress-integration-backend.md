@@ -1367,7 +1367,127 @@ git commit -m "feat(web): add Create WordPress Widget Key button and scope badge
 
 ---
 
-## Task 9: Full regression pass
+## Task 9: Per-site CORS allowlist for WordPress widget keys
+
+**Discovered during local end-to-end testing, not in the original design doc.**
+`server.ts`'s CORS origin callback only ever allowed `env.CORS_ORIGIN` (a
+static list) or an origin present in `shopifyStores.allowedOrigins`. A
+WordPress widget key has no equivalent: the storefront `widget.js` calls
+`/v1/dev/tryon` / `/v1/dev/jobs/:id` directly from the shopper's browser
+(§4.2), and that call is cross-origin from every merchant's own domain
+(`https://theirshop.com`), which was never registered anywhere. In production
+this blocks the try-on flow on every WooCommerce store, not just a local dev
+quirk — first reproduced locally as "Try-on is temporarily unavailable"
+(`widget.js`'s `.catch(renderUnavailable)` swallows the CORS-blocked fetch
+into that generic message).
+
+**Files:**
+- Modify: `packages/db/src/schema/api-keys.ts`
+- Create: `packages/db/src/migrations/0177_open_songbird.sql` (via `pnpm db:generate`)
+- Modify: `packages/types/src/dev.ts`
+- Modify: `apps/api/src/modules/merchant/api-keys.routes.ts`
+- Modify: `apps/api/src/server.ts`
+- Modify: `apps/api/test/helpers/merchant.ts`
+- Modify: `apps/api/test/merchant-api-keys.test.ts`
+- Create: `apps/api/test/wordpress-cors.test.ts`
+- Modify: `apps/catalogues-web/src/app/(app)/developers/api.ts`
+- Modify: `apps/catalogues-web/src/app/(app)/developers/KeysPanel.tsx`
+
+- [x] **Step 1: Add `api_keys.allowedOrigin`**
+
+Add a nullable `text('allowed_origin')` column to `apiKeys` in
+`packages/db/src/schema/api-keys.ts`, set only for
+`integration: 'wordpress'` widget keys (one column, not an array like
+`shopifyStores.allowedOrigins`, since one widget key is expected per
+WordPress site — §4.2). Generate and apply the migration:
+
+```bash
+pnpm db:generate
+pnpm db:migrate
+```
+
+- [x] **Step 2: Require `siteUrl` on `wordpress_widget` key creation**
+
+In `packages/types/src/dev.ts`, add `siteUrl: z.string().url().optional()` to
+`ApiKeyCreateBody`, with a `.superRefine` requiring it when
+`kind === 'wordpress_widget'`. Add `allowedOrigin: z.string().nullable()` to
+`ApiKeyCreateResponse` and to each entry in `ApiKeyListResponse`.
+
+In `apps/api/src/modules/merchant/api-keys.routes.ts`'s POST handler,
+normalize `siteUrl` to its origin — `new URL(parsed.data.siteUrl).origin`
+(safe without a try/catch: zod's `.url()` already guarantees it parses) —
+store it as `allowedOrigin` on insert, and return it in both the create
+response and the GET listing's `select`.
+
+- [x] **Step 3: Check it in the CORS origin callback**
+
+In `apps/api/src/server.ts`, after the existing `shopifyStores` lookup, add a
+second lookup (only run when the Shopify check missed) against
+`apiKeys` where `integration = 'wordpress'`, `revokedAt is null`, and
+`allowedOrigin = origin`. Both lookups share the existing 30s TTL
+`originCache` — `allowed` is `true` if either query found a row. Import `eq`
+from `drizzle-orm` (only `and`/`isNull`/`sql` were imported before).
+
+- [x] **Step 4: Tests**
+
+Add to `apps/api/test/merchant-api-keys.test.ts`: creating a
+`wordpress_widget` key normalizes `siteUrl` to `allowedOrigin` (e.g.
+`https://my-shop.example.com/wp-admin/` → `https://my-shop.example.com`),
+rejects a missing `siteUrl` with 400, rejects a malformed one with 400, and a
+plain key still gets `allowedOrigin: null`.
+
+Add `apps/api/test/wordpress-cors.test.ts`, mirroring
+`shopify-cors.test.ts`'s pattern: an active widget key's `allowedOrigin` is
+reflected in `access-control-allow-origin`; a revoked key's origin is not; an
+unregistered origin is not; a `generic`/`full` key's `allowedOrigin` (should
+never be set outside the wordpress_widget path, but tested defensively) is
+not honored; and the 30s cache/TTL behavior matches the existing Shopify
+origin-caching test exactly (allow decision survives revocation until the TTL
+expires, then re-queries).
+
+Extend `apps/api/test/helpers/merchant.ts`'s `createTestApiKey` with an
+`allowedOrigin?: string` option so tests can seed a widget key's origin
+directly.
+
+Run: `pnpm --filter @aivastra/api test -- merchant-api-keys wordpress-cors shopify-cors`
+Expected: PASS, including the 3 new `merchant-api-keys` cases and all 5 new
+`wordpress-cors` cases.
+
+- [x] **Step 5: Merchant portal — collect the site URL**
+
+In `apps/catalogues-web/src/app/(app)/developers/api.ts`, add a `siteUrl?:
+string` parameter to `createApiKey` and pass it through in the POST body.
+
+In `KeysPanel.tsx`, add a `siteUrl` input (shown only when
+`keyKind === 'wordpress_widget'`, labeled "Store URL", placeholder
+`https://mystore.com`), required before "Create Widget Key" is enabled, reset
+alongside `label` on cancel/success, and shown as a small subtitle under the
+key's label in the listing when `allowedOrigin` is set.
+
+- [x] **Step 6: Typecheck**
+
+Run: `pnpm --filter @aivastra/api typecheck && pnpm --filter @aivastra/web typecheck`
+Expected: PASS.
+
+- [x] **Step 7: Commit**
+
+```bash
+git add packages/db/src/schema/api-keys.ts packages/db/src/migrations/0177_open_songbird.sql packages/types/src/dev.ts apps/api/src/modules/merchant/api-keys.routes.ts apps/api/src/server.ts apps/api/test/helpers/merchant.ts apps/api/test/merchant-api-keys.test.ts apps/api/test/wordpress-cors.test.ts apps/catalogues-web/src/app/\(app\)/developers/api.ts apps/catalogues-web/src/app/\(app\)/developers/KeysPanel.tsx
+git commit -m "feat: per-site CORS allowlist for WordPress widget keys"
+```
+
+**Not done here (future hardening, same category as §4.2's "Future hardening
+options"):** nothing stops a merchant from later changing the WordPress site
+address without updating the widget key's `siteUrl`, at which point the
+storefront would 401 with a CORS error instead of a clear message pointing at
+the mismatch. Revisit if this shows up in support tickets — an "edit widget
+key" UI to update `allowedOrigin` without reissuing the key, or a clearer
+plugin-side error surfacing the *reason* is unavailable (CORS vs 401 vs 5xx)
+instead of one generic string.
+
+---
+
+## Task 10: Full regression pass
 
 - [ ] **Step 1: Run the complete API unit test suite**
 

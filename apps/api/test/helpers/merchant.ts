@@ -62,6 +62,7 @@ export async function createTestApiKey(
     label?: string;
     scope?: 'full' | 'widget';
     integration?: 'generic' | 'wordpress';
+    allowedOrigin?: string;
   } = {},
 ) {
   const { key, keyHash, keyPrefix } = generateApiKey();
@@ -75,6 +76,7 @@ export async function createTestApiKey(
       revokedAt: opts.revoked ? new Date() : null,
       scope: opts.scope ?? 'full',
       integration: opts.integration ?? 'generic',
+      allowedOrigin: opts.allowedOrigin ?? null,
     })
     .returning();
   if (!row) throw new Error('failed to create test api key');

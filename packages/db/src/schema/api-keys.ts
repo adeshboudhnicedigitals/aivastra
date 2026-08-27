@@ -26,6 +26,12 @@ export const apiKeys = pgTable('api_keys', {
   integration: text('integration', { enum: ['generic', 'wordpress'] })
     .notNull()
     .default('generic'),
+  // The merchant's storefront origin (e.g. "https://myshop.com"), set only for
+  // integration='wordpress' widget keys. Checked against the browser's Origin
+  // header in server.ts's CORS callback — mirrors shopifyStores.allowedOrigins,
+  // but one column not an array since one widget key is expected per site
+  // (docs/wordpress-plugin-design.md §4.2). Null for every other key.
+  allowedOrigin: text('allowed_origin'),
   lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

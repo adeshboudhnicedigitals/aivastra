@@ -40,6 +40,7 @@ export async function merchantApiKeysRoutes(app: FastifyInstance) {
         keyPrefix: schema.apiKeys.keyPrefix,
         scope: schema.apiKeys.scope,
         integration: schema.apiKeys.integration,
+        allowedOrigin: schema.apiKeys.allowedOrigin,
         lastUsedAt: schema.apiKeys.lastUsedAt,
         createdAt: schema.apiKeys.createdAt,
       })
@@ -77,6 +78,14 @@ export async function merchantApiKeysRoutes(app: FastifyInstance) {
       const scope = isWordpressWidget ? 'widget' : 'full';
       const integration = isWordpressWidget ? 'wordpress' : 'generic';
 
+      // siteUrl is required and pre-validated as a URL for wordpress_widget by the
+      // zod schema above; normalize to its origin (drops path/query/trailing
+      // slash) so it compares exactly against the browser's Origin header in
+      // server.ts's CORS check.
+      const allowedOrigin = isWordpressWidget
+        ? new URL(parsed.data.siteUrl as string).origin
+        : null;
+
       const { key, keyHash, keyPrefix } = generateApiKey();
       const [row] = await app.db
         .insert(schema.apiKeys)
@@ -87,6 +96,7 @@ export async function merchantApiKeysRoutes(app: FastifyInstance) {
           keyPrefix,
           scope,
           integration,
+          allowedOrigin,
         })
         .returning();
       if (!row) throw new AppError('INTERNAL', 500, 'failed to create key');
@@ -100,6 +110,7 @@ export async function merchantApiKeysRoutes(app: FastifyInstance) {
         keyPrefix: row.keyPrefix,
         scope: row.scope,
         integration: row.integration,
+        allowedOrigin: row.allowedOrigin,
         createdAt: row.createdAt.toISOString(),
       });
     },

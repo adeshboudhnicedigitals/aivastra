@@ -130,6 +130,7 @@ export function KeysPanel() {
   const [createOpen, setCreateOpen] = useState(false);
   const [keyKind, setKeyKind] = useState<'wordpress_widget' | undefined>(undefined);
   const [label, setLabel] = useState('');
+  const [siteUrl, setSiteUrl] = useState('');
   // Holds the plaintext key ONLY between creation and dismissal. Never
   // persisted, never logged, cleared the moment the user dismisses it.
   const [revealedKey, setRevealedKey] = useState<CreatedApiKey | null>(null);
@@ -140,12 +141,13 @@ export function KeysPanel() {
   const merchantGated = isMerchantGateError(keysQuery.error);
 
   const createMutation = useMutation({
-    mutationFn: (vars: { label: string; kind?: 'wordpress_widget' }) =>
-      createApiKey(vars.label, vars.kind),
+    mutationFn: (vars: { label: string; kind?: 'wordpress_widget'; siteUrl?: string }) =>
+      createApiKey(vars.label, vars.kind, vars.siteUrl),
     onSuccess: (created) => {
       setRevealedKey(created);
       setCreateOpen(false);
       setLabel('');
+      setSiteUrl('');
       setKeyKind(undefined);
       void qc.invalidateQueries({ queryKey: ['dev-api-keys'] });
     },
@@ -293,6 +295,39 @@ export function KeysPanel() {
               </p>
             )}
           </div>
+          {keyKind === 'wordpress_widget' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label
+                htmlFor="new-key-site-url"
+                style={{ fontSize: 13, fontWeight: 600, color: C.text }}
+              >
+                Store URL
+              </label>
+              <p style={{ fontSize: 12, color: C.mid, margin: '0 0 4px' }}>
+                The exact address shoppers use for your store. The try-on widget on this site is the
+                only one allowed to use this key.
+              </p>
+              <input
+                id="new-key-site-url"
+                value={siteUrl}
+                onChange={(e) => setSiteUrl(e.target.value)}
+                placeholder="https://mystore.com"
+                style={{
+                  height: 40,
+                  borderRadius: 8,
+                  border: `1px solid ${C.border2}`,
+                  background: C.white,
+                  padding: '0 12px',
+                  fontFamily: 'inherit',
+                  fontSize: 13.5,
+                  color: C.text,
+                  outline: 'none',
+                  width: '100%',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+          )}
           <div
             style={{
               display: 'flex',
@@ -306,6 +341,7 @@ export function KeysPanel() {
               onClick={() => {
                 setCreateOpen(false);
                 setLabel('');
+                setSiteUrl('');
                 setKeyKind(undefined);
                 createMutation.reset();
               }}
@@ -327,8 +363,18 @@ export function KeysPanel() {
               Cancel
             </button>
             <GradBtn
-              onClick={() => createMutation.mutate({ label: label.trim(), kind: keyKind })}
-              disabled={createMutation.isPending || !label.trim()}
+              onClick={() =>
+                createMutation.mutate({
+                  label: label.trim(),
+                  kind: keyKind,
+                  siteUrl: keyKind === 'wordpress_widget' ? siteUrl.trim() : undefined,
+                })
+              }
+              disabled={
+                createMutation.isPending ||
+                !label.trim() ||
+                (keyKind === 'wordpress_widget' && !siteUrl.trim())
+              }
               style={{ height: 38, fontSize: 13.5, padding: '0 18px' }}
             >
               {createMutation.isPending
@@ -404,16 +450,36 @@ export function KeysPanel() {
               >
                 <span
                   style={{
-                    fontSize: 13.5,
-                    fontWeight: 600,
-                    color: C.text,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
+                    display: 'flex',
+                    flexDirection: 'column',
                     minWidth: 0,
                   }}
                 >
-                  {k.label}
+                  <span
+                    style={{
+                      fontSize: 13.5,
+                      fontWeight: 600,
+                      color: C.text,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {k.label}
+                  </span>
+                  {k.allowedOrigin && (
+                    <span
+                      style={{
+                        fontSize: 11.5,
+                        color: C.mid,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {k.allowedOrigin}
+                    </span>
+                  )}
                 </span>
                 <span
                   style={{

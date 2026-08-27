@@ -247,23 +247,49 @@ describe('GET /v1/merchant/api-usage', () => {
 });
 
 describe('POST /v1/merchant/api-keys with kind: wordpress_widget', () => {
-  it('atomically sets scope=widget and integration=wordpress', async () => {
+  it('atomically sets scope=widget and integration=wordpress, normalizing siteUrl to its origin', async () => {
     const createRes = await call('/v1/merchant/api-keys', {
       method: 'POST',
-      body: JSON.stringify({ label: 'My WooCommerce Store', kind: 'wordpress_widget' }),
+      body: JSON.stringify({
+        label: 'My WooCommerce Store',
+        kind: 'wordpress_widget',
+        siteUrl: 'https://my-shop.example.com/wp-admin/',
+      }),
     });
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
     expect(created.scope).toBe('widget');
     expect(created.integration).toBe('wordpress');
+    expect(created.allowedOrigin).toBe('https://my-shop.example.com');
 
     const list = await (await call('/v1/merchant/api-keys')).json();
     const row = list.keys.find((k: { id: string }) => k.id === created.id);
     expect(row.scope).toBe('widget');
     expect(row.integration).toBe('wordpress');
+    expect(row.allowedOrigin).toBe('https://my-shop.example.com');
   });
 
-  it('defaults to full/generic when kind is omitted (unchanged behavior)', async () => {
+  it('rejects a wordpress_widget key with no siteUrl', async () => {
+    const res = await call('/v1/merchant/api-keys', {
+      method: 'POST',
+      body: JSON.stringify({ label: 'Missing site', kind: 'wordpress_widget' }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects a wordpress_widget key with a malformed siteUrl', async () => {
+    const res = await call('/v1/merchant/api-keys', {
+      method: 'POST',
+      body: JSON.stringify({
+        label: 'Bad site',
+        kind: 'wordpress_widget',
+        siteUrl: 'not-a-url',
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('defaults to full/generic/no-origin when kind is omitted (unchanged behavior)', async () => {
     const createRes = await call('/v1/merchant/api-keys', {
       method: 'POST',
       body: JSON.stringify({ label: 'Regular key' }),
@@ -271,5 +297,6 @@ describe('POST /v1/merchant/api-keys with kind: wordpress_widget', () => {
     const created = await createRes.json();
     expect(created.scope).toBe('full');
     expect(created.integration).toBe('generic');
+    expect(created.allowedOrigin).toBeNull();
   });
 });
