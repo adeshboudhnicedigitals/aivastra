@@ -407,6 +407,32 @@
   align-items: center;
   justify-content: center;
   text-align: center;
+  gap: 12px;
+}
+
+.aivastra-tryon__error-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  /* #b42318 is this widget's one error red — also used by the email-gate
+     error, the cart error, and the reuse-expired note below. Not a custom
+     property: the modal is reparented to document.body in JS (escaping
+     .aivastra-tryon's subtree), so a property scoped to that class wouldn't
+     reach it there. */
+  background: #fef3f2;
+  color: #b42318;
+}
+
+.aivastra-tryon__step--pending p,
+.aivastra-tryon__step--error p {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: #374151;
 }
 
 .aivastra-tryon__ready-preview {
@@ -493,6 +519,7 @@
   filter: brightness(1.1);
 }
 
+.aivastra-tryon__step--pending .aivastra-tryon__retry,
 .aivastra-tryon__step--error .aivastra-tryon__retry {
   background: var(--aivastra-accent, var(--aivastra-button-color, #000000));
   color: var(--aivastra-text-color, #ffffff);
@@ -874,7 +901,9 @@
 .aivastra-tryon__reuse-expired-note {
   margin: 0 0 10px;
   font-size: 13px;
-  color: #a94442;
+  /* Matches .aivastra-tryon__email-error / __cart-error / __error-icon —
+     one error red across the widget instead of each picking its own shade. */
+  color: #b42318;
 }
 
 .aivastra-tryon__reuse-expired-note[hidden] {

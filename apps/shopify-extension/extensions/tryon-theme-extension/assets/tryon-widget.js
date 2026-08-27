@@ -110,6 +110,29 @@
     const changePhotoBtn = root.querySelector('.aivastra-tryon__change-photo');
     const ctaBtn = root.querySelector('.aivastra-tryon__cta');
 
+    // The Liquid-rendered default text for the error step's <p> — either the
+    // merchant's own cfg.copy.errorText, or the built-in "Something went
+    // wrong" line if they never set one. data-custom distinguishes those two
+    // cases (see tryon-button.liquid): only an explicit merchant override is
+    // captured here, so an un-configured store still gets the more specific
+    // built-in fallback text below rather than this generic one.
+    const errorMessageEl = steps.error ? steps.error.querySelector('p') : null;
+    const merchantErrorText =
+      errorMessageEl && errorMessageEl.dataset.custom === 'true'
+        ? errorMessageEl.textContent
+        : null;
+
+    // The backend's own AppError/Zod-validation message is never shown
+    // verbatim (it can be raw Zod-issue text, or just phrased for a
+    // developer, not a shopper) — every 4xx from presign/createJob is mapped
+    // through this instead, keyed on the error code alone.
+    function friendlyClientErrorMessage(code) {
+      if (code === 'RATE_LIMITED' || code === 'RATE_LIMIT') {
+        return 'Lots of people are trying this on right now. Please wait a moment and try again.';
+      }
+      return "We had trouble with that photo. Please make sure it's a JPG or PNG under 25MB and try again.";
+    }
+
     const emailInput = root.querySelector('.aivastra-tryon__email-input');
     const emailConsentInput = root.querySelector('.aivastra-tryon__email-consent-input');
     const emailSubmit = root.querySelector('.aivastra-tryon__email-submit');
@@ -806,12 +829,15 @@
       });
       if (!presignRes.ok) {
         // 4xx here means the API rejected this specific photo (e.g. content
-        // type) and its message is written to be shown to the shopper; a 5xx
-        // is our own infra, so fall back to a generic retry message instead
-        // of leaking anything internal.
+        // type) or rate-limited this store; a 5xx is our own infra. Either
+        // way the backend's own message is never shown as-is — it can be a
+        // raw Zod-validation string, not shopper copy — only its error code
+        // is read, mapped to fixed friendly text below.
         const errBody = await presignRes.json().catch(() => ({}));
         const err = new Error('presign failed');
-        if (presignRes.status < 500) err.userMessage = errBody?.error?.message;
+        if (presignRes.status < 500) {
+          err.userMessage = friendlyClientErrorMessage(errBody?.error?.code);
+        }
         throw err;
       }
       const body = await presignRes.json();
@@ -861,12 +887,21 @@
         return { pending: true, reason: body.reason, message: body.message };
       }
       if (!res.ok) {
-        // Same split as uploadPhoto: a 4xx AppError message (e.g. "uploaded
-        // photo not found", a size-limit message) is written for the
-        // shopper; a 5xx is ours to fix, not theirs to read about.
         const errBody = await res.json().catch(() => ({}));
+        const code = errBody?.error?.code;
         const err = new Error(`job create failed: ${res.status}`);
-        if (res.status < 500) err.userMessage = errBody?.error?.message;
+        if (code === 'ENQUEUE_FAIL') {
+          // The queue was unavailable after credits were already deducted —
+          // the backend refunds them in the same transaction, so say so
+          // rather than the generic "different photo" copy, which is the
+          // wrong suggestion for an infra outage.
+          err.userMessage =
+            "We're experiencing high demand right now. You haven't been charged — please try again in a moment.";
+        } else if (res.status < 500) {
+          // Same as uploadPhoto: never show the backend's own AppError/Zod
+          // text verbatim, only map its code to fixed friendly copy.
+          err.userMessage = friendlyClientErrorMessage(code);
+        }
         throw err;
       }
       const body = await res.json();
@@ -1006,8 +1041,12 @@
             'This is taking longer than expected. Please try again in a moment.',
           );
         } else {
+          // Last resort: an unrecognized failure with no curated message of
+          // its own. A merchant who explicitly set their own errorText sees
+          // that instead of this default — see merchantErrorText above.
           showErrorWithMessage(
-            "We couldn't generate your try-on. Please try again with a different photo.",
+            merchantErrorText ||
+              "We couldn't generate your try-on. Please try again with a different photo.",
           );
         }
       }
