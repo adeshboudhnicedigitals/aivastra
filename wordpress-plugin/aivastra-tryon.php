@@ -21,6 +21,7 @@ define('AIVASTRA_TRYON_URL', plugin_dir_url(__FILE__));
 require_once AIVASTRA_TRYON_DIR . 'includes/class-connection-settings.php';
 require_once AIVASTRA_TRYON_DIR . 'includes/class-connection-service.php';
 require_once AIVASTRA_TRYON_DIR . 'includes/class-widget-config.php';
+require_once AIVASTRA_TRYON_DIR . 'includes/class-category-mapping.php';
 require_once AIVASTRA_TRYON_DIR . 'admin/class-settings-page.php';
 require_once AIVASTRA_TRYON_DIR . 'public/class-widget-loader.php';
 
