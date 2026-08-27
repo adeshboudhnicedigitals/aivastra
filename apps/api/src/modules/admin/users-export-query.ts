@@ -29,6 +29,7 @@ export interface UserExportRow {
   createdAt: Date;
   balance: number;
   totalJobs: number;
+  lastJobAt: Date | string | null;
 }
 
 // Safety valve, not a real-world limit — rendering a few thousand single-line
@@ -54,13 +55,16 @@ export async function loadUsersForExport(
   // "to" must include the whole day, not just its midnight instant, or
   // same-day signups on the end date are silently dropped.
   const toInclusive = createdTo
-    ? new Date(DATE_ONLY.test(createdTo) ? `${createdTo}T23:59:59.999` : createdTo)
+    ? new Date(DATE_ONLY.test(createdTo) ? `${createdTo}T23:59:59.999Z` : createdTo)
+    : undefined;
+  const fromInclusive = createdFrom
+    ? new Date(DATE_ONLY.test(createdFrom) ? `${createdFrom}T00:00:00.000Z` : createdFrom)
     : undefined;
   const where = and(
     searchWhere,
     bannedWhere,
     merchant === true ? isNotNull(schema.merchants.id) : undefined,
-    createdFrom ? gte(schema.users.createdAt, new Date(createdFrom)) : undefined,
+    fromInclusive ? gte(schema.users.createdAt, fromInclusive) : undefined,
     toInclusive ? lte(schema.users.createdAt, toInclusive) : undefined,
   );
 
@@ -94,6 +98,7 @@ export async function loadUsersForExport(
       createdAt: schema.users.createdAt,
       balance: sql<number>`COALESCE(${schema.userCredits.balance}, 0)`,
       totalJobs: sql<number>`COUNT(${schema.jobs.id})::int`,
+      lastJobAt: sql<Date | null>`MAX(${schema.jobs.createdAt})`,
     })
     .from(schema.users)
     .leftJoin(schema.merchants, eq(schema.merchants.userId, schema.users.id))
