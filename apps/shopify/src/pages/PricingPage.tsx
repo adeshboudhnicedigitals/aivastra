@@ -16,16 +16,18 @@ import {
   TextField,
 } from '@shopify/polaris';
 import { CheckIcon } from '@shopify/polaris-icons';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { BalanceCard } from '../components/BalanceCard';
+import { ErrorBanner } from '../components/ErrorBanner';
 import { apiFetch, navigateTopLevel } from '../lib/api';
+import { type ClassifiedError, classifyError } from '../lib/errors';
 import { PACK_DISPLAY, SHARED_FEATURE_BULLETS, tryOnsFromCredits } from '../lib/packs';
 import type { ShopifyMe } from '../types';
 import { LowCreditsBanner } from './DashboardPage';
 
 export default function PricingPage() {
   const [me, setMe] = useState<ShopifyMe | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ClassifiedError | null>(null);
   const [loading, setLoading] = useState(true);
   const [refillPack, setRefillPack] = useState('pack_25');
   const [refillCap, setRefillCap] = useState('100');
@@ -38,12 +40,17 @@ export default function PricingPage() {
   const [newCap, setNewCap] = useState('');
   const [raisingCap, setRaisingCap] = useState(false);
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoading(true);
     apiFetch<ShopifyMe>('/v1/shopify/me')
       .then(setMe)
-      .catch((err) => setError((err as Error).message))
+      .catch((err) => setError(classifyError(err)))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   async function enableAutorefill() {
     setEnrolling(true);
@@ -66,7 +73,7 @@ export default function PricingPage() {
       );
       navigateTopLevel(confirmationUrl);
     } catch (err) {
-      setError((err as Error).message);
+      setError(classifyError(err));
       setEnrolling(false);
     }
   }
@@ -75,9 +82,21 @@ export default function PricingPage() {
     setError(null);
     try {
       await apiFetch('/v1/shopify/billing/autorefill', { method: 'DELETE' });
+    } catch (err) {
+      setError(classifyError(err));
+      return;
+    }
+    // Turning off already succeeded at this point — a failure here is only a
+    // stale-balance-display problem, not a "turn off failed" one, so it gets
+    // its own message rather than being folded into the DELETE's error path.
+    try {
       setMe(await apiFetch<ShopifyMe>('/v1/shopify/me'));
     } catch (err) {
-      setError((err as Error).message);
+      const classified = classifyError(err);
+      setError({
+        ...classified,
+        message: `Auto-refill is now off, but we couldn't refresh this page: ${classified.message}`,
+      });
     }
   }
 
@@ -93,7 +112,7 @@ export default function PricingPage() {
       // Shopify's approval page is outside the embedded app's origin.
       navigateTopLevel(confirmationUrl);
     } catch (err) {
-      setError((err as Error).message);
+      setError(classifyError(err));
       setRaisingCap(false);
     }
   }
@@ -123,7 +142,7 @@ export default function PricingPage() {
   return (
     <Page title="Credits" subtitle="Buy credits once. They never expire.">
       <BlockStack gap="400">
-        {error && <Banner tone="critical">{error}</Banner>}
+        <ErrorBanner error={error} onRetry={load} />
 
         {me && <LowCreditsBanner me={me} hideCapReached />}
 

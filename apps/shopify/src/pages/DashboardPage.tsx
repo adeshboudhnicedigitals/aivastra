@@ -18,8 +18,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BalanceCard } from '../components/BalanceCard';
 import { EmailBonusModal } from '../components/EmailBonusModal';
+import { ErrorBanner } from '../components/ErrorBanner';
 import { PackGrid } from '../components/PackGrid';
 import { apiFetch } from '../lib/api';
+import { type ClassifiedError, classifyError } from '../lib/errors';
 import type { ShopifyMe, ShopifyOnboardingConfirmResponse, ShopifyStats } from '../types';
 
 // Uses useNavigate() directly rather than accepting navigate as a prop: both
@@ -174,7 +176,7 @@ function StepRow({
 
 export default function DashboardPage() {
   const [me, setMe] = useState<ShopifyMe | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ClassifiedError | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -191,7 +193,7 @@ export default function DashboardPage() {
     setLoading(true);
     apiFetch<ShopifyMe>('/v1/shopify/me')
       .then(setMe)
-      .catch((err) => setError(err.message))
+      .catch((err) => setError(classifyError(err)))
       .finally(() => setLoading(false));
   }, []);
 
@@ -219,7 +221,7 @@ export default function DashboardPage() {
       }
       load();
     } catch (err) {
-      setError((err as Error).message);
+      setError(classifyError(err));
     } finally {
       setSyncing(false);
     }
@@ -232,7 +234,7 @@ export default function DashboardPage() {
       const { url } = await apiFetch<{ url: string }>('/v1/shopify/onboarding/theme-editor-url');
       window.open(url, '_blank', 'noopener');
     } catch (err) {
-      setError((err as Error).message);
+      setError(classifyError(err));
     } finally {
       setOpeningEditor(false);
     }
@@ -249,7 +251,7 @@ export default function DashboardPage() {
       setMe((prev) => (prev ? { ...prev, store: { ...prev.store, settings } } : prev));
       setToastMessage('Got it — Try It On block confirmed.');
     } catch (err) {
-      setError((err as Error).message);
+      setError(classifyError(err));
     } finally {
       setConfirming(false);
     }
@@ -280,7 +282,7 @@ export default function DashboardPage() {
   return (
     <Page title="Dashboard" subtitle="Here's how virtual try-on is performing on your store.">
       <BlockStack gap="400">
-        {error && <Banner tone="critical">{error}</Banner>}
+        <ErrorBanner error={error} onRetry={load} />
 
         {me && <LowCreditsBanner me={me} />}
 
