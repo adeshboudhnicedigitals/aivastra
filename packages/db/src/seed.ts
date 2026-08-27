@@ -29,15 +29,70 @@ async function main() {
   console.log('🌱 Seeding database with dummy data...');
 
   try {
-    // 1. Users
-    console.log('Seeding users (100)...');
-    const newUsers = Array.from({ length: 100 }).map(() => ({
-      email: `${faker.internet.email()}_${faker.string.uuid()}`,
-      displayName: faker.person.fullName(),
-      tier: faker.helpers.arrayElement(['free', 'starter', 'growth', 'pro']),
-      emailVerified: true,
-    }));
-    await db.insert(schema.users).values(newUsers).onConflictDoNothing();
+    // 1. Users & Merchants & Credits
+    console.log('Seeding users (100) with diverse statuses and join dates...');
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+
+    const userRecords = Array.from({ length: 80 }).map((_, idx) => {
+      const daysAgo = (idx % 28) + (idx % 3) * 0.2;
+      const createdAt = new Date(now - daysAgo * dayMs);
+      const isSuspended = idx % 5 === 0;
+      const isDeleted = idx % 15 === 0;
+      return {
+        email: isDeleted
+          ? `deleted+${faker.string.uuid()}@example.invalid`
+          : `${faker.internet.email().toLowerCase()}_${idx}`,
+        displayName: isDeleted ? 'Deleted User' : faker.person.fullName(),
+        tier: faker.helpers.arrayElement(['free', 'starter', 'growth', 'pro']),
+        emailVerified: true,
+        isBanned: isSuspended || isDeleted,
+        banReason: isDeleted
+          ? 'admin erasure (GDPR)'
+          : isSuspended
+            ? 'Account suspended due to policy violation'
+            : null,
+        createdAt,
+        updatedAt: createdAt,
+      };
+    });
+
+    const insertedUsers = await db
+      .insert(schema.users)
+      .values(userRecords)
+      .onConflictDoNothing()
+      .returning({ id: schema.users.id, createdAt: schema.users.createdAt, isBanned: schema.users.isBanned });
+
+    // Seed credit balances and merchants
+    console.log('Seeding credits and merchant profiles...');
+    const allUsers = await db.select({ id: schema.users.id }).from(schema.users);
+    for (const u of allUsers) {
+      await db
+        .insert(schema.userCredits)
+        .values({
+          userId: u.id,
+          balance: faker.helpers.arrayElement([0, 15, 50, 120, 450, 1000]),
+        })
+        .onConflictDoNothing();
+    }
+
+    // Seed ~20 merchants among users
+    const merchantUsers = allUsers.slice(0, 20);
+    for (const [mIdx, mu] of merchantUsers.entries()) {
+      await db
+        .insert(schema.merchants)
+        .values({
+          userId: mu.id,
+          companyName: `${faker.company.name()} Apparel`,
+          contactName: faker.person.fullName(),
+          phone: `+9198${faker.string.numeric(8)}`,
+          businessAddress: `${faker.location.streetAddress()}, ${faker.location.city()}`,
+          signupSource: mIdx % 2 === 0 ? 'android_google' : 'admin',
+          isActive: true,
+          demoData: false,
+        })
+        .onConflictDoNothing();
+    }
 
     // 2. Catalog Types
     console.log('Ensuring catalog types...');
@@ -107,8 +162,101 @@ async function main() {
       });
     console.log(`   → login with ${DEV_ADMIN_EMAIL} / ${DEV_ADMIN_PASSWORD}`);
 
-    // 5. Minimal workflow template (no real ComfyUI jsonContent is available in-repo —
-    // this only unblocks pose/model FK requirements for local dev, not real job dispatch)
+    // 5. Jobs across different dates, statuses, and workers
+    console.log('Seeding jobs (60) with diverse statuses and timestamps...');
+    const statuses = ['COMPLETED', 'GENERATING', 'QUEUED', 'FAILED', 'CANCELLED'];
+    const workers = ['gpu-worker-1', 'gpu-worker-2', 'worker-lambda-3', 'worker-backup-4'];
+    const sources = ['tryon', 'studio', 'pose'];
+
+    const jobRows = Array.from({ length: 60 }).map((_, idx) => {
+      const targetUser = faker.helpers.arrayElement(allUsers);
+      const daysAgo = (idx % 20) + (idx % 4) * 0.25;
+      const createdAt = new Date(now - daysAgo * dayMs);
+      const status = statuses[idx % statuses.length];
+      const startedAt = status !== 'QUEUED' ? new Date(createdAt.getTime() + 15000) : null;
+      const completedAt =
+        status === 'COMPLETED' || status === 'FAILED' || status === 'CANCELLED'
+          ? new Date(createdAt.getTime() + 45000)
+          : null;
+      return {
+        userId: targetUser.id,
+        status,
+        workerId: status !== 'QUEUED' ? workers[idx % workers.length] : null,
+        source: sources[idx % sources.length],
+        creditsCharged: 1,
+        attempts: status === 'FAILED' ? 3 : 1,
+        errorCode: status === 'FAILED' ? 'ERR_WORKER_TIMEOUT' : null,
+        createdAt,
+        startedAt,
+        completedAt,
+      };
+    });
+
+    await db.insert(schema.jobs).values(jobRows);
+
+    // 6. Audit Logs across different dates and actions
+    console.log('Seeding audit logs (40) for Team Activity...');
+    const auditActions = [
+      {
+        action: 'users.credits.grant',
+        resourceType: 'user',
+        before: { balance: 50 },
+        after: { balance: 150, note: 'Loyalty compensation' },
+      },
+      {
+        action: 'users.ban',
+        resourceType: 'user',
+        before: { isBanned: false },
+        after: { isBanned: true, banReason: 'Violation of acceptable use terms' },
+      },
+      {
+        action: 'users.unban',
+        resourceType: 'user',
+        before: { isBanned: true },
+        after: { isBanned: false, reviewPassed: true },
+      },
+      {
+        action: 'credit_plans.update',
+        resourceType: 'credit_plan',
+        before: { price: 2900, creditsPerMonth: 300 },
+        after: { price: 2900, creditsPerMonth: 350 },
+      },
+      {
+        action: 'workflow.update',
+        resourceType: 'workflow',
+        before: { isActive: false, version: '1.2.0' },
+        after: { isActive: true, version: '1.3.0' },
+      },
+      {
+        action: 'merchants.create',
+        resourceType: 'merchant',
+        before: null,
+        after: { companyName: 'Silk & Saree Boutique', status: 'approved' },
+      },
+    ];
+
+    const auditRows = Array.from({ length: 40 }).map((_, idx) => {
+      const template = auditActions[idx % auditActions.length];
+      const targetUser = allUsers[idx % allUsers.length];
+      const daysAgo = (idx % 25) + (idx % 5) * 0.15;
+      const createdAt = new Date(now - daysAgo * dayMs);
+      return {
+        actorUserId: adminUser.id,
+        actorRole: 'SUPER_ADMIN',
+        action: template.action,
+        resourceType: template.resourceType,
+        resourceId: targetUser ? targetUser.id : faker.string.uuid(),
+        before: template.before,
+        after: template.after,
+        ipAddress: '127.0.0.1',
+        userAgent: 'Mozilla/5.0 Admin Console',
+        createdAt,
+      };
+    });
+
+    await db.insert(schema.auditLogs).values(auditRows);
+
+    // 7. Minimal workflow template
     console.log('Seeding minimal workflow template...');
     await db
       .insert(schema.workflowTemplates)
@@ -123,6 +271,79 @@ async function main() {
         isActive: true,
       })
       .onConflictDoNothing({ target: schema.workflowTemplates.slug });
+
+    // 8. Shopify Stores & Credit Ledgers
+    console.log('Seeding Shopify stores and credit ledgers...');
+    const storeDomains = [
+      { domain: 'manyavar-ethnic.myshopify.com', balance: 1250, daysAgo: 30, uninstalled: false },
+      { domain: 'fabindia-crafts.myshopify.com', balance: 850, daysAgo: 24, uninstalled: false },
+      { domain: 'biba-apparel.myshopify.com', balance: 420, daysAgo: 18, uninstalled: false },
+      { domain: 'raymond-custom.myshopify.com', balance: 2100, daysAgo: 14, uninstalled: false },
+      { domain: 'w-for-woman.myshopify.com', balance: 95, daysAgo: 8, uninstalled: false },
+      { domain: 'lifestyle-stores.myshopify.com', balance: 340, daysAgo: 5, uninstalled: false },
+      { domain: 'global-desi-fashion.myshopify.com', balance: 50, daysAgo: 2, uninstalled: false },
+      { domain: 'legacy-apparel-demo.myshopify.com', balance: 0, daysAgo: 45, uninstalled: true },
+    ];
+
+    for (const [sIdx, s] of storeDomains.entries()) {
+      const installedAt = new Date(now - s.daysAgo * dayMs);
+      const uninstalledAt = s.uninstalled ? new Date(now - 3 * dayMs) : null;
+      const ownerUser = merchantUsers[sIdx % merchantUsers.length] || adminUser;
+
+      const [store] = await db
+        .insert(schema.shopifyStores)
+        .values({
+          shopDomain: s.domain,
+          shopifyShopId: 8800000000 + sIdx,
+          accessToken: '0000000000000000:0000000000000000:dummy_seeded_access_token',
+          scope: 'read_products,write_products,read_themes',
+          ianaTimezone: 'Asia/Kolkata',
+          ownerUserId: ownerUser.id,
+          installedAt,
+          uninstalledAt,
+          shopEmail: `support@${s.domain.replace('.myshopify.com', '')}.com`,
+        })
+        .onConflictDoUpdate({
+          target: schema.shopifyStores.shopDomain,
+          set: { uninstalledAt, ownerUserId: ownerUser.id },
+        })
+        .returning({ id: schema.shopifyStores.id });
+
+      if (store) {
+        // Store credit balance
+        await db
+          .insert(schema.shopifyStoreCredits)
+          .values({
+            storeId: store.id,
+            balance: s.balance,
+            updatedAt: new Date(),
+          })
+          .onConflictDoUpdate({
+            target: schema.shopifyStoreCredits.storeId,
+            set: { balance: s.balance, updatedAt: new Date() },
+          });
+
+        // Store credit ledger entries
+        const ledgerEntries = [
+          { delta: 50, reason: 'TRIAL_GRANT', daysAgo: s.daysAgo },
+          { delta: 500, reason: 'PURCHASE_GROWTH_PACK', daysAgo: Math.max(1, s.daysAgo - 2) },
+          { delta: -1, reason: 'JOB_DISPATCH', daysAgo: Math.max(1, s.daysAgo - 4) },
+          { delta: -1, reason: 'JOB_DISPATCH', daysAgo: Math.max(1, s.daysAgo - 5) },
+          { delta: 1, reason: 'JOB_FAILED_REFUND', daysAgo: Math.max(1, s.daysAgo - 5) },
+          { delta: -2, reason: 'JOB_DISPATCH_BATCH', daysAgo: Math.max(1, s.daysAgo - 7) },
+          { delta: 250, reason: 'AUTOREFILL_TRIGGERED', daysAgo: Math.max(1, s.daysAgo - 10) },
+        ];
+
+        for (const entry of ledgerEntries) {
+          await db.insert(schema.shopifyCreditLedger).values({
+            storeId: store.id,
+            delta: entry.delta,
+            reason: entry.reason,
+            createdAt: new Date(now - entry.daysAgo * dayMs),
+          });
+        }
+      }
+    }
 
     console.log('✅ Seeding complete!');
   } catch (error) {
