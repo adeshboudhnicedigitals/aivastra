@@ -66,6 +66,7 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [query, setQuery] = useState('');
   const [merchantsOnly, setMerchantsOnly] = useState(false);
   const [showBanned, setShowBanned] = useState(false);
+  const [planFilter, setPlanFilter] = useState('');
   const [page, setPage] = useState(0);
   const [sortKey, setSortKey] = useState<keyof User>('createdAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -138,6 +139,7 @@ export default function UsersPage({ onNav, toast }: Props) {
       if (showBanned) params.set('showBanned', 'true');
       if (exportFrom) params.set('createdFrom', exportFrom);
       if (exportTo) params.set('createdTo', exportTo);
+      if (planFilter) params.set('tier', planFilter);
       const data = await apiFetch<{ items: User[]; total: number }>(`/admin/users?${params}`);
       setUsers(data.items);
       setTotal(data.total);
@@ -150,7 +152,7 @@ export default function UsersPage({ onNav, toast }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [page, query, merchantsOnly, showBanned, exportFrom, exportTo, toast]);
+  }, [page, query, merchantsOnly, showBanned, exportFrom, exportTo, planFilter, toast]);
 
   useEffect(() => {
     load();
@@ -182,6 +184,7 @@ export default function UsersPage({ onNav, toast }: Props) {
       if (showBanned) params.set('showBanned', 'true');
       if (exportFrom) params.set('createdFrom', exportFrom);
       if (exportTo) params.set('createdTo', exportTo);
+      if (planFilter) params.set('tier', planFilter);
       const blob = await apiFetchBlob(`/admin/users/export.${format}?${params}`);
       const href = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
@@ -1468,13 +1471,16 @@ export default function UsersPage({ onNav, toast }: Props) {
     );
   }
 
-  const hasActiveFilters = Boolean(query || merchantsOnly || showBanned || exportFrom || exportTo);
+  const hasActiveFilters = Boolean(
+    query || merchantsOnly || showBanned || exportFrom || exportTo || planFilter,
+  );
   const clearFilters = () => {
     setQuery('');
     setMerchantsOnly(false);
     setShowBanned(false);
     setExportFrom('');
     setExportTo('');
+    setPlanFilter('');
     setPage(0);
   };
 
@@ -1546,13 +1552,13 @@ export default function UsersPage({ onNav, toast }: Props) {
           <div ref={menuRef} className="filter-popover-wrapper">
             <button
               type="button"
-              className={`filter-toggle-btn ${menuOpen || showBanned || exportFrom || exportTo ? 'active' : ''}`}
+              className={`filter-toggle-btn ${menuOpen || showBanned || exportFrom || exportTo || planFilter ? 'active' : ''}`}
               onClick={() => setMenuOpen(!menuOpen)}
               title="Filters & Export options"
             >
               <Icon.Filter />
               <span>Options</span>
-              {(showBanned || exportFrom || exportTo) && (
+              {(showBanned || exportFrom || exportTo || planFilter) && (
                 <span
                   style={{
                     width: 6,
@@ -1614,7 +1620,42 @@ export default function UsersPage({ onNav, toast }: Props) {
 
                 <div style={{ borderTop: '1px solid var(--border)' }} />
 
-                {/* 2. Show Suspended/Deleted Users */}
+                {/* 2. Plan Filter */}
+                <div>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      display: 'block',
+                      marginBottom: 6,
+                    }}
+                  >
+                    Plan
+                  </span>
+                  <select
+                    className="filter-select"
+                    value={planFilter}
+                    onChange={(e) => {
+                      setPlanFilter(e.target.value);
+                      setPage(0);
+                    }}
+                    style={{ width: '100%', height: 32, fontSize: 12.5 }}
+                  >
+                    <option value="">All plans</option>
+                    {tierOptions.map((slug) => (
+                      <option key={slug} value={slug} style={{ textTransform: 'capitalize' }}>
+                        {slug}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ borderTop: '1px solid var(--border)' }} />
+
+                {/* 3. Show Suspended/Deleted Users */}
                 <div>
                   <span
                     style={{
@@ -1658,7 +1699,7 @@ export default function UsersPage({ onNav, toast }: Props) {
 
                 <div style={{ borderTop: '1px solid var(--border)' }} />
 
-                {/* 3. Export Data (PDF & Excel) */}
+                {/* 4. Export Data (PDF & Excel) */}
                 <div>
                   <div
                     style={{
@@ -1793,6 +1834,21 @@ export default function UsersPage({ onNav, toast }: Props) {
                   onClick={() => {
                     setExportFrom('');
                     setExportTo('');
+                    setPage(0);
+                  }}
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {planFilter && (
+              <span className="filter-chip">
+                Plan: <strong style={{ textTransform: 'capitalize' }}>{planFilter}</strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setPlanFilter('');
                     setPage(0);
                   }}
                 >

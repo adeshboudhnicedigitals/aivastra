@@ -41,6 +41,7 @@ const PaginatedSearch = z.object({
   showBanned: z.coerce.boolean().optional(),
   createdFrom: z.string().optional(),
   createdTo: z.string().optional(),
+  tier: z.string().optional(),
 });
 
 export async function adminUsersRoutes(app: FastifyInstance) {
@@ -51,7 +52,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
     '/admin/users',
     { preHandler: ALL, schema: { querystring: PaginatedSearch } },
     async (req) => {
-      const { page, pageSize, search, merchant, showBanned, createdFrom, createdTo } =
+      const { page, pageSize, search, merchant, showBanned, createdFrom, createdTo, tier } =
         req.query as z.infer<typeof PaginatedSearch>;
 
       const searchWhere = search
@@ -74,6 +75,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         merchant === true ? isNotNull(schema.merchants.id) : undefined,
         fromInclusive ? gte(schema.users.createdAt, fromInclusive) : undefined,
         toInclusive ? lte(schema.users.createdAt, toInclusive) : undefined,
+        tier ? eq(schema.users.tier, tier) : undefined,
       );
 
       const [{ total }] = await app.db
@@ -156,6 +158,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           showBanned: query.showBanned,
           createdFrom: query.createdFrom,
           createdTo: query.createdTo,
+          tier: query.tier,
           sortDir: query.sortDir,
         },
       });
@@ -182,6 +185,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           showBanned: query.showBanned,
           createdFrom: query.createdFrom,
           createdTo: query.createdTo,
+          tier: query.tier,
           sortDir: query.sortDir,
         },
       });
