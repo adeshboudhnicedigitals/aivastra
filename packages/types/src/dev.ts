@@ -146,9 +146,42 @@ export const DevMeResponse = z.object({
   credits: z.number().int(),
 });
 
-export const ApiKeyCreateBody = z.object({
-  label: z.string().min(1).max(64),
+// Deliberately available to both 'full' and 'widget' scoped keys (unlike
+// /v1/dev/me) — a credit count is not sensitive, and integrations like the
+// WordPress plugin only ever hold a widget-scoped key day-to-day.
+export const DevBalanceResponse = z.object({
+  credits: z.number().int(),
 });
+
+export const ApiKeyScope = z.enum(['full', 'widget']);
+export type ApiKeyScope = z.infer<typeof ApiKeyScope>;
+
+export const ApiKeyIntegration = z.enum(['generic', 'wordpress']);
+export type ApiKeyIntegration = z.infer<typeof ApiKeyIntegration>;
+
+export const ApiKeyCreateBody = z
+  .object({
+    label: z.string().min(1).max(64),
+    // When omitted: defaults to 'full' scope + 'generic' integration.
+    // 'wordpress_widget' is the atomic preset for the merchant portal's
+    // "Create WordPress Widget Key" button (scope=widget, integration=wordpress).
+    kind: z.enum(['full', 'wordpress_widget']).optional(),
+    // Required (and only meaningful) for kind: 'wordpress_widget' — the
+    // merchant's storefront URL. Normalized server-side to its origin and
+    // stored as api_keys.allowedOrigin, the value the CORS check in
+    // server.ts matches the browser's Origin header against.
+    siteUrl: z.string().url().optional(),
+  })
+  .superRefine((body, ctx) => {
+    if (body.kind === 'wordpress_widget' && !body.siteUrl) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['siteUrl'],
+        message: 'siteUrl is required for a WordPress widget key',
+      });
+    }
+  });
+export type ApiKeyCreateBody = z.infer<typeof ApiKeyCreateBody>;
 
 // `key` is present ONLY here — the one and only time the plaintext is returned.
 export const ApiKeyCreateResponse = z.object({
@@ -156,6 +189,9 @@ export const ApiKeyCreateResponse = z.object({
   label: z.string(),
   key: z.string(),
   keyPrefix: z.string(),
+  scope: ApiKeyScope,
+  integration: ApiKeyIntegration,
+  allowedOrigin: z.string().nullable(),
   createdAt: z.string(),
 });
 export type ApiKeyCreateResponse = z.infer<typeof ApiKeyCreateResponse>;
@@ -166,6 +202,9 @@ export const ApiKeyListResponse = z.object({
       id: z.string().uuid(),
       label: z.string(),
       keyPrefix: z.string(),
+      scope: ApiKeyScope,
+      integration: ApiKeyIntegration,
+      allowedOrigin: z.string().nullable(),
       lastUsedAt: z.string().nullable(),
       createdAt: z.string(),
     }),

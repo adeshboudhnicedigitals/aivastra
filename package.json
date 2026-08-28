@@ -34,10 +34,12 @@
     "backfill:thumbnails": "tsx --env-file=.env scripts/backfill-thumbnails.mts",
     "seed:contacts": "tsx --env-file=.env scripts/seed-contacts.ts",
     "seed:model-images": "tsx --env-file=.env scripts/seed-model-images.mts",
-    "seed:garment-types": "tsx --env-file=.env scripts/seed-garment-types.mts"
+    "seed:garment-types": "tsx --env-file=.env scripts/seed-garment-types.mts",
+    "seed:invoices": "tsx --env-file=.env scripts/seed-invoices.mts"
   },
   "devDependencies": {
     "@aivastra/db": "workspace:*",
+    "@aivastra/storage": "workspace:*",
     "@aws-sdk/client-s3": "^3.673.0",
     "@biomejs/biome": "^2.4.16",
     "@types/node": "^22.7.5",

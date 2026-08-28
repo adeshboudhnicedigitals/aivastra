@@ -146,7 +146,7 @@ export const SystemConfigBody = z.object({
   pixverse: z.object({ creditCost: z.number().int().positive().max(1_000) }).optional(),
   shopify: z
     .object({
-      trialCredits: z.number().int().min(0).max(1000).optional(),
+      trialCredits: z.number().int().min(0).max(99999).optional(),
       packCredits: z
         .object({
           pack_10: z

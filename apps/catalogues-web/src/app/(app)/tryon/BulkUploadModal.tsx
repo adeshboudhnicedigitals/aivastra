@@ -440,7 +440,6 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
           }}
           onDragLeave={() => setIsDragging(false)}
           onDrop={handleDrop}
-          // biome-ignore lint/a11y/useKeyWithClickEvents: simple click trigger
           onClick={() => fileInputRef.current?.click()}
           style={{
             height: 100,

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import {
+  DevBalanceResponse,
   DevCategoriesResponse,
   DevErrorResponse,
   DevJobParams,
@@ -17,6 +18,7 @@ import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
+import { assertWidgetKeyRateLimit } from '../../lib/widget-key-rate-limit.js';
 import { createDevTryonJob } from './create-job.js';
 import { createDevSareeMannequinJob } from './create-saree-mannequin-job.js';
 import { sniffImageMime } from './image-sniff.js';
@@ -68,7 +70,7 @@ export async function devRoutes(app: FastifyInstance) {
   app.get(
     '/v1/dev/me',
     {
-      preHandler: app.requireApiKey,
+      preHandler: [app.requireApiKey, app.requireDevScope('full')],
       config: rateLimitConfig,
       schema: {
         tags: ['dev'],
@@ -98,6 +100,38 @@ export async function devRoutes(app: FastifyInstance) {
         companyName: row.companyName,
         credits: row.credits ?? 0,
       };
+    },
+  );
+
+  app.get(
+    '/v1/dev/balance',
+    {
+      // No requireDevScope() — a credit count is not sensitive, and this is
+      // the one dev-API read a widget-scoped key needs directly (e.g. the
+      // WordPress plugin's "Refresh balance" button, which only ever holds
+      // the widget key day-to-day). Full-scoped keys may call it too.
+      preHandler: app.requireApiKey,
+      config: rateLimitConfig,
+      schema: {
+        tags: ['dev'],
+        summary: 'Get the current credit balance',
+        response: {
+          200: DevBalanceResponse,
+          401: DevErrorResponse,
+          404: DevErrorResponse,
+          429: DevErrorResponse,
+        },
+      },
+    },
+    async (req) => {
+      const [row] = await app.db
+        .select({ credits: schema.userCredits.balance })
+        .from(schema.merchants)
+        .leftJoin(schema.userCredits, eq(schema.userCredits.userId, schema.merchants.userId))
+        .where(eq(schema.merchants.id, req.merchantId as string))
+        .limit(1);
+      if (!row) throw new AppError('NOT_FOUND', 404, 'merchant not found');
+      return { credits: row.credits ?? 0 };
     },
   );
 
@@ -142,6 +176,11 @@ export async function devRoutes(app: FastifyInstance) {
       const merchantId = req.merchantId as string;
       const merchantUserId = req.merchantUserId as string;
       const apiKeyId = req.apiKeyId as string;
+
+      if (req.apiKeyScope === 'widget') {
+        await assertWidgetKeyRateLimit(app, apiKeyId);
+      }
+
       const maxFileBytes = await getUploadLimitBytes(req.server, 'devApiMaxBytes');
 
       let categorySlug: string | undefined;
@@ -246,6 +285,7 @@ export async function devRoutes(app: FastifyInstance) {
         merchantId,
         merchantUserId,
         apiKeyId,
+        integration: (req.integration as 'generic' | 'wordpress') ?? 'generic',
         categorySlug,
         personKey,
         garmentKey,
@@ -258,7 +298,7 @@ export async function devRoutes(app: FastifyInstance) {
   app.post(
     '/v1/dev/saree-mannequin',
     {
-      preHandler: app.requireApiKey,
+      preHandler: [app.requireApiKey, app.requireDevScope('full')],
       config: rateLimitConfig,
       // One image, base64-inflated ~1.34x — 20MB source caps around 26.8MB of JSON text.
       bodyLimit: 30 * 1024 * 1024,
@@ -384,6 +424,9 @@ export async function devRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { id } = req.params as { id: string };
+      if (req.apiKeyScope === 'widget') {
+        await assertWidgetKeyRateLimit(app, req.apiKeyId as string);
+      }
       const [job] = await app.db
         .select({
           id: schema.jobs.id,
@@ -403,6 +446,7 @@ export async function devRoutes(app: FastifyInstance) {
               JOB_SOURCE.API_TRYON,
               JOB_SOURCE.API_SAREE_MANNEQUIN,
               JOB_SOURCE.API_CATALOG,
+              JOB_SOURCE.WORDPRESS_TRYON,
               LEGACY_JOB_SOURCE.API,
             ]),
           ),

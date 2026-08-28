@@ -38,6 +38,9 @@ export async function merchantApiKeysRoutes(app: FastifyInstance) {
         id: schema.apiKeys.id,
         label: schema.apiKeys.label,
         keyPrefix: schema.apiKeys.keyPrefix,
+        scope: schema.apiKeys.scope,
+        integration: schema.apiKeys.integration,
+        allowedOrigin: schema.apiKeys.allowedOrigin,
         lastUsedAt: schema.apiKeys.lastUsedAt,
         createdAt: schema.apiKeys.createdAt,
       })
@@ -71,11 +74,30 @@ export async function merchantApiKeysRoutes(app: FastifyInstance) {
       if (!parsed.success) {
         throw new AppError('VALIDATION', 400, parsed.error.issues[0]?.message ?? 'invalid body');
       }
-      const { label } = parsed.data;
+      const isWordpressWidget = parsed.data.kind === 'wordpress_widget';
+      const scope = isWordpressWidget ? 'widget' : 'full';
+      const integration = isWordpressWidget ? 'wordpress' : 'generic';
+
+      // siteUrl is required and pre-validated as a URL for wordpress_widget by the
+      // zod schema above; normalize to its origin (drops path/query/trailing
+      // slash) so it compares exactly against the browser's Origin header in
+      // server.ts's CORS check.
+      const allowedOrigin = isWordpressWidget
+        ? new URL(parsed.data.siteUrl as string).origin
+        : null;
+
       const { key, keyHash, keyPrefix } = generateApiKey();
       const [row] = await app.db
         .insert(schema.apiKeys)
-        .values({ merchantId: req.merchantClientId as string, label, keyHash, keyPrefix })
+        .values({
+          merchantId: req.merchantClientId as string,
+          label: parsed.data.label,
+          keyHash,
+          keyPrefix,
+          scope,
+          integration,
+          allowedOrigin,
+        })
         .returning();
       if (!row) throw new AppError('INTERNAL', 500, 'failed to create key');
 
@@ -86,6 +108,9 @@ export async function merchantApiKeysRoutes(app: FastifyInstance) {
         label: row.label,
         key,
         keyPrefix: row.keyPrefix,
+        scope: row.scope,
+        integration: row.integration,
+        allowedOrigin: row.allowedOrigin,
         createdAt: row.createdAt.toISOString(),
       });
     },
@@ -133,6 +158,7 @@ export async function merchantApiKeysRoutes(app: FastifyInstance) {
             JOB_SOURCE.API_TRYON,
             JOB_SOURCE.API_SAREE_MANNEQUIN,
             JOB_SOURCE.API_CATALOG,
+            JOB_SOURCE.WORDPRESS_TRYON,
             LEGACY_JOB_SOURCE.API,
           ]),
         ),
