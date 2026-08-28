@@ -1,6 +1,5 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
@@ -9,20 +8,35 @@ import * as schema from '../src/schema/index';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-let container: Awaited<ReturnType<typeof PostgreSqlContainer.prototype.start>>;
+// No testcontainers in this repo (abandoned over MinIO startup issues on Windows —
+// see CLAUDE.md Testing section). Reuses the docker-compose Postgres on localhost,
+// same as apps/api's integration tests, via a throwaway per-run database.
+const pgPort = process.env.POSTGRES_PORT ?? '5432';
+const pgUser = process.env.POSTGRES_USER ?? 'tryon';
+const pgPassword = process.env.POSTGRES_PASSWORD ?? 'tryon_dev_pw';
+const pgDb = process.env.POSTGRES_DB ?? 'tryon_dev';
+const dbName = `test_db_schema_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
 let db: ReturnType<typeof drizzle>;
 let sql: ReturnType<typeof postgres>;
 
 beforeAll(async () => {
-  container = await new PostgreSqlContainer('postgres:16-alpine').start();
-  sql = postgres(container.getConnectionUri());
+  const adminUrl = `postgres://${pgUser}:${pgPassword}@127.0.0.1:${pgPort}/${pgDb}`;
+  const admin = postgres(adminUrl, { max: 1 });
+  await admin.unsafe(`CREATE DATABASE "${dbName}"`);
+  await admin.end();
+
+  sql = postgres(`postgres://${pgUser}:${pgPassword}@127.0.0.1:${pgPort}/${dbName}`);
   db = drizzle(sql, { schema });
   await migrate(db, { migrationsFolder: path.join(__dirname, '../src/migrations') });
 }, 60_000);
 
 afterAll(async () => {
   await sql.end();
-  await container.stop();
+  const adminUrl = `postgres://${pgUser}:${pgPassword}@127.0.0.1:${pgPort}/${pgDb}`;
+  const admin = postgres(adminUrl, { max: 1 });
+  await admin.unsafe(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
+  await admin.end();
 });
 
 describe('model_faces', () => {
@@ -79,27 +93,8 @@ describe('garment_subcategories', () => {
   });
 });
 
-describe('model_poses (per subcategory × face × background)', () => {
-  it('inserts pose linked to subcategory + face + background', async () => {
-    const [face] = await db
-      .insert(schema.modelFaces)
-      .values({
-        gender: 'men',
-        label: 'Pose Face',
-        r2Key: 'faces/pose_face.jpg',
-        thumbnailKey: 'faces/pose_face_thumb.jpg',
-      })
-      .returning();
-
-    const [bg] = await db
-      .insert(schema.modelBackgrounds)
-      .values({
-        label: 'Pose BG',
-        r2Key: 'backgrounds/pose_bg.jpg',
-        thumbnailKey: 'backgrounds/pose_bg_thumb.jpg',
-      })
-      .returning();
-
+describe('model_pose_assets + pose_garment_configs (per-subcategory override)', () => {
+  it('inserts a pose asset and a garment-config override linked to a subcategory', async () => {
     const [sub] = await db
       .insert(schema.garmentSubcategories)
       .values({
@@ -110,68 +105,47 @@ describe('model_poses (per subcategory × face × background)', () => {
       .returning();
 
     const [pose] = await db
-      .insert(schema.modelPoses)
+      .insert(schema.modelPoseAssets)
       .values({
-        subcategoryId: sub.id,
-        faceId: face.id,
-        backgroundId: bg.id,
-        label: 'm1bg1p1',
-        r2Key: 'poses/m1bg1p1.jpg',
-        thumbnailKey: 'poses/m1bg1p1_thumb.jpg',
-        showsLower: true,
-        showsShoes: false,
+        label: 'm1p1',
+        r2Key: 'poses/m1p1.jpg',
+        thumbnailKey: 'poses/m1p1_thumb.jpg',
       })
       .returning();
 
-    expect(pose.subcategoryId).toBe(sub.id);
-    expect(pose.faceId).toBe(face.id);
-    expect(pose.backgroundId).toBe(bg.id);
-    expect(pose.showsLower).toBe(true);
-    expect(pose.showsShoes).toBe(false);
+    const [config] = await db
+      .insert(schema.poseGarmentConfigs)
+      .values({
+        poseAssetId: pose.id,
+        subcategoryId: sub.id,
+      })
+      .returning();
+
+    expect(pose.id).toBeTruthy();
+    expect(pose.isActive).toBe(true);
+    expect(config.poseAssetId).toBe(pose.id);
+    expect(config.subcategoryId).toBe(sub.id);
   });
 
-  it('rejects pose with non-existent subcategory_id', async () => {
-    const [face] = await db
-      .insert(schema.modelFaces)
+  it('rejects a garment config with non-existent subcategory_id', async () => {
+    const [pose] = await db
+      .insert(schema.modelPoseAssets)
       .values({
-        gender: 'women',
-        label: 'FK Test Face',
-        r2Key: 'faces/fk_test.jpg',
-        thumbnailKey: 'faces/fk_test_thumb.jpg',
-      })
-      .returning();
-
-    const [bg] = await db
-      .insert(schema.modelBackgrounds)
-      .values({
-        label: 'FK Test BG',
-        r2Key: 'backgrounds/fk_test.jpg',
-        thumbnailKey: 'backgrounds/fk_test_thumb.jpg',
+        label: 'FK Test Pose',
+        r2Key: 'poses/fk_test.jpg',
+        thumbnailKey: 'poses/fk_test_thumb.jpg',
       })
       .returning();
 
     await expect(
-      db.insert(schema.modelPoses).values({
+      db.insert(schema.poseGarmentConfigs).values({
+        poseAssetId: pose.id,
         subcategoryId: '00000000-0000-0000-0000-000000000000',
-        faceId: face.id,
-        backgroundId: bg.id,
-        label: 'Bad',
-        r2Key: 'x',
-        thumbnailKey: 'x',
       }),
     ).rejects.toThrow();
   });
 
-  it('rejects pose with non-existent face_id', async () => {
-    const [bg] = await db
-      .insert(schema.modelBackgrounds)
-      .values({
-        label: 'FK BG 2',
-        r2Key: 'backgrounds/fk2.jpg',
-        thumbnailKey: 'backgrounds/fk2_thumb.jpg',
-      })
-      .returning();
-
+  it('rejects a garment config with non-existent pose_asset_id', async () => {
     const [sub] = await db
       .insert(schema.garmentSubcategories)
       .values({
@@ -182,30 +156,16 @@ describe('model_poses (per subcategory × face × background)', () => {
       .returning();
 
     await expect(
-      db.insert(schema.modelPoses).values({
+      db.insert(schema.poseGarmentConfigs).values({
+        poseAssetId: '00000000-0000-0000-0000-000000000000',
         subcategoryId: sub.id,
-        faceId: '00000000-0000-0000-0000-000000000000',
-        backgroundId: bg.id,
-        label: 'Bad',
-        r2Key: 'x',
-        thumbnailKey: 'x',
       }),
     ).rejects.toThrow();
   });
 });
 
-describe('subcategory_templates', () => {
-  it('inserts a template for subcategory × face × background', async () => {
-    const [face] = await db
-      .insert(schema.modelFaces)
-      .values({
-        gender: 'men',
-        label: 'Template Face',
-        r2Key: 'faces/tmpl.jpg',
-        thumbnailKey: 'faces/tmpl_thumb.jpg',
-      })
-      .returning();
-
+describe('catalogue_templates + catalogue_template_looks', () => {
+  it('inserts a template and a (pose, background) look within it', async () => {
     const [bg] = await db
       .insert(schema.modelBackgrounds)
       .values({
@@ -215,33 +175,39 @@ describe('subcategory_templates', () => {
       })
       .returning();
 
-    const [sub] = await db
-      .insert(schema.garmentSubcategories)
+    const [pose] = await db
+      .insert(schema.modelPoseAssets)
       .values({
-        genderSlug: 'men',
-        slug: 'polo',
-        label: 'Polo Shirt',
+        label: 'Template Pose',
+        r2Key: 'poses/tmpl.jpg',
+        thumbnailKey: 'poses/tmpl_thumb.jpg',
       })
       .returning();
 
     const [tmpl] = await db
-      .insert(schema.subcategoryTemplates)
+      .insert(schema.catalogueTemplates)
       .values({
-        subcategoryId: sub.id,
-        faceId: face.id,
-        backgroundId: bg.id,
-        r2Key: 'templates/polo_tmpl1_bg1.jpg',
-        thumbnailKey: 'templates/polo_tmpl1_bg1_thumb.jpg',
+        genderSlug: 'men',
+        label: 'Polo Template',
       })
       .returning();
 
-    expect(tmpl.subcategoryId).toBe(sub.id);
-    expect(tmpl.faceId).toBe(face.id);
-    expect(tmpl.backgroundId).toBe(bg.id);
+    const [look] = await db
+      .insert(schema.catalogueTemplateLooks)
+      .values({
+        templateId: tmpl.id,
+        poseAssetId: pose.id,
+        backgroundId: bg.id,
+      })
+      .returning();
+
     expect(tmpl.isActive).toBe(true);
+    expect(look.templateId).toBe(tmpl.id);
+    expect(look.poseAssetId).toBe(pose.id);
+    expect(look.backgroundId).toBe(bg.id);
   });
 
-  it('rejects template with non-existent face_id', async () => {
+  it('rejects a look with non-existent pose_asset_id', async () => {
     const [bg] = await db
       .insert(schema.modelBackgrounds)
       .values({
@@ -251,22 +217,19 @@ describe('subcategory_templates', () => {
       })
       .returning();
 
-    const [sub] = await db
-      .insert(schema.garmentSubcategories)
+    const [tmpl] = await db
+      .insert(schema.catalogueTemplates)
       .values({
         genderSlug: 'women',
-        slug: 'dress',
-        label: 'Dress',
+        label: 'Dress Template',
       })
       .returning();
 
     await expect(
-      db.insert(schema.subcategoryTemplates).values({
-        subcategoryId: sub.id,
-        faceId: '00000000-0000-0000-0000-000000000000',
+      db.insert(schema.catalogueTemplateLooks).values({
+        templateId: tmpl.id,
+        poseAssetId: '00000000-0000-0000-0000-000000000000',
         backgroundId: bg.id,
-        r2Key: 'templates/bad.jpg',
-        thumbnailKey: 'templates/bad_thumb.jpg',
       }),
     ).rejects.toThrow();
   });
