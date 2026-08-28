@@ -147,7 +147,7 @@ describe('user low-credit alert scheduler', () => {
 
   it('alerts multiple eligible users in one tick', async () => {
     await seedUser({ email: 'user-a@example.com', balance: 1 });
-    await seedUser({ email: 'user-b@example.com', balance: 49 });
+    await seedUser({ email: 'user-b@example.com', balance: LOW_CREDIT_THRESHOLD - 1 });
     await runUserLowCreditAlertTick(app, deps());
     expect(sent.sort()).toEqual(['user-a@example.com', 'user-b@example.com']);
   });
