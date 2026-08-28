@@ -474,8 +474,10 @@ function ImageCard({
           style={{
             padding: '8px 10px',
             display: 'flex',
+            flexWrap: 'wrap',
             alignItems: 'center',
             justifyContent: 'space-between',
+            gap: 6,
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -510,7 +512,7 @@ function ImageCard({
               })}
             </span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4 }}>
             {TERMINAL.includes(job.status) && (
               <button
                 type="button"
