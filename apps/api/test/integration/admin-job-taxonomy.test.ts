@@ -57,7 +57,7 @@ describe('GET /admin/jobs/sources', () => {
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as string[];
-    expect(body).toHaveLength(12);
+    expect(body).toHaveLength(13);
     expect(body.sort()).toEqual(
       [
         'catalog',
@@ -72,6 +72,7 @@ describe('GET /admin/jobs/sources', () => {
         'api_tryon',
         'api_saree_mannequin',
         'api_catalog',
+        'wordpress_tryon',
       ].sort(),
     );
   });
