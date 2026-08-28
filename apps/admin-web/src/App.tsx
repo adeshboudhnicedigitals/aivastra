@@ -174,6 +174,8 @@ export default function App() {
         search?: string;
         date?: string;
         jobId?: string;
+        fromUserId?: string;
+        userId?: string;
       },
     ) => {
       navigate(`/${_page}`, { state: _filter });
