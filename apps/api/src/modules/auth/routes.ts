@@ -1020,7 +1020,17 @@ export async function authRoutes(app: FastifyInstance) {
       const identity = await verifyGoogleIdToken(idToken, audiences);
 
       const freeCredits = await resolveFreeCredits(app.db);
-      const userId = await app.db.transaction((tx) => upsertGoogleUser(tx, identity, freeCredits));
+      const { userId, isNewUser } = await app.db.transaction((tx) =>
+        upsertGoogleUser(tx, identity, freeCredits),
+      );
+
+      if (isNewUser) {
+        try {
+          await sendWelcomeEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, identity.email);
+        } catch (err) {
+          app.log.error({ err }, 'Failed to send welcome email');
+        }
+      }
 
       const [user] = await app.db
         .select({

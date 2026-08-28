@@ -43,7 +43,7 @@ export async function upsertGoogleUser(
   googleUser: GoogleIdentity,
   freeCredits: number,
   campaignId: string | null = null,
-): Promise<string> {
+): Promise<{ userId: string; isNewUser: boolean }> {
   // 1. Existing OAuth link wins outright.
   const [existingLink] = await tx
     .select({ userId: schema.oauthAccounts.userId })
@@ -75,11 +75,12 @@ export async function upsertGoogleUser(
       .update(schema.users)
       .set({ emailVerified: true })
       .where(eq(schema.users.id, existingLink.userId));
-    return existingLink.userId;
+    return { userId: existingLink.userId, isNewUser: false };
   }
 
   // 2. Same email — link Google onto the existing account.
   let uid: string;
+  let isNewUser = false;
   const [byEmail] = await tx
     .select({ id: schema.users.id, isBanned: schema.users.isBanned })
     .from(schema.users)
@@ -106,6 +107,7 @@ export async function upsertGoogleUser(
       .returning({ id: schema.users.id });
     if (!newUser) throw new AppError('INTERNAL', 500, 'failed to create user');
     uid = newUser.id;
+    isNewUser = true;
     await tx.insert(schema.userCredits).values({ userId: uid, balance: 0 });
     if (freeCredits > 0) {
       await tx
@@ -145,5 +147,5 @@ export async function upsertGoogleUser(
       ),
     );
   if (!linked) throw new AppError('INTERNAL', 500, 'failed to link google account');
-  return linked.userId;
+  return { userId: linked.userId, isNewUser };
 }
