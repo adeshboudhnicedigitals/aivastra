@@ -375,14 +375,6 @@ export async function authRoutes(app: FastifyInstance) {
         app.log.error({ err }, 'Failed to send verification email');
       }
 
-      // Separate try/catch: a welcome-email failure shouldn't be logged as a
-      // verification-email failure, and vice versa — they can fail independently.
-      try {
-        await sendWelcomeEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, email);
-      } catch (err) {
-        app.log.error({ err }, 'Failed to send welcome email');
-      }
-
       reply.code(201);
       return { requiresEmailVerification: true };
     },
@@ -1280,10 +1272,20 @@ export async function authRoutes(app: FastifyInstance) {
       const { token } = req.query as { token: string };
       const userId = await app.redis.getdel(`email:verify:${token}`);
       if (!userId) throw new AppError('INVALID_OR_EXPIRED_TOKEN', 400, 'invalid or expired token');
-      await app.db
+      const [verifiedUser] = await app.db
         .update(schema.users)
         .set({ emailVerified: true })
-        .where(eq(schema.users.id, userId));
+        .where(eq(schema.users.id, userId))
+        .returning({ email: schema.users.email });
+
+      try {
+        if (verifiedUser?.email) {
+          await sendWelcomeEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, verifiedUser.email);
+        }
+      } catch (err) {
+        app.log.error({ err }, 'Failed to send welcome email');
+      }
+
       return createSessionTokens(app, userId, reply, 200);
     },
   );
