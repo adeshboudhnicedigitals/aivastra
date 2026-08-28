@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { sendUserLowCreditsEmail } from '../../lib/mailer.js';
 
 /** Below this balance, a user gets the "credits are running low" email. */
-export const LOW_CREDIT_THRESHOLD = 50;
+export const LOW_CREDIT_THRESHOLD = 20;
 
 interface TickDeps {
   sendEmail?: (app: FastifyInstance, to: string) => Promise<void>;
