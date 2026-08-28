@@ -86,17 +86,43 @@ export async function resultsRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const { email, password } = req.body as z.infer<typeof LoginBody>;
-      const [user] = await app.db.select().from(schema.users).where(eq(schema.users.email, email));
+      const [user] = await app.db
+        .select({
+          id: schema.users.id,
+          isBanned: schema.users.isBanned,
+          passwordHash: schema.users.passwordHash,
+        })
+        .from(schema.users)
+        .where(eq(schema.users.email, email));
       if (!user || user.isBanned) throw new AppError('INVALID', 401, 'invalid credentials');
-      if (!user.passwordHash) throw new AppError('INVALID', 401, 'invalid credentials');
-      if (!(await verifyPassword(user.passwordHash, password)))
-        throw new AppError('INVALID', 401, 'invalid credentials');
 
       // Explicit decision: preserve existing behavior — any active admin of any role gets a /results session.
-      // resolveAdminAccess() returning non-null (i.e. status === 'active') is sufficient; role is informational
-      // for the minted kind: 'results' token.
-      const admin = await resolveAdminAccess(app, user.id);
-      if (!admin || admin.status !== 'active') {
+      // admin.status !== 'active' is sufficient; role is informational for the minted kind: 'results' token.
+      //
+      // Auth against admin_users.passwordHash (the admin-specific credential, same field
+      // /admin/auth/login checks), not schema.users.passwordHash (the customer-portal
+      // password). The two are only equal at admin creation/approval time and drift apart
+      // whenever either password is changed independently afterwards.
+      const [admin] = await app.db
+        .select({
+          role: schema.adminUsers.role,
+          status: schema.adminUsers.status,
+          passwordHash: schema.adminUsers.passwordHash,
+        })
+        .from(schema.adminUsers)
+        .where(eq(schema.adminUsers.userId, user.id));
+
+      // Verify the password *before* branching on admin status — a 403 must only be
+      // reachable after proving password knowledge, otherwise the status check becomes an
+      // unauthenticated oracle for "is this email an active admin" (POST any garbage
+      // password and read 403 vs 401 off the response, no credential needed). Gate on the
+      // admin's own hash when an admin row exists; fall back to the customer hash otherwise
+      // so a 403 for a non-admin account still requires the caller to know that password.
+      const gatingHash = admin?.passwordHash ?? user.passwordHash;
+      if (!gatingHash || !(await verifyPassword(gatingHash, password)))
+        throw new AppError('INVALID', 401, 'invalid credentials');
+
+      if (admin?.status !== 'active') {
         throw new AppError('FORBIDDEN', 403, 'admin access required');
       }
 

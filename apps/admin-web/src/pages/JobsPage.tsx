@@ -140,17 +140,18 @@ function EventRow({ ev }: { ev: JobEvent }) {
 }
 
 interface Props {
-  onNav: (_page: string, _filter?: { page: string; filter?: string }) => void;
+  onNav: (_page: string, _filter?: { page: string; filter?: string; userId?: string }) => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
-export default function JobsPage({ onNav: _onNav, toast }: Props) {
+export default function JobsPage({ onNav, toast }: Props) {
   const location = useLocation();
   const { role } = useAuth();
   const requestedJobId = (location.state as { jobId?: string })?.jobId;
+  const requestedFromUserId = (location.state as { fromUserId?: string })?.fromUserId;
   const [filter, setFilter] = useState<FilterKey>(
     (location.state as { filter?: FilterKey })?.filter || 'all',
   );
@@ -537,9 +538,18 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
         <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
         <div className="page-head">
           <div>
-            <button className="btn ghost" onClick={() => setDetail(null)}>
-              <Icon.Back /> Back to jobs
-            </button>
+            {requestedFromUserId && requestedJobId === j.id ? (
+              <button
+                className="btn ghost"
+                onClick={() => onNav('users', { page: 'users', userId: requestedFromUserId })}
+              >
+                <Icon.Back /> Back to user
+              </button>
+            ) : (
+              <button className="btn ghost" onClick={() => setDetail(null)}>
+                <Icon.Back /> Back to jobs
+              </button>
+            )}
             <h1
               style={{
                 marginTop: 8,

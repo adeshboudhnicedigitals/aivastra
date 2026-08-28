@@ -59,7 +59,7 @@ export async function devCatalogRoutes(app: FastifyInstance) {
   app.get(
     '/v1/dev/catalog/options',
     {
-      preHandler: app.requireApiKey,
+      preHandler: [app.requireApiKey, app.requireDevScope('full')],
       config: optionsRateLimit,
       schema: {
         tags: ['dev'],
@@ -123,7 +123,7 @@ export async function devCatalogRoutes(app: FastifyInstance) {
   app.post(
     '/v1/dev/catalog/generate',
     {
-      preHandler: app.requireApiKey,
+      preHandler: [app.requireApiKey, app.requireDevScope('full')],
       config: generateRateLimit,
       // Base64 inflates a 20MB image to ~26.8MB of JSON text — same reasoning as
       // /v1/dev/tryon, which this route mirrors. Only one image here, not two.
@@ -314,7 +314,7 @@ export async function devCatalogRoutes(app: FastifyInstance) {
   app.get(
     '/v1/dev/catalogues/:id',
     {
-      preHandler: app.requireApiKey,
+      preHandler: [app.requireApiKey, app.requireDevScope('full')],
       config: statusRateLimit,
       schema: {
         tags: ['dev'],

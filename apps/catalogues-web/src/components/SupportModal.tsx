@@ -134,7 +134,6 @@ export function SupportModal({
       }}
     >
       {/* Modal */}
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: click swallowed inside modal panel */}
       <div
         ref={modalRef}
         role="dialog"

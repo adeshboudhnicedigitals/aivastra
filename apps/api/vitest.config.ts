@@ -4,9 +4,14 @@ export default defineConfig({
   test: {
     include: ['src/**/*.test.ts', 'test/**/*.test.ts'],
     setupFiles: ['./test/setup-env.ts'],
+    globalSetup: ['./test/global-setup.ts'],
     hookTimeout: 60_000,
     testTimeout: 30_000,
-    fileParallelism: false,
+    // Each file clones a pre-migrated template DB (test/global-setup.ts) instead of
+    // replaying 150+ migrations itself, so concurrent files are cheap — same pattern
+    // vitest.integration.config.ts already uses. Capped, not left at CPU-count default,
+    // so a small CI runner doesn't fire off dozens of concurrent CREATE DATABASE calls.
+    poolOptions: { threads: { maxThreads: 8, minThreads: 1 } },
     // Integration tests in test/integration/ require live localhost Docker services.
     // They are excluded here (unit test run) but should be run in a separate CI job
     // that provisions or starts those services.

@@ -131,7 +131,7 @@ export default function ShopifyCreditsTab({ toast }: Props) {
                     className="input"
                     type="number"
                     min={0}
-                    max={1000}
+                    max={99999}
                     style={{ width: 80, textAlign: 'right' }}
                     value={shopifyTrialCredits}
                     disabled={saving}

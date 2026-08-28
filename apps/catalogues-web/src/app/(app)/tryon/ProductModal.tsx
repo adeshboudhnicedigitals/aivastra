@@ -383,7 +383,6 @@ export function ProductModal({
               {imageMode === 'catalogue' ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <div
-                    // biome-ignore lint/a11y/useKeyWithClickEvents: simple click trigger
                     onClick={() => !busy && fileInputRef.current?.click()}
                     style={{
                       height: 140,
@@ -442,7 +441,6 @@ export function ProductModal({
                   </div>
                   {requiresCataloguePallu && (
                     <div
-                      // biome-ignore lint/a11y/useKeyWithClickEvents: simple click trigger
                       onClick={() => !busy && palluInputRef.current?.click()}
                       style={{
                         height: 140,
@@ -485,7 +483,6 @@ export function ProductModal({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {!previewUrl ? (
                     <div
-                      // biome-ignore lint/a11y/useKeyWithClickEvents: simple click trigger
                       onClick={() => !busy && fileInputRef.current?.click()}
                       style={{
                         height: 140,
@@ -570,7 +567,6 @@ export function ProductModal({
                         </div>
                         {requiresPallu && (
                           <div
-                            // biome-ignore lint/a11y/useKeyWithClickEvents: simple click trigger
                             onClick={() => !busy && palluInputRef.current?.click()}
                             style={{
                               width: 104,

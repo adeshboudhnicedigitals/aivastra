@@ -1,3 +1,106 @@
+## 2026-08-27 — WooCommerce Demo Storefront: Real Navigation, Homepage & Fresh-Install Fixes
+
+**Done**
+- **Fixed two fresh-install defaults that were silently blocking the whole storefront**, found and fixed after the theme/catalog/checkout work above was implemented and reported "verified" — neither could have actually been checked without hitting a 404-equivalent:
+  - `permalink_structure` was empty ("Plain" permalinks, `?page_id=4` style) — pretty URLs like `/shop/` resolved to the default blog homepage instead of the intended page. Fixed: set to `/%postname%/`, flushed rewrite rules.
+  - `woocommerce_coming_soon` was `yes` (WooCommerce's fresh-install default) — every visitor saw a "Great things are on the horizon" placeholder instead of the real store. Fixed: disabled.
+- **Real navigation** (`local-wp/setup-navigation.php`, one-time/re-runnable via `wp eval-file`): built an actual "Main Menu" — Home, Shop, Men (dropdown: all 9 subcategories), Women (dropdown: all 4 subcategories), Cart, My Account — assigned to Storefront's `primary` menu location. Previously there was no menu at all; the header was silently falling back to WordPress's default page-listing behavior.
+- **Real homepage** (`local-wp/setup-homepage.php`, one-time/re-runnable): a proper static front page — dark hero banner (brand navy `#0f172a` / accent `#6366f1`) with a "Shop Now" CTA, Men/Women category tiles using real imported product photos as backgrounds, and a "New Arrivals" product grid (`[products limit="8"]`). Set as the site's static front page (`show_on_front=page`), replacing the default "latest posts" blog view. Also trashes WordPress's default seed content ("Hello world!" post, "Sample Page") so the site doesn't read as a fresh install with a store bolted on.
+- Verified end-to-end against the live site (not just script exit codes): `/shop/` renders the real catalog, `/product-category/men/blazers/` correctly filters to just that category, the homepage renders the hero/tiles/grid with real data, the Aivastra "Try It On" button/modal still render correctly on product pages reached via the new nav, and the plugin's own PHPUnit suite remains 36/36 passing.
+- **My Account page**, fixed after review — it looked nothing like a real store's account page: `woocommerce_enable_myaccount_registration` was off (WooCommerce default), which makes WooCommerce's own template skip its two-column login/register layout entirely and render a bare, unstyled login form only. Enabled registration (with auto-generated username/password) in `configure-store.php`, and added real styling in `storefront-aivastra/style.css` for both the login/register cards and the logged-in dashboard (order history sidebar nav + content area) — neither had any child-theme CSS applied before.
+  - Follow-up fixes after that CSS didn't visibly render correctly: (1) the child theme's stylesheet is cache-busted off its own `Version:` header, which I edited without bumping — same `?ver=` URL meant the browser kept serving its pre-edit cached copy; every future `style.css` edit needs a version bump for the same reason. (2) Storefront's default account-nav icon glyphs use `currentColor`, so the active item's icon inherited the accent color while every other item stayed WooCommerce's default grey — a mismatched half-colored icon set. Hid the icons entirely for a clean text-only list, and gave the account dashboard's content panel (previously bare, unstyled text) the same card treatment as the nav sidebar so the two halves read as one consistent design. (3) The nav links still had almost no left padding despite the CSS setting `padding: 12px 16px` — Storefront's own `woocommerce.css` sets `padding: .875em 0` on the same links at equal selector specificity and happened to win the cascade regardless of enqueue order. Made the override `!important` (Storefront's rule has none) to stop relying on load-order luck.
+
+## 2026-08-27 — WooCommerce Demo Storefront Theme, Catalog & Checkout
+
+**Done**
+- **Storefront Child Theme (`storefront-aivastra`)**:
+  - Installed upstream Storefront parent theme (`4.6.2`) and configured custom child theme (`themes/storefront-aivastra`) skinned with Aivastra's brand palette (`#0f172a`, `#6366f1` accent, `#f8fafc` surfaces).
+  - Restyled buttons, product grid cards with hover elevation, product price typography, and cart/checkout table surfaces.
+  - Activated child theme in WordPress container via WP-CLI.
+- **Catalog Import (`import-products.php`)**:
+  - Mounted garment asset folders (`men garments/`, `womens garments/`) read-only into `wpcli` container.
+  - Created idempotent catalog seed script importing 432 real garment images as WooCommerce simple products across 13 categories (Men: 9 subcategories with 372 products; Women: 4 subcategories with 60 products).
+  - Sideloaded local images into WP media library with generated metadata and assigned category-specific realistic INR pricing bands.
+  - Idempotency verified: re-running imports 0 duplicates and retains 433 total products (432 imported + 1 initial).
+- **Store Checkout & Shipping Configuration (`configure-store.php`)**:
+  - Configured store currency to `INR`.
+  - Enabled Cash-on-Delivery (COD) payment gateway and disabled non-functional gateways (BACS, cheque, PayPal).
+  - Enabled guest checkout and disabled tax calculations.
+  - Created flat-rate "Everywhere" shipping zone at ₹99 ("Standard Shipping").
+  - Verified core WooCommerce pages (Shop: 4, Cart: 5, Checkout: 6, My Account: 7).
+- **Verification & Design Context**:
+  - Verified theme activation, catalog category tree counts, store option values, and idempotency checks.
+  - Reference: `docs/superpowers/specs/2026-08-27-wp-storefront-ui-and-catalog-design.md` for the full design rationale.
+  - Note: VPS deployment is a deliberately separate follow-up phase.
+
+## 2026-08-27 — WordPress Plugin Admin UX Redesign
+
+**Done**
+- **Settings Page Admin UX Redesign (`Aivastra_Settings_Page`, `settings-page.css`)**:
+  - Implemented connected vs not-connected visual hierarchy using card-based layout (`.aivastra-card`) and WordPress core admin design tokens.
+  - Added visible, dismissible WordPress admin notices (`.notice.notice-success`, `.notice.notice-error`) for connect, refresh, disconnect, category map saves, and detailed error feedback.
+  - Wrapped try-on category mapping in a consistent card layout matching the settings page design system.
+- **Credit Balance Exposure & Refresh Action (`Aivastra_Connection_Settings`, `Aivastra_Connection_Service`)**:
+  - Captured and stored `credits` and `credits_as_of` in the connection snapshot from `GET /v1/dev/me`.
+  - Added `update_snapshot()` and `refresh()` action that re-verifies full API key against `/v1/dev/me` and updates credits balance and timestamp without requiring the merchant to re-enter their widget key.
+- **Disconnect Action (`handle_disconnect`)**:
+  - Added `clear()` method in `Aivastra_Connection_Settings` and `aivastra_tryon_disconnect` admin-post handler to wipe stored connection settings and category mappings on disconnect.
+- **Version Bump & Asset Enqueue Scoping**:
+  - Scoped `settings-page.css` loading exclusively to `settings_page_aivastra-tryon` hook suffix.
+  - Bumped plugin version to `0.4.0` in `aivastra-tryon.php` and `AIVASTRA_TRYON_VERSION`.
+- **Verification & Testing**:
+  - Unit tests: PHPUnit suite passed (35 tests, 54 assertions).
+  - JS tests: Node test suite passed (10 tests).
+  - PHP syntax check passed across all files (`aivastra-tryon.php`, `admin/class-settings-page.php`, etc.).
+  - Reference: `docs/superpowers/specs/2026-08-27-wordpress-plugin-admin-ux-design.md` for the full design rationale.
+
+## 2026-08-27 — WordPress Plugin Widget UI Premium Overhaul
+
+**Done**
+- **Modal Layout & Zero-Overflow**:
+  - Eliminated horizontal scrollbar bug caused by button width and box-sizing overflow.
+  - Added strict `box-sizing: border-box`, `overflow-x: hidden`, custom slim scrollbars, and `backdrop-filter: blur(8px)`.
+  - Added backdrop click-outside dismissal and `Escape` keyboard dismissal with background scroll lock.
+- **Luxury Aesthetic & Modern Design System**:
+  - Replaced dated neon gradient (`#ff5c7a` to `#7c5cff`) and emoji icons (`✨`, `📷`, `⚠️`) with a refined luxury palette (`#0f172a`, `#6366f1` accent, `#f8fafc` surfaces) and crisp vector SVGs.
+  - Added header badges (`AI Fitting Room`, `Ready`), subtitle hierarchy, and refined typography.
+  - Restyled trigger button into an elegant dark pill with inline vector sparkle and hover elevation.
+- **Workflow & Step Experience**:
+  - **Upload Step**: Modern dashed dropzone with upload icon, privacy guarantee (`🔒`), instant photo preview with "Change photo" badge, and disabled/active state handling.
+  - **Loading Step**: Dual-ring orbital glowing spinner with step feedback ("Generating virtual try-on").
+  - **Result Step**: Showcase frame with "✨ AI Generated" pill tag, "Download Result" button, and "Try Another Photo" action.
+  - **Error Step**: Rose alert icon container, clear instructions, and "Try Again" retry action.
+- **Verification**:
+  - `node --test wordpress-plugin/tests/js/widget-logic.test.js` passed (10/10 tests).
+  - Biome formatting and lint check passed cleanly on all widget assets.
+
+## 2026-08-26 — WordPress Integration Backend & API Key Scoping
+
+**Done**
+- **Schema & Migration (`0176_yummy_alice.sql`)**:
+  - Added `scope` text column (`'full' | 'widget'`, default `'full'`) and `integration` text column (`'generic' | 'wordpress'`, default `'generic'`) to `api_keys` table.
+- **Route Authorization & Scoping**:
+  - Implemented `requireDevScope(scope)` preHandler decorator in `apps/api/src/plugins/dev-api-auth.ts`, decorating `req.apiKeyScope` and `req.integration`.
+  - Restricted full-only dev routes with `requireDevScope('full')`: `/v1/dev/me`, `/v1/dev/saree-mannequin`, `/v1/dev/catalog/options`, `/v1/dev/catalog/generate`, `/v1/dev/catalogues/:id`.
+  - Kept `/v1/dev/tryon` and `/v1/dev/jobs/:id` callable with either scope.
+- **Job Source Attribution (`JOB_SOURCE.WORDPRESS_TRYON`)**:
+  - Added `WORDPRESS_TRYON = 'wordpress_tryon'` to `JOB_SOURCE` in `packages/types/src/job-taxonomy.ts`.
+  - Updated `createDevTryonJob` to resolve `source` server-side from `apiKey.integration` (stamps `wordpress_tryon` for WordPress keys, `api_tryon` for generic keys).
+  - Updated job-polling filter on `GET /v1/dev/jobs/:id` and merchant usage filter on `GET /v1/merchant/api-usage` to include `JOB_SOURCE.WORDPRESS_TRYON`.
+- **Widget Key Rate Limiting**:
+  - Added `DEV_WIDGET_KEY_RATE_LIMIT_PER_MIN = 20` to `packages/types/src/rate-limits.ts`.
+  - Created `assertWidgetKeyRateLimit` in `apps/api/src/lib/widget-key-rate-limit.ts` using fixed-window Redis key `widget-key-rate:${apiKeyId}:${bucket}` with fail-open on Redis errors.
+  - Wired rate limit checks into `/v1/dev/tryon` and `/v1/dev/jobs/:id` for widget-scoped keys.
+- **Merchant API Key Issuance & UI**:
+  - Extended `ApiKeyCreateBody` in `packages/types/src/dev.ts` with `kind: z.enum(['full', 'wordpress_widget']).optional()`.
+  - Updated `POST /v1/merchant/api-keys` and `GET /v1/merchant/api-keys` to manage and return `scope` and `integration`.
+  - Added "Create WordPress Widget Key" button and scope badge (`WP Widget` vs `Full Access`) to `KeysPanel.tsx` in `apps/catalogues-web`.
+- **Testing & Verification**:
+  - Created `apps/api/test/api-keys-schema.test.ts`, `apps/api/test/dev-widget-scope.test.ts`, and `apps/api/test/widget-key-rate-limit.test.ts`.
+  - Extended `apps/api/test/merchant-api-keys.test.ts`.
+  - Full API test suite (74 test files, 617 tests) passed.
+  - Monorepo `pnpm typecheck` and `pnpm lint` passed with 0 errors.
+
 ## 2026-08-26 — Workflow Template Replace with Drain & Version Snapshots
 
 **Done**

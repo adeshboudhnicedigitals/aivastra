@@ -826,6 +826,94 @@ describe('admin workflows - floor validation', () => {
       expect(replaceRes.statusCode).toBe(401);
     });
 
+    async function seedNonTerminalJobOnTemplate(workflowTemplateId: string, version: number) {
+      const [user] = await app.db
+        .insert(schema.users)
+        .values({
+          email: `replace-drain-${Date.now()}-${Math.random()}@example.com`,
+          passwordHash: null,
+          tier: 'free',
+        })
+        .returning();
+      const [job] = await app.db
+        .insert(schema.jobs)
+        .values({ userId: user.id, status: 'QUEUED', creditsCharged: 1 })
+        .returning();
+      await app.db.insert(schema.jobInputs).values({
+        jobId: job.id,
+        params: { workflowTemplateId, dispatchTemplateVersion: version },
+      });
+      return job.id;
+    }
+
+    it('replaces a workflow with no in-flight jobs immediately, without archiving or draining', async () => {
+      const createRes = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `replace_no_jobs_${Date.now()}`,
+          label: 'Initial Label',
+          jsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+        },
+      });
+      expect(createRes.statusCode).toBe(200);
+      const id = createRes.json().id as string;
+
+      // No job anywhere references this brand-new template — replacing it
+      // should not archive anything, since there is nothing to drain.
+      const replaceRes = await app.inject({
+        method: 'POST',
+        url: `/admin/workflows/${id}/replace`,
+        headers,
+        payload: {
+          slug: `replace_no_jobs_${Date.now()}`,
+          label: 'Replaced Label',
+          jsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+          password: 'password123',
+        },
+      });
+      expect(replaceRes.statusCode).toBe(200);
+      const replacedBody = replaceRes.json();
+      expect(replacedBody.version).toBe(2);
+      expect(replacedBody.draining).toBeNull();
+
+      const [archiveRow] = await app.db
+        .select()
+        .from(schema.workflowTemplateArchives)
+        .where(eq(schema.workflowTemplateArchives.workflowTemplateId, id));
+      expect(archiveRow).toBeUndefined();
+
+      // A second replace must succeed right away — nothing is draining, so
+      // there is no conflict to wait out.
+      const replaceAgainRes = await app.inject({
+        method: 'POST',
+        url: `/admin/workflows/${id}/replace`,
+        headers,
+        payload: {
+          slug: `replace_no_jobs_${Date.now()}`,
+          label: 'Replaced Again',
+          jsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+          password: 'password123',
+        },
+      });
+      expect(replaceAgainRes.statusCode).toBe(200);
+      expect(replaceAgainRes.json().version).toBe(3);
+      expect(replaceAgainRes.json().draining).toBeNull();
+    });
+
     it('replaces workflow, increments version to 2, archives old version, and reports draining', async () => {
       const createRes = await app.inject({
         method: 'POST',
@@ -853,6 +941,10 @@ describe('admin workflows - floor validation', () => {
       expect(getInitial.statusCode).toBe(200);
       expect(getInitial.json().version).toBe(1);
       expect(getInitial.json().draining).toBeNull();
+
+      // A non-terminal job stamped with the current (v1) version is the only
+      // thing that should make this replace archive anything.
+      await seedNonTerminalJobOnTemplate(id, 1);
 
       // Replace with new label and new positive prompt
       const newJson = {
