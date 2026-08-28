@@ -62,12 +62,8 @@
           "name": "admin_users_user_id_users_id_fk",
           "tableFrom": "admin_users",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -77,9 +73,7 @@
         "admin_users_user_id_unique": {
           "name": "admin_users_user_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "user_id"
-          ]
+          "columns": ["user_id"]
         }
       },
       "policies": {},
@@ -147,12 +141,8 @@
           "name": "api_keys_merchant_id_merchants_id_fk",
           "tableFrom": "api_keys",
           "tableTo": "merchants",
-          "columnsFrom": [
-            "merchant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["merchant_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -162,9 +152,7 @@
         "api_keys_key_hash_unique": {
           "name": "api_keys_key_hash_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "key_hash"
-          ]
+          "columns": ["key_hash"]
         }
       },
       "policies": {},
@@ -299,12 +287,8 @@
           "name": "audit_logs_actor_user_id_users_id_fk",
           "tableFrom": "audit_logs",
           "tableTo": "users",
-          "columnsFrom": [
-            "actor_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["actor_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -385,9 +369,7 @@
         "signup_campaigns_code_unique": {
           "name": "signup_campaigns_code_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "code"
-          ]
+          "columns": ["code"]
         }
       },
       "policies": {},
@@ -461,12 +443,8 @@
           "name": "catalog_categories_type_id_catalog_types_id_fk",
           "tableFrom": "catalog_categories",
           "tableTo": "catalog_types",
-          "columnsFrom": [
-            "type_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["type_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -565,12 +543,8 @@
           "name": "catalog_items_category_id_catalog_categories_id_fk",
           "tableFrom": "catalog_items",
           "tableTo": "catalog_categories",
-          "columnsFrom": [
-            "category_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["category_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -611,9 +585,7 @@
         "catalog_types_slug_unique": {
           "name": "catalog_types_slug_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "slug"
-          ]
+          "columns": ["slug"]
         }
       },
       "policies": {},
@@ -721,12 +693,8 @@
           "name": "chatbot_conversations_user_id_users_id_fk",
           "tableFrom": "chatbot_conversations",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -734,12 +702,8 @@
           "name": "chatbot_conversations_assigned_agent_id_admin_users_id_fk",
           "tableFrom": "chatbot_conversations",
           "tableTo": "admin_users",
-          "columnsFrom": [
-            "assigned_agent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["assigned_agent_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -835,12 +799,8 @@
           "name": "chatbot_embeddings_qna_id_chatbot_qna_id_fk",
           "tableFrom": "chatbot_embeddings",
           "tableTo": "chatbot_qna",
-          "columnsFrom": [
-            "qna_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["qna_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -912,12 +872,8 @@
           "name": "chatbot_events_conversation_id_chatbot_conversations_id_fk",
           "tableFrom": "chatbot_events",
           "tableTo": "chatbot_conversations",
-          "columnsFrom": [
-            "conversation_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["conversation_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1005,12 +961,8 @@
           "name": "chatbot_messages_conversation_id_chatbot_conversations_id_fk",
           "tableFrom": "chatbot_messages",
           "tableTo": "chatbot_conversations",
-          "columnsFrom": [
-            "conversation_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["conversation_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1155,12 +1107,8 @@
           "name": "contact_requests_user_id_users_id_fk",
           "tableFrom": "contact_requests",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -1232,12 +1180,8 @@
           "name": "credit_ledger_user_id_users_id_fk",
           "tableFrom": "credit_ledger",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1372,9 +1316,7 @@
         "credit_plans_slug_unique": {
           "name": "credit_plans_slug_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "slug"
-          ]
+          "columns": ["slug"]
         }
       },
       "policies": {},
@@ -1455,12 +1397,8 @@
           "name": "credit_requests_user_id_users_id_fk",
           "tableFrom": "credit_requests",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1540,12 +1478,8 @@
           "name": "invoices_payment_id_payments_id_fk",
           "tableFrom": "invoices",
           "tableTo": "payments",
-          "columnsFrom": [
-            "payment_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["payment_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1555,16 +1489,12 @@
         "invoices_payment_id_unique": {
           "name": "invoices_payment_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "payment_id"
-          ]
+          "columns": ["payment_id"]
         },
         "invoices_invoice_number_unique": {
           "name": "invoices_invoice_number_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "invoice_number"
-          ]
+          "columns": ["invoice_number"]
         }
       },
       "policies": {},
@@ -1669,12 +1599,8 @@
           "name": "payments_user_id_users_id_fk",
           "tableFrom": "payments",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1684,9 +1610,7 @@
         "payments_razorpay_order_id_unique": {
           "name": "payments_razorpay_order_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "razorpay_order_id"
-          ]
+          "columns": ["razorpay_order_id"]
         }
       },
       "policies": {},
@@ -1724,12 +1648,8 @@
           "name": "user_credits_user_id_users_id_fk",
           "tableFrom": "user_credits",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1820,12 +1740,8 @@
           "name": "demo_catalog_assignments_set_id_demo_catalog_sets_id_fk",
           "tableFrom": "demo_catalog_assignments",
           "tableTo": "demo_catalog_sets",
-          "columnsFrom": [
-            "set_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["set_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1833,12 +1749,8 @@
           "name": "demo_catalog_assignments_merchant_id_merchants_id_fk",
           "tableFrom": "demo_catalog_assignments",
           "tableTo": "merchants",
-          "columnsFrom": [
-            "merchant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["merchant_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1846,12 +1758,8 @@
           "name": "demo_catalog_assignments_assigned_by_user_id_users_id_fk",
           "tableFrom": "demo_catalog_assignments",
           "tableTo": "users",
-          "columnsFrom": [
-            "assigned_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["assigned_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -1974,12 +1882,8 @@
           "name": "demo_catalog_items_subcategory_id_demo_catalog_subcategories_id_fk",
           "tableFrom": "demo_catalog_items",
           "tableTo": "demo_catalog_subcategories",
-          "columnsFrom": [
-            "subcategory_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["subcategory_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2054,12 +1958,8 @@
           "name": "demo_catalog_sets_created_by_user_id_users_id_fk",
           "tableFrom": "demo_catalog_sets",
           "tableTo": "users",
-          "columnsFrom": [
-            "created_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["created_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -2155,12 +2055,8 @@
           "name": "demo_catalog_subcategories_set_id_demo_catalog_sets_id_fk",
           "tableFrom": "demo_catalog_subcategories",
           "tableTo": "demo_catalog_sets",
-          "columnsFrom": [
-            "set_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["set_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -2168,12 +2064,8 @@
           "name": "demo_catalog_subcategories_garment_subcategory_id_garment_subcategories_id_fk",
           "tableFrom": "demo_catalog_subcategories",
           "tableTo": "garment_subcategories",
-          "columnsFrom": [
-            "garment_subcategory_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["garment_subcategory_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -2222,12 +2114,8 @@
           "name": "dev_saree_mannequin_config_workflow_template_id_workflow_templates_id_fk",
           "tableFrom": "dev_saree_mannequin_config",
           "tableTo": "workflow_templates",
-          "columnsFrom": [
-            "workflow_template_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workflow_template_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -2302,12 +2190,8 @@
           "name": "dev_tryon_categories_workflow_template_id_workflow_templates_id_fk",
           "tableFrom": "dev_tryon_categories",
           "tableTo": "workflow_templates",
-          "columnsFrom": [
-            "workflow_template_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workflow_template_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -2317,9 +2201,7 @@
         "dev_tryon_categories_slug_unique": {
           "name": "dev_tryon_categories_slug_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "slug"
-          ]
+          "columns": ["slug"]
         }
       },
       "policies": {},
@@ -2404,12 +2286,8 @@
           "name": "google_drive_connections_user_id_users_id_fk",
           "tableFrom": "google_drive_connections",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2463,12 +2341,8 @@
           "name": "job_events_job_id_jobs_id_fk",
           "tableFrom": "job_events",
           "tableTo": "jobs",
-          "columnsFrom": [
-            "job_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["job_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2562,12 +2436,8 @@
           "name": "job_inputs_job_id_jobs_id_fk",
           "tableFrom": "job_inputs",
           "tableTo": "jobs",
-          "columnsFrom": [
-            "job_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["job_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -2575,12 +2445,8 @@
           "name": "job_inputs_face_id_model_faces_id_fk",
           "tableFrom": "job_inputs",
           "tableTo": "model_faces",
-          "columnsFrom": [
-            "face_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["face_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -2588,12 +2454,8 @@
           "name": "job_inputs_background_id_model_backgrounds_id_fk",
           "tableFrom": "job_inputs",
           "tableTo": "model_backgrounds",
-          "columnsFrom": [
-            "background_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["background_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -2601,12 +2463,8 @@
           "name": "job_inputs_pose_id_model_pose_assets_id_fk",
           "tableFrom": "job_inputs",
           "tableTo": "model_pose_assets",
-          "columnsFrom": [
-            "pose_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["pose_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -2614,12 +2472,8 @@
           "name": "job_inputs_garment_type_id_garment_subcategories_id_fk",
           "tableFrom": "job_inputs",
           "tableTo": "garment_subcategories",
-          "columnsFrom": [
-            "garment_type_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["garment_type_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -2627,12 +2481,8 @@
           "name": "job_inputs_lower_catalog_id_catalog_items_id_fk",
           "tableFrom": "job_inputs",
           "tableTo": "catalog_items",
-          "columnsFrom": [
-            "lower_catalog_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["lower_catalog_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -2640,12 +2490,8 @@
           "name": "job_inputs_shoe_catalog_id_catalog_items_id_fk",
           "tableFrom": "job_inputs",
           "tableTo": "catalog_items",
-          "columnsFrom": [
-            "shoe_catalog_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["shoe_catalog_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -2711,12 +2557,8 @@
           "name": "job_outputs_job_id_jobs_id_fk",
           "tableFrom": "job_outputs",
           "tableTo": "jobs",
-          "columnsFrom": [
-            "job_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["job_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -3027,12 +2869,8 @@
           "name": "jobs_user_id_users_id_fk",
           "tableFrom": "jobs",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3040,12 +2878,8 @@
           "name": "jobs_merchant_id_merchants_id_fk",
           "tableFrom": "jobs",
           "tableTo": "merchants",
-          "columnsFrom": [
-            "merchant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["merchant_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -3053,12 +2887,8 @@
           "name": "jobs_api_key_id_api_keys_id_fk",
           "tableFrom": "jobs",
           "tableTo": "api_keys",
-          "columnsFrom": [
-            "api_key_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["api_key_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -3066,12 +2896,8 @@
           "name": "jobs_shopify_store_id_shopify_stores_id_fk",
           "tableFrom": "jobs",
           "tableTo": "shopify_stores",
-          "columnsFrom": [
-            "shopify_store_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["shopify_store_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -3079,12 +2905,8 @@
           "name": "jobs_shopify_shopper_id_shopify_shoppers_id_fk",
           "tableFrom": "jobs",
           "tableTo": "shopify_shoppers",
-          "columnsFrom": [
-            "shopify_shopper_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["shopify_shopper_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -3092,12 +2914,8 @@
           "name": "jobs_flagged_by_users_id_fk",
           "tableFrom": "jobs",
           "tableTo": "users",
-          "columnsFrom": [
-            "flagged_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["flagged_by"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -3105,12 +2923,8 @@
           "name": "jobs_resolved_by_users_id_fk",
           "tableFrom": "jobs",
           "tableTo": "users",
-          "columnsFrom": [
-            "resolved_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["resolved_by"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -3158,12 +2972,8 @@
           "name": "kiosk_result_cart_items_job_id_jobs_id_fk",
           "tableFrom": "kiosk_result_cart_items",
           "tableTo": "jobs",
-          "columnsFrom": [
-            "job_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["job_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3171,12 +2981,8 @@
           "name": "kiosk_result_cart_items_merchant_id_merchants_id_fk",
           "tableFrom": "kiosk_result_cart_items",
           "tableTo": "merchants",
-          "columnsFrom": [
-            "merchant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["merchant_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -3186,10 +2992,7 @@
         "kiosk_result_cart_items_job_merchant_unique": {
           "name": "kiosk_result_cart_items_job_merchant_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "job_id",
-            "merchant_id"
-          ]
+          "columns": ["job_id", "merchant_id"]
         }
       },
       "policies": {},
@@ -3233,12 +3036,8 @@
           "name": "kiosk_result_likes_job_id_jobs_id_fk",
           "tableFrom": "kiosk_result_likes",
           "tableTo": "jobs",
-          "columnsFrom": [
-            "job_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["job_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3246,12 +3045,8 @@
           "name": "kiosk_result_likes_merchant_id_merchants_id_fk",
           "tableFrom": "kiosk_result_likes",
           "tableTo": "merchants",
-          "columnsFrom": [
-            "merchant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["merchant_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -3261,10 +3056,7 @@
         "kiosk_result_likes_job_merchant_unique": {
           "name": "kiosk_result_likes_job_merchant_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "job_id",
-            "merchant_id"
-          ]
+          "columns": ["job_id", "merchant_id"]
         }
       },
       "policies": {},
@@ -3468,12 +3260,8 @@
           "name": "merchant_catalog_items_merchant_id_merchants_id_fk",
           "tableFrom": "merchant_catalog_items",
           "tableTo": "merchants",
-          "columnsFrom": [
-            "merchant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["merchant_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3481,12 +3269,8 @@
           "name": "merchant_catalog_items_subcategory_id_merchant_catalog_subcategories_id_fk",
           "tableFrom": "merchant_catalog_items",
           "tableTo": "merchant_catalog_subcategories",
-          "columnsFrom": [
-            "subcategory_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["subcategory_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3494,12 +3278,8 @@
           "name": "merchant_catalog_items_source_job_id_jobs_id_fk",
           "tableFrom": "merchant_catalog_items",
           "tableTo": "jobs",
-          "columnsFrom": [
-            "source_job_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["source_job_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -3595,12 +3375,8 @@
           "name": "merchant_catalog_subcategories_merchant_id_merchants_id_fk",
           "tableFrom": "merchant_catalog_subcategories",
           "tableTo": "merchants",
-          "columnsFrom": [
-            "merchant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["merchant_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3608,12 +3384,8 @@
           "name": "merchant_catalog_subcategories_garment_subcategory_id_garment_subcategories_id_fk",
           "tableFrom": "merchant_catalog_subcategories",
           "tableTo": "garment_subcategories",
-          "columnsFrom": [
-            "garment_subcategory_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["garment_subcategory_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -3716,12 +3488,8 @@
           "name": "merchant_payments_merchant_id_merchants_id_fk",
           "tableFrom": "merchant_payments",
           "tableTo": "merchants",
-          "columnsFrom": [
-            "merchant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["merchant_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -3731,9 +3499,7 @@
         "merchant_payments_razorpay_order_id_unique": {
           "name": "merchant_payments_razorpay_order_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "razorpay_order_id"
-          ]
+          "columns": ["razorpay_order_id"]
         }
       },
       "policies": {},
@@ -3847,12 +3613,8 @@
           "name": "merchants_user_id_users_id_fk",
           "tableFrom": "merchants",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -3862,9 +3624,7 @@
         "merchants_user_id_unique": {
           "name": "merchants_user_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "user_id"
-          ]
+          "columns": ["user_id"]
         }
       },
       "policies": {},
@@ -3894,12 +3654,8 @@
           "name": "catalog_item_subcategories_subcategory_id_garment_subcategories_id_fk",
           "tableFrom": "catalog_item_subcategories",
           "tableTo": "garment_subcategories",
-          "columnsFrom": [
-            "subcategory_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["subcategory_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -3907,10 +3663,7 @@
       "compositePrimaryKeys": {
         "catalog_item_subcategories_catalog_item_id_subcategory_id_pk": {
           "name": "catalog_item_subcategories_catalog_item_id_subcategory_id_pk",
-          "columns": [
-            "catalog_item_id",
-            "subcategory_id"
-          ]
+          "columns": ["catalog_item_id", "subcategory_id"]
         }
       },
       "uniqueConstraints": {},
@@ -3971,12 +3724,8 @@
           "name": "catalogue_template_look_exclusions_mapping_id_catalogue_template_subcategories_id_fk",
           "tableFrom": "catalogue_template_look_exclusions",
           "tableTo": "catalogue_template_subcategories",
-          "columnsFrom": [
-            "mapping_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["mapping_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3984,12 +3733,8 @@
           "name": "catalogue_template_look_exclusions_look_id_catalogue_template_looks_id_fk",
           "tableFrom": "catalogue_template_look_exclusions",
           "tableTo": "catalogue_template_looks",
-          "columnsFrom": [
-            "look_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["look_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -3999,10 +3744,7 @@
         "catalogue_template_look_exclusions_mapping_look_unique": {
           "name": "catalogue_template_look_exclusions_mapping_look_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "mapping_id",
-            "look_id"
-          ]
+          "columns": ["mapping_id", "look_id"]
         }
       },
       "policies": {},
@@ -4068,12 +3810,8 @@
           "name": "catalogue_template_looks_template_id_catalogue_templates_id_fk",
           "tableFrom": "catalogue_template_looks",
           "tableTo": "catalogue_templates",
-          "columnsFrom": [
-            "template_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["template_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -4081,12 +3819,8 @@
           "name": "catalogue_template_looks_pose_asset_id_model_pose_assets_id_fk",
           "tableFrom": "catalogue_template_looks",
           "tableTo": "model_pose_assets",
-          "columnsFrom": [
-            "pose_asset_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["pose_asset_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -4094,12 +3828,8 @@
           "name": "catalogue_template_looks_background_id_model_backgrounds_id_fk",
           "tableFrom": "catalogue_template_looks",
           "tableTo": "model_backgrounds",
-          "columnsFrom": [
-            "background_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["background_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -4189,12 +3919,8 @@
           "name": "catalogue_template_pose_workflows_mapping_id_catalogue_template_subcategories_id_fk",
           "tableFrom": "catalogue_template_pose_workflows",
           "tableTo": "catalogue_template_subcategories",
-          "columnsFrom": [
-            "mapping_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["mapping_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -4202,12 +3928,8 @@
           "name": "catalogue_template_pose_workflows_pose_asset_id_model_pose_assets_id_fk",
           "tableFrom": "catalogue_template_pose_workflows",
           "tableTo": "model_pose_assets",
-          "columnsFrom": [
-            "pose_asset_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["pose_asset_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -4215,12 +3937,8 @@
           "name": "catalogue_template_pose_workflows_workflow_template_id_workflow_templates_id_fk",
           "tableFrom": "catalogue_template_pose_workflows",
           "tableTo": "workflow_templates",
-          "columnsFrom": [
-            "workflow_template_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workflow_template_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -4230,10 +3948,7 @@
         "catalogue_template_pose_workflows_mapping_pose_unique": {
           "name": "catalogue_template_pose_workflows_mapping_pose_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "mapping_id",
-            "pose_asset_id"
-          ]
+          "columns": ["mapping_id", "pose_asset_id"]
         }
       },
       "policies": {},
@@ -4286,12 +4001,8 @@
           "name": "catalogue_template_subcategories_template_id_catalogue_templates_id_fk",
           "tableFrom": "catalogue_template_subcategories",
           "tableTo": "catalogue_templates",
-          "columnsFrom": [
-            "template_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["template_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -4299,12 +4010,8 @@
           "name": "catalogue_template_subcategories_subcategory_id_garment_subcategories_id_fk",
           "tableFrom": "catalogue_template_subcategories",
           "tableTo": "garment_subcategories",
-          "columnsFrom": [
-            "subcategory_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["subcategory_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -4314,10 +4021,7 @@
         "catalogue_template_subcategories_template_subcategory_unique": {
           "name": "catalogue_template_subcategories_template_subcategory_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "template_id",
-            "subcategory_id"
-          ]
+          "columns": ["template_id", "subcategory_id"]
         }
       },
       "policies": {},
@@ -4462,12 +4166,8 @@
           "name": "garment_shot_type_workflows_garment_type_id_garment_subcategories_id_fk",
           "tableFrom": "garment_shot_type_workflows",
           "tableTo": "garment_subcategories",
-          "columnsFrom": [
-            "garment_type_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["garment_type_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -4475,12 +4175,8 @@
           "name": "garment_shot_type_workflows_workflow_template_id_workflow_templates_id_fk",
           "tableFrom": "garment_shot_type_workflows",
           "tableTo": "workflow_templates",
-          "columnsFrom": [
-            "workflow_template_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workflow_template_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -4490,10 +4186,7 @@
         "garment_shot_type_workflows_garment_type_shot_type_unique": {
           "name": "garment_shot_type_workflows_garment_type_shot_type_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "garment_type_id",
-            "shot_type"
-          ]
+          "columns": ["garment_type_id", "shot_type"]
         }
       },
       "policies": {},
@@ -4669,12 +4362,8 @@
           "name": "garment_subcategories_default_lower_catalog_id_catalog_items_id_fk",
           "tableFrom": "garment_subcategories",
           "tableTo": "catalog_items",
-          "columnsFrom": [
-            "default_lower_catalog_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["default_lower_catalog_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -4682,12 +4371,8 @@
           "name": "garment_subcategories_default_shoe_catalog_id_catalog_items_id_fk",
           "tableFrom": "garment_subcategories",
           "tableTo": "catalog_items",
-          "columnsFrom": [
-            "default_shoe_catalog_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["default_shoe_catalog_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -4695,12 +4380,8 @@
           "name": "garment_subcategories_mannequin_workflow_template_id_workflow_templates_id_fk",
           "tableFrom": "garment_subcategories",
           "tableTo": "workflow_templates",
-          "columnsFrom": [
-            "mannequin_workflow_template_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["mannequin_workflow_template_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -4708,12 +4389,8 @@
           "name": "garment_subcategories_saree_step2_workflow_template_id_workflow_templates_id_fk",
           "tableFrom": "garment_subcategories",
           "tableTo": "workflow_templates",
-          "columnsFrom": [
-            "saree_step2_workflow_template_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["saree_step2_workflow_template_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -4721,12 +4398,8 @@
           "name": "garment_subcategories_mannequin_two_input_workflow_template_id_workflow_templates_id_fk",
           "tableFrom": "garment_subcategories",
           "tableTo": "workflow_templates",
-          "columnsFrom": [
-            "mannequin_two_input_workflow_template_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["mannequin_two_input_workflow_template_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -4734,12 +4407,8 @@
           "name": "garment_subcategories_two_input_tryon_workflow_template_id_workflow_templates_id_fk",
           "tableFrom": "garment_subcategories",
           "tableTo": "workflow_templates",
-          "columnsFrom": [
-            "two_input_tryon_workflow_template_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["two_input_tryon_workflow_template_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -4894,12 +4563,8 @@
           "name": "model_backgrounds_category_id_catalog_categories_id_fk",
           "tableFrom": "model_backgrounds",
           "tableTo": "catalog_categories",
-          "columnsFrom": [
-            "category_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["category_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -4907,12 +4572,8 @@
           "name": "model_backgrounds_user_id_users_id_fk",
           "tableFrom": "model_backgrounds",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -5144,12 +4805,8 @@
           "name": "model_pose_assets_workflow_template_id_workflow_templates_id_fk",
           "tableFrom": "model_pose_assets",
           "tableTo": "workflow_templates",
-          "columnsFrom": [
-            "workflow_template_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workflow_template_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -5259,12 +4916,8 @@
           "name": "pose_garment_configs_pose_asset_id_model_pose_assets_id_fk",
           "tableFrom": "pose_garment_configs",
           "tableTo": "model_pose_assets",
-          "columnsFrom": [
-            "pose_asset_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["pose_asset_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -5272,12 +4925,8 @@
           "name": "pose_garment_configs_subcategory_id_garment_subcategories_id_fk",
           "tableFrom": "pose_garment_configs",
           "tableTo": "garment_subcategories",
-          "columnsFrom": [
-            "subcategory_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["subcategory_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -5285,12 +4934,8 @@
           "name": "pose_garment_configs_workflow_template_id_workflow_templates_id_fk",
           "tableFrom": "pose_garment_configs",
           "tableTo": "workflow_templates",
-          "columnsFrom": [
-            "workflow_template_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workflow_template_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -5300,10 +4945,7 @@
         "pose_garment_configs_pose_subcat_unique": {
           "name": "pose_garment_configs_pose_subcat_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "pose_asset_id",
-            "subcategory_id"
-          ]
+          "columns": ["pose_asset_id", "subcategory_id"]
         }
       },
       "policies": {},
@@ -5458,12 +5100,8 @@
           "name": "saree_mannequin_styles_mannequin_workflow_template_id_workflow_templates_id_fk",
           "tableFrom": "saree_mannequin_styles",
           "tableTo": "workflow_templates",
-          "columnsFrom": [
-            "mannequin_workflow_template_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["mannequin_workflow_template_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -5471,12 +5109,8 @@
           "name": "saree_mannequin_styles_mannequin_two_input_workflow_template_id_workflow_templates_id_fk",
           "tableFrom": "saree_mannequin_styles",
           "tableTo": "workflow_templates",
-          "columnsFrom": [
-            "mannequin_two_input_workflow_template_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["mannequin_two_input_workflow_template_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -5661,12 +5295,8 @@
           "name": "user_pose_presets_user_id_users_id_fk",
           "tableFrom": "user_pose_presets",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -5674,12 +5304,8 @@
           "name": "user_pose_presets_garment_type_id_garment_subcategories_id_fk",
           "tableFrom": "user_pose_presets",
           "tableTo": "garment_subcategories",
-          "columnsFrom": [
-            "garment_type_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["garment_type_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -5934,9 +5560,7 @@
         "workflow_templates_slug_unique": {
           "name": "workflow_templates_slug_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "slug"
-          ]
+          "columns": ["slug"]
         }
       },
       "policies": {},
@@ -5974,9 +5598,7 @@
         "permissions_key_unique": {
           "name": "permissions_key_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "key"
-          ]
+          "columns": ["key"]
         }
       },
       "policies": {},
@@ -6013,12 +5635,8 @@
           "name": "role_permissions_permission_id_permissions_id_fk",
           "tableFrom": "role_permissions",
           "tableTo": "permissions",
-          "columnsFrom": [
-            "permission_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["permission_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -6028,10 +5646,7 @@
         "role_permissions_role_permission_id_unique": {
           "name": "role_permissions_role_permission_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "role",
-            "permission_id"
-          ]
+          "columns": ["role", "permission_id"]
         }
       },
       "policies": {},
@@ -6093,12 +5708,8 @@
           "name": "saree_settings_workflow_template_id_workflow_templates_id_fk",
           "tableFrom": "saree_settings",
           "tableTo": "workflow_templates",
-          "columnsFrom": [
-            "workflow_template_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workflow_template_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -6188,12 +5799,8 @@
           "name": "shopify_collection_products_store_id_shopify_stores_id_fk",
           "tableFrom": "shopify_collection_products",
           "tableTo": "shopify_stores",
-          "columnsFrom": [
-            "store_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["store_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -6203,11 +5810,7 @@
         "shopify_collection_products_store_id_shopify_collection_id_shopify_product_id_unique": {
           "name": "shopify_collection_products_store_id_shopify_collection_id_shopify_product_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "store_id",
-            "shopify_collection_id",
-            "shopify_product_id"
-          ]
+          "columns": ["store_id", "shopify_collection_id", "shopify_product_id"]
         }
       },
       "policies": {},
@@ -6257,12 +5860,8 @@
           "name": "shopify_collections_store_id_shopify_stores_id_fk",
           "tableFrom": "shopify_collections",
           "tableTo": "shopify_stores",
-          "columnsFrom": [
-            "store_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["store_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -6272,10 +5871,7 @@
         "shopify_collections_store_id_shopify_collection_id_unique": {
           "name": "shopify_collections_store_id_shopify_collection_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "store_id",
-            "shopify_collection_id"
-          ]
+          "columns": ["store_id", "shopify_collection_id"]
         }
       },
       "policies": {},
@@ -6337,12 +5933,8 @@
           "name": "shopify_credit_ledger_store_id_shopify_stores_id_fk",
           "tableFrom": "shopify_credit_ledger",
           "tableTo": "shopify_stores",
-          "columnsFrom": [
-            "store_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["store_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -6445,12 +6037,8 @@
           "name": "shopify_credit_purchases_store_id_shopify_stores_id_fk",
           "tableFrom": "shopify_credit_purchases",
           "tableTo": "shopify_stores",
-          "columnsFrom": [
-            "store_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["store_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -6498,12 +6086,8 @@
           "name": "shopify_enabled_collections_store_id_shopify_stores_id_fk",
           "tableFrom": "shopify_enabled_collections",
           "tableTo": "shopify_stores",
-          "columnsFrom": [
-            "store_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["store_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -6513,10 +6097,7 @@
         "shopify_enabled_collections_store_id_shopify_collection_id_unique": {
           "name": "shopify_enabled_collections_store_id_shopify_collection_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "store_id",
-            "shopify_collection_id"
-          ]
+          "columns": ["store_id", "shopify_collection_id"]
         }
       },
       "policies": {},
@@ -6560,12 +6141,8 @@
           "name": "shopify_excluded_collections_store_id_shopify_stores_id_fk",
           "tableFrom": "shopify_excluded_collections",
           "tableTo": "shopify_stores",
-          "columnsFrom": [
-            "store_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["store_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -6575,10 +6152,7 @@
         "shopify_excluded_collections_store_id_shopify_collection_id_unique": {
           "name": "shopify_excluded_collections_store_id_shopify_collection_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "store_id",
-            "shopify_collection_id"
-          ]
+          "columns": ["store_id", "shopify_collection_id"]
         }
       },
       "policies": {},
@@ -6650,12 +6224,8 @@
           "name": "shopify_funnel_rules_store_id_shopify_stores_id_fk",
           "tableFrom": "shopify_funnel_rules",
           "tableTo": "shopify_stores",
-          "columnsFrom": [
-            "store_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["store_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -6663,12 +6233,8 @@
           "name": "shopify_funnel_rules_funnel_template_id_shopify_funnel_templates_id_fk",
           "tableFrom": "shopify_funnel_rules",
           "tableTo": "shopify_funnel_templates",
-          "columnsFrom": [
-            "funnel_template_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["funnel_template_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -6678,10 +6244,7 @@
         "shopify_funnel_rules_store_id_funnel_template_id_unique": {
           "name": "shopify_funnel_rules_store_id_funnel_template_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "store_id",
-            "funnel_template_id"
-          ]
+          "columns": ["store_id", "funnel_template_id"]
         }
       },
       "policies": {},
@@ -6776,12 +6339,8 @@
           "name": "shopify_funnel_templates_workflow_template_id_workflow_templates_id_fk",
           "tableFrom": "shopify_funnel_templates",
           "tableTo": "workflow_templates",
-          "columnsFrom": [
-            "workflow_template_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workflow_template_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -6791,9 +6350,7 @@
         "shopify_funnel_templates_slug_unique": {
           "name": "shopify_funnel_templates_slug_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "slug"
-          ]
+          "columns": ["slug"]
         }
       },
       "policies": {},
@@ -6918,12 +6475,8 @@
           "name": "shopify_product_garments_store_id_shopify_stores_id_fk",
           "tableFrom": "shopify_product_garments",
           "tableTo": "shopify_stores",
-          "columnsFrom": [
-            "store_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["store_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -6931,12 +6484,8 @@
           "name": "shopify_product_garments_funnel_template_id_shopify_funnel_templates_id_fk",
           "tableFrom": "shopify_product_garments",
           "tableTo": "shopify_funnel_templates",
-          "columnsFrom": [
-            "funnel_template_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["funnel_template_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -6946,11 +6495,7 @@
         "shopify_product_garments_store_id_shopify_product_id_shopify_variant_id_unique": {
           "name": "shopify_product_garments_store_id_shopify_product_id_shopify_variant_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "store_id",
-            "shopify_product_id",
-            "shopify_variant_id"
-          ]
+          "columns": ["store_id", "shopify_product_id", "shopify_variant_id"]
         }
       },
       "policies": {},
@@ -7069,12 +6614,8 @@
           "name": "shopify_shoppers_store_id_shopify_stores_id_fk",
           "tableFrom": "shopify_shoppers",
           "tableTo": "shopify_stores",
-          "columnsFrom": [
-            "store_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["store_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -7084,10 +6625,7 @@
         "shopify_shoppers_store_id_client_id_unique": {
           "name": "shopify_shoppers_store_id_client_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "store_id",
-            "client_id"
-          ]
+          "columns": ["store_id", "client_id"]
         }
       },
       "policies": {},
@@ -7125,12 +6663,8 @@
           "name": "shopify_store_credits_store_id_shopify_stores_id_fk",
           "tableFrom": "shopify_store_credits",
           "tableTo": "shopify_stores",
-          "columnsFrom": [
-            "store_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["store_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -7340,12 +6874,8 @@
           "name": "shopify_stores_owner_user_id_users_id_fk",
           "tableFrom": "shopify_stores",
           "tableTo": "users",
-          "columnsFrom": [
-            "owner_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["owner_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -7355,23 +6885,17 @@
         "shopify_stores_store_key_unique": {
           "name": "shopify_stores_store_key_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "store_key"
-          ]
+          "columns": ["store_key"]
         },
         "shopify_stores_shop_domain_unique": {
           "name": "shopify_stores_shop_domain_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "shop_domain"
-          ]
+          "columns": ["shop_domain"]
         },
         "shopify_stores_shopify_shop_id_unique": {
           "name": "shopify_stores_shopify_shop_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "shopify_shop_id"
-          ]
+          "columns": ["shopify_shop_id"]
         }
       },
       "policies": {},
@@ -7508,12 +7032,8 @@
           "name": "shopify_widget_events_store_id_shopify_stores_id_fk",
           "tableFrom": "shopify_widget_events",
           "tableTo": "shopify_stores",
-          "columnsFrom": [
-            "store_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["store_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -7588,12 +7108,8 @@
           "name": "tryon_categories_workflow_template_id_workflow_templates_id_fk",
           "tableFrom": "tryon_categories",
           "tableTo": "workflow_templates",
-          "columnsFrom": [
-            "workflow_template_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workflow_template_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -7603,9 +7119,7 @@
         "tryon_categories_slug_unique": {
           "name": "tryon_categories_slug_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "slug"
-          ]
+          "columns": ["slug"]
         }
       },
       "policies": {},
@@ -7662,12 +7176,8 @@
           "name": "tryon_category_samples_category_id_tryon_categories_id_fk",
           "tableFrom": "tryon_category_samples",
           "tableTo": "tryon_categories",
-          "columnsFrom": [
-            "category_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["category_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -7812,12 +7322,8 @@
           "name": "oauth_accounts_user_id_users_id_fk",
           "tableFrom": "oauth_accounts",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -7928,12 +7434,8 @@
           "name": "refresh_tokens_user_id_users_id_fk",
           "tableFrom": "refresh_tokens",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -7941,12 +7443,8 @@
           "name": "refresh_tokens_merchant_id_merchants_id_fk",
           "tableFrom": "refresh_tokens",
           "tableTo": "merchants",
-          "columnsFrom": [
-            "merchant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["merchant_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -8097,12 +7595,8 @@
           "name": "users_signup_campaign_id_signup_campaigns_id_fk",
           "tableFrom": "users",
           "tableTo": "signup_campaigns",
-          "columnsFrom": [
-            "signup_campaign_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["signup_campaign_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -8112,16 +7606,12 @@
         "users_email_unique": {
           "name": "users_email_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "email"
-          ]
+          "columns": ["email"]
         },
         "users_username_unique": {
           "name": "users_username_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "username"
-          ]
+          "columns": ["username"]
         }
       },
       "policies": {},
@@ -8436,12 +7926,8 @@
           "name": "workflow_template_archives_workflow_template_id_workflow_templates_id_fk",
           "tableFrom": "workflow_template_archives",
           "tableTo": "workflow_templates",
-          "columnsFrom": [
-            "workflow_template_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workflow_template_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -8451,9 +7937,7 @@
         "workflow_template_archives_template_unique": {
           "name": "workflow_template_archives_template_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "workflow_template_id"
-          ]
+          "columns": ["workflow_template_id"]
         }
       },
       "policies": {},
