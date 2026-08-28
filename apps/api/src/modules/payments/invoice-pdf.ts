@@ -187,7 +187,7 @@ export function renderInvoicePdf(data: InvoiceData): Promise<Buffer> {
     const width = right - left;
 
     // ── Header ───────────────────────────────────────────────
-    doc.fillColor('#000').font('Helvetica-Bold').fontSize(22).text('AI VASTRA', left, 50);
+    doc.fillColor(NAVY).font('Helvetica-Bold').fontSize(22).text('AI VASTRA', left, 50);
     doc
       .fillColor(GRAY)
       .font('Helvetica-Oblique')
