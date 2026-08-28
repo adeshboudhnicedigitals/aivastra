@@ -1,4 +1,4 @@
-import { schema } from '@aivastra/db';
+import { type DbTransaction, schema } from '@aivastra/db';
 import {
   CreateWorkflowBody,
   DEFAULT_REGENERATION_REASON_PROMPTS,
@@ -7,7 +7,7 @@ import {
   ReplaceWorkflowBody,
   UpdateWorkflowBody,
 } from '@aivastra/types';
-import { and, count, eq, ne } from 'drizzle-orm';
+import { and, count, eq, ne, notInArray, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -18,6 +18,55 @@ import { detectTryonMappings } from './tryon-detect.js';
 import { detectTryonTwoInputMappings } from './tryon-two-input-detect.js';
 import { detectTwoStageMappings } from './two-stage-detect.js';
 import { classifyNode, detectMappings, type NodeCategory } from './workflow-detect.js';
+
+// Statuses that mean a job is done touching its stamped template version.
+// Kept in sync by hand with apps/dispatcher/src/workflow/drain-cleanup.ts's
+// TERMINAL_STATUSES — that module can't be imported here (dispatcher isn't a
+// shared package), and duplicating one string array is cheaper than adding a
+// cross-app dependency for it.
+const TERMINAL_JOB_STATUSES = ['COMPLETED', 'FAILED', 'CANCELLED'];
+
+/**
+ * True if at least one non-terminal job is still stamped with
+ * (workflowTemplateId, version) — i.e. was created while that version was
+ * live and hasn't finished dispatching against it yet. Mirrors the WHERE
+ * clause in the dispatcher's maybeCleanupArchive so "should we archive on
+ * replace" and "is it safe to delete the archive" agree on what counts as
+ * in-flight. Only jobs that explicitly stamped this exact version count —
+ * jobs with no stamp resolve against the live row regardless of any archive,
+ * so archiving can't protect them and their presence shouldn't force one.
+ */
+async function hasInFlightJobsForTemplateVersion(
+  tx: DbTransaction,
+  workflowTemplateId: string,
+  version: number,
+): Promise<boolean> {
+  const [row] = await tx
+    .select({ cnt: count() })
+    .from(schema.jobs)
+    .innerJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+    .leftJoin(schema.modelPoseAssets, eq(schema.modelPoseAssets.id, schema.jobInputs.poseId))
+    .leftJoin(
+      schema.garmentSubcategories,
+      eq(schema.garmentSubcategories.id, schema.jobInputs.garmentTypeId),
+    )
+    .where(
+      and(
+        sql`${schema.jobInputs.params} ->> 'dispatchTemplateVersion' = ${String(version)}`,
+        or(
+          sql`${schema.jobInputs.params} ->> 'workflowTemplateId' = ${workflowTemplateId}`,
+          eq(schema.modelPoseAssets.workflowTemplateId, workflowTemplateId),
+          eq(schema.garmentSubcategories.sareeStep2WorkflowTemplateId, workflowTemplateId),
+          eq(schema.garmentSubcategories.mannequinWorkflowTemplateId, workflowTemplateId),
+          eq(schema.garmentSubcategories.mannequinTwoInputWorkflowTemplateId, workflowTemplateId),
+          eq(schema.garmentSubcategories.twoInputTryonWorkflowTemplateId, workflowTemplateId),
+        ),
+        notInArray(schema.jobs.status, TERMINAL_JOB_STATUSES),
+      ),
+    );
+
+  return Number(row?.cnt ?? 0) > 0;
+}
 
 type WorkflowNode = {
   class_type?: string;
@@ -1081,36 +1130,50 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
           }
         }
 
-        await tx.insert(schema.workflowTemplateArchives).values({
-          workflowTemplateId: existing.id,
-          version: existing.version,
-          jsonContent: existing.jsonContent,
-          faceNodeId: existing.faceNodeId,
-          poseNodeId: existing.poseNodeId,
-          bgNodeId: existing.bgNodeId,
-          upperNodeIds: existing.upperNodeIds,
-          lowerNodeId: existing.lowerNodeId,
-          shoeNodeId: existing.shoeNodeId,
-          thirdNodeId: existing.thirdNodeId,
-          sizeNodeIds: existing.sizeNodeIds,
-          latentSizeNodeIds: existing.latentSizeNodeIds,
-          latentMaxPx: existing.latentMaxPx,
-          outputSizeNodeIds: existing.outputSizeNodeIds,
-          outputMaxPx: existing.outputMaxPx,
-          resultNodeId: existing.resultNodeId,
-          facePhasePromptNode: existing.facePhasePromptNode,
-          garmentPhasePromptNode: existing.garmentPhasePromptNode,
-          tryonPersonNodeId: existing.tryonPersonNodeId,
-          tryonGarmentNodeId: existing.tryonGarmentNodeId,
-          tryonGarmentNodeId2: existing.tryonGarmentNodeId2,
-          tryonOutputNodeId: existing.tryonOutputNodeId,
-          stage1PositivePromptNode: existing.stage1PositivePromptNode,
-          stage1NegativePromptNode: existing.stage1NegativePromptNode,
-          defaultFacePhasePrompt: existing.defaultFacePhasePrompt,
-          defaultGarmentPhasePrompt: existing.defaultGarmentPhasePrompt,
-          defaultStage1PositivePrompt: existing.defaultStage1PositivePrompt,
-          defaultStage1NegativePrompt: existing.defaultStage1NegativePrompt,
-        });
+        // Only archive the outgoing version if a non-terminal job is actually
+        // stamped with it — otherwise there is nothing to drain, and an
+        // archive row with no job that will ever reach a terminal state would
+        // sit there forever (drain-cleanup only runs off a job's terminal
+        // transition, never a periodic sweep), permanently blocking the next
+        // replace with a false "still draining" conflict.
+        const needsDrain = await hasInFlightJobsForTemplateVersion(
+          tx,
+          existing.id,
+          existing.version,
+        );
+
+        if (needsDrain) {
+          await tx.insert(schema.workflowTemplateArchives).values({
+            workflowTemplateId: existing.id,
+            version: existing.version,
+            jsonContent: existing.jsonContent,
+            faceNodeId: existing.faceNodeId,
+            poseNodeId: existing.poseNodeId,
+            bgNodeId: existing.bgNodeId,
+            upperNodeIds: existing.upperNodeIds,
+            lowerNodeId: existing.lowerNodeId,
+            shoeNodeId: existing.shoeNodeId,
+            thirdNodeId: existing.thirdNodeId,
+            sizeNodeIds: existing.sizeNodeIds,
+            latentSizeNodeIds: existing.latentSizeNodeIds,
+            latentMaxPx: existing.latentMaxPx,
+            outputSizeNodeIds: existing.outputSizeNodeIds,
+            outputMaxPx: existing.outputMaxPx,
+            resultNodeId: existing.resultNodeId,
+            facePhasePromptNode: existing.facePhasePromptNode,
+            garmentPhasePromptNode: existing.garmentPhasePromptNode,
+            tryonPersonNodeId: existing.tryonPersonNodeId,
+            tryonGarmentNodeId: existing.tryonGarmentNodeId,
+            tryonGarmentNodeId2: existing.tryonGarmentNodeId2,
+            tryonOutputNodeId: existing.tryonOutputNodeId,
+            stage1PositivePromptNode: existing.stage1PositivePromptNode,
+            stage1NegativePromptNode: existing.stage1NegativePromptNode,
+            defaultFacePhasePrompt: existing.defaultFacePhasePrompt,
+            defaultGarmentPhasePrompt: existing.defaultGarmentPhasePrompt,
+            defaultStage1PositivePrompt: existing.defaultStage1PositivePrompt,
+            defaultStage1NegativePrompt: existing.defaultStage1NegativePrompt,
+          });
+        }
 
         const [updated] = await tx
           .update(schema.workflowTemplates)
@@ -1129,11 +1192,16 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
           resourceType: 'workflow',
           resourceId: id,
           before: { version: existing.version, slug: existing.slug, label: existing.label },
-          after: { version: updated.version, slug: updated.slug, label: updated.label },
+          after: {
+            version: updated.version,
+            slug: updated.slug,
+            label: updated.label,
+            archived: needsDrain,
+          },
           request: req,
         });
 
-        return { updated, fromVersion: existing.version };
+        return { updated, fromVersion: existing.version, archived: needsDrain };
       });
 
       const [[poseCountRow], [funnelCountRow]] = await Promise.all([
@@ -1151,7 +1219,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         ...result.updated,
         poseCount: Number(poseCountRow?.cnt ?? 0),
         funnelCount: Number(funnelCountRow?.cnt ?? 0),
-        draining: { fromVersion: result.fromVersion },
+        draining: result.archived ? { fromVersion: result.fromVersion } : null,
         ksamplerNodes: extractKSamplerNodes(result.updated.jsonContent as Record<string, unknown>),
       };
     },
