@@ -277,20 +277,17 @@ export function renderInvoicePdf(data: InvoiceData): Promise<Buffer> {
     const numW = 25;
     const descW = 255;
     const qtyW = 50;
-    const rateW = 85;
-    const amountW = width - 2 * pad - (numW + descW + qtyW + rateW);
+    const amountW = width - 2 * pad - (numW + descW + qtyW);
     const colNum = left + pad;
     const colDesc = colNum + numW;
     const colQty = colDesc + descW;
-    const colRate = colQty + qtyW;
-    const colAmount = colRate + rateW;
+    const colAmount = colQty + qtyW;
 
     doc.rect(left, tableTop, width, 22).fill(NAVY);
     doc.fillColor('#fff').font('Helvetica-Bold').fontSize(9);
     doc.text('#', colNum, tableTop + 6, { width: numW });
     doc.text('Description', colDesc, tableTop + 6, { width: descW });
     doc.text('Qty', colQty, tableTop + 6, { width: qtyW, align: 'right' });
-    doc.text('Rate (INR)', colRate, tableTop + 6, { width: rateW, align: 'right' });
     doc.text('Amount (INR)', colAmount, tableTop + 6, { width: amountW, align: 'right' });
 
     const rowTop = tableTop + 22 + 8;
@@ -309,7 +306,6 @@ export function renderInvoicePdf(data: InvoiceData): Promise<Buffer> {
       );
     doc.fillColor('#000').font('Helvetica').fontSize(9);
     doc.text('1', colQty, rowTop, { width: qtyW, align: 'right' });
-    doc.text(fmtRupees(data.basePaise), colRate, rowTop, { width: rateW, align: 'right' });
     doc.text(fmtRupees(data.basePaise), colAmount, rowTop, { width: amountW, align: 'right' });
 
     // ── Totals ───────────────────────────────────────────────
