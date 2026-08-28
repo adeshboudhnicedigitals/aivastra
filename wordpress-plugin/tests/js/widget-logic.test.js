@@ -1,6 +1,10 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
-const { resolveVariationImage, classifyJobResponse } = require('../../assets/widget-logic.js');
+const {
+  resolveVariationImage,
+  classifyJobResponse,
+  friendlyErrorMessage,
+} = require('../../assets/widget-logic.js');
 
 test('resolveVariationImage: uses the variation image when the payload has one', () => {
   const result = resolveVariationImage('https://example.com/parent.jpg', {
@@ -56,4 +60,42 @@ test('classifyJobResponse: 200 with status FAILED maps to failed with the error 
 test('classifyJobResponse: any other status maps to unavailable', () => {
   const result = classifyJobResponse(500, {});
   assert.deepEqual(result, { state: 'unavailable' });
+});
+
+test('friendlyErrorMessage: RATE_LIMITED gets a wait-and-retry message', () => {
+  const result = friendlyErrorMessage(429, 'RATE_LIMITED', 'too many requests');
+  assert.match(result, /wait a moment/);
+});
+
+test('friendlyErrorMessage: ENQUEUE_FAIL reassures the shopper they were not charged', () => {
+  const result = friendlyErrorMessage(503, 'ENQUEUE_FAIL', 'queue unavailable');
+  assert.match(result, /haven't been charged/);
+});
+
+test('friendlyErrorMessage: an oversized-file VALIDATION message is rewritten with guidance', () => {
+  const result = friendlyErrorMessage(400, 'VALIDATION', 'person exceeds the 20MB limit');
+  assert.equal(
+    result,
+    'Person exceeds the 20MB limit. Please choose a smaller photo and try again.',
+  );
+});
+
+test('friendlyErrorMessage: an unrelated VALIDATION message falls back to the generic copy', () => {
+  const result = friendlyErrorMessage(
+    400,
+    'VALIDATION',
+    'garment must be a JPEG, PNG, or WebP image',
+  );
+  assert.equal(
+    result,
+    "We couldn't generate your try-on. Please try again with a different photo.",
+  );
+});
+
+test('friendlyErrorMessage: an unrecognized failure falls back to the generic copy', () => {
+  const result = friendlyErrorMessage(500, 'INTERNAL', 'internal error');
+  assert.equal(
+    result,
+    "We couldn't generate your try-on. Please try again with a different photo.",
+  );
 });

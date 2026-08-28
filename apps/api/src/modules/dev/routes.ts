@@ -8,6 +8,8 @@ import {
   DevJobParams,
   DevJobResponse,
   DevMeResponse,
+  DevPhotoPreviewRequest,
+  DevPhotoPreviewResponse,
   DevSareeMannequinJsonBody,
   DevTryonJsonBody,
   DevTryonResponse,
@@ -291,7 +293,52 @@ export async function devRoutes(app: FastifyInstance) {
         garmentKey,
       });
 
-      return reply.code(202).send({ jobId, status: 'QUEUED' });
+      // Lets a later /v1/dev/photo/preview call offer "reuse this photo"
+      // without re-uploading it — same 24h renewable window as the Shopify
+      // widget's equivalent (customer.routes.ts), refreshed on every reuse.
+      await app.redis.set(`dev:person-photo:${merchantId}:${personKey}`, '1', 'EX', 86400);
+
+      return reply.code(202).send({ jobId, status: 'QUEUED', personKey });
+    },
+  );
+
+  app.post(
+    '/v1/dev/photo/preview',
+    {
+      preHandler: app.requireApiKey,
+      config: rateLimitConfig,
+      schema: {
+        tags: ['dev'],
+        summary: 'Re-sign a previously uploaded person photo for reuse on a new job',
+        body: DevPhotoPreviewRequest,
+        response: {
+          200: DevPhotoPreviewResponse,
+          401: DevErrorResponse,
+          404: DevErrorResponse,
+          429: DevErrorResponse,
+        },
+      },
+    },
+    async (req) => {
+      const merchantId = req.merchantId as string;
+      if (req.apiKeyScope === 'widget') {
+        await assertWidgetKeyRateLimit(app, req.apiKeyId as string);
+      }
+      const { personKey } = req.body as { personKey: string };
+
+      // The dev/ key prefix embeds the owning merchant (keys.devUpload), so this
+      // also rejects a photo key from a different merchant outright, before ever
+      // touching Redis.
+      if (!personKey.startsWith(`dev/${merchantId}/`)) {
+        throw new AppError('NOT_FOUND', 404, 'photo not available');
+      }
+      const owned = await app.redis.get(`dev:person-photo:${merchantId}:${personKey}`);
+      if (!owned) {
+        throw new AppError('NOT_FOUND', 404, 'photo not available');
+      }
+
+      const { url } = await app.storage.presignGet(personKey, 300);
+      return { previewUrl: url };
     },
   );
 
