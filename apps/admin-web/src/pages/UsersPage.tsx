@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
 import { KV } from '../components/KV';
@@ -55,12 +56,20 @@ function userContact(u: { email: string | null; username: string | null }) {
 interface Props {
   onNav: (
     _page: string,
-    _filter?: { page: string; filter?: string; search?: string; jobId?: string },
+    _filter?: {
+      page: string;
+      filter?: string;
+      search?: string;
+      jobId?: string;
+      fromUserId?: string;
+    },
   ) => void;
   toast: (t: { kind?: 'error' | 'warning' | 'success'; title: string; body?: string }) => void;
 }
 
 export default function UsersPage({ onNav, toast }: Props) {
+  const location = useLocation();
+  const requestedUserId = (location.state as { userId?: string })?.userId;
   const { role: myRole } = useAuth();
   const isSuperAdmin = myRole === 'SUPER_ADMIN';
   const [query, setQuery] = useState('');
@@ -268,6 +277,37 @@ export default function UsersPage({ onNav, toast }: Props) {
       setDetailLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!requestedUserId) return;
+    let cancelled = false;
+    setDetailLoading(true);
+    Promise.all([
+      apiFetch<User>(`/admin/users/${requestedUserId}`),
+      loadCreditActivity(requestedUserId),
+    ])
+      .then(([full]) => {
+        if (cancelled) return;
+        setDetail(full);
+        setSelectedTier(full.tier);
+        setSelectedMaxDevices(String(full.maxActiveDevices ?? 1));
+        setShowAllCreditActivity(false);
+      })
+      .catch((e) => {
+        if (!cancelled)
+          toast({
+            kind: 'error',
+            title: 'Failed to load user detail',
+            body: apiErrorMessage(e, 'Please try again.'),
+          });
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [requestedUserId, loadCreditActivity, toast]);
 
   const openAdjustCredits = () => {
     if (!detail) return;
@@ -1041,7 +1081,12 @@ export default function UsersPage({ onNav, toast }: Props) {
                                   title="Open job details"
                                   onClick={() => {
                                     const jobId = l.jobId as string;
-                                    onNav('jobs', { page: 'jobs', search: jobId, jobId });
+                                    onNav('jobs', {
+                                      page: 'jobs',
+                                      search: jobId,
+                                      jobId,
+                                      fromUserId: detail.id,
+                                    });
                                   }}
                                 >
                                   {l.jobId.slice(0, 8)}&hellip;

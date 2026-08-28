@@ -1,6 +1,6 @@
 {
   "id": "258c7300-65d6-41ba-a555-514f85fca517",
-  "prevId": "b486f380-4852-40e2-b690-bba933002303",
+  "prevId": "419f4e09-20ec-441e-a70b-605e2deb8276",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -115,20 +115,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "scope": {
-          "name": "scope",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'full'"
-        },
-        "integration": {
-          "name": "integration",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'generic'"
-        },
         "last_used_at": {
           "name": "last_used_at",
           "type": "timestamp with time zone",
@@ -147,6 +133,20 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'full'"
+        },
+        "integration": {
+          "name": "integration",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'generic'"
         }
       },
       "indexes": {},
@@ -2769,6 +2769,24 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
+        },
+        "resolved_at": {
+          "name": "resolved_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resolved_note": {
+          "name": "resolved_note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resolved_by": {
+          "name": "resolved_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -2813,6 +2831,21 @@
           "columns": [
             {
               "expression": "flagged",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "jobs_resolved_idx": {
+          "name": "jobs_resolved_idx",
+          "columns": [
+            {
+              "expression": "resolved_at",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -2896,6 +2929,15 @@
           "tableFrom": "jobs",
           "tableTo": "users",
           "columnsFrom": ["flagged_by"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "jobs_resolved_by_users_id_fk": {
+          "name": "jobs_resolved_by_users_id_fk",
+          "tableFrom": "jobs",
+          "tableTo": "users",
+          "columnsFrom": ["resolved_by"],
           "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
@@ -5288,261 +5330,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.workflow_template_archives": {
-      "name": "workflow_template_archives",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "workflow_template_id": {
-          "name": "workflow_template_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "version": {
-          "name": "version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "json_content": {
-          "name": "json_content",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "face_node_id": {
-          "name": "face_node_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "pose_node_id": {
-          "name": "pose_node_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "bg_node_id": {
-          "name": "bg_node_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "upper_node_ids": {
-          "name": "upper_node_ids",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "lower_node_id": {
-          "name": "lower_node_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "shoe_node_id": {
-          "name": "shoe_node_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "third_node_id": {
-          "name": "third_node_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "size_node_id": {
-          "name": "size_node_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "size_node_ids": {
-          "name": "size_node_ids",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "ARRAY[]::text[]"
-        },
-        "latent_size_node_ids": {
-          "name": "latent_size_node_ids",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "ARRAY[]::text[]"
-        },
-        "latent_max_px": {
-          "name": "latent_max_px",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 2048
-        },
-        "output_size_node_ids": {
-          "name": "output_size_node_ids",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "ARRAY[]::text[]"
-        },
-        "output_max_px": {
-          "name": "output_max_px",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 2048
-        },
-        "result_node_id": {
-          "name": "result_node_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "face_phase_prompt_node": {
-          "name": "face_phase_prompt_node",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "garment_phase_prompt_node": {
-          "name": "garment_phase_prompt_node",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "stage1_positive_prompt_node": {
-          "name": "stage1_positive_prompt_node",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "stage1_negative_prompt_node": {
-          "name": "stage1_negative_prompt_node",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "default_face_phase_prompt": {
-          "name": "default_face_phase_prompt",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "default_garment_phase_prompt": {
-          "name": "default_garment_phase_prompt",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "default_stage1_positive_prompt": {
-          "name": "default_stage1_positive_prompt",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "default_stage1_negative_prompt": {
-          "name": "default_stage1_negative_prompt",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "workflow_type": {
-          "name": "workflow_type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'regular'"
-        },
-        "tryon_person_node_id": {
-          "name": "tryon_person_node_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "tryon_garment_node_id": {
-          "name": "tryon_garment_node_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "tryon_garment_node_id_2": {
-          "name": "tryon_garment_node_id_2",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "tryon_output_node_id": {
-          "name": "tryon_output_node_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "archived_at": {
-          "name": "archived_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "workflow_template_archives_template_version_idx": {
-          "name": "workflow_template_archives_template_version_idx",
-          "columns": [
-            {
-              "expression": "workflow_template_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "version",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "workflow_template_archives_workflow_template_id_workflow_templates_id_fk": {
-          "name": "workflow_template_archives_workflow_template_id_workflow_templates_id_fk",
-          "tableFrom": "workflow_template_archives",
-          "tableTo": "workflow_templates",
-          "columnsFrom": ["workflow_template_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "workflow_template_archives_template_unique": {
-          "name": "workflow_template_archives_template_unique",
-          "nullsNotDistinct": false,
-          "columns": ["workflow_template_id"]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.workflow_templates": {
       "name": "workflow_templates",
       "schema": "",
@@ -5751,13 +5538,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "version": {
-          "name": "version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1
-        },
         "is_active": {
           "name": "is_active",
           "type": "boolean",
@@ -5778,6 +5558,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
         }
       },
       "indexes": {},
@@ -7912,6 +7699,261 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.workflow_template_archives": {
+      "name": "workflow_template_archives",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workflow_template_id": {
+          "name": "workflow_template_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "json_content": {
+          "name": "json_content",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "face_node_id": {
+          "name": "face_node_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pose_node_id": {
+          "name": "pose_node_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bg_node_id": {
+          "name": "bg_node_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "upper_node_ids": {
+          "name": "upper_node_ids",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "lower_node_id": {
+          "name": "lower_node_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "shoe_node_id": {
+          "name": "shoe_node_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "third_node_id": {
+          "name": "third_node_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "size_node_id": {
+          "name": "size_node_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "size_node_ids": {
+          "name": "size_node_ids",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "ARRAY[]::text[]"
+        },
+        "latent_size_node_ids": {
+          "name": "latent_size_node_ids",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "ARRAY[]::text[]"
+        },
+        "latent_max_px": {
+          "name": "latent_max_px",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 2048
+        },
+        "output_size_node_ids": {
+          "name": "output_size_node_ids",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "ARRAY[]::text[]"
+        },
+        "output_max_px": {
+          "name": "output_max_px",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 2048
+        },
+        "result_node_id": {
+          "name": "result_node_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "face_phase_prompt_node": {
+          "name": "face_phase_prompt_node",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "garment_phase_prompt_node": {
+          "name": "garment_phase_prompt_node",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stage1_positive_prompt_node": {
+          "name": "stage1_positive_prompt_node",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "stage1_negative_prompt_node": {
+          "name": "stage1_negative_prompt_node",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "default_face_phase_prompt": {
+          "name": "default_face_phase_prompt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "default_garment_phase_prompt": {
+          "name": "default_garment_phase_prompt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "default_stage1_positive_prompt": {
+          "name": "default_stage1_positive_prompt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "default_stage1_negative_prompt": {
+          "name": "default_stage1_negative_prompt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "workflow_type": {
+          "name": "workflow_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'regular'"
+        },
+        "tryon_person_node_id": {
+          "name": "tryon_person_node_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tryon_garment_node_id": {
+          "name": "tryon_garment_node_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tryon_garment_node_id_2": {
+          "name": "tryon_garment_node_id_2",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tryon_output_node_id": {
+          "name": "tryon_output_node_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "archived_at": {
+          "name": "archived_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "workflow_template_archives_template_version_idx": {
+          "name": "workflow_template_archives_template_version_idx",
+          "columns": [
+            {
+              "expression": "workflow_template_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "version",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "workflow_template_archives_workflow_template_id_workflow_templates_id_fk": {
+          "name": "workflow_template_archives_workflow_template_id_workflow_templates_id_fk",
+          "tableFrom": "workflow_template_archives",
+          "tableTo": "workflow_templates",
+          "columnsFrom": ["workflow_template_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "workflow_template_archives_template_unique": {
+          "name": "workflow_template_archives_template_unique",
+          "nullsNotDistinct": false,
+          "columns": ["workflow_template_id"]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

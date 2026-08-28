@@ -19,6 +19,7 @@ import { getMaxBatchJobs } from '../../lib/batch-config.js';
 import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
 import { withIdempotency } from '../../lib/idempotency.js';
+import { sendReportReceivedEmail } from '../../lib/mailer.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { getSareeSettings } from '../saree/settings.js';
 import {
@@ -1091,6 +1092,13 @@ export async function jobsRoutes(app: FastifyInstance) {
         source: body.source ?? null,
         message: body.message ?? null,
       });
+
+      try {
+        await sendReportReceivedEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, body.email);
+      } catch (err) {
+        app.log.error({ err }, 'Failed to send report-received acknowledgment email');
+      }
+
       reply.code(204).send();
     },
   );

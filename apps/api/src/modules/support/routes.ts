@@ -4,6 +4,7 @@ import { keys } from '@aivastra/storage';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { sendReportReceivedEmail } from '../../lib/mailer.js';
 
 const CONTENT_TYPE_TO_EXT: Record<string, string> = {
   'image/jpeg': 'jpg',
@@ -76,6 +77,14 @@ export async function supportRoutes(app: FastifyInstance) {
           status: 'new',
         })
         .returning({ id: schema.contactRequests.id });
+
+      if (email) {
+        try {
+          await sendReportReceivedEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, email);
+        } catch (err) {
+          app.log.error({ err }, 'Failed to send report-received acknowledgment email');
+        }
+      }
 
       return { id: row?.id ?? '' };
     },
