@@ -404,9 +404,9 @@ export function renderInvoicePdf(data: InvoiceData): Promise<Buffer> {
     y = doc.y + 6;
     doc.fillColor(GRAY).font('Helvetica').fontSize(8);
     const terms = [
-      'This invoice confirms payment received in full via online checkout on aivastra.com.',
+      'This invoice confirms payment received via online checkout on aivastra.com.',
       'This package covers AI Vastra catalogue creation / virtual try-on services as agreed with the customer.',
-      `GST charged as applicable under law; CGST+SGST for intra-${stateNameForGstin(data.seller.gstin) ?? 'state'} customers, IGST for other states.`,
+      'GST is applicable as per Government of India regulations.',
       'For refund or cancellation queries, contact support@aivastra.com.',
       'This is a computer-generated invoice and does not require a physical signature.',
     ];
