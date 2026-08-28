@@ -474,8 +474,10 @@ function ImageCard({
           style={{
             padding: '8px 10px',
             display: 'flex',
+            flexWrap: 'wrap',
             alignItems: 'center',
             justifyContent: 'space-between',
+            gap: 6,
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -510,7 +512,7 @@ function ImageCard({
               })}
             </span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4 }}>
             {TERMINAL.includes(job.status) && (
               <button
                 type="button"
@@ -1285,7 +1287,7 @@ export default function CataloguePage({
               gap: 14,
             }}
           >
-            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: C.white }}>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: C.text }}>
               Why regenerate this image?
             </h3>
             <p style={{ margin: 0, fontSize: 12.5, color: C.light, lineHeight: 1.5 }}>
@@ -1300,8 +1302,8 @@ export default function CataloguePage({
                 padding: '10px 12px',
                 borderRadius: 8,
                 border: `1px solid ${C.border}`,
-                background: C.dark,
-                color: C.white,
+                background: C.field,
+                color: C.text,
                 fontSize: 13,
               }}
             >
