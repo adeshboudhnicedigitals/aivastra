@@ -12,7 +12,7 @@ import {
   RegenerateReasonsResponse,
   SareeConfigResponse,
 } from '@aivastra/types';
-import { and, asc, desc, eq, isNotNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNotNull, isNull, notInArray, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getMaxBatchJobs } from '../../lib/batch-config.js';
@@ -474,6 +474,28 @@ export async function jobsRoutes(app: FastifyInstance) {
             // always set on these jobs) and stops working once sourceJobId becomes
             // optional for the upload path. Exclude by kind explicitly instead.
             sql`${schema.jobInputs.params}->>'kind' is distinct from 'video'`,
+            // This gallery is for the account's own first-party catalog/try-on work —
+            // exclude jobs created through an external channel (WordPress plugin,
+            // Shopify widget, a merchant's own integration, or the public dev API).
+            // Those still bill the same userId/user_credits (merchants are 1:1 with
+            // users), so without this filter every storefront shopper's try-on click
+            // shows up mixed into the merchant's own curated catalog gallery.
+            // source is nullable (legacy jobs predate source tracking) — NOT IN
+            // against a NULL column evaluates to NULL/excluded in SQL, so the NULL
+            // case is kept explicitly rather than silently dropping those jobs.
+            or(
+              isNull(schema.jobs.source),
+              notInArray(schema.jobs.source, [
+                JOB_SOURCE.WORDPRESS_TRYON,
+                JOB_SOURCE.API_TRYON,
+                JOB_SOURCE.API_CATALOG,
+                JOB_SOURCE.API_SAREE_MANNEQUIN,
+                JOB_SOURCE.MERCHANT_TRYON,
+                JOB_SOURCE.MERCHANT_CATALOG,
+                JOB_SOURCE.MERCHANT_CATALOG_SAREE_MANNEQUIN,
+                JOB_SOURCE.SHOPIFY,
+              ]),
+            ),
             ...(batchId ? [eq(schema.jobs.batchId, batchId)] : []),
           ),
         )

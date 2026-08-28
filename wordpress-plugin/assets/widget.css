@@ -23,6 +23,10 @@
 }
 
 /* Force hidden elements to never show */
+/* biome-ignore lint/complexity/noImportantStyles: many step-content elements
+   share equal (0,1,0) specificity with this bare [hidden] catch-all and are
+   declared later in the file, which would otherwise win the cascade and
+   silently un-hide a toggled element. */
 .aivastra-tryon-modal [hidden],
 .aivastra-tryon-modal-content [hidden],
 [hidden] {
@@ -75,18 +79,23 @@
   flex-shrink: 0;
 }
 
-/* Backdrop */
+/* Bottom-right floating panel, not a full-screen modal — matches the Shopify
+   widget's positioning (apps/shopify-extension's tryon-widget.css). No
+   backdrop/scrim: the rest of the page stays visible and interactive, same
+   as Shopify's. z-index was previously kept modest (40) so a theme's own
+   sticky header would still win a stacking conflict — but on a live product
+   page a gallery/carousel thumbnail (its own stacking context, unrelated to
+   headers) rendered on top of the panel instead. A floating action panel
+   should always win over ordinary page content, so this goes back to an
+   assertive value; a genuinely fixed site header is rare enough, and
+   important enough to still see, that this may need revisiting per-theme. */
 .aivastra-tryon-modal {
   position: fixed;
-  inset: 0;
+  inset: auto 24px 24px auto;
   z-index: 999999;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  background: rgba(15, 23, 42, 0.65);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  align-items: flex-end;
+  justify-content: flex-end;
   box-sizing: border-box;
   opacity: 1;
   transition: opacity 0.2s ease;
@@ -94,7 +103,13 @@
 }
 
 .aivastra-tryon-modal[hidden] {
-  display: none !important;
+  display: none;
+}
+
+@media (max-width: 480px) {
+  .aivastra-tryon-modal {
+    inset: auto 12px 12px 12px;
+  }
 }
 
 /* Modal Content Card */
@@ -105,7 +120,7 @@
   padding: 24px;
   max-width: 440px;
   width: 100%;
-  max-height: calc(100vh - 40px);
+  max-height: 94dvh;
   box-sizing: border-box;
   box-shadow: var(--aivastra-shadow-modal);
   border: 1px solid rgba(0, 0, 0, 0.06);
@@ -140,7 +155,11 @@
 /* Header & Close Button */
 .aivastra-modal-header {
   position: relative;
-  padding-right: 36px;
+  /* Clears both the close button and the history button when it's shown
+     (right: 60px, 32px wide) — a few px wider than strictly needed when
+     history is hidden, which is a harmless, simpler tradeoff than toggling
+     this per-step. */
+  padding-right: 80px;
   margin-bottom: 18px;
 }
 
@@ -207,6 +226,154 @@
 
 .aivastra-modal-close:active {
   transform: scale(0.95);
+}
+
+/* Sits just left of the close button, same size/shape — a persistent way
+   back into History from any step, matching the Shopify widget's header
+   history button. */
+.aivastra-modal-history-btn {
+  position: absolute;
+  top: 16px;
+  right: 60px;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #e2e8f0;
+  border-radius: 50%;
+  background: #f8fafc;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  z-index: 10;
+  transition: all 0.15s ease;
+}
+
+.aivastra-modal-history-btn:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+  border-color: #cbd5e1;
+}
+
+.aivastra-history-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: #6366f1;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+.aivastra-history-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-content: start;
+  gap: 10px;
+  min-height: 220px;
+  max-height: 55dvh;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.aivastra-history-tile {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--aivastra-radius-card, 16px);
+  overflow: hidden;
+  padding: 0;
+  cursor: pointer;
+  background: #f8fafc;
+  transition: transform 0.15s ease;
+}
+
+.aivastra-history-tile:hover {
+  transform: scale(1.02);
+}
+
+.aivastra-history-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.aivastra-history-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+  padding: 32px 16px;
+  text-align: center;
+  color: #64748b;
+  font-size: 13px;
+}
+
+/* Full-screen photo viewer — a sibling of the modal (both reparented to
+   <body>), not nested inside it, so it covers the whole viewport instead of
+   being clipped to the modal's own box. */
+.aivastra-tryon-lightbox {
+  position: fixed;
+  inset: 0;
+  /* Must stay above .aivastra-tryon-modal's own z-index. */
+  z-index: 1000000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(9, 9, 11, 0.9);
+  box-sizing: border-box;
+}
+
+.aivastra-tryon-lightbox[hidden] {
+  display: none;
+}
+
+.aivastra-lightbox-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+.aivastra-lightbox-close {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  width: 36px;
+  height: 36px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  /* Unlike the modal's own close/history buttons (both z-index:10, safely
+     inside .aivastra-tryon-modal-content's own stacking context), this
+     button's only sibling is the result <img> — many themes/galleries give
+     product/result images `position: relative` for hover badges, which
+     would otherwise let the image win the stacking order (it comes later
+     in the DOM) and paint over this button with no visible close control. */
+  z-index: 1;
+  transition: background 0.15s ease;
+}
+
+.aivastra-lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.22);
 }
 
 /* Upload Dropzone */
@@ -301,7 +468,13 @@
 .aivastra-preview-aspect {
   position: relative;
   width: 100%;
-  height: 280px;
+  /* Overridden inline by fitToAspectRatio() once the photo loads — capped at
+     max-height so a tall portrait upload can't grow this box past the room
+     left for the header, privacy notice and Generate button below it,
+     forcing a scroll to reach a button that's really just off-screen right
+     below the fold (matches .aivastra-result-wrapper's same cap). */
+  aspect-ratio: 3 / 4;
+  max-height: 42dvh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -362,16 +535,52 @@
   border: 1px solid rgba(0, 0, 0, 0.08);
   box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.06);
   margin-top: 4px;
+  /* Overridden inline by fitToAspectRatio() once the image loads, so a
+     portrait result isn't letterboxed inside a flat landscape box. Capped
+     lower than it used to be (was 60dvh): Add to Cart/Download/Share/Try
+     Another Photo below it are a taller stack now than when 60dvh was
+     chosen, and left unchanged it pushed the whole panel past the modal's
+     own max-height, forcing an internal scroll to reach the buttons. */
+  aspect-ratio: 3 / 4;
+  max-height: 38dvh;
 }
 
 .aivastra-result-image {
   display: block;
   width: 100%;
-  max-height: 420px;
-  height: auto;
-  object-fit: contain;
+  height: 100%;
+  /* biome-ignore lint/complexity/noImportantStyles: some themes globally
+     reset `img { object-fit: cover }`, which would crop the top/bottom of a
+     portrait result instead of letterboxing it. This box must never crop,
+     and this file has no control over a theme stylesheet's load order. */
+  object-fit: contain !important;
   margin: 0 auto;
-  border-radius: var(--aivastra-radius-card, 16px);
+}
+
+.aivastra-result-expand {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.72);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.aivastra-result-expand:hover {
+  background: rgba(15, 23, 42, 0.9);
 }
 
 .aivastra-result-tag {
@@ -447,6 +656,32 @@
   transform: none;
 }
 
+.aivastra-button-row {
+  display: flex;
+  gap: 10px;
+}
+
+.aivastra-button-row .aivastra-secondary-btn {
+  flex: 1;
+}
+
+.aivastra-inline-status {
+  margin: -2px 0 0;
+  text-align: center;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.aivastra-inline-status a {
+  color: #6366f1;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.aivastra-inline-status a:hover {
+  text-decoration: underline;
+}
+
 .aivastra-secondary-btn {
   display: flex;
   align-items: center;
@@ -499,14 +734,52 @@
   color: #0f172a;
 }
 
-/* Loading State */
-.aivastra-loading-container {
+/* Loading State — the shopper's own uploaded photo, dimmed, behind the
+   spinner (matches the Shopify widget's progress canvas) rather than a flat
+   blank card. isolation:isolate scopes the negative-z-index pseudo-elements
+   below to this box instead of letting them compete with page z-index. */
+.aivastra-loading-photo {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 36px 16px 20px;
+  gap: 14px;
+  border-radius: var(--aivastra-radius-card, 16px);
+  background: #09090b;
+  padding: 24px;
   text-align: center;
+  margin-top: 4px;
+  /* Overridden inline by fitToAspectRatio() once the photo loads. */
+  aspect-ratio: 3 / 4;
+  max-height: 60dvh;
+}
+
+.aivastra-loading-photo::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background-image: var(--aivastra-loading-bg, none);
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+.aivastra-loading-photo::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: rgba(9, 9, 11, 0.6);
+}
+
+.aivastra-loading-photo .aivastra-loading-status,
+.aivastra-loading-photo .aivastra-loading-sub {
+  color: #ffffff;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
 }
 
 .aivastra-spinner-wrap {

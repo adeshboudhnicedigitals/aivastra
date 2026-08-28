@@ -190,8 +190,10 @@ export function KeysPanel() {
       <div
         style={{
           display: 'flex',
+          flexWrap: 'wrap',
           alignItems: 'center',
           justifyContent: 'space-between',
+          gap: 12,
           marginBottom: 16,
         }}
       >
@@ -202,7 +204,7 @@ export function KeysPanel() {
           </p>
         </div>
         {!createOpen && (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
             <button
               type="button"
               onClick={() => {

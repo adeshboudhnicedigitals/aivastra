@@ -9,7 +9,9 @@ import { TopBar } from '@/components/topbar';
 import { PremiumSelect } from '@/components/ui/premium-select';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useGoogleDriveStatus } from '@/hooks/use-google-drive-status';
+import { useMediaQuery } from '@/hooks/use-media-query';
 import { api } from '@/lib/api';
+import { BREAKPOINTS } from '@/lib/breakpoints';
 import { GOOGLE_DRIVE_ENABLED } from '@/lib/feature-flags';
 
 type Tab = 'Profile Details' | 'Billing' | 'Credit History' | 'Invoices';
@@ -269,6 +271,7 @@ const fmtTime = (s: string) =>
 export default function SettingsPage(): React.ReactElement {
   const router = useRouter();
   const qc = useQueryClient();
+  const isNarrow = useMediaQuery(`(max-width: ${BREAKPOINTS.sm}px)`);
   const [tab, setTab] = useState<Tab>('Profile Details');
   const [name, setName] = useState<string | null>(null);
   const [phone, setPhone] = useState<string | null>(null);
@@ -451,7 +454,7 @@ export default function SettingsPage(): React.ReactElement {
         }}
       />
       <TopBar
-        title="Account Settings"
+        title={isNarrow ? 'Settings' : 'Account Settings'}
         subtitle="Manage your profile, billing, credits, subscriptions, and account activity."
         right={
           <button
@@ -461,7 +464,7 @@ export default function SettingsPage(): React.ReactElement {
               display: 'flex',
               alignItems: 'center',
               gap: 8,
-              padding: '9px 16px',
+              padding: isNarrow ? '9px' : '9px 16px',
               borderRadius: 8,
               border: `1px solid ${C.border2}`,
               background: C.white,
@@ -470,9 +473,10 @@ export default function SettingsPage(): React.ReactElement {
               fontWeight: 500,
               cursor: 'pointer',
               color: C.text,
+              flexShrink: 0,
             }}
           >
-            <LogOutIcon /> Log Out
+            <LogOutIcon /> {!isNarrow && 'Log Out'}
           </button>
         }
       />
@@ -483,7 +487,12 @@ export default function SettingsPage(): React.ReactElement {
         {/* Tab bar */}
         <div
           className="settings-tab-bar"
-          style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, marginBottom: 20 }}
+          style={{
+            display: 'flex',
+            borderBottom: `1px solid ${C.border}`,
+            marginBottom: 20,
+            overflowX: 'auto',
+          }}
         >
           {TABS.map((t) => {
             const isActive = tab === t;
@@ -504,6 +513,7 @@ export default function SettingsPage(): React.ReactElement {
                   cursor: 'pointer',
                   marginBottom: -1,
                   whiteSpace: 'nowrap',
+                  flexShrink: 0,
                 }}
               >
                 {t}
