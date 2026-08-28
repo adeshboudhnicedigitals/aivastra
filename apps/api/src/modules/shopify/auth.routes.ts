@@ -268,17 +268,27 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
       throw new AppError('BAD_REQUEST', 400, 'invalid shop');
     }
 
-    // Exchange code → token
-    const tokenRes = await fetch(`https://${q.shop}/admin/oauth/access_token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        client_id: app.env.SHOPIFY_API_KEY,
-        client_secret: app.env.SHOPIFY_API_SECRET,
-        code: q.code,
-        expiring: 1, // Shopify rejects non-expiring offline tokens as of API 2026-07
-      }),
-    });
+    // Exchange code → token. This is the one-click reauth flow's callback
+    // (initial install is managed-installation, no code flow) — a network
+    // blip here is rare but happens during the single most failure-sensitive
+    // moment of repairing a store's access, so a raw fetch() throw (DNS
+    // failure, TLS error) is mapped to the same SHOPIFY/502 the !ok branch
+    // below already uses, instead of surfacing as an opaque 500.
+    let tokenRes: Response;
+    try {
+      tokenRes = await fetch(`https://${q.shop}/admin/oauth/access_token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_id: app.env.SHOPIFY_API_KEY,
+          client_secret: app.env.SHOPIFY_API_SECRET,
+          code: q.code,
+          expiring: 1, // Shopify rejects non-expiring offline tokens as of API 2026-07
+        }),
+      });
+    } catch {
+      throw new AppError('SHOPIFY', 502, 'Could not reach Shopify to complete authorization');
+    }
     if (!tokenRes.ok) throw new AppError('SHOPIFY', 502, 'token exchange failed');
     const tokenBody = (await tokenRes.json()) as {
       access_token: string;

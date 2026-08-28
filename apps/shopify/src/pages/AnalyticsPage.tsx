@@ -1,6 +1,5 @@
 import {
   Badge,
-  Banner,
   BlockStack,
   Box,
   Button,
@@ -19,8 +18,10 @@ import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BarChart } from '../components/BarChart';
 import { ChartTable } from '../components/ChartTable';
+import { ErrorBanner } from '../components/ErrorBanner';
 import { ANALYTICS_PRESETS, type AnalyticsPreset, resolvePreset } from '../lib/analyticsRange';
 import { apiFetch } from '../lib/api';
+import { type ClassifiedError, classifyError } from '../lib/errors';
 import type { ShopifyAnalytics, ShopifyMe } from '../types';
 
 // A headline number and its label. Deliberately no sparkline and no decoration
@@ -49,7 +50,7 @@ export default function AnalyticsPage() {
   const [preset, setPreset] = useState<AnalyticsPreset | 'custom'>('30d');
   const [range, setRange] = useState<{ from: string; to: string } | null>(null);
   const [data, setData] = useState<ShopifyAnalytics | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ClassifiedError | null>(null);
   const [loading, setLoading] = useState(true);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [month, setMonth] = useState({
@@ -64,8 +65,8 @@ export default function AnalyticsPage() {
         setInstalledAt(installed);
         setRange(resolvePreset('30d', installed));
       })
-      .catch((err: Error) => {
-        setError(err.message);
+      .catch((err) => {
+        setError(classifyError(err));
         setLoading(false);
       });
   }, []);
@@ -78,7 +79,7 @@ export default function AnalyticsPage() {
         setData(res);
         setError(null);
       })
-      .catch((err: Error) => setError(err.message))
+      .catch((err) => setError(classifyError(err)))
       .finally(() => setLoading(false));
   }, [range]);
 
@@ -102,11 +103,11 @@ export default function AnalyticsPage() {
   return (
     <Page title="Analytics">
       <BlockStack gap="400">
-        {error && (
-          <Banner tone="critical" onDismiss={() => setError(null)}>
-            {error}
-          </Banner>
-        )}
+        <ErrorBanner
+          error={error}
+          onRetry={() => window.location.reload()}
+          onDismiss={() => setError(null)}
+        />
 
         <InlineStack align="start">
           <Popover

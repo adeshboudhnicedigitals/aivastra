@@ -137,6 +137,9 @@
 
             <div class="aivastra-tryon__step aivastra-tryon__step--pending" hidden>
               <p>{{ 'tryon.pending' | t }}</p>
+              <button type="button" class="aivastra-tryon__retry">
+                {{ 'tryon.try_again' | t }}
+              </button>
             </div>
 
             <div class="aivastra-tryon__step aivastra-tryon__step--result" hidden>
@@ -147,7 +150,18 @@
             </div>
 
             <div class="aivastra-tryon__step aivastra-tryon__step--error" hidden>
-              <p>{{ cfg.copy.errorText | default: 'Something went wrong. Please try again.' | escape }}</p>
+              <div class="aivastra-tryon__error-icon" aria-hidden="true">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>
+              </div>
+              {%- comment -%}
+                data-custom marks whether the merchant actually configured
+                errorText (vs. Liquid's own `| default:` filling in the
+                placeholder) — tryon-widget.js only honors this text as its
+                last-resort fallback when a merchant deliberately set it;
+                every specific, curated message (bad photo, rate limited,
+                generation failed, timed out) still wins over it either way.
+              {%- endcomment -%}
+              <p data-custom="{% if cfg.copy.errorText != blank %}true{% endif %}">{{ cfg.copy.errorText | default: 'Something went wrong. Please try again.' | escape }}</p>
               <button type="button" class="aivastra-tryon__retry">
                 {{ 'tryon.try_again' | t }}
               </button>

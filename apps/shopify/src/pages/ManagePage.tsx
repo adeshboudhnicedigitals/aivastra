@@ -1,6 +1,5 @@
 import {
   Badge,
-  Banner,
   BlockStack,
   Box,
   Button,
@@ -20,8 +19,10 @@ import {
   Toast,
 } from '@shopify/polaris';
 import { useCallback, useEffect, useState } from 'react';
+import { ErrorBanner } from '../components/ErrorBanner';
 import { isTabEditable } from '../lib/activationTabState';
 import { apiFetch } from '../lib/api';
+import { type ClassifiedError, classifyError } from '../lib/errors';
 import type { ShopifyProductListItem } from '../types';
 
 type DisplayStatus = 'active' | 'processing' | 'failed' | 'disabled' | 'excluded';
@@ -102,7 +103,7 @@ function CollectionPickerModal({
 }: {
   onClose: () => void;
   onPicked: (shopifyCollectionId: number) => void;
-  setError: (m: string) => void;
+  setError: (e: ClassifiedError) => void;
 }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<CollectionSearchResult[]>([]);
@@ -119,7 +120,7 @@ function CollectionPickerModal({
         `/v1/shopify/activation/collections/search?q=${encodeURIComponent(query)}`,
       )
         .then((res) => setResults(res.items))
-        .catch((err) => setError((err as Error).message))
+        .catch((err) => setError(classifyError(err)))
         .finally(() => setSearching(false));
     }, 300);
     return () => clearTimeout(timer);
@@ -169,7 +170,7 @@ function CollectionsPanel({
   addLabel: string;
   emptyHeading: string;
   onChanged: () => void;
-  setError: (m: string) => void;
+  setError: (e: ClassifiedError) => void;
 }) {
   const [items, setItems] = useState<CollectionListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -179,7 +180,7 @@ function CollectionsPanel({
     setLoading(true);
     apiFetch<{ items: CollectionListItem[] }>(basePath)
       .then((res) => setItems(res.items))
-      .catch((err) => setError((err as Error).message))
+      .catch((err) => setError(classifyError(err)))
       .finally(() => setLoading(false));
   }, [basePath, setError]);
 
@@ -193,7 +194,7 @@ function CollectionsPanel({
       load();
       onChanged();
     } catch (err) {
-      setError((err as Error).message);
+      setError(classifyError(err));
     }
   }
 
@@ -254,7 +255,7 @@ function CollectionsPanel({
               load();
               onChanged();
             } catch (err) {
-              setError((err as Error).message);
+              setError(classifyError(err));
             }
           }}
         />
@@ -276,7 +277,7 @@ function ProductPickerModal({
   actionLabel: string;
   onClose: () => void;
   onPicked: (shopifyProductId: number) => void;
-  setError: (m: string) => void;
+  setError: (e: ClassifiedError) => void;
 }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<ShopifyProductListItem[]>([]);
@@ -292,7 +293,7 @@ function ProductPickerModal({
       });
       apiFetch<ProductListResponse>(`/v1/shopify/products?${params}`)
         .then((res) => setResults(res.items))
-        .catch((err) => setError((err as Error).message))
+        .catch((err) => setError(classifyError(err)))
         .finally(() => setSearching(false));
     }, 300);
     return () => clearTimeout(timer);
@@ -341,7 +342,7 @@ function IndividualProductsPanel({
   editable: boolean;
   onChanged: () => void;
   setToastMessage: (m: string) => void;
-  setError: (m: string) => void;
+  setError: (e: ClassifiedError) => void;
 }) {
   const [items, setItems] = useState<ShopifyProductListItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -363,7 +364,7 @@ function IndividualProductsPanel({
         setItems(res.items);
         setTotal(res.total);
       })
-      .catch((err) => setError((err as Error).message))
+      .catch((err) => setError(classifyError(err)))
       .finally(() => setLoading(false));
   }, [page, query, setError]);
 
@@ -381,7 +382,7 @@ function IndividualProductsPanel({
       load();
       onChanged();
     } catch (err) {
-      setError((err as Error).message);
+      setError(classifyError(err));
     }
   }
 
@@ -473,7 +474,7 @@ function IndividualProductsPanel({
               load();
               onChanged();
             } catch (err) {
-              setError((err as Error).message);
+              setError(classifyError(err));
             }
           }}
         />
@@ -491,7 +492,7 @@ function ExclusionPanel({
   mode: 'global' | 'selective';
   onChanged: () => void;
   setToastMessage: (m: string) => void;
-  setError: (m: string) => void;
+  setError: (e: ClassifiedError) => void;
 }) {
   const [excludedProducts, setExcludedProducts] = useState<ShopifyProductListItem[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
@@ -501,7 +502,7 @@ function ExclusionPanel({
     setLoadingProducts(true);
     apiFetch<ProductListResponse>('/v1/shopify/products?excluded=true&pageSize=100')
       .then((res) => setExcludedProducts(res.items))
-      .catch((err) => setError((err as Error).message))
+      .catch((err) => setError(classifyError(err)))
       .finally(() => setLoadingProducts(false));
   }, [setError]);
 
@@ -519,7 +520,7 @@ function ExclusionPanel({
       loadProducts();
       onChanged();
     } catch (err) {
-      setError((err as Error).message);
+      setError(classifyError(err));
     }
   }
 
@@ -602,7 +603,7 @@ function ExclusionPanel({
               loadProducts();
               onChanged();
             } catch (err) {
-              setError((err as Error).message);
+              setError(classifyError(err));
             }
           }}
         />
@@ -616,7 +617,7 @@ function FailedProductsModal({
   setError,
 }: {
   onClose: () => void;
-  setError: (m: string) => void;
+  setError: (e: ClassifiedError) => void;
 }) {
   const [items, setItems] = useState<ShopifyProductListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -624,7 +625,7 @@ function FailedProductsModal({
   useEffect(() => {
     apiFetch<ProductListResponse>('/v1/shopify/products?status=failed&pageSize=100')
       .then((res) => setItems(res.items))
-      .catch((err) => setError((err as Error).message))
+      .catch((err) => setError(classifyError(err)))
       .finally(() => setLoading(false));
   }, [setError]);
 
@@ -667,7 +668,7 @@ function FailedProductsModal({
 
 export default function ManagePage() {
   const [summary, setSummary] = useState<ActivationSummary | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ClassifiedError | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [selectedTab, setSelectedTab] = useState(0);
   const [failedModalOpen, setFailedModalOpen] = useState(false);
@@ -675,7 +676,7 @@ export default function ManagePage() {
   const loadSummary = useCallback(() => {
     apiFetch<ActivationSummary>('/v1/shopify/activation')
       .then(setSummary)
-      .catch((err) => setError((err as Error).message));
+      .catch((err) => setError(classifyError(err)));
   }, []);
 
   useEffect(() => {
@@ -699,7 +700,7 @@ export default function ManagePage() {
         );
       } catch (err) {
         setSummary(previous);
-        setError((err as Error).message);
+        setError(classifyError(err));
       }
     },
     [summary],
@@ -721,11 +722,7 @@ export default function ManagePage() {
   return (
     <Page title="Manage" subtitle="Control which products offer Try-On.">
       <BlockStack gap="400">
-        {error && (
-          <Banner tone="critical" onDismiss={() => setError(null)}>
-            {error}
-          </Banner>
-        )}
+        <ErrorBanner error={error} onRetry={loadSummary} onDismiss={() => setError(null)} />
 
         <Card>
           <BlockStack gap="200">

@@ -85,7 +85,20 @@ async function fetchWithTimeout(
     return await fetch(url, { ...init, signal: controller.signal });
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
-      throw new Error('Request timed out — check your connection and try again.');
+      throw Object.assign(new Error('Request timed out — check your connection and try again.'), {
+        code: 'TIMEOUT',
+      });
+    }
+    // A dead tunnel, DNS failure, CORS block, or offline browser all surface
+    // here as a plain TypeError from fetch() itself — there's no response to
+    // parse an ApiError out of. Tag it the same way as the timeout above so
+    // lib/errors.ts's classifyError can recognize it without string-matching
+    // err.message.
+    if (err instanceof TypeError) {
+      throw Object.assign(
+        new Error("Couldn't reach AiVastra — check your connection and try again."),
+        { code: 'NETWORK_ERROR' },
+      );
     }
     throw err;
   } finally {
@@ -151,5 +164,16 @@ export async function apiFetchResponse(path: string, init: RequestInit = {}): Pr
 
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await apiFetchResponse(path, init);
-  return res.json() as Promise<T>;
+  try {
+    return (await res.json()) as T;
+  } catch {
+    // A 2xx response with a non-JSON or empty body — a malformed proxy
+    // response, most likely — would otherwise throw a raw SyntaxError that
+    // bypasses ApiError entirely and can't be classified.
+    throw new ApiError(
+      res.status,
+      'Received an unexpected response from the server.',
+      'BAD_RESPONSE',
+    );
+  }
 }

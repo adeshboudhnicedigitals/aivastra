@@ -43,4 +43,16 @@ describe('API request timeouts', () => {
 
     await rejection;
   });
+
+  it('tags a timeout with a synthetic .code so it can be classified', async () => {
+    vi.stubGlobal('fetch', delayedJsonResponse(13_000, { ok: true }));
+
+    const request = apiFetch('/v1/shopify/me');
+    const assertion = request.catch((err) => {
+      expect((err as { code?: string }).code).toBe('TIMEOUT');
+    });
+    await vi.advanceTimersByTimeAsync(12_000);
+
+    await assertion;
+  });
 });
