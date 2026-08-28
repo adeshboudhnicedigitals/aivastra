@@ -60,7 +60,7 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
     <div style={{ flex: 1, overflowY: 'auto', background: C.bg }}>
       {/* Topbar — clean mobile topbar without title/subtitle header text */}
       <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
-        <TopBar title="Pricing & Plan" />
+        <TopBar title="Pricing" />
         <div
           ref={countryRef}
           style={{
@@ -364,21 +364,23 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: 6,
-                  padding: '8px 14px',
+                  padding: '8px 10px',
                   borderRadius: 8,
                   border: 'none',
                   background: isActive ? C.dark : 'transparent',
                   color: isActive ? C.onDark : C.mid,
                   fontFamily: 'inherit',
                   fontWeight: 600,
-                  fontSize: 13,
+                  fontSize: 12,
+                  lineHeight: 1.25,
                   cursor: 'pointer',
                   transition: 'background 0.18s, color 0.18s',
-                  whiteSpace: 'nowrap',
+                  textAlign: 'center',
+                  minWidth: 0,
                 }}
               >
                 {tab.icon}
-                {tab.label}
+                <span>{tab.label}</span>
               </button>
             );
           })}
