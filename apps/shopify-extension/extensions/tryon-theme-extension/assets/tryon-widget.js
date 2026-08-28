@@ -32,8 +32,9 @@
     const avatarImage = root.querySelector('.aivastra-tryon__avatar-image');
     const heading = root.querySelector('.aivastra-tryon__heading');
     // The merchant's configured heading (default "Try It On") — swapped out
-    // for "History (N)" while the result step is showing, restored once the
-    // shopper leaves it.
+    // for "Creating Your Try-On" while generating, "Your Try-On Result" on
+    // the single-result view, and "History (N)" on the History grid, restored
+    // once the shopper leaves those steps.
     const defaultHeading = heading ? heading.textContent : '';
     const steps = {
       upload: root.querySelector('.aivastra-tryon__step--upload'),
@@ -157,11 +158,18 @@
     const historyBtn = root.querySelector('.aivastra-tryon__history-btn');
     const historyBadge = root.querySelector('.aivastra-tryon__history-badge');
     // Where backBtn should land while the result step is showing: 'flow'
-    // (the normal case — post-generation card or the History grid itself)
     // returns to the upload/ready flow via startOver(); 'history' means the
     // shopper drilled into a single tile from the History grid, so back
     // should pop one level to the grid instead of leaving history entirely.
     let resultBackTarget = 'flow';
+    // The entry currently shown in the single-card result view (fresh
+    // generation or a History tile) — kept so the History button can restore
+    // it when back leaves the grid it opened.
+    let currentResultEntry = null;
+    // Snapshot of { backTarget, entry } taken when the History button is
+    // pressed from a single-card view, so backBtn can pop the grid back to
+    // exactly that card instead of always leaving via startOver().
+    let historyReturn = null;
     const HISTORY_STORAGE_KEY = 'aivastra_tryon_history';
 
     const CLIENT_ID_STORAGE_KEY = 'aivastra_client_id';
@@ -429,6 +437,7 @@
     function syncHeaderButton() {
       const onResult = steps.result ? !steps.result.hidden : false;
       const onHistoryGrid = onResult && !!resultList?.classList.contains(RESULT_LIST_GRID_CLASS);
+      const onProgress = steps.progress ? !steps.progress.hidden : false;
       const count = getHistory().length;
       if (backBtn) backBtn.hidden = !onResult;
       if (historyBtn) historyBtn.hidden = onHistoryGrid || count === 0;
@@ -436,7 +445,15 @@
         historyBadge.hidden = count === 0;
         historyBadge.textContent = String(count);
       }
-      if (heading) heading.textContent = onHistoryGrid ? `History (${count})` : defaultHeading;
+      if (heading) {
+        heading.textContent = onHistoryGrid
+          ? `History (${count})`
+          : onResult
+            ? 'Your Try-On Result'
+            : onProgress
+              ? 'Creating Your Try-On'
+              : defaultHeading;
+      }
     }
 
     // Fires each time a job completes. resultUrl is a presigned R2 URL (1h
@@ -749,6 +766,7 @@
     // to Cart / Share — used both right after a fresh generation and when a
     // History tile is tapped.
     function renderSingleResult(entry) {
+      currentResultEntry = entry;
       if (modalContent) modalContent.classList.remove('aivastra-tryon__modal-content--history');
       if (!resultList) return;
       resultList.classList.remove(RESULT_LIST_GRID_CLASS);
@@ -768,11 +786,21 @@
 
     // backBtn's behavior depends on how the shopper got to the result step:
     // popping one level back to the History grid when they drilled into a
-    // tile, otherwise leaving the result feed entirely for the main flow.
+    // tile, restoring the single card they were viewing when they opened the
+    // grid via the History button, or otherwise leaving the result feed
+    // entirely for the main flow.
     async function handleBack() {
       if (resultBackTarget === 'history') {
         resultBackTarget = 'flow';
         await renderResultList();
+        showStep('result');
+        return;
+      }
+      if (resultBackTarget === 'entry' && historyReturn) {
+        const { backTarget, entry } = historyReturn;
+        historyReturn = null;
+        resultBackTarget = backTarget;
+        renderSingleResult(entry);
         showStep('result');
         return;
       }
@@ -1123,7 +1151,19 @@
     if (changePhotoBtn) changePhotoBtn.addEventListener('click', () => fileInput.click());
     if (historyBtn) {
       historyBtn.addEventListener('click', async () => {
-        resultBackTarget = 'flow';
+        // Opened from a single card (fresh generation or a tile detail)?
+        // Remember it — and what its own back target was — so backBtn pops
+        // the grid back to that exact card instead of always leaving via
+        // startOver().
+        const onResultView = steps.result ? !steps.result.hidden : false;
+        const onGrid = onResultView && !!resultList?.classList.contains(RESULT_LIST_GRID_CLASS);
+        if (onResultView && !onGrid && currentResultEntry) {
+          historyReturn = { backTarget: resultBackTarget, entry: currentResultEntry };
+          resultBackTarget = 'entry';
+        } else {
+          historyReturn = null;
+          resultBackTarget = 'flow';
+        }
         await renderResultList();
         showStep('result');
       });
