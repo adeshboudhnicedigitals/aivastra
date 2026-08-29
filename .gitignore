@@ -59,3 +59,9 @@ affected.json
 /docs/audits/open-findings.md
 /men garments
 /womens garments
+
+# Local GPU benchmarking scratch: workflows under test, their input fixtures, and
+# generated renders. Not part of the application — the GPU boxes run ComfyUI only and
+# share no code with this repo. Harness, findings and per-box records live in the
+# separate `aivastra-gpu` repo.
+/gpubenchmarking/
