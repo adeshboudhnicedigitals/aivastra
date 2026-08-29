@@ -66,6 +66,11 @@ class Aivastra_Widget_Loader
             'widgetKey' => $widgetKey,
             'apiBase' => self::API_BASE,
             'category' => $category,
+            // Add to Cart posts to WordPress's own admin-ajax.php, not the
+            // Aivastra API — WooCommerce cart state lives here, not on the
+            // dev-API. See Aivastra_Cart_Ajax.
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'addToCartNonce' => wp_create_nonce(Aivastra_Cart_Ajax::NONCE_ACTION),
         ]));
 
         echo '<button type="button" id="aivastra-tryon-button" class="aivastra-tryon-button">' .

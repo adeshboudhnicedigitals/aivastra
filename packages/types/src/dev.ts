@@ -5,6 +5,19 @@ export const DevJobStatus = z.enum(['QUEUED', 'RUNNING', 'COMPLETED', 'FAILED'])
 export const DevTryonResponse = z.object({
   jobId: z.string().uuid(),
   status: DevJobStatus,
+  // The stored key for the uploaded person photo — lets a caller offer
+  // "reuse this photo" on a later job without re-uploading it (see
+  // POST /v1/dev/photo/preview). Omitted for callers where that doesn't
+  // apply (e.g. the saree-mannequin route has no person photo).
+  personKey: z.string().optional(),
+});
+
+export const DevPhotoPreviewRequest = z.object({
+  personKey: z.string().min(1),
+});
+
+export const DevPhotoPreviewResponse = z.object({
+  previewUrl: z.string().url(),
 });
 
 export const DevJobResponse = z.object({

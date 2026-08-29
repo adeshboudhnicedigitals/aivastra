@@ -29,9 +29,10 @@ function identity(over: Partial<{ sub: string; email: string; name: string }> = 
 }
 
 describe('upsertGoogleUser', () => {
-  it('creates a passwordless verified user with a credits row', async () => {
+  it('creates a passwordless verified user with a credits row, flagged as new', async () => {
     const g = identity();
-    const userId = await app.db.transaction((tx) => upsertGoogleUser(tx, g, 0));
+    const { userId, isNewUser } = await app.db.transaction((tx) => upsertGoogleUser(tx, g, 0));
+    expect(isNewUser).toBe(true);
 
     const [user] = await app.db.select().from(schema.users).where(eq(schema.users.id, userId));
     expect(user?.email).toBe(g.email);
@@ -46,7 +47,7 @@ describe('upsertGoogleUser', () => {
   });
 
   it('grants the free plan credits and writes a FREE_TRIAL ledger row', async () => {
-    const userId = await app.db.transaction((tx) => upsertGoogleUser(tx, identity(), 25));
+    const { userId } = await app.db.transaction((tx) => upsertGoogleUser(tx, identity(), 25));
     const [credits] = await app.db
       .select()
       .from(schema.userCredits)
@@ -61,29 +62,34 @@ describe('upsertGoogleUser', () => {
     expect(ledger[0]?.reason).toBe('FREE_TRIAL');
   });
 
-  it('returns the same user for a repeat login with the same provider id', async () => {
+  it('returns the same user for a repeat login with the same provider id, no longer flagged as new', async () => {
     const g = identity();
     const first = await app.db.transaction((tx) => upsertGoogleUser(tx, g, 0));
+    expect(first.isNewUser).toBe(true);
     const second = await app.db.transaction((tx) => upsertGoogleUser(tx, g, 0));
-    expect(second).toBe(first);
+    expect(second.userId).toBe(first.userId);
+    expect(second.isNewUser).toBe(false);
 
     const links = await app.db
       .select()
       .from(schema.oauthAccounts)
-      .where(eq(schema.oauthAccounts.userId, first));
+      .where(eq(schema.oauthAccounts.userId, first.userId));
     expect(links).toHaveLength(1);
   });
 
-  it('links Google onto an existing password account with the same email', async () => {
+  it('links Google onto an existing password account with the same email, not flagged as new', async () => {
     const email = `existing-${randomUUID()}@example.com`;
     const [existing] = await app.db
       .insert(schema.users)
       .values({ email, displayName: 'Password User', passwordHash: 'x', emailVerified: false })
       .returning();
 
-    const userId = await app.db.transaction((tx) => upsertGoogleUser(tx, identity({ email }), 0));
+    const { userId, isNewUser } = await app.db.transaction((tx) =>
+      upsertGoogleUser(tx, identity({ email }), 0),
+    );
 
     expect(userId).toBe(existing?.id);
+    expect(isNewUser).toBe(false);
     const [after] = await app.db.select().from(schema.users).where(eq(schema.users.id, userId));
     expect(after?.emailVerified).toBe(true);
     expect(after?.passwordHash).toBe('x');

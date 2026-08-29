@@ -51,8 +51,8 @@ const AIVASTRA_PRICE_RANGES = [
 ];
 
 const AIVASTRA_SOURCE_ROOTS = [
-    'Men' => '/import/men',
-    'Women' => '/import/women',
+    'Men' => '/home/aivastra-wpdemo/import/men',
+    'Women' => '/home/aivastra-wpdemo/import/women',
 ];
 
 function aivastra_get_or_create_term(string $name, string $slug, int $parentId): int

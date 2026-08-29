@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { sendWelcomeEmail } from '../../lib/mailer.js';
 import { resolveCampaignId } from './campaign.js';
 import { resolveFreeCredits, upsertGoogleUser } from './google-upsert.js';
 import { createSessionTokens } from './tokens.js';
@@ -132,7 +133,7 @@ export async function googleAuthRoutes(app: FastifyInstance) {
       picture?: string;
     };
 
-    const userId = await app.db.transaction(async (tx) => {
+    const { userId, isNewUser } = await app.db.transaction(async (tx) => {
       const campaignId = await resolveCampaignId(tx, src);
       const freeCredits = await resolveFreeCredits(tx, campaignId);
       return upsertGoogleUser(
@@ -147,6 +148,15 @@ export async function googleAuthRoutes(app: FastifyInstance) {
         campaignId,
       );
     });
+
+    if (isNewUser) {
+      try {
+        await sendWelcomeEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, googleUser.email);
+      } catch (err) {
+        app.log.error({ err }, 'Failed to send welcome email');
+      }
+    }
+
     // Issue one-time OTP for web handoff
     const otp = randomUUID();
     await app.redis.set(`oauth:otp:${otp}`, userId, 'EX', 60);
