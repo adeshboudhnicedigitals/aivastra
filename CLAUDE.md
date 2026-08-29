@@ -25,6 +25,13 @@ source. Some traps that have actually bitten:
 | Whether tests cover something | run them | the presence of a test file |
 | Applied migrations | `drizzle.__drizzle_migrations` | the journal alone |
 
+**GPU workers are a separate system.** The 7 GPU VPSs run ComfyUI only — no code from this repo
+is installed on them, and nothing CI builds is deployed to them. The dispatcher reaches them over a
+Cloudflare tunnel, and the only record of one here is a `workers` row. Their profiling, runbook,
+per-box inventory and ComfyUI authoring rules live in the **`aivastra-gpu`** repo. What stays here
+is the template ↔ patcher contract: `workflow_templates.jsonContent` is this repo's data and
+`apps/dispatcher/src/workflow/patcher.ts` breaks if node IDs drift.
+
 **State that lives outside the repo.** A large share of this system's behaviour
 is configured in dashboards no deploy touches: Shopify Partner Dashboard (app
 handle, per-plan prices, trial days, welcome/redirect URLs, plan descriptions per
@@ -212,9 +219,16 @@ Three services with a hard boundary at the Redis Stream:
    presigned URL** (bypassing api), then POST job metadata and open SSE for
    progress.
 
-Worker connectivity: each ComfyUI VPS runs `cloudflared`; no inbound ports. The
-health monitor probes `/system_stats` every 15s and sets `worker:health:{id}`
-with a 30s TTL — expired means unhealthy means no routing.
+Worker connectivity: **unverified — do not rely on the description below.** This
+file long stated that each ComfyUI VPS runs `cloudflared` with no inbound ports.
+Direct measurement on 2026-08-30 contradicts that on both boxes we can reach
+(gpu1, gpu3): `cloudflared` is inactive with zero processes, while `0.0.0.0:80`,
+`:443` and `:8443` are bound and a `comfyui-auth.service` is running. What
+actually terminates those ports has not been confirmed, so no replacement claim
+is made here. Establish it before depending on it — tracked in `aivastra-gpu`
+(`boxes/gpu1.md`, `boxes/gpu3.md`). The health monitor probes `/system_stats`
+every 15s and sets `worker:health:{id}` with a 30s TTL — expired means unhealthy
+means no routing.
 
 Job input model: 1 user-uploaded garment + `faceId` + `backgroundId` + `poseId`
 (all admin-curated) + optional `lowerCatalogId` / `shoeCatalogId`. Every ID must
@@ -527,6 +541,7 @@ self-hosted MinIO, not Cloudflare R2 — see Stack above.
 | Shopify app config | `apps/shopify-extension/shopify.app.toml` (+ `.staging.toml`, `.dev.toml`) |
 | CI / deploy | `.github/workflows/ci.yml`, `scripts/ci/detect-affected.mts` |
 | Design doc | `docs/virtual-tryon-system-design.md` |
+| GPU workers (separate repo) | `aivastra-gpu` — profiling, runbook, per-box inventory, ComfyUI authoring rules |
 | Version control rules | `docs/version-control.md` |
 | Open findings | `docs/audits/open-findings.md` |
 
