@@ -1197,8 +1197,17 @@
         throw err;
       }
       if (res.status === 402) {
-        showErrorWithMessage('Try-on is temporarily unavailable, please check back later.');
-        throw new Error('try-on unavailable');
+        // Tagged, not painted here: every other branch in this function throws
+        // and lets proceedWithPhoto's catch call showErrorWithMessage exactly
+        // once. This branch used to call it directly AND throw a plain Error —
+        // the throw then reached proceedWithPhoto's catch, matched none of its
+        // tags, and fell to the generic "try a different photo" fallback,
+        // which overwrites showErrorWithMessage's target unconditionally. The
+        // first message painted for a frame and was clobbered before any
+        // shopper could read it.
+        const err = new Error('try-on unavailable');
+        err.userMessage = 'Try-on is temporarily unavailable, please check back later.';
+        throw err;
       }
       if (res.status === 403) {
         // Two different 403s reach here and they need opposite handling, so the
