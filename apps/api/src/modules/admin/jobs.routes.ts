@@ -6,7 +6,9 @@ import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { verifyPassword } from '../auth/service.js';
 import { refund } from '../credits/ledger.js';
+import { refundStoreAndMarkCancelled } from '../credits/shopify-ledger.js';
 import { adminStreamHandler } from '../jobs/sse.js';
+import { releaseStoreDailySlot } from '../shopify/limits.js';
 import { recordAudit } from './audit.js';
 import { requireAdmin, requirePermission } from './guard.js';
 import { jobTypeSql } from './job-type.js';
@@ -53,6 +55,59 @@ const DeleteAssetsBody = z.object({
 });
 
 const TERMINAL_JOB_STATUSES = ['COMPLETED', 'FAILED', 'CANCELLED'] as const;
+
+/**
+ * Tell a storefront shopper their try-on was cancelled.
+ *
+ * The channel must match the one `shopifyCustomerRoutes`' SSE handler
+ * subscribes to (`sse:events:store:{storeId}`), and the payload shape must
+ * match what `transitionJob` publishes, since the widget parses both with the
+ * same code. Swallows its own errors: a Redis blip must not fail an admin
+ * cancel whose refund has already committed.
+ */
+/**
+ * Give a cancelled store-billed job its daily-cap slot back.
+ *
+ * An admin cancel means the try-on never ran, so it must stop counting against
+ * the merchant's self-configured ceiling — the same reasoning as the
+ * dispatcher's failure path (see apps/dispatcher/src/shopify/store-cap.ts).
+ * The key was pinned onto job_inputs.params at creation; a job without one
+ * (uncapped store, or created before this shipped) is a no-op.
+ *
+ * Never throws: the refund has already committed by the time this runs, and a
+ * Redis blip must not turn a successful cancel into a 500.
+ */
+async function releaseCapSlotForJob(
+  app: FastifyInstance,
+  jobId: string,
+  params: unknown,
+): Promise<void> {
+  const capKey = (params as { storeCapKey?: unknown } | null)?.storeCapKey;
+  if (typeof capKey !== 'string' || capKey.length === 0) return;
+  try {
+    await releaseStoreDailySlot(app.redis, capKey, jobId);
+  } catch (err) {
+    app.log.error(
+      { err, jobId, capKey },
+      'store daily cap slot release failed — slot stays reserved until the 48h key expiry',
+    );
+  }
+}
+
+async function publishStoreCancelled(
+  app: FastifyInstance,
+  shopifyStoreId: string,
+  jobId: string,
+): Promise<void> {
+  try {
+    await app.redis.publish(
+      `sse:events:store:${shopifyStoreId}`,
+      JSON.stringify({ jobId, userId: '', type: 'STATUS', status: 'CANCELLED' }),
+    );
+  } catch (err) {
+    app.log.warn({ err, jobId, shopifyStoreId }, 'shopify cancel SSE publish failed');
+  }
+}
 
 /**
  * Deletes one R2 object if a key is given. Never throws — a failed delete is
@@ -138,6 +193,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
           ilike(sql`${schema.jobs.id}::text`, `%${search}%`),
           ilike(schema.users.email, `%${search}%`),
           ilike(schema.users.username, `%${search}%`),
+          ilike(schema.shopifyStores.shopEmail, `%${search}%`),
         ) as ReturnType<typeof eq>,
       );
     }
@@ -150,6 +206,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       .from(schema.jobs)
       .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
       .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+      .leftJoin(schema.shopifyStores, eq(schema.shopifyStores.id, schema.jobs.shopifyStoreId))
       .where(where);
 
     const rows = await app.db
@@ -158,6 +215,8 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         status: schema.jobs.status,
         userId: schema.jobs.userId,
         userEmail: schema.users.email,
+        shopEmail: schema.shopifyStores.shopEmail,
+        shopDomain: schema.shopifyStores.shopDomain,
         workerId: schema.jobs.workerId,
         priority: schema.jobs.priority,
         creditsCharged: schema.jobs.creditsCharged,
@@ -181,6 +240,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       .from(schema.jobs)
       .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
       .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+      .leftJoin(schema.shopifyStores, eq(schema.shopifyStores.id, schema.jobs.shopifyStoreId))
       .leftJoin(schema.modelFaces, eq(schema.modelFaces.id, schema.jobInputs.faceId))
       .leftJoin(
         schema.modelBackgrounds,
@@ -230,6 +290,8 @@ export async function adminJobsRoutes(app: FastifyInstance) {
           status: schema.jobs.status,
           userId: schema.jobs.userId,
           userEmail: schema.users.email,
+          shopEmail: schema.shopifyStores.shopEmail,
+          shopDomain: schema.shopifyStores.shopDomain,
           workerId: schema.jobs.workerId,
           priority: schema.jobs.priority,
           creditsCharged: schema.jobs.creditsCharged,
@@ -266,6 +328,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         .from(schema.jobs)
         .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
         .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+        .leftJoin(schema.shopifyStores, eq(schema.shopifyStores.id, schema.jobs.shopifyStoreId))
         .leftJoin(schema.modelFaces, eq(schema.modelFaces.id, schema.jobInputs.faceId))
         .leftJoin(
           schema.modelBackgrounds,
@@ -379,12 +442,39 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       .select({
         id: schema.jobs.id,
         userId: schema.jobs.userId,
+        shopifyStoreId: schema.jobs.shopifyStoreId,
         creditsCharged: schema.jobs.creditsCharged,
+        params: schema.jobInputs.params,
       })
       .from(schema.jobs)
+      // LEFT, not INNER: a job with no inputs row must still be flushed and
+      // refunded; only its cap slot is lost.
+      .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
       .where(eq(schema.jobs.status, 'QUEUED'));
 
     if (queued.length === 0) return { flushed: 0 };
+
+    // Store-billed jobs first, one transaction each. They carry no userId, so
+    // the user-ledger refund below skips them entirely — before this branch a
+    // flush cancelled every queued Shopify job without returning a single
+    // credit. refundStoreAndMarkCancelled claims the status transition itself,
+    // so it has to run before the bulk UPDATE moves the row out from under its
+    // guard.
+    for (const j of queued) {
+      if (!j.shopifyStoreId) continue;
+      const { compensated } = await refundStoreAndMarkCancelled(
+        app.db,
+        j.shopifyStoreId,
+        j.creditsCharged,
+        j.id,
+        'REFUND_ADMIN_CANCEL',
+        'ADMIN_FLUSH',
+      );
+      if (compensated) {
+        await releaseCapSlotForJob(app, j.id, j.params);
+        await publishStoreCancelled(app, j.shopifyStoreId, j.id);
+      }
+    }
 
     await app.db
       .update(schema.jobs)
@@ -440,6 +530,37 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, id));
       if (!job) throw new AppError('NOT_FOUND', 404, 'no job');
       if (['COMPLETED', 'CANCELLED'].includes(job.status)) return { ok: true };
+
+      // Store-billed Shopify job: no userId, so the user-ledger refund below
+      // would silently skip it and leave the merchant paying for a generation
+      // that never ran. The helper does the status flip and the refund in one
+      // transaction, unlike the user path below — worth it here because a
+      // cancel can race the dispatcher's own terminal transition.
+      if (job.shopifyStoreId) {
+        const { compensated } = await refundStoreAndMarkCancelled(
+          app.db,
+          job.shopifyStoreId,
+          job.creditsCharged,
+          id,
+          'REFUND_ADMIN_CANCEL',
+          'ADMIN_CANCEL',
+        );
+        // Only announce a transition we actually made. The storefront widget
+        // holds an open SSE stream kept alive by 15s heartbeats, so without
+        // this it waits out its full 6-minute deadline before telling the
+        // shopper anything. Best-effort, after the transaction: a dropped
+        // publish costs the shopper that wait, never the refund.
+        if (compensated) {
+          const [inputs] = await app.db
+            .select({ params: schema.jobInputs.params })
+            .from(schema.jobInputs)
+            .where(eq(schema.jobInputs.jobId, id));
+          await releaseCapSlotForJob(app, id, inputs?.params);
+          await publishStoreCancelled(app, job.shopifyStoreId, id);
+        }
+        return { ok: true };
+      }
+
       await app.db
         .update(schema.jobs)
         .set({ status: 'CANCELLED', errorCode: 'ADMIN_CANCEL' })

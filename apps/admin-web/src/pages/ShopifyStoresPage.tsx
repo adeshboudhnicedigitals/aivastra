@@ -6,6 +6,7 @@ import { apiErrorMessage, apiFetch } from '../lib/data';
 interface ShopifyStore {
   id: string;
   shopDomain: string;
+  shopEmail: string | null;
   balance: number;
   installedAt: string;
   uninstalledAt: string | null;
@@ -410,6 +411,7 @@ export default function ShopifyStoresPage({ toast }: Props) {
               <thead>
                 <tr>
                   <th>Shop domain</th>
+                  <th>Email</th>
                   <th style={{ textAlign: 'right' }}>Balance</th>
                   <th>Installed</th>
                   <th>Uninstalled</th>
@@ -424,6 +426,9 @@ export default function ShopifyStoresPage({ toast }: Props) {
                     title={`View ${store.shopDomain} credit activity`}
                   >
                     <td style={{ fontWeight: 500 }}>{store.shopDomain}</td>
+                    <td style={{ color: store.shopEmail ? undefined : 'var(--muted)' }}>
+                      {store.shopEmail ?? '—'}
+                    </td>
                     <td style={{ textAlign: 'right' }}>{store.balance.toLocaleString()}</td>
                     <td>{formatDate(store.installedAt)}</td>
                     <td>{formatDate(store.uninstalledAt)}</td>
@@ -526,6 +531,27 @@ export default function ShopifyStoresPage({ toast }: Props) {
                         <span style={{ fontSize: 12, color: 'var(--muted)' }}>Balance:</span>
                         <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>
                           {store.balance.toLocaleString()} credits
+                        </span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: 8,
+                        }}
+                      >
+                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>Email:</span>
+                        <span
+                          style={{
+                            fontSize: 12,
+                            color: store.shopEmail ? 'var(--ink)' : 'var(--muted)',
+                            wordBreak: 'break-all',
+                            textAlign: 'right',
+                          }}
+                        >
+                          {store.shopEmail ?? '—'}
                         </span>
                       </div>
 

@@ -402,6 +402,10 @@
   justify-content: center;
 }
 
+.aivastra-tryon__step--email {
+  justify-content: center;
+}
+
 .aivastra-tryon__step--pending,
 .aivastra-tryon__step--error {
   align-items: center;

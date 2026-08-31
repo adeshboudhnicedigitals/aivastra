@@ -11,6 +11,7 @@ const base = {
   emailCapturedAt: null,
   firstSeenAt: new Date(),
   lastSeenAt: new Date(),
+  redactionRequestedAt: null,
 };
 
 describe('countingIdentity', () => {

@@ -3,6 +3,110 @@
   const SSE_MAX_WAIT_MS = 6 * 60 * 1000;
   const SSE_RECONNECT_DELAY_MS = 1000;
 
+  // Mirrors Zod 3's own `z.string().email()` regex, which is what actually
+  // guards the API (`email: z.string().email()` in packages/types/widget.ts).
+  // The previous check here was `value.indexOf('@') >= 1`, which is far looser:
+  // "john@company", "me@localhost" and "x@y.z" all passed it and were then
+  // rejected server-side as a 400, surfacing to the shopper as "make sure it's
+  // a clear JPG or PNG" with no route back to the email field. The server stays
+  // authoritative — this only exists so the common typo is caught in the one
+  // place the shopper can actually fix it.
+  const EMAIL_RE =
+    /^(?!\.)(?!.*\.\.)([A-Z0-9_'+\-.]*)[A-Z0-9_+-]@([A-Z0-9][A-Z0-9-]*\.)+[A-Z]{2,}$/i;
+
+  // Upper bounds for every network call on the generation path. A fetch that
+  // never settles is worse here than one that fails outright: generationInFlight
+  // is released in a `finally`, so a hung request leaves it stuck true and the
+  // modal shows the progress step for the rest of the session — reopening
+  // cannot recover, because that guard exists precisely to stop a second
+  // charge. A rejection at least reaches an error step with a retry button.
+  //
+  // The upload gets its own, much larger bound: it carries up to
+  // MAX_PHOTO_BYTES over whatever connection the shopper is on, where the rest
+  // are small JSON round-trips. Still far below the presigned URL's own 600s
+  // life, so a PUT that outlives this was never going to land.
+  const REQUEST_TIMEOUT_MS = 15 * 1000;
+  const UPLOAD_TIMEOUT_MS = 3 * 60 * 1000;
+
+  // Job creation is the call that spends a credit, and a timeout on it is
+  // ambiguous in a way the others are not — the job may exist and be charged
+  // for on the far side of a connection that died. There is no idempotency key
+  // on this endpoint to make a retry safe, so the bound is set well past any
+  // plausible server-side duration (the route is a transaction and an XADD)
+  // and only trips on a connection that is genuinely gone.
+  const CREATE_JOB_TIMEOUT_MS = 45 * 1000;
+
+  // A status GET that fails is retried this many times before the caller gives
+  // up on this round and lets the outer wait loop try again. See pollJobStatus.
+  const STATUS_RETRY_ATTEMPTS = 4;
+  const STATUS_RETRY_BASE_DELAY_MS = 1000;
+
+  const delay = (ms) =>
+    new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    });
+
+  /**
+   * A v4-shaped uuid, without assuming crypto.randomUUID exists.
+   *
+   * It is absent on iOS Safari before 15.4 and in any non-secure context. The
+   * previous code called it inside a catch block that was itself meant to
+   * handle storage being unavailable, so on such a browser the catch threw —
+   * during init, before a single listener was attached, leaving a Try It On
+   * button that did nothing at all with data-aivastra-initialized already set.
+   *
+   * The shape matters: the API validates clientId as `z.string().uuid()` and
+   * 400s anything else. Math.random is an acceptable last resort because this
+   * id is explicitly a UX limiter, not a security control (see getClientId) —
+   * the store daily cap is what actually holds.
+   */
+  function randomUuid() {
+    try {
+      if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+      }
+      if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+        const bytes = crypto.getRandomValues(new Uint8Array(16));
+        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        const hex = [];
+        for (let i = 0; i < 16; i++) hex.push(bytes[i].toString(16).padStart(2, '0'));
+        return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex.slice(6, 8).join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10, 16).join('')}`;
+      }
+    } catch (_err) {
+      /* fall through to the Math.random form below */
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+    });
+  }
+
+  /**
+   * fetch with a hard upper bound, rejecting with `timedOut: true` when the
+   * bound is what stopped it (as opposed to a genuine network error).
+   */
+  function fetchWithTimeout(url, options, timeoutMs) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      controller.abort();
+    }, timeoutMs);
+    return fetch(url, { ...options, signal: controller.signal })
+      .catch((err) => {
+        // Distinguish our own abort from one the caller/browser raised, so a
+        // timeout can be reported as a timeout rather than a generic failure.
+        if (controller.signal.aborted) {
+          const timeoutErr = new Error(`request timed out after ${timeoutMs}ms`);
+          timeoutErr.timedOut = true;
+          throw timeoutErr;
+        }
+        throw err;
+      })
+      .finally(() => {
+        clearTimeout(timer);
+      });
+  }
+
   function initWidget(root) {
     if (root.dataset.aivastraInitialized === 'true') return;
     root.dataset.aivastraInitialized = 'true';
@@ -12,7 +116,11 @@
     const productTitle = root.dataset.productTitle || '';
     const productUrl = root.dataset.productUrl || '';
     const productImage = root.dataset.productImage || '';
-    const apiBase = root.dataset.apiBase.replace(/\/$/, '');
+    // Defaulted rather than dereferenced: a missing data-api-base used to throw
+    // a TypeError here, killing init before any listener was attached. An empty
+    // base only costs the SSE stream, which waitForResult already falls back
+    // from to polling on the App Proxy path.
+    const apiBase = (root.dataset.apiBase || '').replace(/\/$/, '');
     // SEC-7.1: same-origin path Shopify's App Proxy forwards to the API,
     // HMAC-signed by Shopify itself — no widgetKey header needed on these
     // calls. Fixed by shopify.app.toml's [app_proxy] (prefix "apps", subpath
@@ -46,7 +154,7 @@
       email: root.querySelector('.aivastra-tryon__step--email'),
     };
 
-    // Rotates through the generating-page copy while a job is in flight.
+    // Advances through the generating-page copy while a job is in flight.
     // Empty when the merchant set a custom generatingText — tryon-button.liquid
     // renders a single static line in that case instead of this list, so their
     // customization isn't silently overridden.
@@ -136,6 +244,18 @@
       if (code === 'RATE_LIMITED' || code === 'RATE_LIMIT') {
         return 'Lots of people are trying this on right now. Please wait a moment and try again.';
       }
+      // The store's own setup is wrong or the app is no longer installed:
+      // a rejected App Proxy signature, an uninstalled/unknown shop, a stale
+      // widget key, or a storefront origin missing from the store's allowlist.
+      // Nothing the shopper does changes any of it, so this must not be the
+      // photo copy — that sent them re-cropping and re-uploading forever
+      // against a wall only the merchant can move. Deliberately makes no
+      // "check back later" promise either: unlike running out of credits, this
+      // does not fix itself with time. The merchant-facing signal is the
+      // server-side warn in shopify-widget-auth.ts, not anything shown here.
+      if (status === 401 || code === 'ORIGIN_NOT_ALLOWED') {
+        return "Try-on isn't available on this store right now.";
+      }
       if (status === 413 && backendMessage) {
         const capitalized = backendMessage.charAt(0).toUpperCase() + backendMessage.slice(1);
         return `${capitalized}. Please choose a smaller photo and try again.`;
@@ -148,6 +268,75 @@
     const emailSubmit = root.querySelector('.aivastra-tryon__email-submit');
     const emailError = root.querySelector('.aivastra-tryon__email-error');
     let awaitingEmailForPhotoKey = null;
+
+    function showEmailError(message) {
+      if (!emailError) return;
+      emailError.textContent = message;
+      emailError.hidden = false;
+    }
+
+    /**
+     * Send the shopper back to the email field with a reason.
+     *
+     * The address is the only free-text the shopper contributes to a job, so a
+     * validation refusal is almost always about it — and the generic error step
+     * is a dead end for that: its retry button runs startOver(), which drops
+     * them back at the photo they already picked with no way to correct what
+     * was actually wrong. Re-arming awaitingEmailForPhotoKey reuses the very
+     * same upload, so a corrected address costs no second upload and no second
+     * charge.
+     */
+    function returnToEmailStep(photoKey, message) {
+      awaitingEmailForPhotoKey = photoKey;
+      showStep('email');
+      showEmailError(message);
+    }
+
+    // True from the moment a generation is confirmed until it settles.
+    //
+    // Closing the modal does NOT cancel the request — the job is already
+    // queued and the store already charged, and nothing on this side can
+    // un-charge it. So the modal has to remember: without this, reopening ran
+    // startOver(), which showed the shopper their remembered photo and a
+    // "Try It On Now" button while the first generation was still running.
+    // Clicking it charged the merchant a second time for a duplicate of a
+    // try-on already on its way — and both flows then fought over the screen.
+    let generationInFlight = false;
+
+    /**
+     * A result that finished while the modal was shut, waiting to be shown
+     * when the shopper comes back.
+     *
+     * Rendering into a hidden modal is pointless: openModal runs startOver(),
+     * which resets to upload/ready and wipes it — so someone who closed the
+     * modal to wait would return to a "pick a photo" screen, their finished
+     * try-on reachable only by then noticing the history badge. Holding it
+     * here lets openModal show the thing they were waiting for.
+     */
+    let pendingResultView = null;
+
+    /**
+     * The same idea for a failure: the message to show on reopen.
+     *
+     * More important than the result case, not less — a failed try-on leaves
+     * no history entry, so a message wiped by startOver() is gone for good and
+     * the shopper is left with no idea what became of their photo.
+     */
+    let pendingErrorView = null;
+
+    /**
+     * Whether the shopper is still watching this generation, and so should be
+     * taken to its result when it lands.
+     *
+     * False once they have navigated somewhere else on purpose — History is
+     * reachable from the progress step — because yanking someone out of what
+     * they chose to look at loses their place. The result is recorded either
+     * way; the history badge is how they find it. A closed modal is handled
+     * separately, by pendingResultView above.
+     */
+    function isAwaitingGeneration() {
+      return steps.progress ? !steps.progress.hidden : false;
+    }
 
     if (avatarImage && productImage) {
       avatarImage.src = productImage;
@@ -181,14 +370,16 @@
       try {
         let id = localStorage.getItem(CLIENT_ID_STORAGE_KEY);
         if (!id) {
-          id = crypto.randomUUID();
+          id = randomUuid();
           localStorage.setItem(CLIENT_ID_STORAGE_KEY, id);
         }
         return id;
       } catch (_err) {
         // Storage blocked (Safari private mode, etc.) — a per-call id still
         // lets the server create a row; it just won't persist across reloads.
-        return crypto.randomUUID();
+        // randomUuid, not crypto.randomUUID: this catch must not be able to
+        // throw, or init dies here and the button silently does nothing.
+        return randomUuid();
       }
     }
 
@@ -241,13 +432,10 @@
     if (emailSubmit) {
       emailSubmit.addEventListener('click', () => {
         const value = (emailInput?.value ? emailInput.value : '').trim();
-        // Cheap client-side shape check only; the server's Zod schema is the
-        // real validation.
-        if (!value || value.indexOf('@') < 1) {
-          if (emailError) {
-            emailError.textContent = 'Enter a valid email address.';
-            emailError.hidden = false;
-          }
+        // Shape check only; the server's Zod schema is still the real
+        // validation. Kept deliberately in step with it — see EMAIL_RE.
+        if (!EMAIL_RE.test(value)) {
+          showEmailError('Enter a valid email address.');
           return;
         }
         if (emailError) emailError.hidden = true;
@@ -261,7 +449,18 @@
         awaitingEmailForPhotoKey = null;
         if (key) {
           showStep('progress');
-          proceedWithPhoto(key, false);
+          // Same in-flight guard as confirmReady: this retry re-enters the
+          // same charged path, so the modal must not offer a second one while
+          // it runs. proceedWithPhoto handles its own errors, so the catch is
+          // only here to stop a stray rejection surfacing as an unhandled one.
+          generationInFlight = true;
+          proceedWithPhoto(key, false)
+            .catch((err) => {
+              console.error('[aivastra tryon] generation failed after email step', err);
+            })
+            .finally(() => {
+              generationInFlight = false;
+            });
         }
       });
     }
@@ -341,11 +540,18 @@
         return;
       }
       try {
-        const res = await fetch(`${PROXY_BASE}/customer/photo/preview`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ r2Key: remembered.r2Key }),
-        });
+        // Bounded like every other call: this one is awaited by openModal, so a
+        // hang leaves the modal open with every step hidden — an empty box the
+        // shopper can only close. The catch below falls back to the upload step.
+        const res = await fetchWithTimeout(
+          `${PROXY_BASE}/customer/photo/preview`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ r2Key: remembered.r2Key }),
+          },
+          REQUEST_TIMEOUT_MS,
+        );
         if (!res.ok) {
           forgetPhoto();
           showStep('upload');
@@ -364,14 +570,21 @@
       for (let i = 0; i < progressLines.length; i++) {
         progressLines[i].classList.toggle('is-active', i === 0);
       }
-      // Loops continuously instead of stopping on the last line — a job can
-      // take longer than one pass through the copy, and cycling back reads
-      // better than sitting frozen on "Almost there…" for the remainder.
+      // Advances one line every 6s and stops on the last line ("Almost
+      // there…") instead of looping back to the start — a job can outlast
+      // the sequence, and holding on the final message reads better than
+      // cycling back through copy that no longer matches how long this has
+      // taken.
       progressLineTimer = setInterval(() => {
+        if (progressLineIndex >= progressLines.length - 1) {
+          clearInterval(progressLineTimer);
+          progressLineTimer = null;
+          return;
+        }
         progressLines[progressLineIndex].classList.remove('is-active');
-        progressLineIndex = (progressLineIndex + 1) % progressLines.length;
+        progressLineIndex += 1;
         progressLines[progressLineIndex].classList.add('is-active');
-      }, 3200);
+      }, 6000);
     }
 
     function stopProgressRotator() {
@@ -405,6 +618,12 @@
     // Used for client-side validation failures (bad file type, oversized
     // photo) as well as the 402 "try-on unavailable" case below.
     function showErrorWithMessage(message) {
+      // Nobody is looking, and openModal's startOver() would wipe the error
+      // step before they were. Hold it and show it when they return.
+      if (modal.hidden) {
+        pendingErrorView = message;
+        return;
+      }
       showStep('error');
       const errorStep = steps.error;
       if (errorStep) {
@@ -554,11 +773,17 @@
       if (errorEl) errorEl.hidden = true;
 
       try {
-        const res = await fetch('/cart/add.js', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ items: [{ id: variantId, quantity: 1 }] }),
-        });
+        // Bounded so a stalled request can't leave the button disabled forever
+        // with no error shown — the catch below re-enables it.
+        const res = await fetchWithTimeout(
+          '/cart/add.js',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items: [{ id: variantId, quantity: 1 }] }),
+          },
+          REQUEST_TIMEOUT_MS,
+        );
 
         if (!res.ok) {
           // Sold-out and every other refusal comes back as a 422 with a human
@@ -851,6 +1076,34 @@
     function openModal() {
       trackEvent('button_click');
       modal.hidden = false;
+      // Show the generation they already paid for, not a fresh CTA to buy
+      // another one. startOver() would reset to upload/ready and re-offer the
+      // remembered photo — see generationInFlight.
+      if (generationInFlight) {
+        showStep('progress');
+        return;
+      }
+      // Failed while they were away. Checked before the result below purely
+      // for clarity — a generation ends one way or the other, so only one of
+      // the two can ever be set.
+      if (pendingErrorView) {
+        const message = pendingErrorView;
+        pendingErrorView = null;
+        showErrorWithMessage(message);
+        return;
+      }
+      // Finished while they were away: show it instead of the upload screen.
+      // trackEvent fires here rather than at completion because this is the
+      // moment it is actually seen.
+      if (pendingResultView) {
+        const entry = pendingResultView;
+        pendingResultView = null;
+        resultBackTarget = 'flow';
+        renderSingleResult(entry);
+        showStep('result');
+        trackEvent('result_view');
+        return;
+      }
       startOver();
     }
 
@@ -859,11 +1112,15 @@
     }
 
     async function uploadPhoto(file) {
-      const presignRes = await fetch(`${PROXY_BASE}/customer/presign`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contentType: file.type, contentLength: file.size, clientId }),
-      });
+      const presignRes = await fetchWithTimeout(
+        `${PROXY_BASE}/customer/presign`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contentType: file.type, contentLength: file.size, clientId }),
+        },
+        REQUEST_TIMEOUT_MS,
+      );
       if (!presignRes.ok) {
         // 4xx here means the API rejected this specific photo (e.g. content
         // type) or rate-limited this store; a 5xx is our own infra. Either
@@ -885,44 +1142,84 @@
       const uploadUrl = body.uploadUrl;
       const r2Key = body.r2Key;
 
-      const putRes = await fetch(uploadUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': file.type },
-        body: file,
-      });
+      const putRes = await fetchWithTimeout(
+        uploadUrl,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': file.type },
+          body: file,
+        },
+        UPLOAD_TIMEOUT_MS,
+      );
       if (!putRes.ok) throw new Error('upload failed');
       return r2Key;
     }
 
     async function createJob(customerPhotoKey) {
-      const res = await fetch(`${PROXY_BASE}/customer/jobs`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          shopifyProductId: productId,
-          customerPhotoKey: customerPhotoKey,
-          clientId,
-          ...(shopifyCustomerId ? { shopifyCustomerId } : {}),
-          // Gated on the shopper having submitted the email step, not merely on
-          // having an address: `shopperEmail` is prefilled from Liquid for any
-          // logged-in customer, so keying off it captured their address on the
-          // very first try-on without ever showing them the consent checkbox.
-          ...(emailConfirmedByShopper && shopperEmail
-            ? { email: shopperEmail, emailConsent: shopperEmailConsent }
-            : {}),
-        }),
-      });
+      // Whether this request carries a shopper-supplied address, which decides
+      // whether a VALIDATION refusal below can be attributed to it.
+      const sentEmail = !!(emailConfirmedByShopper && shopperEmail);
+      let res;
+      try {
+        res = await fetchWithTimeout(
+          `${PROXY_BASE}/customer/jobs`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              shopifyProductId: productId,
+              customerPhotoKey: customerPhotoKey,
+              clientId,
+              ...(shopifyCustomerId ? { shopifyCustomerId } : {}),
+              // Gated on the shopper having submitted the email step, not merely on
+              // having an address: `shopperEmail` is prefilled from Liquid for any
+              // logged-in customer, so keying off it captured their address on the
+              // very first try-on without ever showing them the consent checkbox.
+              ...(sentEmail ? { email: shopperEmail, emailConsent: shopperEmailConsent } : {}),
+            }),
+          },
+          CREATE_JOB_TIMEOUT_MS,
+        );
+      } catch (err) {
+        // This is the charging call, and a timeout is genuinely ambiguous: the
+        // request may have reached the API, deducted a credit and queued the
+        // job before the connection died. Nothing here can tell. So the copy
+        // deliberately does NOT say "you haven't been charged" — unlike
+        // ENQUEUE_FAIL below, where the server refunds in the same transaction
+        // and the claim is true — and it steers away from an immediate retry
+        // that could pay for the same try-on twice.
+        if (err?.timedOut) {
+          err.userMessage =
+            "We couldn't confirm your try-on started. Please wait a moment before trying again.";
+        }
+        throw err;
+      }
       if (res.status === 402) {
         showErrorWithMessage('Try-on is temporarily unavailable, please check back later.');
         throw new Error('try-on unavailable');
       }
       if (res.status === 403) {
+        // Two different 403s reach here and they need opposite handling, so the
+        // code — not the status — decides. FORBIDDEN means this upload is gone
+        // (its 600s ownership record lapsed), and forgetting the remembered
+        // photo is the correct, self-healing response. ORIGIN_NOT_ALLOWED means
+        // the store's allowlist doesn't cover this storefront, where forgetting
+        // the photo fixes nothing and re-uploading hits the identical wall.
+        const errBody = await res.json().catch(() => ({}));
+        if (errBody?.error?.code === 'ORIGIN_NOT_ALLOWED') {
+          const err = new Error('origin not allowed');
+          err.userMessage = friendlyClientErrorMessage(403, 'ORIGIN_NOT_ALLOWED');
+          throw err;
+        }
         const err = new Error('upload session expired or not owned');
         err.expiredReuse = true;
         throw err;
       }
+      // A 401 needs no branch of its own: it falls through to the generic !res.ok
+      // handler below, which maps it through friendlyClientErrorMessage. Only
+      // 403 needs intercepting here, because expiredReuse short-circuits it.
       if (res.status === 202) {
         const body = await res.json().catch(() => ({}));
         return { pending: true, reason: body.reason, message: body.message };
@@ -938,6 +1235,15 @@
           // wrong suggestion for an infra outage.
           err.userMessage =
             "We're experiencing high demand right now. You haven't been charged — please try again in a moment.";
+        } else if (code === 'VALIDATION' && sentEmail) {
+          // The address is the only free-text field the shopper contributes,
+          // and EMAIL_RE is only a mirror of the server's rule, not the rule
+          // itself — so the two can still disagree. The flag routes them back
+          // to the email step (see returnToEmailStep); the message is the
+          // fallback for when the modal is shut and there is no field to
+          // return them to. Either way it must not be the photo copy.
+          err.emailRejected = true;
+          err.userMessage = "That email address wasn't accepted. Please check it and try again.";
         } else if (res.status < 500) {
           // Same as uploadPhoto: never show the backend's own AppError/Zod
           // text verbatim, only map its status/code to fixed friendly copy
@@ -952,9 +1258,77 @@
     }
 
     async function fetchJobStatus(jobId) {
-      const res = await fetch(`${PROXY_BASE}/customer/jobs/${jobId}`);
-      if (!res.ok) throw new Error(`job fetch failed: ${res.status}`);
+      const res = await fetchWithTimeout(
+        `${PROXY_BASE}/customer/jobs/${jobId}`,
+        {},
+        REQUEST_TIMEOUT_MS,
+      );
+      if (!res.ok) {
+        const err = new Error(`job fetch failed: ${res.status}`);
+        // Carried so pollJobStatus can tell an answer apart from a non-answer.
+        err.status = res.status;
+        throw err;
+      }
       return res.json();
+    }
+
+    /**
+     * fetchJobStatus, but a transient failure yields null instead of throwing.
+     *
+     * The status request is not the job. A rejected fetch, a timeout or a 5xx
+     * says this one request didn't get through — it says nothing about the
+     * generation, which is running on the server either way and which the store
+     * has already been charged for. Letting such a blip escape used to abort
+     * the whole wait and tell the shopper to try a different photo, discarding
+     * a try-on that was often already finished.
+     *
+     * A 404 is the one authoritative answer: no such job for this store, and no
+     * amount of retrying changes it. That still throws.
+     */
+    async function pollJobStatus(jobId) {
+      for (let attempt = 0; attempt < STATUS_RETRY_ATTEMPTS; attempt++) {
+        try {
+          return await fetchJobStatus(jobId);
+        } catch (err) {
+          if (err?.status === 404) throw err;
+          if (attempt === STATUS_RETRY_ATTEMPTS - 1) {
+            console.warn('[aivastra tryon] job status unavailable, will retry', err);
+            return null;
+          }
+          await delay(STATUS_RETRY_BASE_DELAY_MS * (attempt + 1));
+        }
+      }
+      return null;
+    }
+
+    // Terminal job states, raised as tagged errors so proceedWithPhoto's catch
+    // can pick the right copy for each. Shared by the SSE branch and the
+    // polling fallback, which must agree on how a terminal state is reported.
+    function terminalJobError(status, errorCode) {
+      if (status === 'CANCELLED') {
+        const err = new Error(errorCode || 'job cancelled');
+        err.jobCancelled = true;
+        return err;
+      }
+      const err = new Error(errorCode || 'job failed');
+      err.jobFailed = true;
+      return err;
+    }
+
+    /**
+     * A COMPLETED job whose stored result is gone.
+     *
+     * Practically unreachable — the dispatcher writes job_outputs before it
+     * transitions to COMPLETED — but reachable in principle once retention or a
+     * GDPR erasure has removed the object. Deliberately NOT the jobFailed copy,
+     * which promises a refund that did not happen here: the generation
+     * succeeded and was charged for.
+     */
+    function missingResultError() {
+      const err = new Error('completed job has no stored result');
+      err.userMessage =
+        "Your try-on finished, but we couldn't load the image. Please contact the store if this keeps happening.";
+      return err;
     }
 
     async function waitForResult(jobId) {
@@ -995,7 +1369,15 @@
               if (!dataLine) continue;
               try {
                 const evt = JSON.parse(dataLine);
-                if (evt.status === 'COMPLETED' || evt.status === 'FAILED') {
+                // CANCELLED is terminal too — an admin can cancel a job
+                // mid-flight. Without it here the connection just sits on its
+                // 15s heartbeats until the full SSE_MAX_WAIT_MS deadline, and
+                // the shopper waits six minutes to be told something vague.
+                if (
+                  evt.status === 'COMPLETED' ||
+                  evt.status === 'FAILED' ||
+                  evt.status === 'CANCELLED'
+                ) {
                   terminal = evt;
                   break;
                 }
@@ -1012,26 +1394,32 @@
         }
 
         if (terminal) {
-          if (terminal.status === 'FAILED') {
-            const failErr = new Error(terminal.errorCode || 'job failed');
-            failErr.jobFailed = true;
-            throw failErr;
+          if (terminal.status === 'CANCELLED' || terminal.status === 'FAILED') {
+            throw terminalJobError(terminal.status, terminal.errorCode);
           }
-          const terminalBody = await fetchJobStatus(jobId);
-          return terminalBody.resultUrl;
+          // COMPLETED. The image exists and the store has been charged for it,
+          // so a status request that doesn't come back is not a reason to give
+          // up on it — fall through to the outer loop and ask again until the
+          // deadline. Only an answer ends the wait.
+          const terminalBody = await pollJobStatus(jobId);
+          if (terminalBody) {
+            if (terminalBody.resultUrl) return terminalBody.resultUrl;
+            throw missingResultError();
+          }
+        } else {
+          const body = await pollJobStatus(jobId);
+          if (body) {
+            if (body.status === 'COMPLETED') {
+              if (body.resultUrl) return body.resultUrl;
+              throw missingResultError();
+            }
+            if (body.status === 'CANCELLED' || body.status === 'FAILED') {
+              throw terminalJobError(body.status, body.errorCode);
+            }
+          }
         }
 
-        const body = await fetchJobStatus(jobId);
-        if (body.status === 'COMPLETED') return body.resultUrl;
-        if (body.status === 'FAILED') {
-          const failErr = new Error(body.errorCode || 'job failed');
-          failErr.jobFailed = true;
-          throw failErr;
-        }
-
-        await new Promise((resolve) => {
-          setTimeout(resolve, SSE_RECONNECT_DELAY_MS);
-        });
+        await delay(SSE_RECONNECT_DELAY_MS);
       }
       throw new Error('sse timed out');
     }
@@ -1056,16 +1444,42 @@
           return;
         }
         const resultUrl = await waitForResult(jobResult.jobId);
+        // Recorded unconditionally — the generation happened and was paid
+        // for, so it belongs in history however the shopper is currently
+        // using the modal. This also refreshes the history badge, which is
+        // what tells them a new result arrived when we don't navigate.
         addToHistory(resultUrl, jobResult.jobId);
-        resultBackTarget = 'flow';
-        renderSingleResult({ resultUrl, jobId: jobResult.jobId });
-        showStep('result');
-        trackEvent('result_view');
+        const entry = { resultUrl, jobId: jobResult.jobId };
+        if (modal.hidden) {
+          // Held rather than rendered — see pendingResultView.
+          pendingResultView = entry;
+        } else if (isAwaitingGeneration()) {
+          resultBackTarget = 'flow';
+          renderSingleResult(entry);
+          showStep('result');
+          trackEvent('result_view');
+        }
       } catch (err) {
+        // Failures are shown even if the shopper has navigated away, which is
+        // the opposite of what the success path above does. The asymmetry is
+        // deliberate: a finished try-on leaves an artifact they can find later
+        // from the history badge, but a failure leaves nothing at all. Staying
+        // quiet here would have them waiting on a result that is never coming,
+        // with no way to discover why — worse than interrupting them.
         if (isReuse && err?.expiredReuse) {
           forgetPhoto();
           showStep('upload');
           if (reuseExpiredNote) reuseExpiredNote.hidden = false;
+          return;
+        }
+        // The server rejected the address. Correcting it is something the
+        // shopper can actually do, so send them back to the field holding the
+        // same upload rather than to the error step, whose only exit is
+        // startOver(). Skipped when the modal is shut — there is nobody to put
+        // in front of the field, and the stashed message is the honest outcome.
+        if (err?.emailRejected && !modal.hidden) {
+          console.error('[aivastra tryon] email rejected by server', err);
+          returnToEmailStep(customerPhotoKey, 'Enter a valid email address.');
           return;
         }
         // The raw reason (err.message on a jobFailed error is the
@@ -1075,6 +1489,13 @@
         console.error('[aivastra tryon] generation failed', err);
         if (err?.userMessage) {
           showErrorWithMessage(err.userMessage);
+        } else if (err?.jobCancelled) {
+          // Deliberately not the jobFailed copy: nothing was wrong with their
+          // photo, so telling them to retake it sends them fixing a problem
+          // that doesn't exist.
+          showErrorWithMessage(
+            'This try-on was cancelled before it finished. Please try again in a moment.',
+          );
         } else if (err?.jobFailed) {
           showErrorWithMessage(
             "We couldn't generate your try-on and your credits were refunded. Try a clear, front-facing photo with good lighting.",
@@ -1099,6 +1520,11 @@
     // already picked (new upload or reuse) and is just waiting for the
     // shopper to confirm before spending a generation.
     async function confirmReady() {
+      // Second click while the first generation is still running — already
+      // queued, already charged. Nulling pendingFile below only guards a
+      // double-tap inside one modal session; reopening the modal repopulates
+      // it, which is exactly how the duplicate charge used to happen.
+      if (generationInFlight) return;
       const file = pendingFile;
       const reuseKey = pendingReuseKey;
       pendingFile = null;
@@ -1113,6 +1539,7 @@
       if (readyImage) fitToPhotoAspectRatio(progressCanvas, readyImage);
       if (file) {
         showStep('progress');
+        generationInFlight = true;
         try {
           const customerPhotoKey = await uploadPhoto(file);
           await proceedWithPhoto(customerPhotoKey, false);
@@ -1125,10 +1552,19 @@
               "We couldn't upload your photo. Please check your connection and try again.",
             );
           }
+        } finally {
+          // In `finally` so a failed upload — which never reached the API and
+          // so was never charged — releases the CTA for a genuine retry.
+          generationInFlight = false;
         }
       } else if (reuseKey) {
         showStep('progress');
-        await proceedWithPhoto(reuseKey, true);
+        generationInFlight = true;
+        try {
+          await proceedWithPhoto(reuseKey, true);
+        } finally {
+          generationInFlight = false;
+        }
       }
     }
 
@@ -1146,8 +1582,21 @@
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && lightbox && !lightbox.hidden) closeLightbox();
     });
-    if (backBtn) backBtn.addEventListener('click', handleBack);
-    if (ctaBtn) ctaBtn.addEventListener('click', confirmReady);
+    // Both handlers are async, so a throw inside one would otherwise surface
+    // as an unhandled rejection and the button would simply look dead. Their
+    // internals are individually guarded, so this is a backstop rather than a
+    // known failure — but a silent no-op button is the one outcome a shopper
+    // can neither understand nor recover from.
+    if (backBtn) {
+      backBtn.addEventListener('click', () => {
+        void handleBack().catch((err) => console.error('[aivastra tryon] back failed', err));
+      });
+    }
+    if (ctaBtn) {
+      ctaBtn.addEventListener('click', () => {
+        void confirmReady().catch((err) => console.error('[aivastra tryon] try-on failed', err));
+      });
+    }
     if (changePhotoBtn) changePhotoBtn.addEventListener('click', () => fileInput.click());
     if (historyBtn) {
       historyBtn.addEventListener('click', async () => {
@@ -1164,8 +1613,12 @@
           historyReturn = null;
           resultBackTarget = 'flow';
         }
-        await renderResultList();
-        showStep('result');
+        try {
+          await renderResultList();
+          showStep('result');
+        } catch (err) {
+          console.error('[aivastra tryon] could not open history', err);
+        }
       });
     }
     syncHeaderButton();
@@ -1193,6 +1646,16 @@
   // so it already renders where it belongs.
   const widgets = document.querySelectorAll('.aivastra-tryon');
   for (let i = 0; i < widgets.length; i++) {
-    initWidget(widgets[i]);
+    // Contained per widget. initWidget reads a good deal of merchant-controlled
+    // markup, and a theme that strips or renames one element used to throw out
+    // of the whole loop — so one broken block on a page took every other block
+    // down with it. A failure here still leaves that block's button inert
+    // (nothing is attached yet), but it is now loud in the console and its
+    // neighbours survive.
+    try {
+      initWidget(widgets[i]);
+    } catch (err) {
+      console.error('[aivastra tryon] widget failed to initialize', err);
+    }
   }
 })();
