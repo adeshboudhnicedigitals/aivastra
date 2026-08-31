@@ -16,6 +16,7 @@ import {
   isNotNull,
   isNull,
   lte,
+  ne,
   or,
   sql,
 } from 'drizzle-orm';
@@ -42,6 +43,7 @@ const PaginatedSearch = z.object({
   createdFrom: z.string().optional(),
   createdTo: z.string().optional(),
   tier: z.string().optional(),
+  excludeFree: z.coerce.boolean().optional(),
 });
 
 export async function adminUsersRoutes(app: FastifyInstance) {
@@ -52,8 +54,17 @@ export async function adminUsersRoutes(app: FastifyInstance) {
     '/admin/users',
     { preHandler: ALL, schema: { querystring: PaginatedSearch } },
     async (req) => {
-      const { page, pageSize, search, merchant, showBanned, createdFrom, createdTo, tier } =
-        req.query as z.infer<typeof PaginatedSearch>;
+      const {
+        page,
+        pageSize,
+        search,
+        merchant,
+        showBanned,
+        createdFrom,
+        createdTo,
+        tier,
+        excludeFree,
+      } = req.query as z.infer<typeof PaginatedSearch>;
 
       const searchWhere = search
         ? or(
@@ -62,7 +73,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
             ilike(schema.users.username, `%${search}%`),
           )
         : undefined;
-      const bannedWhere = showBanned === true ? undefined : eq(schema.users.isBanned, false);
+      const bannedWhere = eq(schema.users.isBanned, showBanned === true);
       const toInclusive = createdTo
         ? new Date(DATE_ONLY.test(createdTo) ? `${createdTo}T23:59:59.999Z` : createdTo)
         : undefined;
@@ -76,6 +87,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         fromInclusive ? gte(schema.users.createdAt, fromInclusive) : undefined,
         toInclusive ? lte(schema.users.createdAt, toInclusive) : undefined,
         tier ? eq(schema.users.tier, tier) : undefined,
+        excludeFree === true ? ne(schema.users.tier, 'free') : undefined,
       );
 
       const [{ total }] = await app.db
@@ -159,6 +171,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           createdFrom: query.createdFrom,
           createdTo: query.createdTo,
           tier: query.tier,
+          excludeFree: query.excludeFree,
           sortDir: query.sortDir,
         },
       });
@@ -186,6 +199,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           createdFrom: query.createdFrom,
           createdTo: query.createdTo,
           tier: query.tier,
+          excludeFree: query.excludeFree,
           sortDir: query.sortDir,
         },
       });

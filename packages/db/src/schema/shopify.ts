@@ -164,6 +164,12 @@ export const shopifyStores = pgTable('shopify_stores', {
   // would permanently suppress that level for the store.
   lastAlertLevel: text('last_alert_level'),
   lastAlertAt: timestamp('last_alert_at', { withTimezone: true }),
+  // Store-wide counterpart of shopify_shoppers.redaction_requested_at, set by
+  // shop_redact. A whole-shop purge also has to sweep jobs no shopper row
+  // points at, which no surviving shopper row would record — so the
+  // outstanding work is tracked here and cleared only once an erasure pass
+  // reports nothing left behind.
+  redactionRequestedAt: timestamp('redaction_requested_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -333,6 +339,13 @@ export const shopifyShoppers = pgTable(
     emailCapturedAt: timestamp('email_captured_at', { withTimezone: true }),
     firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    // Set when a GDPR customers_redact names this shopper, and only ever
+    // cleared by the row being deleted — a fully-erased shopper has no row.
+    // So a surviving stamped row IS the outstanding work, which is what lets
+    // the retry sweeper find it without persisting the payload's email or
+    // customer id anywhere. Re-storing the identifier a subject asked us to
+    // erase, purely to remember to erase it, would be its own violation.
+    redactionRequestedAt: timestamp('redaction_requested_at', { withTimezone: true }),
   },
   (t) => ({
     uq: unique().on(t.storeId, t.clientId),

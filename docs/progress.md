@@ -1,3 +1,288 @@
+> **Moved 2026-08-29:** the GPU audit report, optimisation runbook, ComfyUI authoring rules and
+> benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
+> with this one. The dated entries below are kept as history of the work.
+
+## 2026-08-30 — Thermal collapse is fleet-wide, not a GPU3 defect; `cloudflared` claim retracted
+
+GPU work now lives in `aivastra-gpu`; this entry records only what affects **this** repo.
+
+**Corrected in `CLAUDE.md`.** The line "each ComfyUI VPS runs `cloudflared`; no inbound ports"
+is contradicted by direct measurement on both boxes reachable from here (gpu1 `38.247.186.118`,
+gpu3 `38.247.190.246`): `cloudflared` is **inactive with zero processes**, while `0.0.0.0:80`,
+`:443` and `:8443` are bound and a `comfyui-auth.service` runs. What terminates those ports is
+**not confirmed**, so the section is now marked unverified rather than replaced with a guess.
+Anything that assumed tunnel-only egress needs rechecking.
+
+**The thermal finding generalises.** A 10-minute synthetic soak run concurrently on both boxes:
+
+| box | peak SM | steady (480–600 s) | retained | steady power | 85 °C at |
+|---|---|---|---|---|---|
+| gpu1 | 2422 MHz | 899 MHz | 37 % | 220 W of 600 | 16 s |
+| gpu3 | 2392 MHz | 862 MHz | 36 % | 209 W of 600 | 23 s |
+
+Earlier sessions framed this as GPU3 running hot and worth escalating as a defect on that unit.
+That attribution was wrong — gpu1 behaves the same. These are passively cooled Server Edition
+cards and the chassis delivers roughly a third of the airflow they are rated for. Worth more
+than every software lever combined (fp8 −22 %, `torch.compile` ~12 %, batching 10.8 %).
+
+`nvidia-smi`'s `clocks_throttle_reasons.active` stayed `0x0` in all 568 samples while the clock
+sat at ~37 % of peak. **Never build GPU health alerting on that field.**
+
+**RAM oversubscription is also fleet-wide** — gpu3 208 GB of models against 82 GB RAM, gpu1
+239 GB against 88 GB. The plan to run two ComfyUI instances on 5 of 7 boxes is bounded by
+system RAM, not VRAM: one instance is 42.5 GB RSS, so two leaves ~3 GB of page cache.
+
+**Open** — Datamart ticket to be rewritten around the paired evidence (deferred to Mon
+2026-08-31, account access needed). gpu1's second ComfyUI instance was not running at
+measurement despite being intended. Ports 7071/7072 on gpu1 unidentified.
+
+## 2026-08-29 (later) — GPU3 measurement session: four tests run, three earlier claims corrected
+
+Ran tests 1/2/4/5 plus the resolution ladder on a second ComfyUI instance (port 8340,
+`--highvram`) so production on 8339 was never touched. **No root needed** — `POST /free` on the
+production instance releases its VRAM, and a second instance runs as the ComfyUI user. This
+invalidates the "blocked on root" note in the earlier entry.
+
+**Done — the four tests**
+- **Test 1, co-residency: FAILED.** `--highvram` does not prevent eviction. Seven runs alternating
+  fp8/BF16/Q8 produced `Requested to load QwenImage` **x7** — one per run — and VRAM never stacked.
+- **Test 5, text encoder: not a lever.** `QwenImageTEModel_` loaded **once** and was never evicted
+  across the whole session; `TextEnc` 7.17 s cold then 2.1–2.7 s for every subsequent run. The
+  thrash is entirely the 20B DiT.
+- **Test 2, torch.compile: ~12 %, not −55 %.** Controlled A/B, same model, matched run-for-run:
+  KSampler 15.21→13.55, 18.96→16.30, 21.38→18.57, 22.46→19.93, 22.97→20.48 (−11 to −14 %). The
+  original −55 % compared "fp8+compile at 13.23 s" against "Q8 at 29–30 s", spanning three changes
+  at once (Q8→fp8, uncompiled→compiled, cool card→hot card). Compile costs **269.3 s** to build,
+  needs warmup + a recompile guard, and dies on eviction. Poor trade; drops down the list.
+- **Test 4, batching: 10.8 % at batch 4, not worth building.** Per image 30.30 → 28.25 → 27.04 s at
+  batch 1/2/4, and **all** of it is fixed-overhead amortisation (8.10 → 4.67 → 3.19 s/image) — the
+  sampler per image gets *worse* (22.20 → 23.85 s). No weight-streaming cost to amortise because the
+  sampler is compute-bound at this resolution. Same conclusion SageAttention pointed at.
+
+**Done — three corrections to earlier claims**
+- **The co-residency amendment was wrong; retracted.** It counted only weights (73.79 GiB of 95.6)
+  and ignored the working set. Measured: one DiT + text encoder occupies **59–64 GiB against
+  34.6 GiB of weights**, i.e. **~25 GiB of activations/allocator overhead** at 4.19 MP. So
+  BF16+fp8+TE ≈ 98 GiB > 95.6 GiB and genuinely does not fit. Q8+fp8+TE ≈ 80 GiB does.
+- **The real ceiling is system RAM, not VRAM.** 82 GB RAM, ~73 GB usable page cache, against
+  **92.9 GB of model files**. Measured with `mincore` (`~/bench/cached.py`): BF16 79.7 % cached,
+  Q8 100 %, fp8 98.6 %, **text encoder 0.0 %**. They evict each other from RAM and the encoder has
+  lost entirely — which is why a cold `CLIPTextEncode` costs 33 s (re-read from *disk*, not RAM).
+  This also explains BF16 going 152.96 → 44.66 s here versus "never improves" in the earlier table:
+  cache state, not the flag.
+- **Consequence: Finding 4 is the fix for Finding 1.** Same-model consecutive runs showed **zero**
+  reloads. Retire BF16 from the rotation and one 19.1 GiB model + the encoder stays resident in both
+  VRAM and page cache permanently. The 21 %-of-GPU-time thrash disappears with no hardware, no flag
+  and no code.
+
+**Done — thermal is bigger than everything else**
+- Five identical consecutive runs, model resident, nothing changing but temperature:
+  22.32 s @77 °C → 25.92 @80 → 27.98 @81 → 28.95 @81 → **29.63 @81**. KSampler 15.21 → 22.97 s.
+  **+51 % on the sampler, +33 % end to end, from heat alone.**
+- **Every ladder in the audit report was measured at that 81 °C plateau** — the slowest state. The
+  same fp8+ModelOnly config runs **22.32 s on a cool card** vs the 28.76 s recorded.
+- The host ran `gpu_burn` on this card the same morning: **1080–1102 MHz at 85 °C on ~230 W of
+  600 W** — 45 % of rated boost, on their own tool. Strongest evidence yet for the ticket.
+
+**Done — resolution ladder (user judged the images)**
+- Aspect held square so resolution is the only variable; all output 2048², fixed seed 777000111.
+  Interleaved and cache-defeated timings: **2048² 24.65 s vs 1448² 18.56 s = −24.7 %** (median n=3).
+- **Halving pixels only cuts the sampler 29 %, not 50 %** (14.78 → 10.51 s) — fixed cost inside it.
+- **Lower resolution re-frames the shot, it does not merely soften it.** Qwen-Image-Edit composes
+  relative to the latent canvas: at 1448² the subject is noticeably larger, and **at 1152² the feet
+  are cut off at the ankles** — a functional regression for a try-on product.
+- **User decision: 2048² preferred, 1448² acceptable.**
+- ESRGAN post-upscale rejected: Siax costs 4–5 s, so 1448²+Siax lands at 19.36 s against the
+  control's 19.58 s. If resolution pays, it pays without a post-upscale.
+- Renders + README in `gpubenchmarking/results/` (local scratch, gitignored — not committed).
+
+**Failed / Not Done**
+- First resolution attempt was confounded — sampled 1152×1536 (3:4) against a 2048² output stage,
+  changing aspect, padding and framing simultaneously. Discarded and rebuilt square.
+- First timing pass used `resrun.py`, which pins the seed but does **not** freshen input filenames,
+  so the execution cache short-circuited preprocessing on every variant after the first and
+  overstated the saving as −28 %. Re-run interleaved with `bench2.py` (which freshens): **−24.7 %**.
+- ComfyUI history for all these runs lives on the **8340** instance, so the production UI on 8339
+  shows nothing. Files are on disk in the shared output dir. History is per-instance and in-memory.
+
+**Open Questions**
+- **The ~8–9 s of non-sampler per-job overhead is now the ceiling on everything.** Identical across
+  configs (2048² ~9.2 s, 1448² ~8.3 s) and confirmed independently by the batching decomposition
+  (8.10 s/image). At 1448² it is **45 % of the whole job**. Every remaining lever attacks only the
+  sampler, which is now the smaller half. Finding 9 is the main event; next step is to instrument
+  ComfyUI's post-execution path directly rather than infer from WebSocket boundaries.
+- fp8 vs Q8 quality A/B on saree + suits was running at time of writing. Note its timings are
+  reload-confounded by design (each pair alternates models, forcing an eviction); it is a *quality*
+  comparison, not a timing one.
+
+**State that lives outside the repo (recorded per CLAUDE.md)**
+- GPU3 has **82 GB RAM** (~73 GB usable as page cache) against 92.9 GB of model files — the models
+  cannot all stay cached. This is the binding constraint on the thrash, not the 96 GB of VRAM.
+- Measured working set beyond weights: **~25 GiB** at 2048²/4.19 MP.
+- The bench harness needs ComfyUI's venv interpreter (`/home/aivastra/com/venv/bin/python3`);
+  `/usr/bin/python3` has no `aiohttp`.
+- A second ComfyUI instance can be run on any free port as the ComfyUI user with arbitrary flags —
+  no root, no systemd change. `POST /free` frees the production instance's VRAM first.
+- New scripts on GPU3: `bench2.py` (VRAM-sampling harness), `cached.py` (mincore page-cache census),
+  `mkvariants.py`/`mkladder.py`/`mkres2.py` (variant builders), `resrun.py`, `abrun.py`,
+  `analyse.py`, `phaseA.sh`, `phaseBC.sh`, `resfair.sh`.
+
+## 2026-08-29 — GPU teardown part 2: LoRA loaders, nunchaku, the VLM classifier
+
+Extends the 2026-08-28 entry below. Report updated in place with Findings 6–9:
+`docs/audits/2026-08-28-gpu-inference-performance.md`. **The `.html` companion was not
+regenerated and still covers Findings 1–5 only.**
+
+**Done**
+- **Finding 6 — `LoraLoader` clones a text encoder no LoRA touches.** Read the safetensors headers
+  of all five LoRAs the production workflows load (`~/bench/lora_census.py`, header bytes only):
+  every one is DiT-only — `transformer_blocks.*` or `diffusion_model.*`, **zero** `lora_te*` /
+  `text_model` / `model.layers.` tensors. `strength_clip` has never had anything to apply to and
+  the `CLIP` output leg is a passthrough. Converting to `LoraLoaderModelOnly` is **output-preserving
+  (max pixel difference 0 at identical seed)** and still saves **2.35 s of KSampler**
+  (20.27 → 17.92 s) by not cloning/patching a text encoder that cannot change.
+  Consolidated ladder on `ComfyUI_00115_.json`, matched thermal state:
+  **35.62 s (Q8+LoraLoader, production) → 30.14 s (fp8) → 28.76 s (fp8+ModelOnly), −19 %.**
+  `allinonetryonv5_1_.json` and `aug_25th_tryon.json` are already converted;
+  `ComfyUI_00115_fp8_modelonly.json` (repo root) is the converted reference.
+- **Finding 7 — nunchaku / SVDQuant fp4 is blocked.** SVDQuant is genuinely different from GGUF —
+  weights *and* activations are `fp4_e2m1` (group size 16) and the matmul runs natively on Blackwell
+  fp4 tensor cores, with a rank-32 BF16 low-rank branch summed in for outliers; there is no
+  dequantize-to-BF16 step, which is exactly why Q8 loses. But it has **no LoRA composition path for
+  Qwen-Image** — the Flux integration has one, the Qwen one does not, and its quantized linear layers
+  are custom modules that don't inherit PEFT's `PeftAdapterMixin`. Every workflow we run is
+  LoRA-dependent (4-step Lightning is what makes 4-step sampling viable), so this blocks adoption
+  outright. Installed in an isolated venv, `/home/administrator/nunchaku-venv` (torch 2.12.1+cu130),
+  for retest when upstream ships it. Nothing in the serving path references it.
+- **Finding 8 — the VLM garment classifier costs 1.04 s warm, 36.59 s cold.** Benchmarked
+  `allinonetryonv5_1_.json` after downloading Qwen2.5-VL-7B-Instruct (16 GB) to
+  `models/LLM/Qwen-VL/`. Bypassing the whole branch (`AILab_QwenVL` + 5 `StringCompare` + 5 switches)
+  saves only **1.47 s / ~5.9 %** — KSampler was thermally confounded across batches, so the branch was
+  isolated by comparing everything-except-KSampler (8.03 s vs 6.56 s, n=4/n=5). **This contradicted my
+  own prediction of "several seconds".** The case against it is not latency: `keep_model_loaded: true`
+  pins ~6 GB of VRAM to buy that 1.04 s, directly worsening the residency thrash that Finding 1 shows
+  costs 21 % of GPU time; any job after eviction pays 36.6 s; and on paths where `garmentTypeId` is
+  set (the studio wizard collects it, and it is *required* on `CreateSareeMannequinJobRequest`) the
+  classifier can silently contradict the user's own selection. Belongs at Shopify product-sync time.
+- **Not comparable across workflows:** `allinonetryonv5_1_` runs ~24–26 s vs the 58-node workflow's
+  ~36 s because it samples at 2 MP (`target_size: 1344`), not 2048² / 4.19 MP.
+- **Corrected Finding 1's "cannot co-reside" claim** — it was asserted, never measured, and the
+  arithmetic contradicts it. 95.6 GiB total; BF16 (38.07) + Q8 (20.27) + text encoder (15.45) =
+  73.79 GiB, leaving **21.8 GiB headroom**. The models appear to evict each other **by policy, not
+  capacity** — the service runs in default VRAM mode with no `--highvram` or reserve tuning.
+  Counter-evidence to resolve first: BF16 doesn't improve on repeat even run alone, so something is
+  already declining to hold 38 GiB resident — possibly ComfyUI-GGUF's own offload path rather than
+  base ComfyUI, in which case the fix is fp8 (plain `UNETLoader`, 19.12 GiB) rather than a flag.
+- **Rewrote the code-pipeline verdict.** The original "measured ceiling is 4.2 %" conflated two
+  questions. The 4.2 % killed one hypothesis — that *sequential node execution* costs us time — and
+  that stays dead. But a code pipeline would own **deterministic residency** (21.2 % of GPU time) and
+  **stable `torch.compile`** (KSampler 25.47 → 13.23 s), which stack to roughly 35.6 s → ~21 s, not
+  4.2 %. The argument against it is now narrower and honest: three of its four wins are obtainable
+  inside ComfyUI for ~a day (flag, core `TorchCompileModel` node, Finding 9), so the rewrite competes
+  against a post-fix baseline of maybe ~24 s, not today's 35.6 s — leaving it ~3.5 s plus batching.
+  Only batching genuinely needs new code.
+
+**Failed / Not Done**
+- **Finding 9 — ~3.5 s per job at end-of-prompt remains unexplained.** The terminal save node's span
+  measured 4.1–5.1 s (58-node, `SaveImage`) and ~4.3 s (v5.1, `Save Image With Callback`), while
+  reproducing the identical save standalone (PNG level 4 + workflow metadata + disk write) costs
+  **0.68 s**. Survived the Finding 6 conversion. Two caveats that stop this being actionable yet: the
+  original critical-path batch recorded `SaveImage` at 1.70 s, not 4–5 s, and that between-batch gap is
+  itself unexplained; and span timing is derived from WebSocket `executing` boundaries, so the last
+  node absorbs whatever ComfyUI does after it before reporting completion. **Next step: instrument
+  ComfyUI's post-execution path directly rather than inferring from WS boundaries.** At ~4 s it is the
+  second-largest line item in the faster workflow (17 %) and would pay out across all ~50 workflows.
+- **Earlier claim corrected:** I previously attributed those 4–5 s to PNG compression. That was wrong —
+  the compression is 0.68 s.
+
+**Open Questions**
+- Convert the remaining ~47 workflows to `LoraLoaderModelOnly`. Rule: zero `lora_te*` / `text_model` /
+  `model.layers.` tensors in the header ⇒ safe. Do **not** generalise by directory (see below).
+- Do the ~50 workflows share one LoRA stack? If they did, baking the stack into a custom SVDQuant
+  checkpoint would be worth costing. At least two distinct stacks are already in use, so probably not.
+- **GPU3 is still drained** (disabled from admin for benchmarking) — needs re-enabling.
+- Datamart cooling ticket still unsent.
+- **Run the `--highvram` co-residency test.** Cheapest item outstanding (~1 hr, reversible) and it
+  gates both `torch.compile` and the rewrite decision. **Blocked on root** — `administrator` has no
+  passwordless sudo, so the systemd unit's flags can't be changed.
+- Unexplored levers worth costing: **resolution** (v5.1 samples 2 MP / KSampler 16.28 s vs the
+  58-node's 4.19 MP — does 1536² + the existing upscale LoRA match 2048² direct? Potentially larger
+  than fp8 and compile combined, but it's a quality call) and **batching** (throughput only, needs
+  dispatcher work, only pays when the queue is non-empty — check real queue depth first).
+
+**State that lives outside the repo (recorded per CLAUDE.md)**
+- `/home/aivastra/com/models/loras/` holds three files no workflow references, two of which are not
+  Qwen LoRAs: `clothes.safetensors` (SDXL — 216 `lora_te1_*` text-encoder tensors),
+  `realism_lora.safetensors` (Flux — `double_blocks.*.processor.proj_lora*`), and
+  `qwen_2.5_vl_7b.safetensors` (5.5 GB — not a LoRA at all, the full text encoder misfiled into the
+  LoRA directory). Anything that walks that directory to infer "our LoRAs" will get the wrong answer.
+- New on GPU3 since the 08-28 entry: `models/LLM/Qwen-VL/Qwen2.5-VL-7B-Instruct` (16 GB, disk now
+  64 %) and `/home/administrator/nunchaku-venv`. Both inert — no template or serving path uses them.
+- `~/bench/lora_census.py` dumps any LoRA's tensor namespace from its safetensors header.
+
+## 2026-08-28 — GPU inference performance teardown (GPU3): the executor was never the bottleneck
+
+Full report: `docs/audits/2026-08-28-gpu-inference-performance.md` (+ `.html` with charts).
+Support ticket: `docs/audits/2026-08-28-datamart-thermal-ticket.md`.
+
+**Done**
+- **Profiled GPU3 end to end** — 462 production prompts over 7 days plus 38 controlled replays, with
+  per-node timings taken over ComfyUI's WebSocket (the dispatcher polls `/history` and ignores the WS,
+  so no per-node timing was being captured anywhere before this).
+- **Disproved the premise behind the planned code-based inference pipeline.** Critical-path analysis:
+  measured wall clock 35.97 s vs sum-of-node-times 36.12 s (within noise — ComfyUI adds no measurable
+  scheduling overhead) vs critical path 34.62 s. **A perfectly parallel executor saves 1.5 s of 36 s
+  (4.2 %).** `KSampler` alone is 84 % of the critical path. A rewrite is not a latency lever.
+- **Fixed: DWPose was running on CPU.** `onnxruntime` and `onnxruntime-gpu` were both installed in
+  ComfyUI's venv; the CPU package's libs won and no `CUDAExecutionProvider` was registered. Removed the
+  CPU package, reinstalled the GPU build `--no-deps`, and added `site-packages/_cuda_preload.py` +
+  `zz_cuda_preload.pth` (the CUDA EP dlopens `libcudart`/`libcublas`/`libcurand` by soname, and those
+  ship inside the `nvidia` pip packages, not on the system loader path). `yolox_l` inference
+  3,300 ms → **7.9 ms**; `DWPreprocessor` in the live service 3.71 s → **0.41 s**. Rollback documented.
+- **Reclaimed 142.2 GB** of unused Flux weights (no template or repo source referenced them; only manual
+  GUI experiments did). Disk 91 % → 54 %, which also restores page-cache headroom for model loads.
+- **Measured fp8 vs Q8 GGUF.** `qwen_image_edit_2511_fp8mixed` (same 2511 model, native `F8_E4M3`)
+  vs `qwen-image-edit-2511-Q8_0.gguf`, matched thermal state: KSampler 29.6 → 23.0 s, end to end
+  36.4 → 30.3 s (**−17 %**). Quality equivalent at 1:1 (mean abs diff 6.6 %, all of it
+  sampler-trajectory divergence, no banding/posterization). Model downloaded to GPU3 but **not wired
+  into any template**.
+- **Measured both sampler levers inside ComfyUI** (no rewrite needed): SageAttention **rejected** —
+  1.16× on attention, which is ~10 % of KSampler → ~1.5 % overall. `torch.compile` via the core
+  `TorchCompileModel` node gives KSampler **13.23 s** (−55 % vs Q8) *when the model stays resident*,
+  but 204–235 s when it doesn't.
+
+**Findings — external / not yet fixed**
+- **Manual workflow testing evicts the production model.** Templates are already Q8; authoring happens
+  by hand in the GUI against the 39 GB BF16 GGUF *on the production box*. With Q8 (21 GB) + the 15 GB
+  text encoder these can't co-reside, so each session evicts the production model. **21.2 % of all GPU
+  execution time over 7 days** (6,995 s) went to reloads. Production medians: **107.0 s** for jobs
+  hitting a reload (n=192) vs **36.6 s** for those that don't (n=270). Secondary concern: validating on
+  BF16 while shipping Q8 means signed-off output ≠ served output.
+- **The GPU is thermally saturated.** Under sustained load the card holds 85–88 °C by dropping its SM
+  clock 2422 → ~1450 MHz while drawing only 250–280 W of 600 W. `GPU Max Operating T.Limit Temp: 0 C`
+  (at the ceiling), `Shutdown T.Limit: -5 C`. Costs ~40 % of KSampler on every job. Passively cooled
+  card in a KVM guest — chassis airflow is Datamart's. Ticket drafted.
+- **Ordering matters:** `torch.compile` deployed *before* the thrash fix is ~7× worse, because eviction
+  destroys the compiled graph and recompiling 20B params costs 200–290 s. Correct order is
+  thrash → fp8 → compile, giving **36.5 s → 30.3 s → 23.4 s (−36 %)** inside ComfyUI.
+
+**Open Questions**
+- Where should manual workflow authoring run — a second box, or author against Q8 so testing matches
+  production?
+- Widen the fp8 quality A/B across saree, two-piece and suits before switching templates.
+- Worth building the throwaway diffusers denoise-loop benchmark (~1 day) to establish the floor against
+  the measured 13.23 s? Would settle the rewrite question with a number rather than inference.
+- **Template drift:** `templates/tryon-upper.json` still carries a ControlNet and a 1 MP latent; the
+  live workflow has neither and samples at 2048² / 4.19 MP (confirmed deliberate, for quality). The
+  repo is no longer a faithful record of what production executes.
+
+**State that lives outside the repo (recorded per CLAUDE.md)**
+- GPU3 = Datamart-hosted QEMU/KVM guest, RTX PRO 6000 Blackwell 96 GB. ComfyUI at
+  `/home/aivastra/com`, systemd unit `comfyui.service` (`User=administrator`, `Restart=always`),
+  listening on `127.0.0.1:8339`. No passwordless sudo for `administrator`, so the unit's CLI flags
+  (e.g. `--use-sage-attention`) cannot be changed without root.
+- Benchmark harness and raw per-run JSON live in `~/bench` on GPU3.
+
 ## 2026-08-27 — WooCommerce Demo Storefront: Real Navigation, Homepage & Fresh-Install Fixes
 
 **Done**

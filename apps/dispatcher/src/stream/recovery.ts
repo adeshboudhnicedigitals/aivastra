@@ -53,7 +53,15 @@ export async function recoverPendingJobs(
           const v = fields[i + 1];
           if (k !== undefined && v !== undefined) fieldMap[k] = v;
         }
-        if (!fieldMap.jobId || !fieldMap.userId) {
+        // jobId alone is required. Store-billed Shopify jobs and merchant
+        // widget jobs are enqueued with no userId field at all — they bill
+        // shopify_store_credits / the merchant's owning user, both resolved
+        // from the job row, not the stream message. Requiring one here ACKed
+        // their message away and stranded the job in QUEUED forever: the
+        // sweeper only reaps PREPROCESSING/GENERATING/UPLOADING, so nothing
+        // else would ever fail or refund it. Mirrors the live consumer path
+        // in stream/loop.ts, which defaults a missing userId to ''.
+        if (!fieldMap.jobId) {
           await redis.xack(stream, GROUP, messageId);
           continue;
         }
@@ -62,7 +70,7 @@ export async function recoverPendingJobs(
         await processJob(
           cfg,
           fieldMap.jobId,
-          fieldMap.userId,
+          fieldMap.userId ?? '',
           stream,
           messageId,
           Number.isFinite(retryCount) ? retryCount : 0,

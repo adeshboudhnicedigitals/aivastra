@@ -49,6 +49,11 @@ interface JobDetail extends Job {
   regenerateReason?: string | null;
 }
 
+/** Platform user email, falling back to the Shopify merchant's contact email for shopify-sourced jobs. */
+function jobContactEmail(j: Job): string | null {
+  return j.userEmail ?? j.shopEmail ?? null;
+}
+
 function EventRow({ ev }: { ev: JobEvent }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -562,7 +567,7 @@ export default function JobsPage({ onNav, toast }: Props) {
               {j.id}
             </h1>
             <p className="lede">
-              {j.userEmail ?? j.userId} &middot; Created {fmtTs(j.createdAt)}
+              {jobContactEmail(j) ?? j.userId} &middot; Created {fmtTs(j.createdAt)}
             </p>
           </div>
           <div className="head-tools">
@@ -608,7 +613,8 @@ export default function JobsPage({ onNav, toast }: Props) {
         ) : (
           <>
             <div className="kv-grid-2-col" style={{ marginBottom: 20 }}>
-              <KV k="User" v={j.userEmail ?? '—'} />
+              <KV k="User" v={jobContactEmail(j) ?? '—'} />
+              {j.shopDomain && <KV k="Shop" v={j.shopDomain} />}
               <KV k="Job Type" v={<JobTypeBadge jobType={j.jobType} />} />
               <KV k="Status" v={<StatusBadge status={j.status} />} />
               <KV k="Credits charged" v={String(j.creditsCharged)} />
@@ -1418,7 +1424,12 @@ export default function JobsPage({ onNav, toast }: Props) {
                       </span>
                     </td>
                     <td>
-                      <span className="semi">{j.userEmail ?? '—'}</span>
+                      <span className="semi">{jobContactEmail(j) ?? '—'}</span>
+                      {j.shopDomain && (
+                        <div className="sub" style={{ fontSize: 11 }}>
+                          {j.shopDomain}
+                        </div>
+                      )}
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
@@ -1555,7 +1566,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                             fontWeight: 600,
                           }}
                         >
-                          {j.userEmail ?? 'No user email'}
+                          {jobContactEmail(j) ?? 'No user email'}
                         </div>
                         <div
                           className="sub"
@@ -1627,7 +1638,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                           }}
                         >
                           <span style={{ color: 'var(--muted)' }}>User Mail</span>
-                          <span className="semi">{j.userEmail ?? '—'}</span>
+                          <span className="semi">{jobContactEmail(j) ?? '—'}</span>
                         </div>
                         <div
                           style={{
