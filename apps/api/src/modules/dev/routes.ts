@@ -8,19 +8,32 @@ import {
   DevJobParams,
   DevJobResponse,
   DevMeResponse,
+  DevPaymentOrderBody,
+  DevPaymentOrderResponse,
+  DevPaymentVerifyBody,
+  DevPaymentVerifyResponse,
   DevPhotoPreviewRequest,
   DevPhotoPreviewResponse,
+  DevPlansResponse,
   DevSareeMannequinJsonBody,
   DevTryonJsonBody,
   DevTryonResponse,
   JOB_SOURCE,
   LEGACY_JOB_SOURCE,
+  MERCHANT_PLAN_BILLING,
+  type MerchantPlanSlug,
 } from '@aivastra/types';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 import { assertWidgetKeyRateLimit } from '../../lib/widget-key-rate-limit.js';
+import {
+  createRazorpayOrder,
+  GST_RATE,
+  grantMerchantCredits,
+  verifyRazorpaySignature,
+} from '../merchant/razorpay.js';
 import { createDevTryonJob } from './create-job.js';
 import { createDevSareeMannequinJob } from './create-saree-mannequin-job.js';
 import { sniffImageMime } from './image-sniff.js';
@@ -134,6 +147,182 @@ export async function devRoutes(app: FastifyInstance) {
         .limit(1);
       if (!row) throw new AppError('NOT_FOUND', 404, 'merchant not found');
       return { credits: row.credits ?? 0 };
+    },
+  );
+
+  app.get(
+    '/v1/dev/plans',
+    {
+      // No requireDevScope() — plan pricing is public display data, same
+      // reasoning as /v1/dev/balance: the WordPress plugin only ever holds
+      // a widget-scoped key day-to-day and needs this to render its
+      // "Plans & Credits" card on every settings-page load.
+      preHandler: app.requireApiKey,
+      config: rateLimitConfig,
+      schema: {
+        tags: ['dev'],
+        summary: 'List purchasable merchant credit plans',
+        response: { 200: DevPlansResponse, 401: DevErrorResponse, 429: DevErrorResponse },
+      },
+    },
+    async () => {
+      return { plans: Object.values(MERCHANT_PLAN_BILLING) };
+    },
+  );
+
+  app.post(
+    '/v1/dev/payments/orders',
+    {
+      preHandler: [app.requireApiKey, app.requireDevScope('full')],
+      config: rateLimitConfig,
+      schema: {
+        tags: ['dev'],
+        summary: 'Create a Razorpay order for a merchant credit plan',
+        body: DevPaymentOrderBody,
+        response: {
+          200: DevPaymentOrderResponse,
+          401: DevErrorResponse,
+          403: DevErrorResponse,
+          404: DevErrorResponse,
+          429: DevErrorResponse,
+          503: DevErrorResponse,
+        },
+      },
+    },
+    async (req) => {
+      const { RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET } = app.env;
+      if (!RAZORPAY_KEY_ID || !RAZORPAY_KEY_SECRET) {
+        throw new AppError('NOT_CONFIGURED', 503, 'payments not configured');
+      }
+
+      const merchantId = req.merchantId as string;
+      const { planSlug } = req.body as { planSlug: MerchantPlanSlug };
+      const plan = MERCHANT_PLAN_BILLING[planSlug];
+      if (!plan) throw new AppError('NOT_FOUND', 404, 'plan not found');
+
+      const basePaise = plan.priceInr * 100;
+      const gstPaise = Math.round(basePaise * GST_RATE);
+      const totalPaise = basePaise + gstPaise;
+
+      const rzpOrder = await createRazorpayOrder(
+        RAZORPAY_KEY_ID,
+        RAZORPAY_KEY_SECRET,
+        totalPaise,
+        `aivastra_wp_${merchantId.slice(0, 8)}`,
+      );
+
+      await app.db.insert(schema.merchantPayments).values({
+        merchantId,
+        planId: plan.slug,
+        razorpayOrderId: rzpOrder.id,
+        basePaise,
+        gstPaise,
+        totalPaise,
+        credits: plan.credits,
+        status: 'created',
+      });
+
+      return {
+        orderId: rzpOrder.id,
+        amount: totalPaise,
+        currency: 'INR',
+        keyId: RAZORPAY_KEY_ID,
+        credits: plan.credits,
+        label: plan.name,
+      };
+    },
+  );
+
+  app.post(
+    '/v1/dev/payments/verify',
+    {
+      // Widget-scoped keys may call this: verification is a signature check
+      // against an order already tied to a specific merchant at creation
+      // time (/v1/dev/payments/orders, full-scope only) — a leaked widget
+      // key cannot forge a valid Razorpay signature, so this stays safe
+      // without a scope restriction.
+      preHandler: app.requireApiKey,
+      config: rateLimitConfig,
+      schema: {
+        tags: ['dev'],
+        summary: 'Verify a Razorpay payment and grant credits',
+        body: DevPaymentVerifyBody,
+        response: {
+          200: DevPaymentVerifyResponse,
+          400: DevErrorResponse,
+          401: DevErrorResponse,
+          403: DevErrorResponse,
+          404: DevErrorResponse,
+          429: DevErrorResponse,
+          503: DevErrorResponse,
+        },
+      },
+    },
+    async (req) => {
+      const { RAZORPAY_KEY_SECRET } = app.env;
+      if (!RAZORPAY_KEY_SECRET) {
+        throw new AppError('NOT_CONFIGURED', 503, 'payments not configured');
+      }
+
+      const merchantId = req.merchantId as string;
+      const { razorpayOrderId, razorpayPaymentId, razorpaySignature } = req.body as {
+        razorpayOrderId: string;
+        razorpayPaymentId: string;
+        razorpaySignature: string;
+      };
+
+      if (
+        !verifyRazorpaySignature(
+          RAZORPAY_KEY_SECRET,
+          razorpayOrderId,
+          razorpayPaymentId,
+          razorpaySignature,
+        )
+      ) {
+        throw new AppError('INVALID_SIGNATURE', 400, 'payment signature invalid');
+      }
+
+      const [payment] = await app.db
+        .select()
+        .from(schema.merchantPayments)
+        .where(eq(schema.merchantPayments.razorpayOrderId, razorpayOrderId));
+
+      if (!payment) throw new AppError('NOT_FOUND', 404, 'order not found');
+      if (payment.merchantId !== merchantId) throw new AppError('FORBIDDEN', 403, 'forbidden');
+
+      if (payment.status === 'paid') {
+        const [bal] = await app.db
+          .select({ balance: schema.userCredits.balance })
+          .from(schema.merchants)
+          .innerJoin(schema.userCredits, eq(schema.userCredits.userId, schema.merchants.userId))
+          .where(eq(schema.merchants.id, merchantId));
+        return {
+          ok: true as const,
+          alreadyCredited: true,
+          balance: bal?.balance ?? payment.credits,
+        };
+      }
+
+      await grantMerchantCredits(
+        app,
+        merchantId,
+        razorpayOrderId,
+        razorpayPaymentId,
+        payment.credits,
+        razorpaySignature,
+      );
+
+      const [bal] = await app.db
+        .select({ balance: schema.userCredits.balance })
+        .from(schema.merchants)
+        .innerJoin(schema.userCredits, eq(schema.userCredits.userId, schema.merchants.userId))
+        .where(eq(schema.merchants.id, merchantId));
+
+      return {
+        ok: true as const,
+        alreadyCredited: false,
+        balance: bal?.balance ?? payment.credits,
+      };
     },
   );
 

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MERCHANT_PLAN_SLUGS } from './widget.js';
 
 export const DevJobStatus = z.enum(['QUEUED', 'RUNNING', 'COMPLETED', 'FAILED']);
 
@@ -164,6 +165,45 @@ export const DevMeResponse = z.object({
 // WordPress plugin only ever hold a widget-scoped key day-to-day.
 export const DevBalanceResponse = z.object({
   credits: z.number().int(),
+});
+
+export const DevPlan = z.object({
+  slug: z.string(),
+  name: z.string(),
+  priceInr: z.number().int(),
+  credits: z.number().int(),
+});
+
+// Deliberately available to a widget-scoped key — plan pricing is public
+// display data, no different from a price list on a website.
+export const DevPlansResponse = z.object({
+  plans: z.array(DevPlan),
+});
+
+export const DevPaymentOrderBody = z.object({
+  planSlug: z.enum(MERCHANT_PLAN_SLUGS),
+});
+
+// keyId is Razorpay's public key id, not a secret — safe to hand to a browser.
+export const DevPaymentOrderResponse = z.object({
+  orderId: z.string(),
+  amount: z.number().int(),
+  currency: z.string(),
+  keyId: z.string(),
+  credits: z.number().int(),
+  label: z.string(),
+});
+
+export const DevPaymentVerifyBody = z.object({
+  razorpayOrderId: z.string().min(1),
+  razorpayPaymentId: z.string().min(1),
+  razorpaySignature: z.string().min(1),
+});
+
+export const DevPaymentVerifyResponse = z.object({
+  ok: z.literal(true),
+  alreadyCredited: z.boolean(),
+  balance: z.number().int(),
 });
 
 export const ApiKeyScope = z.enum(['full', 'widget']);
