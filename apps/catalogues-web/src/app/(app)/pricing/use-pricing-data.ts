@@ -449,6 +449,12 @@ export function usePricingData() {
       });
 
       qc.invalidateQueries({ queryKey: ['credits'] });
+      // The "Credits Remaining X / Y" banner's denominator is derived from the
+      // user's tier (me) and payment history — without refreshing those too,
+      // a purchase after the first one bumps the balance but leaves the "out
+      // of" number stuck on whatever plan/payment was cached before this buy.
+      qc.invalidateQueries({ queryKey: ['me'] });
+      qc.invalidateQueries({ queryKey: ['payment-history'] });
       const bonusPercent = firstPurchaseBonusPercent;
       const bonusCredits = bonusPercent ? creditsGranted - plan.credits : 0;
       setPaymentResult({
