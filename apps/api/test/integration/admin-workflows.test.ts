@@ -752,6 +752,8 @@ describe('admin workflows - floor validation', () => {
           },
         },
         workflowType: 'regeneration',
+        facePhasePromptNode: 'negative_node',
+        garmentPhasePromptNode: 'positive_node',
       },
     });
     expect(response.statusCode).toBe(200);
@@ -1088,6 +1090,8 @@ describe('admin workflows - floor validation', () => {
           label: 'Regen test',
           jsonContent: regenJson,
           workflowType: 'regeneration',
+          facePhasePromptNode: 'negative_node',
+          garmentPhasePromptNode: 'positive_node',
         },
       });
       expect(response.statusCode).toBe(200);
@@ -1125,6 +1129,8 @@ describe('admin workflows - floor validation', () => {
           label: 'Regen first',
           jsonContent: regenJson,
           workflowType: 'regeneration',
+          facePhasePromptNode: 'negative_node',
+          garmentPhasePromptNode: 'positive_node',
         },
       });
       expect(first.statusCode).toBe(200);
@@ -1139,6 +1145,8 @@ describe('admin workflows - floor validation', () => {
           label: 'Regen second',
           jsonContent: regenJson,
           workflowType: 'regeneration',
+          facePhasePromptNode: 'negative_node',
+          garmentPhasePromptNode: 'positive_node',
         },
       });
       expect(second.statusCode).toBe(200);
@@ -1160,6 +1168,8 @@ describe('admin workflows - floor validation', () => {
           label: 'Regen A',
           jsonContent: regenJson,
           workflowType: 'regeneration',
+          facePhasePromptNode: 'negative_node',
+          garmentPhasePromptNode: 'positive_node',
         },
       });
       const firstId = first.json().id as string;
@@ -1172,6 +1182,8 @@ describe('admin workflows - floor validation', () => {
           label: 'Regen B',
           jsonContent: regenJson,
           workflowType: 'regeneration',
+          facePhasePromptNode: 'negative_node',
+          garmentPhasePromptNode: 'positive_node',
         },
       });
       const secondId = second.json().id as string;

@@ -378,17 +378,16 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
   }
 
   if (workflowType === 'regeneration') {
-    // Every node role here — source image, output, and both prompts — is
-    // auto-detectable from the workflow JSON (detectTryonMappings picks up the
-    // "positive_prompt"/"negative_prompt" titles by the same title-match pass
-    // it uses for tryon), so a manual override is optional, not required at
-    // the Zod level; a 400 fires below only if auto-detect genuinely can't
-    // resolve a role and the client didn't supply one either.
+    // Only the source-image and output nodes are auto-detected (fallback +
+    // throw) — the prompt nodes are Zod-required admin-set inputs (superRefine
+    // in packages/types/src/admin.ts), same convention as the tryon branch below.
     const { detected: autoDetected } = detectTryonMappings(body.jsonContent);
     const personNodeId = body.tryonPersonNodeId ?? autoDetected.personNodeId ?? '';
     const outputNodeId = body.tryonOutputNodeId ?? autoDetected.outputNodeId ?? '';
-    const negNode = body.facePhasePromptNode ?? autoDetected.negativePromptNode ?? '';
-    const posNode = body.garmentPhasePromptNode ?? autoDetected.positivePromptNode ?? '';
+    // biome-ignore lint/style/noNonNullAssertion: guaranteed by superRefine
+    const negNode = body.facePhasePromptNode!;
+    // biome-ignore lint/style/noNonNullAssertion: guaranteed by superRefine
+    const posNode = body.garmentPhasePromptNode!;
 
     if (!personNodeId)
       throw new AppError(
@@ -401,18 +400,6 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
         'VALIDATION',
         400,
         'Could not detect output node — set tryonOutputNodeId manually',
-      );
-    if (!negNode)
-      throw new AppError(
-        'VALIDATION',
-        400,
-        'Could not detect negative prompt node — set facePhasePromptNode manually',
-      );
-    if (!posNode)
-      throw new AppError(
-        'VALIDATION',
-        400,
-        'Could not detect reason prompt node — set garmentPhasePromptNode manually',
       );
 
     validateNodeExists(body.jsonContent, personNodeId, 'source image');

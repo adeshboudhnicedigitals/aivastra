@@ -397,12 +397,20 @@ export const CreateWorkflowBody = z
     stage1NegativePromptNode: z.string().min(1).optional(),
   })
   .superRefine((val, ctx) => {
-    // regeneration's node roles (source image, output, negative/reason prompt) are
-    // all auto-detectable from the workflow JSON via detectTryonMappings — same as
-    // the tryon branch below — so nothing is Zod-required here. extractWorkflowInsertFields
-    // still throws a 400 if any of them can't be resolved after auto-detect + manual
-    // override, it just does so at request-handling time instead of schema time.
+    // Only the two prompt-node fields are Zod-required here — tryonPersonNodeId
+    // and tryonOutputNodeId are auto-detected from the workflow JSON (with a
+    // fallback-then-throw in extractWorkflowInsertFields), same as the tryon
+    // branch below, but the prompt nodes are explicit admin-set inputs.
     if (val.workflowType === 'regeneration') {
+      for (const field of ['facePhasePromptNode', 'garmentPhasePromptNode'] as const) {
+        if (!val[field]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field],
+            message: `${field} is required for regeneration workflows`,
+          });
+        }
+      }
       return;
     }
     if (val.workflowType === 'two_stage') {
