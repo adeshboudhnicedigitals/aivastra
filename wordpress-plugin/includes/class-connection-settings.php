@@ -6,10 +6,11 @@ if (!defined('ABSPATH')) {
 }
 
 /**
- * The ONLY class that touches the plugin's wp_options row. Deliberately has
- * no method that stores a full-scoped API key — the full key is used once
- * at connect time (see Aivastra_Connection_Service) and discarded, never
- * persisted. See docs/wordpress-plugin-design.md §4.3.
+ * The ONLY class that touches the plugin's wp_options row. Persists the
+ * full-scoped API key (encrypted via Aivastra_Crypto) so the "Plans &
+ * Credits" purchase flow can create a Razorpay order without asking the
+ * merchant to re-paste it every time — see
+ * docs/superpowers/specs/2026-08-31-wordpress-plugin-credit-purchase-design.md.
  */
 class Aivastra_Connection_Settings
 {
@@ -24,6 +25,17 @@ class Aivastra_Connection_Settings
     public function get_widget_key(): ?string
     {
         return $this->all()['widget_key'] ?? null;
+    }
+
+    /**
+     * Decrypts and returns the stored full key, or null if never connected.
+     * Used only by Aivastra_Connection_Service::create_order() — every other
+     * call in the plugin uses the widget key.
+     */
+    public function get_full_key(): ?string
+    {
+        $encrypted = $this->all()['full_key'] ?? null;
+        return is_string($encrypted) ? Aivastra_Crypto::decrypt($encrypted) : null;
     }
 
     public function get_company_name(): ?string
@@ -57,17 +69,20 @@ class Aivastra_Connection_Settings
     }
 
     /**
-     * The only write path for a successful connection — sets the widget key
-     * and the display snapshot together, in one wp_options write.
+     * The only write path for a successful connection — sets the widget key,
+     * the encrypted full key, and the display snapshot together, in one
+     * wp_options write.
      */
     public function set_widget_key_and_snapshot(
         string $widgetKey,
+        string $fullKey,
         string $companyName,
         int $credits,
         string $creditsAsOf
     ): void {
         update_option(self::OPTION_KEY, [
             'widget_key' => $widgetKey,
+            'full_key' => Aivastra_Crypto::encrypt($fullKey),
             'company_name' => $companyName,
             'credits' => $credits,
             'credits_as_of' => $creditsAsOf,

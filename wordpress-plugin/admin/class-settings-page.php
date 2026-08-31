@@ -314,7 +314,7 @@ class Aivastra_Settings_Page
             <span class="aivastra-step-number">1</span>
             <div class="aivastra-step-body">
               <label for="aivastra_full_key">Full API key</label>
-              <p class="aivastra-step-hint">From your aivastra account → API Keys. Verified once against your account, then discarded — never stored.</p>
+              <p class="aivastra-step-hint">From your aivastra account → API Keys. Verified against your account and stored securely (encrypted) so you can buy credits below without re-entering it.</p>
               <input type="password" id="aivastra_full_key" name="aivastra_full_key" class="aivastra-input" autocomplete="off" placeholder="sk_live_&hellip;">
             </div>
           </div>

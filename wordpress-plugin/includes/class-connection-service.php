@@ -6,10 +6,11 @@ if (!defined('ABSPATH')) {
 }
 
 /**
- * Verifies a full-scoped API key via GET /v1/dev/me, then discards it — only
- * the widget key and a display snapshot are ever persisted (via
- * Aivastra_Connection_Settings). The full key parameter to connect() lives
- * only in this method's local scope. See docs/wordpress-plugin-design.md §4.3.
+ * Verifies a full-scoped API key via GET /v1/dev/me, then persists it
+ * (encrypted, via Aivastra_Connection_Settings) alongside the widget key and
+ * a display snapshot — the full key is needed later to create Razorpay
+ * orders from the "Plans & Credits" card. See
+ * docs/superpowers/specs/2026-08-31-wordpress-plugin-credit-purchase-design.md.
  */
 class Aivastra_Connection_Service
 {
@@ -40,7 +41,7 @@ class Aivastra_Connection_Service
         $companyName = is_array($body) ? ($body['companyName'] ?? '') : '';
         $credits = is_array($body) ? (int) ($body['credits'] ?? 0) : 0;
 
-        $this->settings->set_widget_key_and_snapshot($widgetKey, $companyName, $credits, current_time('mysql'));
+        $this->settings->set_widget_key_and_snapshot($widgetKey, $fullKey, $companyName, $credits, current_time('mysql'));
 
         return ['ok' => true];
     }

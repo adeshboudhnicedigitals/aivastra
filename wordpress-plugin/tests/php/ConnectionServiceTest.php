@@ -19,7 +19,7 @@ final class ConnectionServiceTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_successful_connect_stores_widget_key_and_snapshot_not_the_full_key(): void
+    public function test_successful_connect_stores_widget_key_full_key_and_snapshot(): void
     {
         Functions\expect('wp_remote_get')
             ->once()
@@ -38,7 +38,7 @@ final class ConnectionServiceTest extends TestCase
         $settings = Mockery::mock(Aivastra_Connection_Settings::class);
         $settings->shouldReceive('set_widget_key_and_snapshot')
             ->once()
-            ->with('sk_live_widget', 'Acme Co', 500, '2026-08-26 00:00:00');
+            ->with('sk_live_widget', 'sk_live_full', 'Acme Co', 500, '2026-08-26 00:00:00');
 
         $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
         $result = $service->connect('sk_live_full', 'sk_live_widget');
