@@ -38,6 +38,10 @@ class Aivastra_Widget_Loader
             return;
         }
 
+        if (!Aivastra_Product_Toggle::is_enabled($product->get_id())) {
+            return;
+        }
+
         $settings = new Aivastra_Connection_Settings();
         $widgetKey = $settings->get_widget_key();
         if ($widgetKey === null) {
@@ -47,6 +51,7 @@ class Aivastra_Widget_Loader
         $imageId = $product->get_image_id();
         $imageUrl = $imageId ? wp_get_attachment_image_url($imageId, 'large') : false;
         $config = Aivastra_Widget_Config::build($product->get_id(), $product->get_name(), $imageUrl);
+        $customization = $settings->get_widget_customization();
 
         // Which try-on workflow runs is chosen server-side (dev_tryon_categories
         // slug -> workflow_templates), never by the plugin — this only resolves
@@ -71,6 +76,13 @@ class Aivastra_Widget_Loader
             // dev-API. See Aivastra_Cart_Ajax.
             'ajaxUrl' => admin_url('admin-ajax.php'),
             'addToCartNonce' => wp_create_nonce(Aivastra_Cart_Ajax::NONCE_ACTION),
+            // Merchant branding from Settings -> Aivastra Try-On -> Widget
+            // appearance. widget.js applies accentColor as a CSS custom
+            // property at init (the button and the reparented-to-<body>
+            // modal are siblings, so an inline style here couldn't cascade
+            // to both) and falls back to its own hardcoded copy for any
+            // null field.
+            'customization' => $customization,
         ]));
 
         echo '<button type="button" id="aivastra-tryon-button" class="aivastra-tryon-button">' .
