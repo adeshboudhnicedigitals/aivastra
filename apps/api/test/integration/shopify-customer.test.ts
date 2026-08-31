@@ -130,6 +130,17 @@ describe('shopify customer routes', () => {
     expect(res.statusCode).toBe(401);
   });
 
+  it('rejects presign for a content type outside the jpeg/png/webp allowlist', async () => {
+    const store = await seedStore(null);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/customer/presign',
+      headers: { 'x-widget-key': store.storeKey },
+      payload: { contentType: 'image/tiff', contentLength: 1024 },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
   it('the account/exchange route no longer exists', async () => {
     const store = await seedStore(null);
     const res = await app.inject({
