@@ -138,6 +138,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
           ilike(sql`${schema.jobs.id}::text`, `%${search}%`),
           ilike(schema.users.email, `%${search}%`),
           ilike(schema.users.username, `%${search}%`),
+          ilike(schema.shopifyStores.shopEmail, `%${search}%`),
         ) as ReturnType<typeof eq>,
       );
     }
@@ -150,6 +151,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       .from(schema.jobs)
       .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
       .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+      .leftJoin(schema.shopifyStores, eq(schema.shopifyStores.id, schema.jobs.shopifyStoreId))
       .where(where);
 
     const rows = await app.db
@@ -158,6 +160,8 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         status: schema.jobs.status,
         userId: schema.jobs.userId,
         userEmail: schema.users.email,
+        shopEmail: schema.shopifyStores.shopEmail,
+        shopDomain: schema.shopifyStores.shopDomain,
         workerId: schema.jobs.workerId,
         priority: schema.jobs.priority,
         creditsCharged: schema.jobs.creditsCharged,
@@ -181,6 +185,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       .from(schema.jobs)
       .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
       .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+      .leftJoin(schema.shopifyStores, eq(schema.shopifyStores.id, schema.jobs.shopifyStoreId))
       .leftJoin(schema.modelFaces, eq(schema.modelFaces.id, schema.jobInputs.faceId))
       .leftJoin(
         schema.modelBackgrounds,
@@ -230,6 +235,8 @@ export async function adminJobsRoutes(app: FastifyInstance) {
           status: schema.jobs.status,
           userId: schema.jobs.userId,
           userEmail: schema.users.email,
+          shopEmail: schema.shopifyStores.shopEmail,
+          shopDomain: schema.shopifyStores.shopDomain,
           workerId: schema.jobs.workerId,
           priority: schema.jobs.priority,
           creditsCharged: schema.jobs.creditsCharged,
@@ -266,6 +273,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         .from(schema.jobs)
         .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
         .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+        .leftJoin(schema.shopifyStores, eq(schema.shopifyStores.id, schema.jobs.shopifyStoreId))
         .leftJoin(schema.modelFaces, eq(schema.modelFaces.id, schema.jobInputs.faceId))
         .leftJoin(
           schema.modelBackgrounds,
@@ -440,6 +448,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, id));
       if (!job) throw new AppError('NOT_FOUND', 404, 'no job');
       if (['COMPLETED', 'CANCELLED'].includes(job.status)) return { ok: true };
+
       await app.db
         .update(schema.jobs)
         .set({ status: 'CANCELLED', errorCode: 'ADMIN_CANCEL' })

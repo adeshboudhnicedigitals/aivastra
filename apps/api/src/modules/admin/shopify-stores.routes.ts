@@ -20,6 +20,7 @@ export async function adminShopifyStoresRoutes(app: FastifyInstance) {
       .select({
         id: schema.shopifyStores.id,
         shopDomain: schema.shopifyStores.shopDomain,
+        shopEmail: schema.shopifyStores.shopEmail,
         installedAt: schema.shopifyStores.installedAt,
         uninstalledAt: schema.shopifyStores.uninstalledAt,
         balance: sql<number>`COALESCE(${schema.shopifyStoreCredits.balance}, 0)`,
