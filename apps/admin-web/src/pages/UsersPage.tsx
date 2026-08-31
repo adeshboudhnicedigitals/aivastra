@@ -1854,7 +1854,7 @@ export default function UsersPage({ onNav, toast }: Props) {
             )}
             {showBanned && (
               <span className="filter-chip">
-                Status: <strong>Including suspended/deleted</strong>
+                Status: <strong>Suspended/deleted only</strong>
                 <button
                   type="button"
                   className="filter-chip-remove"

@@ -19,7 +19,7 @@ export function exportFilterSummary(filters: UsersExportFilters): string {
   const parts: string[] = [];
   if (filters.search) parts.push(`Search: "${filters.search}"`);
   if (filters.merchantsOnly) parts.push('Merchants only');
-  if (filters.showBanned) parts.push('Including suspended');
+  if (filters.showBanned) parts.push('Suspended/deleted only');
   if (filters.createdFrom || filters.createdTo) {
     const from = filters.createdFrom ? fmtExportDate(new Date(filters.createdFrom)) : 'the start';
     const to = filters.createdTo ? fmtExportDate(new Date(filters.createdTo)) : 'now';
