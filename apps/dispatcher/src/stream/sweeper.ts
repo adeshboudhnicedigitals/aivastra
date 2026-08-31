@@ -14,6 +14,7 @@ interface StuckJob {
   id: string;
   userId: string | null;
   merchantId: string | null;
+  shopifyStoreId: string | null;
   creditsCharged: number;
 }
 
@@ -21,6 +22,7 @@ const SELECT_COLS = {
   id: schema.jobs.id,
   userId: schema.jobs.userId,
   merchantId: schema.jobs.merchantId,
+  shopifyStoreId: schema.jobs.shopifyStoreId,
   creditsCharged: schema.jobs.creditsCharged,
 };
 
@@ -61,6 +63,63 @@ export async function runSweeper(db: DB, pub: Redis, log: Logger): Promise<void>
   }
 }
 
+/**
+ * Refund a stuck Shopify job's store, then mark it FAILED.
+ *
+ * Shopify jobs are billed to `shopify_store_credits` via `shopify_store_id` and
+ * carry neither `user_id` nor `merchant_id`, so the user-ledger path below
+ * bails at its `if (!userId)` guard and would leave the store paying for a job
+ * this sweeper is about to fail. Mirrors `markShopifyFailed` in
+ * `job/processor.ts` — same idempotency key (one JOB_FAIL_REFUND row per job)
+ * and the same zero-cost guard, which keeps the admin ledger free of phantom
+ * zero-delta rows when tryon.creditCost is set to 0.
+ *
+ * `transitionJob` is passed `shopifyStoreId` (with userId '' — the convention
+ * processShopifyJob already uses) so the SSE event reaches
+ * `sse:events:store:{id}`. Without it `channelId` falls back to the empty
+ * userId and the publish is skipped entirely, leaving the storefront widget to
+ * discover the failure only via its slower polling fallback.
+ */
+async function failAndRefundShopify(
+  db: DB,
+  pub: Redis,
+  job: StuckJob,
+  shopifyStoreId: string,
+  errorCode: string,
+  log: Logger,
+): Promise<void> {
+  if (job.creditsCharged > 0) {
+    await db.transaction(async (tx) => {
+      const existing = await tx
+        .select()
+        .from(schema.shopifyCreditLedger)
+        .where(
+          and(
+            eq(schema.shopifyCreditLedger.jobId, job.id),
+            eq(schema.shopifyCreditLedger.reason, 'JOB_FAIL_REFUND'),
+          ),
+        );
+      if (existing.length) return;
+      await tx
+        .update(schema.shopifyStoreCredits)
+        .set({ balance: sql`${schema.shopifyStoreCredits.balance} + ${job.creditsCharged}` })
+        .where(eq(schema.shopifyStoreCredits.storeId, shopifyStoreId));
+      await tx.insert(schema.shopifyCreditLedger).values({
+        storeId: shopifyStoreId,
+        delta: job.creditsCharged,
+        reason: 'JOB_FAIL_REFUND',
+        jobId: job.id,
+      });
+    });
+  }
+
+  await transitionJob(db, pub, job.id, '', 'FAILED', { errorCode, shopifyStoreId }, log);
+  log.warn(
+    { jobId: job.id, shopifyStoreId, errorCode },
+    'stuck shopify job FAILED — store credits refunded',
+  );
+}
+
 /** Refund the held credit (idempotent, mirrors processor.ts) then mark the job FAILED. */
 async function failAndRefund(
   db: DB,
@@ -69,6 +128,11 @@ async function failAndRefund(
   errorCode: string,
   log: Logger,
 ): Promise<void> {
+  if (job.shopifyStoreId) {
+    await failAndRefundShopify(db, pub, job, job.shopifyStoreId, errorCode, log);
+    return;
+  }
+
   await db.transaction(async (tx) => {
     // One credit pool per human. A job's billing owner is its user_id when set;
     // kiosk jobs have user_id = null and are billed to the merchant's owning user.

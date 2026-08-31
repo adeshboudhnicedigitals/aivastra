@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { verifyPassword } from '../auth/service.js';
 import { refund } from '../credits/ledger.js';
+import { refundStoreAndMarkCancelled } from '../credits/shopify-ledger.js';
 import { adminStreamHandler } from '../jobs/sse.js';
 import { recordAudit } from './audit.js';
 import { requireAdmin, requirePermission } from './guard.js';
@@ -53,6 +54,30 @@ const DeleteAssetsBody = z.object({
 });
 
 const TERMINAL_JOB_STATUSES = ['COMPLETED', 'FAILED', 'CANCELLED'] as const;
+
+/**
+ * Tell a storefront shopper their try-on was cancelled.
+ *
+ * The channel must match the one `shopifyCustomerRoutes`' SSE handler
+ * subscribes to (`sse:events:store:{storeId}`), and the payload shape must
+ * match what `transitionJob` publishes, since the widget parses both with the
+ * same code. Swallows its own errors: a Redis blip must not fail an admin
+ * cancel whose refund has already committed.
+ */
+async function publishStoreCancelled(
+  app: FastifyInstance,
+  shopifyStoreId: string,
+  jobId: string,
+): Promise<void> {
+  try {
+    await app.redis.publish(
+      `sse:events:store:${shopifyStoreId}`,
+      JSON.stringify({ jobId, userId: '', type: 'STATUS', status: 'CANCELLED' }),
+    );
+  } catch (err) {
+    app.log.warn({ err, jobId, shopifyStoreId }, 'shopify cancel SSE publish failed');
+  }
+}
 
 /**
  * Deletes one R2 object if a key is given. Never throws — a failed delete is
@@ -387,12 +412,32 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       .select({
         id: schema.jobs.id,
         userId: schema.jobs.userId,
+        shopifyStoreId: schema.jobs.shopifyStoreId,
         creditsCharged: schema.jobs.creditsCharged,
       })
       .from(schema.jobs)
       .where(eq(schema.jobs.status, 'QUEUED'));
 
     if (queued.length === 0) return { flushed: 0 };
+
+    // Store-billed jobs first, one transaction each. They carry no userId, so
+    // the user-ledger refund below skips them entirely — before this branch a
+    // flush cancelled every queued Shopify job without returning a single
+    // credit. refundStoreAndMarkCancelled claims the status transition itself,
+    // so it has to run before the bulk UPDATE moves the row out from under its
+    // guard.
+    for (const j of queued) {
+      if (!j.shopifyStoreId) continue;
+      const { compensated } = await refundStoreAndMarkCancelled(
+        app.db,
+        j.shopifyStoreId,
+        j.creditsCharged,
+        j.id,
+        'REFUND_ADMIN_CANCEL',
+        'ADMIN_FLUSH',
+      );
+      if (compensated) await publishStoreCancelled(app, j.shopifyStoreId, j.id);
+    }
 
     await app.db
       .update(schema.jobs)
@@ -448,6 +493,29 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, id));
       if (!job) throw new AppError('NOT_FOUND', 404, 'no job');
       if (['COMPLETED', 'CANCELLED'].includes(job.status)) return { ok: true };
+
+      // Store-billed Shopify job: no userId, so the user-ledger refund below
+      // would silently skip it and leave the merchant paying for a generation
+      // that never ran. The helper does the status flip and the refund in one
+      // transaction, unlike the user path below — worth it here because a
+      // cancel can race the dispatcher's own terminal transition.
+      if (job.shopifyStoreId) {
+        const { compensated } = await refundStoreAndMarkCancelled(
+          app.db,
+          job.shopifyStoreId,
+          job.creditsCharged,
+          id,
+          'REFUND_ADMIN_CANCEL',
+          'ADMIN_CANCEL',
+        );
+        // Only announce a transition we actually made. The storefront widget
+        // holds an open SSE stream kept alive by 15s heartbeats, so without
+        // this it waits out its full 6-minute deadline before telling the
+        // shopper anything. Best-effort, after the transaction: a dropped
+        // publish costs the shopper that wait, never the refund.
+        if (compensated) await publishStoreCancelled(app, job.shopifyStoreId, id);
+        return { ok: true };
+      }
 
       await app.db
         .update(schema.jobs)
