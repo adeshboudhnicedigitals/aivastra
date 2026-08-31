@@ -551,8 +551,13 @@ export function usePricingData() {
   const currentTier = me?.tier ?? 'free';
   const balance = credits?.balance ?? 0;
   const currentPaidPlan = plans.find((plan) => plan.slug === currentTier) ?? null;
-  const latestPaidForCurrentTier =
-    paymentHistory?.payments?.find((p) => p.status === 'paid' && p.planId === currentTier) ?? null;
+  const paidPayments = paymentHistory?.payments?.filter((p) => p.status === 'paid') ?? [];
+  const latestPaidForCurrentTier = paidPayments.find((p) => p.planId === currentTier) ?? null;
+  // Credits are a shared wallet, not a per-plan cycle — every purchase adds on
+  // top of what's already there (a Starter buy then a Growth buy nets Starter's
+  // + Growth's credits, not just the latest plan's). So the "out of" total is
+  // the sum of every paid purchase's credits, not just the current tier's plan.
+  const totalPurchasedCredits = paidPayments.reduce((sum, p) => sum + p.credits, 0);
   const freeTrialGrant =
     credits?.recent?.find((e) => e.reason === 'FREE_TRIAL' && e.delta > 0)?.delta ?? null;
   const isFreeTier = currentTier === 'free';
@@ -561,7 +566,9 @@ export function usePricingData() {
     : (currentPaidPlan?.name ?? latestPaidForCurrentTier?.planName ?? currentTier);
   const planCredits: number | null = isFreeTier
     ? freeTrialGrant
-    : (currentPaidPlan?.credits ?? latestPaidForCurrentTier?.credits ?? null);
+    : paidPayments.length > 0
+      ? totalPurchasedCredits
+      : (currentPaidPlan?.credits ?? null);
   const pct =
     planCredits === null
       ? 100
