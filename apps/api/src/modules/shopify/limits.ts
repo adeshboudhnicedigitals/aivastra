@@ -3,7 +3,7 @@ import { schema } from '@aivastra/db';
 import { and, count, gte, inArray, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { countingIdentity, type ShopperRow, shopperIdFilter } from './shopper.js';
-import { storeDayKey, windowStart } from './store-day.js';
+import { formatResetTime, storeDayKey, windowEnd, windowStart } from './store-day.js';
 
 type Store = typeof schema.shopifyStores.$inferSelect;
 
@@ -77,12 +77,15 @@ export async function checkShopperLimits(
 
   const cap = limits.perShopperCap;
   if (cap != null) {
-    const since = windowStart(store.ianaTimezone, limits.perShopperWindow ?? 'week');
+    const now = new Date();
+    const window = limits.perShopperWindow ?? 'week';
+    const since = windowStart(store.ianaTimezone, window, now);
     const used = await countShopperJobs(db, shopperIds, since);
     if (used >= cap) {
+      const resetAt = windowEnd(store.ianaTimezone, window, now);
       return {
         reason: 'shopper_limit',
-        message: "You've reached your try-on limit. Check back later.",
+        message: `You've reached your try-on limit. Come back ${formatResetTime(store.ianaTimezone, resetAt)} for more free try-ons.`,
       };
     }
   }

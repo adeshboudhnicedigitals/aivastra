@@ -31,6 +31,7 @@ import {
   ShopperLimitRaceRefusal,
 } from './limits.js';
 import { resolveShopper } from './shopper.js';
+import { formatResetTime, windowEnd } from './store-day.js';
 
 const SLOT_RELEASE_MAX_ATTEMPTS = 3;
 const SLOT_RELEASE_RETRY_DELAY_MS = 100;
@@ -439,9 +440,11 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
       const slot = await reserveStoreDailySlot(app, store);
       if (!slot.ok) {
         await recordRefusal(app, storeId, 'store_limit', clientId ?? null, shopifyProductId);
-        return reply
-          .code(202)
-          .send({ reason: 'store_limit', message: "Try-on isn't available right now." });
+        const resetAt = windowEnd(store.ianaTimezone, 'day');
+        return reply.code(202).send({
+          reason: 'store_limit',
+          message: `Try-on isn't available right now. Come back ${formatResetTime(store.ianaTimezone, resetAt)}.`,
+        });
       }
 
       const jobId = randomUUID();

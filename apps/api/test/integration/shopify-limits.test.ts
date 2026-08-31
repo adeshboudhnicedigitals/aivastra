@@ -160,7 +160,7 @@ describe('shopify shopper limits', () => {
 
     expect(res.statusCode).toBe(202);
     expect(res.json().reason).toBe('store_limit');
-    expect(res.json().message).toBe("Try-on isn't available right now.");
+    expect(res.json().message).toMatch(/^Try-on isn't available right now\. Come back .+\.$/);
 
     const [credits] = await app.db
       .select()
