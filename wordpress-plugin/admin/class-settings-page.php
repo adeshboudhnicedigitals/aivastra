@@ -20,7 +20,9 @@ class Aivastra_Settings_Page
     // 'http://host.docker.internal:4000' — host.docker.internal, not
     // localhost, since this plugin runs inside the WordPress container,
     // which has its own network namespace.
-    private const API_BASE = 'https://app.aivastra.com';
+    // Public: Aivastra_Checkout_Ajax (includes/class-checkout-ajax.php) needs
+    // the same base URL and has no other way to reach it.
+    public const API_BASE = 'https://app.aivastra.com';
 
     // Two internal short-codes get a friendly rewrite; every other value in
     // $_GET['aivastra_error'] already IS a human-readable message coming
