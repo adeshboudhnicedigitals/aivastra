@@ -271,9 +271,8 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
     async (req) => {
       const storeId = req.shopifyStoreId as string;
       const { contentType, contentLength } = req.body as ShopifyCustomerPresignRequest;
-      if (!contentType.startsWith('image/')) {
-        throw new AppError('VALIDATION', 400, 'Content type must be image/*');
-      }
+      // contentType is validated against AssetContentType by the route schema —
+      // no manual check needed here.
       // No image extension on the key — Cloudflare's Hotlink Protection pattern-matches
       // image extensions in the path regardless of method and false-positives this
       // presigned PUT/OPTIONS as an image hotlink. Content-Type is passed separately
