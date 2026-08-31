@@ -718,7 +718,10 @@ describe('admin workflows - floor validation', () => {
     expect(stored.ksampler_node.inputs.denoise).toBe(1);
   });
 
-  it('POST seeds every new workflow with the 5 default regeneration reasons', async () => {
+  it('POST seeds a new regeneration workflow with the 5 default regeneration reasons', async () => {
+    // Only the dedicated 'regeneration' workflow type uses reason prompts —
+    // see the 'does not seed default regeneration reasons onto a
+    // non-regeneration workflow' test below for the 'regular' case.
     const response = await app.inject({
       method: 'POST',
       url: '/admin/workflows',
@@ -726,11 +729,29 @@ describe('admin workflows - floor validation', () => {
       payload: {
         slug: `default_reasons_${Date.now()}`,
         label: 'Default reasons',
-        jsonContent,
-        workflowType: 'regular',
-        poseNodeId: 'pose_node',
-        lowerNodeId: 'lower_node',
-        garmentPhasePromptNode: 'positive_node',
+        jsonContent: {
+          person_node: {
+            inputs: { image: '' },
+            class_type: 'LoadImage',
+            _meta: { title: 'person' },
+          },
+          positive_node: {
+            inputs: { prompt: 'default reason prompt' },
+            class_type: 'CLIPTextEncode',
+            _meta: { title: 'positive_prompt' },
+          },
+          negative_node: {
+            inputs: { text: 'default negative' },
+            class_type: 'CLIPTextEncode',
+            _meta: { title: 'negative_prompt' },
+          },
+          output_node: {
+            inputs: {},
+            class_type: 'Save Image With Callback',
+            _meta: { title: 'output' },
+          },
+        },
+        workflowType: 'regeneration',
       },
     });
     expect(response.statusCode).toBe(200);
@@ -1034,6 +1055,169 @@ describe('admin workflows - floor validation', () => {
       });
       expect(replaceAgainRes.statusCode).toBe(409);
       expect(replaceAgainRes.json().error.message).toContain('draining');
+    });
+  });
+
+  describe('regeneration workflows', () => {
+    const regenJson = {
+      person_node: { inputs: { image: '' }, class_type: 'LoadImage', _meta: { title: 'person' } },
+      positive_node: {
+        inputs: { prompt: 'default reason prompt' },
+        class_type: 'CLIPTextEncode',
+        _meta: { title: 'positive_prompt' },
+      },
+      negative_node: {
+        inputs: { text: 'default negative' },
+        class_type: 'CLIPTextEncode',
+        _meta: { title: 'negative_prompt' },
+      },
+      output_node: {
+        inputs: {},
+        class_type: 'Save Image With Callback',
+        _meta: { title: 'output' },
+      },
+    };
+
+    it('creates a regeneration workflow with auto-detected person/output/prompt nodes', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `regen_${Date.now()}`,
+          label: 'Regen test',
+          jsonContent: regenJson,
+          workflowType: 'regeneration',
+        },
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.workflowType).toBe('regeneration');
+      expect(body.tryonPersonNodeId).toBe('person_node');
+      expect(body.tryonOutputNodeId).toBe('output_node');
+    });
+
+    it('rejects a regeneration workflow with no detectable source-image node', async () => {
+      const { person_node: _drop, ...noPersonJson } = regenJson;
+      const response = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `regen_noperson_${Date.now()}`,
+          label: 'Regen no person',
+          jsonContent: noPersonJson,
+          workflowType: 'regeneration',
+          garmentPhasePromptNode: 'positive_node',
+          facePhasePromptNode: 'negative_node',
+        },
+      });
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('activating a second regeneration workflow demotes the first', async () => {
+      const first = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `regen_first_${Date.now()}`,
+          label: 'Regen first',
+          jsonContent: regenJson,
+          workflowType: 'regeneration',
+        },
+      });
+      expect(first.statusCode).toBe(200);
+      const firstId = first.json().id as string;
+
+      const second = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `regen_second_${Date.now()}`,
+          label: 'Regen second',
+          jsonContent: regenJson,
+          workflowType: 'regeneration',
+        },
+      });
+      expect(second.statusCode).toBe(200);
+
+      const [firstRow] = await app.db
+        .select()
+        .from(schema.workflowTemplates)
+        .where(eq(schema.workflowTemplates.id, firstId));
+      expect(firstRow.isActive).toBe(false);
+    });
+
+    it('reactivating a demoted regeneration workflow demotes whichever is currently active', async () => {
+      const first = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `regen_reactivate_a_${Date.now()}`,
+          label: 'Regen A',
+          jsonContent: regenJson,
+          workflowType: 'regeneration',
+        },
+      });
+      const firstId = first.json().id as string;
+      const second = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `regen_reactivate_b_${Date.now()}`,
+          label: 'Regen B',
+          jsonContent: regenJson,
+          workflowType: 'regeneration',
+        },
+      });
+      const secondId = second.json().id as string;
+
+      // Reactivate the first (currently inactive, demoted by creating the second).
+      const patchRes = await app.inject({
+        method: 'PATCH',
+        url: `/admin/workflows/${firstId}`,
+        headers,
+        payload: { isActive: true },
+      });
+      expect(patchRes.statusCode).toBe(200);
+
+      const [firstRow] = await app.db
+        .select()
+        .from(schema.workflowTemplates)
+        .where(eq(schema.workflowTemplates.id, firstId));
+      const [secondRow] = await app.db
+        .select()
+        .from(schema.workflowTemplates)
+        .where(eq(schema.workflowTemplates.id, secondId));
+      expect(firstRow.isActive).toBe(true);
+      expect(secondRow.isActive).toBe(false);
+    });
+
+    it('does not seed default regeneration reasons onto a non-regeneration workflow', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `regular_no_reasons_${Date.now()}`,
+          label: 'Regular, no reasons',
+          jsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+        },
+      });
+      expect(response.statusCode).toBe(200);
+      const [row] = await app.db
+        .select()
+        .from(schema.workflowTemplates)
+        .where(eq(schema.workflowTemplates.id, response.json().id));
+      expect(row.regenerationReasonPrompts).toEqual([]);
     });
   });
 });

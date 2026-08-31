@@ -354,7 +354,14 @@ export const CreateWorkflowBody = z
     label: z.string().min(1).max(120),
     jsonContent: z.record(z.any()),
     workflowType: z
-      .enum(['regular', 'tryon', 'saree_step1', 'saree_step1_two_input', 'two_stage'])
+      .enum([
+        'regular',
+        'tryon',
+        'saree_step1',
+        'saree_step1_two_input',
+        'two_stage',
+        'regeneration',
+      ])
       .default('regular'),
     // Regular workflow fields (required when workflowType = 'regular')
     faceNodeId: z.string().min(1).optional(),
@@ -390,6 +397,14 @@ export const CreateWorkflowBody = z
     stage1NegativePromptNode: z.string().min(1).optional(),
   })
   .superRefine((val, ctx) => {
+    // regeneration's node roles (source image, output, negative/reason prompt) are
+    // all auto-detectable from the workflow JSON via detectTryonMappings — same as
+    // the tryon branch below — so nothing is Zod-required here. extractWorkflowInsertFields
+    // still throws a 400 if any of them can't be resolved after auto-detect + manual
+    // override, it just does so at request-handling time instead of schema time.
+    if (val.workflowType === 'regeneration') {
+      return;
+    }
     if (val.workflowType === 'two_stage') {
       for (const field of [
         'faceNodeId',
@@ -475,7 +490,7 @@ export const ReplaceWorkflowBody = z.intersection(
 export const ParseWorkflowBody = z.object({
   jsonContent: z.record(z.any()),
   workflowType: z
-    .enum(['regular', 'tryon', 'saree_step1', 'saree_step1_two_input', 'two_stage'])
+    .enum(['regular', 'tryon', 'saree_step1', 'saree_step1_two_input', 'two_stage', 'regeneration'])
     .optional(),
 });
 
