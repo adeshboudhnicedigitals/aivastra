@@ -192,6 +192,51 @@ class Aivastra_Connection_Service
     }
 
     /**
+     * Reads the Analytics card's data using the stored, encrypted full key —
+     * GET /v1/dev/analytics requires full scope (aggregate business data,
+     * unlike balance/plans/categories above). `cards.tryOns` and `daily` are
+     * real (drawn from the jobs table); everything else is advisory,
+     * client-reported data from assets/widget.js's POST /v1/dev/widget-event
+     * calls — see the comment on that route in
+     * apps/api/src/modules/dev/routes.ts.
+     *
+     * @return array{ok: bool, cards?: array{tryOns:int,uniqueShoppers:int,addedToCart:int,addToCartRate:float}, daily?: array<int, array{day:string,tryOns:int}>, products?: array<int, array{productId:int,tryOns:int,uniqueShoppers:int,addedToCart:int,addToCartRate:float}>, error?: string}
+     */
+    public function get_analytics(): array
+    {
+        $fullKey = $this->settings->get_full_key();
+        if ($fullKey === null) {
+            return ['ok' => false, 'error' => 'not_connected'];
+        }
+
+        $response = wp_remote_get($this->apiBase . '/v1/dev/analytics', [
+            'headers' => ['Authorization' => 'Bearer ' . $fullKey],
+            'timeout' => 15,
+        ]);
+
+        if (is_wp_error($response)) {
+            return ['ok' => false, 'error' => 'Could not reach the aivastra API.'];
+        }
+
+        $code = wp_remote_retrieve_response_code($response);
+        if ($code !== 200) {
+            return ['ok' => false, 'error' => 'Could not load analytics (HTTP ' . $code . ').'];
+        }
+
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+        if (!is_array($body) || !isset($body['cards'], $body['daily'], $body['products'])) {
+            return ['ok' => false, 'error' => 'Unexpected response from the aivastra API.'];
+        }
+
+        return [
+            'ok' => true,
+            'cards' => $body['cards'],
+            'daily' => is_array($body['daily']) ? $body['daily'] : [],
+            'products' => is_array($body['products']) ? $body['products'] : [],
+        ];
+    }
+
+    /**
      * Verifies a completed Razorpay payment using the stored widget key —
      * POST /v1/dev/payments/verify accepts widget scope, since verification
      * is a signature check against an order already tied to this merchant.

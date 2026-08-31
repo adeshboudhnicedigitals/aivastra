@@ -69,6 +69,30 @@ class Aivastra_Connection_Settings
     }
 
     /**
+     * Merged with Aivastra_Widget_Customization::defaults() so a field never
+     * present in an older saved row (or never saved at all) still resolves to
+     * a usable value instead of null-vs-missing ambiguity.
+     *
+     * @return array{accentColor:?string,heading:?string,subheading:?string,ctaLabel:?string,addToCart:bool,addToCartLabel:?string,share:bool,shareLabel:?string}
+     */
+    public function get_widget_customization(): array
+    {
+        $stored = $this->all()['widget_customization'] ?? null;
+        return array_merge(
+            Aivastra_Widget_Customization::defaults(),
+            is_array($stored) ? $stored : []
+        );
+    }
+
+    /** @param array{accentColor:?string,heading:?string,subheading:?string,ctaLabel:?string,addToCart:bool,addToCartLabel:?string,share:bool,shareLabel:?string} $customization */
+    public function set_widget_customization(array $customization): void
+    {
+        $all = $this->all();
+        $all['widget_customization'] = $customization;
+        update_option(self::OPTION_KEY, $all);
+    }
+
+    /**
      * The only write path for a successful connection — sets the widget key,
      * the encrypted full key, and the display snapshot together, in one
      * wp_options write.

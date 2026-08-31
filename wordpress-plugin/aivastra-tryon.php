@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Aivastra Try-On
  * Description: Adds an AI virtual try-on button to WooCommerce product pages.
- * Version: 0.5.0
+ * Version: 0.5.8
  * Requires PHP: 8.1
  * Requires Plugins: woocommerce
  * License: GPL-2.0-or-later
@@ -14,15 +14,17 @@ if (!defined('ABSPATH')) {
     exit; // No direct access.
 }
 
-define('AIVASTRA_TRYON_VERSION', '0.5.0');
+define('AIVASTRA_TRYON_VERSION', '0.5.8');
 define('AIVASTRA_TRYON_DIR', plugin_dir_path(__FILE__));
 define('AIVASTRA_TRYON_URL', plugin_dir_url(__FILE__));
 
 require_once AIVASTRA_TRYON_DIR . 'includes/class-crypto.php';
+require_once AIVASTRA_TRYON_DIR . 'includes/class-widget-customization.php';
 require_once AIVASTRA_TRYON_DIR . 'includes/class-connection-settings.php';
 require_once AIVASTRA_TRYON_DIR . 'includes/class-connection-service.php';
 require_once AIVASTRA_TRYON_DIR . 'includes/class-widget-config.php';
 require_once AIVASTRA_TRYON_DIR . 'includes/class-category-mapping.php';
+require_once AIVASTRA_TRYON_DIR . 'includes/class-product-toggle.php';
 require_once AIVASTRA_TRYON_DIR . 'includes/class-cart-ajax.php';
 require_once AIVASTRA_TRYON_DIR . 'includes/class-checkout-ajax.php';
 require_once AIVASTRA_TRYON_DIR . 'admin/class-settings-page.php';
@@ -39,4 +41,5 @@ add_action('plugins_loaded', function (): void {
     Aivastra_Widget_Loader::init();
     Aivastra_Cart_Ajax::init();
     Aivastra_Checkout_Ajax::init();
+    Aivastra_Product_Toggle::init();
 });

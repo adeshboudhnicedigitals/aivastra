@@ -183,4 +183,47 @@ final class ConnectionSettingsTest extends TestCase
         $settings = new Aivastra_Connection_Settings();
         $this->assertNull($settings->get_full_key());
     }
+
+    public function test_get_widget_customization_returns_defaults_when_never_saved(): void
+    {
+        Functions\expect('get_option')->once()->andReturn([]);
+        $settings = new Aivastra_Connection_Settings();
+        $this->assertSame(Aivastra_Widget_Customization::defaults(), $settings->get_widget_customization());
+    }
+
+    public function test_get_widget_customization_merges_a_partial_stored_row_with_defaults(): void
+    {
+        Functions\expect('get_option')
+            ->once()
+            ->with('aivastra_tryon_settings', [])
+            ->andReturn(['widget_customization' => ['accentColor' => '#ff0000', 'share' => false]]);
+
+        $settings = new Aivastra_Connection_Settings();
+        $customization = $settings->get_widget_customization();
+
+        $this->assertSame('#ff0000', $customization['accentColor']);
+        $this->assertFalse($customization['share']);
+        $this->assertTrue($customization['addToCart']);
+        $this->assertNull($customization['heading']);
+    }
+
+    public function test_set_widget_customization_merges_into_the_existing_options_row(): void
+    {
+        Functions\expect('get_option')
+            ->once()
+            ->with('aivastra_tryon_settings', [])
+            ->andReturn(['widget_key' => 'sk_live_widget']);
+        Functions\expect('update_option')
+            ->once()
+            ->with('aivastra_tryon_settings', [
+                'widget_key' => 'sk_live_widget',
+                'widget_customization' => ['accentColor' => '#ff0000'],
+            ])
+            ->andReturn(true);
+
+        $settings = new Aivastra_Connection_Settings();
+        $settings->set_widget_customization(['accentColor' => '#ff0000']);
+
+        $this->addToAssertionCount(1);
+    }
 }

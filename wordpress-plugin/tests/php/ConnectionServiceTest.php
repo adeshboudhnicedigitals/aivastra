@@ -345,6 +345,80 @@ final class ConnectionServiceTest extends TestCase
         $this->assertSame(10340, $result['balance']);
     }
 
+    public function test_get_analytics_without_a_stored_full_key_does_not_call_the_api(): void
+    {
+        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
+        $settings->shouldReceive('get_full_key')->once()->andReturn(null);
+
+        Functions\expect('wp_remote_get')->never();
+
+        $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
+        $result = $service->get_analytics();
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('not_connected', $result['error']);
+    }
+
+    public function test_get_analytics_returns_cards_daily_and_products_using_the_stored_full_key(): void
+    {
+        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
+        $settings->shouldReceive('get_full_key')->once()->andReturn('sk_live_full');
+
+        Functions\expect('wp_remote_get')
+            ->once()
+            ->with(
+                'https://api.aivastra.com/v1/dev/analytics',
+                Mockery::on(fn ($args) => $args['headers']['Authorization'] === 'Bearer sk_live_full')
+            )
+            ->andReturn(['response' => ['code' => 200]]);
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+        Functions\expect('wp_remote_retrieve_response_code')->once()->andReturn(200);
+        Functions\expect('wp_remote_retrieve_body')
+            ->once()
+            ->andReturn(json_encode([
+                'cards' => ['tryOns' => 12, 'uniqueShoppers' => 5, 'addedToCart' => 3, 'addToCartRate' => 0.25],
+                'daily' => [['day' => '2026-08-30', 'tryOns' => 2]],
+                'products' => [['productId' => 7, 'tryOns' => 4, 'uniqueShoppers' => 3, 'addedToCart' => 1, 'addToCartRate' => 0.25]],
+            ]));
+
+        $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
+        $result = $service->get_analytics();
+
+        $this->assertTrue($result['ok']);
+        $this->assertSame(12, $result['cards']['tryOns']);
+        $this->assertSame([['day' => '2026-08-30', 'tryOns' => 2]], $result['daily']);
+        $this->assertSame(7, $result['products'][0]['productId']);
+    }
+
+    public function test_get_analytics_returns_not_ok_on_network_error(): void
+    {
+        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
+        $settings->shouldReceive('get_full_key')->once()->andReturn('sk_live_full');
+
+        Functions\expect('wp_remote_get')->once()->andReturn(new WP_Error('http_request_failed'));
+        Functions\expect('is_wp_error')->once()->andReturn(true);
+
+        $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
+        $result = $service->get_analytics();
+
+        $this->assertFalse($result['ok']);
+    }
+
+    public function test_get_analytics_returns_not_ok_when_the_full_key_is_rejected(): void
+    {
+        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
+        $settings->shouldReceive('get_full_key')->once()->andReturn('sk_live_full');
+
+        Functions\expect('wp_remote_get')->once()->andReturn(['response' => ['code' => 403]]);
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+        Functions\expect('wp_remote_retrieve_response_code')->once()->andReturn(403);
+
+        $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
+        $result = $service->get_analytics();
+
+        $this->assertFalse($result['ok']);
+    }
+
     public function test_verify_payment_without_a_stored_widget_key_does_not_call_the_api(): void
     {
         $settings = Mockery::mock(Aivastra_Connection_Settings::class);

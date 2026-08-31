@@ -27,6 +27,14 @@
   --aivastra-radius-control: 10px;
   --aivastra-shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px -12px rgba(15, 23, 42, 0.12);
   max-width: 720px;
+  /* WordPress core's .wrap sets a small fixed left margin, which leaves this
+     fixed-width block hugging the left edge on any screen wider than ~760px
+     instead of sitting in the middle of the admin content area. Overriding
+     with an auto left/right margin centers it instead — .wrap and this class
+     are equal-specificity single-class selectors on the same element, and
+     this stylesheet is enqueued after WordPress's own admin CSS, so this
+     declaration wins on source order without needing !important. */
+  margin: 24px auto 0;
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
@@ -37,6 +45,25 @@
   color: var(--aivastra-text-main);
   margin: 0 0 4px;
   padding: 0;
+}
+
+/* Same mark + wordmark treatment as the Logo component in
+   apps/catalogues-web/src/components/logo.tsx, so the plugin's admin screen
+   reads as the same product as the main web app. */
+.aivastra-logo-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.aivastra-logo-mark {
+  height: 28px;
+  width: auto;
+}
+
+.aivastra-logo-text {
+  height: 38px;
+  width: auto;
 }
 
 .aivastra-page-header {
@@ -237,6 +264,140 @@
   box-shadow: 0 0 0 3px var(--aivastra-accent-soft);
 }
 
+/* Widget appearance form — one row per field, label above input except the
+   two checkbox rows (toggle + its label override on the same line). */
+.aivastra-field-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.aivastra-color-input {
+  width: 56px;
+  height: 36px;
+  padding: 2px;
+  border: 1px solid var(--aivastra-border);
+  border-radius: var(--aivastra-radius-control);
+  background: var(--aivastra-surface);
+  cursor: pointer;
+}
+
+.aivastra-field-row-checkbox {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.aivastra-field-row-checkbox label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.aivastra-input-inline {
+  width: auto;
+  flex: 1;
+  min-width: 140px;
+}
+
+/* Analytics card */
+.aivastra-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.aivastra-stat-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  background: var(--aivastra-surface-subtle);
+  border: 1px solid var(--aivastra-border);
+  border-radius: var(--aivastra-radius-control);
+}
+
+.aivastra-stat-label {
+  font-size: 12px;
+  color: var(--aivastra-text-muted);
+}
+
+.aivastra-stat-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--aivastra-text-main);
+}
+
+.aivastra-analytics-subheading {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--aivastra-text-main);
+  margin: 20px 0 12px;
+}
+
+.aivastra-bar-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding-top: 8px;
+}
+
+.aivastra-bar-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.aivastra-bar-track {
+  width: 100%;
+  max-width: 22px;
+  height: 100px;
+  display: flex;
+  align-items: flex-end;
+  border-bottom: 1px solid var(--aivastra-border);
+}
+
+.aivastra-bar {
+  width: 100%;
+  background: var(--aivastra-accent);
+  border-radius: 3px 3px 0 0;
+  min-height: 2px;
+}
+
+.aivastra-bar-label {
+  font-size: 10px;
+  color: var(--aivastra-text-muted);
+  white-space: nowrap;
+}
+
+.aivastra-analytics-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.aivastra-analytics-table th,
+.aivastra-analytics-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--aivastra-border);
+}
+
+.aivastra-analytics-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--aivastra-text-muted);
+  font-weight: 600;
+}
+
 /* Buttons */
 .aivastra-btn {
   box-sizing: border-box;
@@ -282,6 +443,21 @@
   align-self: stretch;
   justify-content: center;
   margin-top: 4px;
+}
+
+/* Plan tile's Buy Now button — centered rather than stretched full-width
+   like .aivastra-btn-block, since the tile's other content (name, credits,
+   price) stays left-aligned; only the button centers. margin-top: auto
+   pushes it to the bottom of the tile uniformly even when tiles have
+   different content heights (e.g. the highlighted tile's extra badge/label
+   lines), since .aivastra-plan-tile is a column flexbox. */
+.aivastra-plan-buy-btn {
+  align-self: center;
+  margin-top: auto;
+  padding-top: 9px;
+  padding-bottom: 9px;
+  padding-left: 24px;
+  padding-right: 24px;
 }
 
 .aivastra-btn-danger-ghost {
@@ -442,9 +618,12 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 14px;
+  /* Room for the highlighted tile's badge, which floats above the tile edge. */
+  padding-top: 12px;
 }
 
 .aivastra-plan-tile {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -452,6 +631,32 @@
   background: var(--aivastra-surface-subtle);
   border: 1px solid var(--aivastra-border);
   border-radius: var(--aivastra-radius-control);
+}
+
+/* Best Value / admin-flagged plan (credit_plans.is_highlighted + .badge) —
+   same signal the consumer /pricing page already shows, not a new one
+   invented for this admin screen. */
+.aivastra-plan-tile-highlighted {
+  background: var(--aivastra-accent-soft);
+  border-color: var(--aivastra-accent);
+  box-shadow: 0 0 0 1px var(--aivastra-accent);
+}
+
+.aivastra-plan-badge {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  background: var(--aivastra-accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 999px;
+  white-space: nowrap;
 }
 
 .aivastra-plan-name {
@@ -467,8 +672,121 @@
   margin: 0;
 }
 
+.aivastra-plan-units {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--aivastra-text-subtle);
+  margin: 0;
+}
+
+.aivastra-plan-per-unit {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--aivastra-text-main);
+  margin: 0 0 8px;
+}
+
+.aivastra-btn-highlighted {
+  background: var(--aivastra-accent);
+  color: #fff;
+}
+
+.aivastra-btn-highlighted:hover {
+  background: #4f46e5;
+  color: #fff;
+}
+
 .aivastra-plan-price {
   font-size: 12.5px;
   color: var(--aivastra-text-subtle);
   margin: 0 0 8px;
+}
+
+/* Verifying-payment overlay — appended to document.body by checkout.js, so
+   it can't rely on the --aivastra-* custom properties scoped to
+   .aivastra-settings-wrap. Colors are hardcoded to match, not inherited.
+   z-index above WordPress's own admin bar (99999). */
+#aivastra-verifying-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100000;
+}
+
+.aivastra-verifying-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 16px 22px;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px -12px rgba(15, 23, 42, 0.35);
+}
+
+.aivastra-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #e2e8f0;
+  border-top-color: #6366f1;
+  border-radius: 50%;
+  animation: aivastra-spin 0.7s linear infinite;
+}
+
+@keyframes aivastra-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Support card — mirrors apps/shopify/src/pages/SupportPage.tsx's two-channel
+   layout and copy. */
+.aivastra-support-banner {
+  background: var(--aivastra-accent-soft);
+  border: 1px solid var(--aivastra-accent-border);
+  color: var(--aivastra-text-main);
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 12px 14px;
+  border-radius: var(--aivastra-radius-control);
+  margin-bottom: 18px;
+}
+
+.aivastra-support-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.aivastra-support-channel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  background: var(--aivastra-surface-subtle);
+  border: 1px solid var(--aivastra-border);
+  border-radius: var(--aivastra-radius-control);
+}
+
+.aivastra-support-channel-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--aivastra-text-main);
+  margin: 0;
+}
+
+.aivastra-support-channel-body {
+  font-size: 13px;
+  color: var(--aivastra-text-muted);
+  margin: 0 0 4px;
+}
+
+.aivastra-support-channel .aivastra-btn {
+  align-self: flex-start;
+  text-decoration: none;
 }

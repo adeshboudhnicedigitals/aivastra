@@ -51,6 +51,7 @@ class Aivastra_Settings_Page
         add_action('admin_post_aivastra_tryon_disconnect', [self::class, 'handle_disconnect']);
         add_action('admin_post_aivastra_tryon_save_category_map', [self::class, 'handle_save_category_map']);
         add_action('admin_post_aivastra_tryon_buy', [self::class, 'handle_buy']);
+        add_action('admin_post_aivastra_tryon_save_widget_customization', [self::class, 'handle_save_widget_customization']);
     }
 
     /**
@@ -277,6 +278,33 @@ class Aivastra_Settings_Page
         exit;
     }
 
+    /**
+     * Saves merchant-facing widget branding (accent color, modal copy, and
+     * the add-to-cart/share toggle+labels) that Aivastra_Widget_Loader and
+     * assets/widget.js consume at render time. Mirrors the shape of
+     * Shopify's (unused-by-its-own-embedded-admin) PATCH /v1/shopify/widget-
+     * config schema — packages/types/src/widget.ts — so the two platforms
+     * stay conceptually aligned, but this is WordPress-only storage: no
+     * backend round-trip, no metafield mirror.
+     */
+    public static function handle_save_widget_customization(): void
+    {
+        if (!current_user_can('manage_woocommerce')) {
+            wp_die(esc_html('You do not have permission to do this.'), 403);
+        }
+        check_admin_referer('aivastra_tryon_save_widget_customization');
+
+        $raw = $_POST['aivastra_widget'] ?? [];
+        $clean = Aivastra_Widget_Customization::sanitize(is_array($raw) ? $raw : []);
+        (new Aivastra_Connection_Settings())->set_widget_customization($clean);
+
+        wp_safe_redirect(add_query_arg(
+            ['page' => 'aivastra-tryon', 'aivastra_widget_saved' => '1'],
+            admin_url('options-general.php')
+        ));
+        exit;
+    }
+
     private static function icon(string $name): string
     {
         return self::ICONS[$name] ?? '';
@@ -292,7 +320,10 @@ class Aivastra_Settings_Page
         ?>
         <div class="wrap aivastra-settings-wrap">
           <div class="aivastra-page-header">
-            <h1>Aivastra Try-On</h1>
+            <h1 class="aivastra-logo-row">
+              <img src="<?php echo esc_url(AIVASTRA_TRYON_URL . 'admin/assets/images/logo.svg'); ?>" alt="" class="aivastra-logo-mark">
+              <img src="<?php echo esc_url(AIVASTRA_TRYON_URL . 'admin/assets/images/logo-text.svg'); ?>" alt="Aivastra Try-On" class="aivastra-logo-text">
+            </h1>
             <p class="aivastra-page-subtitle">Manage the connection powering your storefront's virtual try-on button.</p>
           </div>
 
@@ -361,8 +392,131 @@ class Aivastra_Settings_Page
 
           <?php if ($connected): ?>
             <?php self::render_plans($settings); ?>
+            <?php self::render_widget_customization($settings); ?>
             <?php self::render_category_mapping($settings); ?>
+            <?php self::render_analytics($settings); ?>
           <?php endif; ?>
+
+          <?php self::render_support(); ?>
+        </div>
+        <?php
+    }
+
+    /**
+     * Only shown once connected — GET /v1/dev/analytics needs the stored full
+     * key (aggregate business data, unlike balance/plans/categories, which
+     * accept the widget key). `cards.tryOns` and the daily bars are real
+     * (drawn from the jobs table by apps/api/src/modules/dev/analytics.ts);
+     * everything else, including the entire product table, is advisory —
+     * client-reported by assets/widget.js and forgeable — which is why the
+     * product table is labeled as such instead of implying it is as exact as
+     * the top-line try-on count.
+     */
+    private static function render_analytics(Aivastra_Connection_Settings $settings): void
+    {
+        $service = new Aivastra_Connection_Service($settings, self::API_BASE);
+        $result = $service->get_analytics();
+        ?>
+        <div class="aivastra-card aivastra-analytics-card">
+          <h2 class="aivastra-card-heading">Analytics</h2>
+          <?php if (!$result['ok']): ?>
+            <p class="aivastra-empty-state">Could not load analytics right now — try reloading this page.</p>
+          <?php else: ?>
+            <p class="aivastra-card-description">Last 30 days. Try-ons are measured on our servers and are exact; everything else is measured in the shopper's browser and can undercount if blocked.</p>
+
+            <div class="aivastra-stat-grid">
+              <div class="aivastra-stat-tile">
+                <span class="aivastra-stat-label">Try-ons</span>
+                <span class="aivastra-stat-value"><?php echo esc_html(number_format_i18n((int) $result['cards']['tryOns'])); ?></span>
+              </div>
+              <div class="aivastra-stat-tile">
+                <span class="aivastra-stat-label">Unique shoppers</span>
+                <span class="aivastra-stat-value"><?php echo esc_html(number_format_i18n((int) $result['cards']['uniqueShoppers'])); ?></span>
+              </div>
+              <div class="aivastra-stat-tile">
+                <span class="aivastra-stat-label">Added to cart</span>
+                <span class="aivastra-stat-value"><?php echo esc_html(number_format_i18n((int) $result['cards']['addedToCart'])); ?></span>
+              </div>
+              <div class="aivastra-stat-tile">
+                <span class="aivastra-stat-label">Add-to-cart rate</span>
+                <span class="aivastra-stat-value"><?php echo esc_html(round(((float) $result['cards']['addToCartRate']) * 100, 1)); ?>%</span>
+              </div>
+            </div>
+
+            <h3 class="aivastra-analytics-subheading">Try-ons per day (last 14 days)</h3>
+            <?php
+            $maxDaily = 0;
+            foreach ($result['daily'] as $d) {
+                $maxDaily = max($maxDaily, (int) $d['tryOns']);
+            }
+            ?>
+            <div class="aivastra-bar-chart">
+              <?php foreach ($result['daily'] as $d): ?>
+                <?php $pct = $maxDaily > 0 ? max(4, (int) round(((int) $d['tryOns'] / $maxDaily) * 100)) : 0; ?>
+                <div class="aivastra-bar-col" title="<?php echo esc_attr($d['day'] . ': ' . $d['tryOns'] . ' try-ons'); ?>">
+                  <div class="aivastra-bar-track">
+                    <div class="aivastra-bar" style="height: <?php echo esc_attr((string) $pct); ?>%"></div>
+                  </div>
+                  <span class="aivastra-bar-label"><?php echo esc_html(substr((string) $d['day'], 5)); ?></span>
+                </div>
+              <?php endforeach; ?>
+            </div>
+
+            <?php if (!empty($result['products'])): ?>
+              <h3 class="aivastra-analytics-subheading">Products (advisory)</h3>
+              <table class="aivastra-analytics-table">
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th>Views</th>
+                    <th>Shoppers</th>
+                    <th>Added to cart</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <?php foreach ($result['products'] as $p): ?>
+                    <?php $title = get_the_title((int) $p['productId']); ?>
+                    <tr>
+                      <td><?php echo esc_html($title !== '' ? $title : ('#' . $p['productId'])); ?></td>
+                      <td><?php echo esc_html(number_format_i18n((int) $p['tryOns'])); ?></td>
+                      <td><?php echo esc_html(number_format_i18n((int) $p['uniqueShoppers'])); ?></td>
+                      <td><?php echo esc_html(number_format_i18n((int) $p['addedToCart'])); ?></td>
+                    </tr>
+                  <?php endforeach; ?>
+                </tbody>
+              </table>
+            <?php endif; ?>
+          <?php endif; ?>
+        </div>
+        <?php
+    }
+
+    /**
+     * Same two contact channels as the Shopify embedded admin's Support tab
+     * (apps/shopify/src/pages/SupportPage.tsx) — static links, no backend of
+     * its own, so it's always shown regardless of connection state.
+     */
+    private static function render_support(): void
+    {
+        ?>
+        <div class="aivastra-card aivastra-support-card">
+          <h2 class="aivastra-card-heading">Support</h2>
+          <p class="aivastra-card-description">Two ways to reach the team.</p>
+          <div class="aivastra-support-banner">
+            Live chat is the fastest option during business hours. Email is answered within 24 hours the rest of the time.
+          </div>
+          <div class="aivastra-support-grid">
+            <div class="aivastra-support-channel">
+              <h3 class="aivastra-support-channel-title">Email support</h3>
+              <p class="aivastra-support-channel-body">Send us the details and we usually reply within 24 hours.</p>
+              <a href="mailto:support@aivastra.com" class="aivastra-btn aivastra-btn-secondary">Email us</a>
+            </div>
+            <div class="aivastra-support-channel">
+              <h3 class="aivastra-support-channel-title">Live chat</h3>
+              <p class="aivastra-support-channel-body">Talk to the team in real time during business hours.</p>
+              <a href="https://app.aivastra.com/support" target="_blank" rel="noopener noreferrer" class="aivastra-btn aivastra-btn-secondary">Start a chat</a>
+            </div>
+          </div>
         </div>
         <?php
     }
@@ -409,6 +563,9 @@ class Aivastra_Settings_Page
         if (isset($_GET['aivastra_category_map_saved'])) {
             self::render_notice('success', 'Category mapping saved.');
         }
+        if (isset($_GET['aivastra_widget_saved'])) {
+            self::render_notice('success', 'Widget appearance saved.');
+        }
         if (isset($_GET['aivastra_error'])) {
             $code = (string) $_GET['aivastra_error'];
             $message = self::ERROR_MESSAGES[$code] ?? $code;
@@ -442,20 +599,89 @@ class Aivastra_Settings_Page
           <?php else: ?>
             <div class="aivastra-plans-grid">
               <?php foreach ($result['plans'] as $plan): ?>
-                <div class="aivastra-plan-tile">
+                <?php $highlighted = !empty($plan['isHighlighted']) && !empty($plan['badge']); ?>
+                <div class="aivastra-plan-tile<?php echo $highlighted ? ' aivastra-plan-tile-highlighted' : ''; ?>">
+                  <?php if ($highlighted): ?>
+                    <span class="aivastra-plan-badge">&#9733; <?php echo esc_html($plan['badge']); ?></span>
+                  <?php endif; ?>
                   <h3 class="aivastra-plan-name"><?php echo esc_html($plan['name']); ?></h3>
                   <p class="aivastra-plan-credits"><?php echo esc_html(number_format_i18n((int) $plan['credits'])); ?> credits</p>
                   <p class="aivastra-plan-price">&#8377;<?php echo esc_html(number_format_i18n((int) $plan['priceInr'])); ?> + GST</p>
+                  <?php if (!empty($plan['unitCountLabel'])): ?>
+                    <p class="aivastra-plan-units"><?php echo esc_html($plan['unitCountLabel']); ?></p>
+                  <?php endif; ?>
+                  <?php if (!empty($plan['perUnitPriceLabel'])): ?>
+                    <p class="aivastra-plan-per-unit"><?php echo esc_html($plan['perUnitPriceLabel']); ?></p>
+                  <?php endif; ?>
                   <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
                     <input type="hidden" name="action" value="aivastra_tryon_buy">
                     <input type="hidden" name="aivastra_plan_slug" value="<?php echo esc_attr($plan['slug']); ?>">
                     <?php wp_nonce_field('aivastra_tryon_buy'); ?>
-                    <button type="submit" class="aivastra-btn aivastra-btn-primary aivastra-btn-block">Buy</button>
+                    <button type="submit" class="aivastra-btn <?php echo $highlighted ? 'aivastra-btn-highlighted' : 'aivastra-btn-primary'; ?> aivastra-plan-buy-btn">Buy Now</button>
                   </form>
                 </div>
               <?php endforeach; ?>
             </div>
           <?php endif; ?>
+        </div>
+        <?php
+    }
+
+    /**
+     * Only shown once connected, matching Plans/Category mapping — there is
+     * no live widget to preview a color/copy change against otherwise.
+     * Persisted entirely in wp_options; unlike the Shopify widget-config
+     * route, there is no backend round-trip or metafield to keep in sync.
+     */
+    private static function render_widget_customization(Aivastra_Connection_Settings $settings): void
+    {
+        $c = $settings->get_widget_customization();
+        ?>
+        <div class="aivastra-card aivastra-widget-customization-card">
+          <h2 class="aivastra-card-heading">Widget appearance</h2>
+          <p class="aivastra-card-description">Customize the colors and copy shoppers see in the try-on button and modal. Leave a field blank to use the default.</p>
+          <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="aivastra-form aivastra-widget-form">
+            <input type="hidden" name="action" value="aivastra_tryon_save_widget_customization">
+            <?php wp_nonce_field('aivastra_tryon_save_widget_customization'); ?>
+
+            <div class="aivastra-field-row">
+              <label for="aivastra_widget_accent_color">Accent color</label>
+              <input type="color" id="aivastra_widget_accent_color" name="aivastra_widget[accentColor]" class="aivastra-color-input" value="<?php echo esc_attr($c['accentColor'] ?? '#6366f1'); ?>">
+            </div>
+
+            <div class="aivastra-field-row">
+              <label for="aivastra_widget_heading">Modal heading</label>
+              <input type="text" id="aivastra_widget_heading" name="aivastra_widget[heading]" class="aivastra-input" maxlength="60" placeholder="Virtual Try-On" value="<?php echo esc_attr($c['heading'] ?? ''); ?>">
+            </div>
+
+            <div class="aivastra-field-row">
+              <label for="aivastra_widget_subheading">Modal subheading</label>
+              <input type="text" id="aivastra_widget_subheading" name="aivastra_widget[subheading]" class="aivastra-input" maxlength="160" placeholder="Upload a full-body photo to see how it looks on you." value="<?php echo esc_attr($c['subheading'] ?? ''); ?>">
+            </div>
+
+            <div class="aivastra-field-row">
+              <label for="aivastra_widget_cta">Generate button label</label>
+              <input type="text" id="aivastra_widget_cta" name="aivastra_widget[ctaLabel]" class="aivastra-input" maxlength="40" placeholder="Generate Try-On" value="<?php echo esc_attr($c['ctaLabel'] ?? ''); ?>">
+            </div>
+
+            <div class="aivastra-field-row aivastra-field-row-checkbox">
+              <label for="aivastra_widget_add_to_cart">
+                <input type="checkbox" id="aivastra_widget_add_to_cart" name="aivastra_widget[addToCart]" value="1" <?php checked($c['addToCart']); ?>>
+                Show "Add to Cart" on the result
+              </label>
+              <input type="text" id="aivastra_widget_add_to_cart_label" name="aivastra_widget[addToCartLabel]" class="aivastra-input aivastra-input-inline" maxlength="30" placeholder="Add to Cart" value="<?php echo esc_attr($c['addToCartLabel'] ?? ''); ?>">
+            </div>
+
+            <div class="aivastra-field-row aivastra-field-row-checkbox">
+              <label for="aivastra_widget_share">
+                <input type="checkbox" id="aivastra_widget_share" name="aivastra_widget[share]" value="1" <?php checked($c['share']); ?>>
+                Show "Share" on the result
+              </label>
+              <input type="text" id="aivastra_widget_share_label" name="aivastra_widget[shareLabel]" class="aivastra-input aivastra-input-inline" maxlength="30" placeholder="Share" value="<?php echo esc_attr($c['shareLabel'] ?? ''); ?>">
+            </div>
+
+            <button type="submit" class="aivastra-btn aivastra-btn-primary">Save appearance</button>
+          </form>
         </div>
         <?php
     }
