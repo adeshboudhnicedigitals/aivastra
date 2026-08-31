@@ -111,6 +111,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
 
     const conditions: ReturnType<typeof eq>[] = [];
     if (status) conditions.push(eq(schema.jobs.status, status));
+    if (workerId) conditions.push(eq(schema.jobs.workerId, workerId));
     if (date) {
       // Postgres exact date match for UTC createdAt
       conditions.push(sql`${schema.jobs.createdAt}::date = ${date}::date` as ReturnType<typeof eq>);
