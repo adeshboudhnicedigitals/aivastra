@@ -62,7 +62,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
             ilike(schema.users.username, `%${search}%`),
           )
         : undefined;
-      const bannedWhere = showBanned === true ? undefined : eq(schema.users.isBanned, false);
+      const bannedWhere = eq(schema.users.isBanned, showBanned === true);
       const toInclusive = createdTo
         ? new Date(DATE_ONLY.test(createdTo) ? `${createdTo}T23:59:59.999Z` : createdTo)
         : undefined;

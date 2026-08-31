@@ -52,7 +52,7 @@ export async function loadUsersForExport(
         ilike(schema.users.username, `%${search}%`),
       )
     : undefined;
-  const bannedWhere = showBanned === true ? undefined : eq(schema.users.isBanned, false);
+  const bannedWhere = eq(schema.users.isBanned, showBanned === true);
   // "to" must include the whole day, not just its midnight instant, or
   // same-day signups on the end date are silently dropped.
   const toInclusive = createdTo
