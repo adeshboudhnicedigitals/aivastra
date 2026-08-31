@@ -1,5 +1,12 @@
 (() => {
   const MAX_PHOTO_BYTES = 25 * 1024 * 1024;
+  // Mirrors AssetContentType (packages/types/admin.ts) — the server rejects
+  // anything else at presign. Keeping the client check in lockstep means a
+  // shopper who picks a HEIC/TIFF/etc. photo the storefront can't even
+  // preview (readyImage.src is a plain <img>, which doesn't render those
+  // formats in Chrome/Firefox/Edge) is told so before an upload happens, not
+  // after.
+  const ALLOWED_PHOTO_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
   const SSE_MAX_WAIT_MS = 6 * 60 * 1000;
   const SSE_RECONNECT_DELAY_MS = 1000;
 
@@ -8,7 +15,7 @@
   // The previous check here was `value.indexOf('@') >= 1`, which is far looser:
   // "john@company", "me@localhost" and "x@y.z" all passed it and were then
   // rejected server-side as a 400, surfacing to the shopper as "make sure it's
-  // a clear JPG or PNG" with no route back to the email field. The server stays
+  // a clear JPG, PNG, or WEBP" with no route back to the email field. The server stays
   // authoritative — this only exists so the common typo is caught in the one
   // place the shopper can actually fix it.
   const EMAIL_RE =
@@ -260,7 +267,7 @@
         const capitalized = backendMessage.charAt(0).toUpperCase() + backendMessage.slice(1);
         return `${capitalized}. Please choose a smaller photo and try again.`;
       }
-      return "We had trouble with that photo. Please make sure it's a clear JPG or PNG and try again.";
+      return "We had trouble with that photo. Please make sure it's a clear JPG, PNG, or WEBP and try again.";
     }
 
     const emailInput = root.querySelector('.aivastra-tryon__email-input');
@@ -1197,8 +1204,17 @@
         throw err;
       }
       if (res.status === 402) {
-        showErrorWithMessage('Try-on is temporarily unavailable, please check back later.');
-        throw new Error('try-on unavailable');
+        // Tagged, not painted here: every other branch in this function throws
+        // and lets proceedWithPhoto's catch call showErrorWithMessage exactly
+        // once. This branch used to call it directly AND throw a plain Error —
+        // the throw then reached proceedWithPhoto's catch, matched none of its
+        // tags, and fell to the generic "try a different photo" fallback,
+        // which overwrites showErrorWithMessage's target unconditionally. The
+        // first message painted for a frame and was clobbered before any
+        // shopper could read it.
+        const err = new Error('try-on unavailable');
+        err.userMessage = 'Try-on is temporarily unavailable, please check back later.';
+        throw err;
       }
       if (res.status === 403) {
         // Two different 403s reach here and they need opposite handling, so the
@@ -1625,8 +1641,8 @@
     function handlePickedFile(input) {
       const file = input.files?.[0];
       if (!file) return;
-      if (!file.type.startsWith('image/')) {
-        showErrorWithMessage('Please choose an image file.');
+      if (!ALLOWED_PHOTO_TYPES.has(file.type)) {
+        showErrorWithMessage('Please choose a JPG, PNG, or WEBP photo.');
         return;
       }
       if (file.size > MAX_PHOTO_BYTES) {

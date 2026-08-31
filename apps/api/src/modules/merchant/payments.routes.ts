@@ -6,77 +6,15 @@ import {
   MerchantPaymentVerify,
   type MerchantPlanSlug,
 } from '@aivastra/types';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { AppError } from '../../lib/errors.js';
-import { resolveMerchantUserId } from './ledger.js';
-
-const GST_RATE = 0.18;
-
-async function createRazorpayOrder(
-  keyId: string,
-  keySecret: string,
-  amountPaise: number,
-  receipt: string,
-): Promise<{ id: string }> {
-  const credentials = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
-  const res = await fetch('https://api.razorpay.com/v1/orders', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Basic ${credentials}`,
-    },
-    body: JSON.stringify({ amount: amountPaise, currency: 'INR', receipt }),
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Razorpay order creation failed: ${body}`);
-  }
-  return res.json() as Promise<{ id: string }>;
-}
-
-// Idempotent credit grant to a merchant's (single, unified) credit pool + ledger entry.
-async function grantMerchantCredits(
-  app: FastifyInstance,
-  merchantId: string,
-  razorpayOrderId: string,
-  razorpayPaymentId: string,
-  credits: number,
-  signature?: string,
-): Promise<void> {
-  // biome-ignore lint/suspicious/noExplicitAny: DB type narrowing
-  const userId = await resolveMerchantUserId(app.db as any, merchantId);
-
-  await app.db.transaction(async (tx) => {
-    await tx
-      .update(schema.merchantPayments)
-      .set({
-        status: 'paid',
-        razorpayPaymentId,
-        ...(signature ? { razorpaySignature: signature } : {}),
-        paidAt: new Date(),
-      })
-      .where(eq(schema.merchantPayments.razorpayOrderId, razorpayOrderId));
-
-    await tx
-      .insert(schema.userCredits)
-      .values({ userId, balance: credits })
-      .onConflictDoUpdate({
-        target: schema.userCredits.userId,
-        set: {
-          balance: sql`${schema.userCredits.balance} + ${credits}`,
-          updatedAt: new Date(),
-        },
-      });
-
-    await tx.insert(schema.creditLedger).values({
-      userId,
-      delta: credits,
-      reason: 'PAYMENT',
-      adminId: null,
-    });
-  });
-}
+import {
+  createRazorpayOrder,
+  GST_RATE,
+  grantMerchantCredits,
+  verifyRazorpaySignature,
+} from './razorpay.js';
 
 export async function merchantPaymentsRoutes(app: FastifyInstance) {
   // POST /v1/merchant/payments/orders — create a Razorpay order server-side.
@@ -145,14 +83,14 @@ export async function merchantPaymentsRoutes(app: FastifyInstance) {
         razorpaySignature: string;
       };
 
-      const expected = createHmac('sha256', RAZORPAY_KEY_SECRET)
-        .update(`${razorpayOrderId}|${razorpayPaymentId}`)
-        .digest('hex');
-      const expectedBuf = Buffer.from(expected);
-      const signatureBuf = Buffer.from(razorpaySignature);
-      const signatureValid =
-        expectedBuf.length === signatureBuf.length && timingSafeEqual(expectedBuf, signatureBuf);
-      if (!signatureValid) {
+      if (
+        !verifyRazorpaySignature(
+          RAZORPAY_KEY_SECRET,
+          razorpayOrderId,
+          razorpayPaymentId,
+          razorpaySignature,
+        )
+      ) {
         throw new AppError('INVALID_SIGNATURE', 400, 'payment signature invalid');
       }
 

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AssetContentType } from './admin.js';
 
 export const MerchantStatusSchema = z.enum(['ONBOARDING_REQUIRED', 'PENDING_ACTIVATION', 'ACTIVE']);
 export type MerchantStatusSchema = z.infer<typeof MerchantStatusSchema>;
@@ -435,7 +436,11 @@ export const AdminMerchantUpdateBody = z
 export type AdminMerchantUpdateBody = z.infer<typeof AdminMerchantUpdateBody>;
 
 export const ShopifyCustomerPresignRequest = z.object({
-  contentType: z.string(),
+  // Matches AssetContentType: HEIC/TIFF/etc. never render in an <img> tag in
+  // Chrome/Firefox/Edge, so a shopper who slips one past the widget's own
+  // check would only ever see a broken preview — reject it here too rather
+  // than accept a photo the storefront can't show back to them.
+  contentType: AssetContentType,
   // Matches the storefront widget's own MAX_PHOTO_BYTES check
   // (tryon-widget.js) so a shopper never gets a presigned URL for a photo the
   // widget would have already rejected client-side.
