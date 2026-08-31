@@ -178,6 +178,14 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
           }
           case 'shop_redact': {
             if (store) {
+              // Stamped before the purge runs, and cleared by the retry
+              // sweeper only once a pass reports nothing left behind. Ahead of
+              // the work on purpose: a crash mid-purge must still leave a
+              // record that this shop asked to be erased.
+              await app.db
+                .update(schema.shopifyStores)
+                .set({ redactionRequestedAt: new Date() })
+                .where(eq(schema.shopifyStores.id, store.id));
               const result = await redactShopperData(app, store.id, { matchAll: true });
               // Shoppers and job objects are only half of what this webhook is
               // supposed to purge — shop_email is the shop owner's own PII,
@@ -186,7 +194,16 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
               // redacted store carries no residual contact info.
               await app.db
                 .update(schema.shopifyStores)
-                .set({ shopEmail: null, lastAlertLevel: null, lastAlertAt: null })
+                .set({
+                  shopEmail: null,
+                  lastAlertLevel: null,
+                  lastAlertAt: null,
+                  // Cleared here only when this pass left nothing behind, so
+                  // the usual complete purge doesn't sit stamped waiting for a
+                  // sweep that has no work to do. A non-zero incomplete keeps
+                  // the stamp and the retry scheduler takes it from here.
+                  ...(result.incomplete === 0 ? { redactionRequestedAt: null } : {}),
+                })
                 .where(eq(schema.shopifyStores.id, store.id));
               logRedactResult(req, topic, shopDomain, store.id, result, 'store data purged');
             }
