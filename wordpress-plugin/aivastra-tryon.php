@@ -18,6 +18,7 @@ define('AIVASTRA_TRYON_VERSION', '0.4.5');
 define('AIVASTRA_TRYON_DIR', plugin_dir_path(__FILE__));
 define('AIVASTRA_TRYON_URL', plugin_dir_url(__FILE__));
 
+require_once AIVASTRA_TRYON_DIR . 'includes/class-crypto.php';
 require_once AIVASTRA_TRYON_DIR . 'includes/class-connection-settings.php';
 require_once AIVASTRA_TRYON_DIR . 'includes/class-connection-service.php';
 require_once AIVASTRA_TRYON_DIR . 'includes/class-widget-config.php';
