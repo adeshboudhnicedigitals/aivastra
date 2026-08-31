@@ -99,18 +99,25 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
                 <ChevronDown size={14} />
               </button>
               {showCountry && (
+                // TopBar's own bar clips overflow for its text-truncation
+                // children, which also clips a plain position:absolute
+                // dropdown anchored inside it — fixed positioning (anchored
+                // off the button's live rect, same approach as UserMenu's
+                // popup) escapes that ancestor clip instead.
                 <div
                   style={{
-                    position: 'absolute',
-                    top: 44,
-                    right: 0,
+                    position: 'fixed',
+                    top: (countryRef.current?.getBoundingClientRect().bottom ?? 60) + 4,
+                    right: countryRef.current
+                      ? window.innerWidth - countryRef.current.getBoundingClientRect().right
+                      : 24,
                     width: 200,
                     background: C.white,
                     border: `1px solid ${C.border}`,
                     borderRadius: 8,
                     boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
                     overflow: 'hidden',
-                    zIndex: 10,
+                    zIndex: 100,
                   }}
                 >
                   {COUNTRIES.map((c) => (
