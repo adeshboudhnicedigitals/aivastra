@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { MERCHANT_PLAN_SLUGS } from './widget.js';
 
 export const DevJobStatus = z.enum(['QUEUED', 'RUNNING', 'COMPLETED', 'FAILED']);
 
@@ -158,6 +157,7 @@ export const DevMeResponse = z.object({
   merchantId: z.string().uuid(),
   companyName: z.string(),
   credits: z.number().int(),
+  tryOnsRemaining: z.number().int(),
 });
 
 // Deliberately available to both 'full' and 'widget' scoped keys (unlike
@@ -165,6 +165,10 @@ export const DevMeResponse = z.object({
 // WordPress plugin only ever hold a widget-scoped key day-to-day.
 export const DevBalanceResponse = z.object({
   credits: z.number().int(),
+  // Computed from the live, admin-tunable tryon.creditCost (getTryonCreditCost),
+  // not a hardcoded divisor — callers must not re-derive this from `credits`
+  // themselves, since that would drift the moment an admin retunes the cost.
+  tryOnsRemaining: z.number().int(),
 });
 
 export const DevPlan = z.object({
@@ -172,6 +176,14 @@ export const DevPlan = z.object({
   name: z.string(),
   priceInr: z.number().int(),
   credits: z.number().int(),
+  // Same admin-curated marketing fields the consumer /pricing page already
+  // renders (packages/db/src/schema/credits.ts) — surfaced here so the
+  // WordPress card doesn't invent a second, out-of-sync presentation of the
+  // same plan.
+  isHighlighted: z.boolean(),
+  badge: z.string().nullable(),
+  perUnitPriceLabel: z.string().nullable(),
+  unitCountLabel: z.string().nullable(),
 });
 
 // Deliberately available to a widget-scoped key — plan pricing is public
@@ -180,8 +192,11 @@ export const DevPlansResponse = z.object({
   plans: z.array(DevPlan),
 });
 
+// Plan slugs come from the admin-managed credit_plans table, not a fixed
+// enum — an admin can add/rename/retire tryon-type plans at any time.
+// Existence and type ('tryon') are validated against the DB in the handler.
 export const DevPaymentOrderBody = z.object({
-  planSlug: z.enum(MERCHANT_PLAN_SLUGS),
+  planSlug: z.string().min(1).max(64),
 });
 
 // keyId is Razorpay's public key id, not a secret — safe to hand to a browser.
@@ -204,6 +219,7 @@ export const DevPaymentVerifyResponse = z.object({
   ok: z.literal(true),
   alreadyCredited: z.boolean(),
   balance: z.number().int(),
+  tryOnsRemaining: z.number().int(),
 });
 
 export const ApiKeyScope = z.enum(['full', 'widget']);
@@ -330,3 +346,65 @@ export const DevSareeConfigRow = z.object({
   updatedAt: z.string(),
 });
 export type DevSareeConfigRow = z.infer<typeof DevSareeConfigRow>;
+
+// ---------------------------------------------------------------------------
+// Widget analytics — advisory-only event log feeding the WordPress plugin's
+// Analytics card. Same "client-reported, forgeable" contract as Shopify's
+// shopify_widget_events (packages/db/src/schema/shopify.ts): never consulted
+// for a credit, limit, or authorization decision. See
+// apps/api/src/modules/dev/analytics.ts for which response fields are real
+// (drawn from the unforgeable `jobs` table) versus advisory (drawn from this
+// event log) — unlike Shopify, the WordPress dev-API's job-creation route
+// carries no product id or shopper identity, so more of this response is
+// advisory-only than its Shopify equivalent.
+// ---------------------------------------------------------------------------
+
+export const DevWidgetEventType = z.enum([
+  'button_click',
+  'upload',
+  'result_view',
+  'add_to_cart',
+  'share',
+]);
+export type DevWidgetEventType = z.infer<typeof DevWidgetEventType>;
+
+export const DevWidgetEventBody = z.object({
+  type: DevWidgetEventType,
+  // WooCommerce product id — omitted for events with no product context.
+  productId: z.number().int().positive().optional(),
+  // Client-generated, persisted in the shopper's browser localStorage —
+  // never PII, just a random id for distinct-shopper counting.
+  clientId: z.string().min(1).max(64).optional(),
+  device: z.enum(['mobile', 'desktop']).optional(),
+});
+export type DevWidgetEventBody = z.infer<typeof DevWidgetEventBody>;
+
+export const DevWidgetEventResponse = z.object({ ok: z.literal(true) });
+
+export const DevAnalyticsCards = z.object({
+  /** Real: count(*) on `jobs` filtered to this merchant's WordPress-sourced jobs. */
+  tryOns: z.number().int(),
+  /** Advisory: distinct client_id in merchant_widget_events. */
+  uniqueShoppers: z.number().int(),
+  /** Advisory: count of add_to_cart events. */
+  addedToCart: z.number().int(),
+  /** 0..1. Named add-to-cart, never "conversion" — it is not a sale. */
+  addToCartRate: z.number(),
+});
+export type DevAnalyticsCards = z.infer<typeof DevAnalyticsCards>;
+
+export const DevAnalyticsProduct = z.object({
+  productId: z.number().int(),
+  tryOns: z.number().int(),
+  uniqueShoppers: z.number().int(),
+  addedToCart: z.number().int(),
+  addToCartRate: z.number(),
+});
+export type DevAnalyticsProduct = z.infer<typeof DevAnalyticsProduct>;
+
+export const DevAnalyticsResponse = z.object({
+  cards: DevAnalyticsCards,
+  daily: z.array(z.object({ day: z.string(), tryOns: z.number().int() })),
+  products: z.array(DevAnalyticsProduct),
+});
+export type DevAnalyticsResponse = z.infer<typeof DevAnalyticsResponse>;
