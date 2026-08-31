@@ -3,6 +3,7 @@ import type { Logger } from '@aivastra/logger';
 import { and, eq, inArray, lte, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 import { transitionJob } from '../job/state.js';
+import { releaseStoreCapSlot } from '../shopify/store-cap.js';
 
 // In-flight jobs whose work started (or, for PREPROCESSING, were created) longer ago than
 // this are stuck — a normal try-on completes in ~30-60s, so 15m means the dispatcher died
@@ -16,6 +17,8 @@ interface StuckJob {
   merchantId: string | null;
   shopifyStoreId: string | null;
   creditsCharged: number;
+  /** job_inputs.params — carries `storeCapKey` for store-billed Shopify jobs. */
+  params: unknown;
 }
 
 const SELECT_COLS = {
@@ -24,9 +27,10 @@ const SELECT_COLS = {
   merchantId: schema.jobs.merchantId,
   shopifyStoreId: schema.jobs.shopifyStoreId,
   creditsCharged: schema.jobs.creditsCharged,
+  params: schema.jobInputs.params,
 };
 
-export async function runSweeper(db: DB, pub: Redis, log: Logger): Promise<void> {
+export async function runSweeper(db: DB, redis: Redis, pub: Redis, log: Logger): Promise<void> {
   const now = Date.now();
   // COALESCE(started_at, created_at): started_at is only set at GENERATING, so a job stuck
   // in PREPROCESSING falls back to created_at.
@@ -43,6 +47,9 @@ export async function runSweeper(db: DB, pub: Redis, log: Logger): Promise<void>
     const inFlight = await db
       .select(SELECT_COLS)
       .from(schema.jobs)
+      // LEFT, not INNER: a job whose inputs row is missing must still be swept
+      // and refunded — losing its cap slot is the lesser failure by far.
+      .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
       .where(
         and(
           inArray(schema.jobs.status, IN_FLIGHT_STATES),
@@ -57,7 +64,7 @@ export async function runSweeper(db: DB, pub: Redis, log: Logger): Promise<void>
     if (inFlight.length === 0) return;
     log.info({ inFlight: inFlight.length }, 'sweeping stuck jobs');
 
-    for (const job of inFlight) await failAndRefund(db, pub, job, 'STUCK_IN_FLIGHT', log);
+    for (const job of inFlight) await failAndRefund(db, redis, pub, job, 'STUCK_IN_FLIGHT', log);
   } catch (err) {
     log.error({ err }, 'failed to sweep stuck jobs');
   }
@@ -82,6 +89,7 @@ export async function runSweeper(db: DB, pub: Redis, log: Logger): Promise<void>
  */
 async function failAndRefundShopify(
   db: DB,
+  redis: Redis,
   pub: Redis,
   job: StuckJob,
   shopifyStoreId: string,
@@ -114,6 +122,15 @@ async function failAndRefundShopify(
   }
 
   await transitionJob(db, pub, job.id, '', 'FAILED', { errorCode, shopifyStoreId }, log);
+  // Same reasoning as the processor's own failure path: a swept job never ran,
+  // so it must stop consuming the merchant's daily cap. Idempotent per jobId,
+  // so a sweep racing the processor cannot give the same slot back twice.
+  await releaseStoreCapSlot(
+    redis,
+    (job.params as { storeCapKey?: unknown } | null)?.storeCapKey,
+    job.id,
+    log,
+  );
   log.warn(
     { jobId: job.id, shopifyStoreId, errorCode },
     'stuck shopify job FAILED — store credits refunded',
@@ -123,13 +140,14 @@ async function failAndRefundShopify(
 /** Refund the held credit (idempotent, mirrors processor.ts) then mark the job FAILED. */
 async function failAndRefund(
   db: DB,
+  redis: Redis,
   pub: Redis,
   job: StuckJob,
   errorCode: string,
   log: Logger,
 ): Promise<void> {
   if (job.shopifyStoreId) {
-    await failAndRefundShopify(db, pub, job, job.shopifyStoreId, errorCode, log);
+    await failAndRefundShopify(db, redis, pub, job, job.shopifyStoreId, errorCode, log);
     return;
   }
 

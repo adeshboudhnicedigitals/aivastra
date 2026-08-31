@@ -8,6 +8,7 @@ import { verifyPassword } from '../auth/service.js';
 import { refund } from '../credits/ledger.js';
 import { refundStoreAndMarkCancelled } from '../credits/shopify-ledger.js';
 import { adminStreamHandler } from '../jobs/sse.js';
+import { releaseStoreDailySlot } from '../shopify/limits.js';
 import { recordAudit } from './audit.js';
 import { requireAdmin, requirePermission } from './guard.js';
 import { jobTypeSql } from './job-type.js';
@@ -64,6 +65,35 @@ const TERMINAL_JOB_STATUSES = ['COMPLETED', 'FAILED', 'CANCELLED'] as const;
  * same code. Swallows its own errors: a Redis blip must not fail an admin
  * cancel whose refund has already committed.
  */
+/**
+ * Give a cancelled store-billed job its daily-cap slot back.
+ *
+ * An admin cancel means the try-on never ran, so it must stop counting against
+ * the merchant's self-configured ceiling — the same reasoning as the
+ * dispatcher's failure path (see apps/dispatcher/src/shopify/store-cap.ts).
+ * The key was pinned onto job_inputs.params at creation; a job without one
+ * (uncapped store, or created before this shipped) is a no-op.
+ *
+ * Never throws: the refund has already committed by the time this runs, and a
+ * Redis blip must not turn a successful cancel into a 500.
+ */
+async function releaseCapSlotForJob(
+  app: FastifyInstance,
+  jobId: string,
+  params: unknown,
+): Promise<void> {
+  const capKey = (params as { storeCapKey?: unknown } | null)?.storeCapKey;
+  if (typeof capKey !== 'string' || capKey.length === 0) return;
+  try {
+    await releaseStoreDailySlot(app.redis, capKey, jobId);
+  } catch (err) {
+    app.log.error(
+      { err, jobId, capKey },
+      'store daily cap slot release failed — slot stays reserved until the 48h key expiry',
+    );
+  }
+}
+
 async function publishStoreCancelled(
   app: FastifyInstance,
   shopifyStoreId: string,
@@ -414,8 +444,12 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         userId: schema.jobs.userId,
         shopifyStoreId: schema.jobs.shopifyStoreId,
         creditsCharged: schema.jobs.creditsCharged,
+        params: schema.jobInputs.params,
       })
       .from(schema.jobs)
+      // LEFT, not INNER: a job with no inputs row must still be flushed and
+      // refunded; only its cap slot is lost.
+      .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
       .where(eq(schema.jobs.status, 'QUEUED'));
 
     if (queued.length === 0) return { flushed: 0 };
@@ -436,7 +470,10 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         'REFUND_ADMIN_CANCEL',
         'ADMIN_FLUSH',
       );
-      if (compensated) await publishStoreCancelled(app, j.shopifyStoreId, j.id);
+      if (compensated) {
+        await releaseCapSlotForJob(app, j.id, j.params);
+        await publishStoreCancelled(app, j.shopifyStoreId, j.id);
+      }
     }
 
     await app.db
@@ -513,7 +550,14 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         // this it waits out its full 6-minute deadline before telling the
         // shopper anything. Best-effort, after the transaction: a dropped
         // publish costs the shopper that wait, never the refund.
-        if (compensated) await publishStoreCancelled(app, job.shopifyStoreId, id);
+        if (compensated) {
+          const [inputs] = await app.db
+            .select({ params: schema.jobInputs.params })
+            .from(schema.jobInputs)
+            .where(eq(schema.jobInputs.jobId, id));
+          await releaseCapSlotForJob(app, id, inputs?.params);
+          await publishStoreCancelled(app, job.shopifyStoreId, id);
+        }
         return { ok: true };
       }
 

@@ -13,6 +13,7 @@ import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
 // produced an image.
 describe('runSweeper — stuck Shopify jobs', () => {
   let env: TestEnv;
+  let redis: Redis;
   let pub: Redis;
   let sub: Redis;
   const log = createLogger('dispatcher-test');
@@ -22,17 +23,23 @@ describe('runSweeper — stuck Shopify jobs', () => {
 
   beforeAll(async () => {
     env = await setupTestEnv();
+    redis = new Redis('redis://127.0.0.1:6379');
     pub = new Redis('redis://127.0.0.1:6379');
     sub = new Redis('redis://127.0.0.1:6379');
   }, 60_000);
 
   afterAll(async () => {
+    redis.disconnect();
     pub.disconnect();
     sub.disconnect();
     await env.cleanup();
   });
 
-  async function seedStuckShopifyJob(opts: { balance: number; creditsCharged: number }) {
+  async function seedStuckShopifyJob(opts: {
+    balance: number;
+    creditsCharged: number;
+    capKey?: string;
+  }) {
     const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const [store] = await env.db
       .insert(schema.shopifyStores)
@@ -59,6 +66,16 @@ describe('runSweeper — stuck Shopify jobs', () => {
       startedAt: STUCK_AT,
     }).returning();
 
+    if (opts.capKey !== undefined) {
+      // Mirrors what the API pins onto the job at creation.
+      // biome-ignore lint/suspicious/noExplicitAny: Drizzle infers non-null for nullable FKs
+      await (env.db.insert(schema.jobInputs).values as any)({
+        jobId: job.id,
+        upperGarmentKey: `widget-inputs/${store.id}/garment.jpg`,
+        params: { kind: 'shopify', storeCapKey: opts.capKey },
+      });
+    }
+
     return { storeId: store.id as string, jobId: job.id as string };
   }
 
@@ -73,7 +90,7 @@ describe('runSweeper — stuck Shopify jobs', () => {
   it('refunds the store and marks the job FAILED', async () => {
     const { storeId, jobId } = await seedStuckShopifyJob({ balance: 10, creditsCharged: 2 });
 
-    await runSweeper(env.db, pub, log);
+    await runSweeper(env.db, redis, pub, log);
 
     const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
     expect(job?.status).toBe('FAILED');
@@ -101,7 +118,7 @@ describe('runSweeper — stuck Shopify jobs', () => {
     await sub.subscribe(`sse:events:store:${storeId}`);
     sub.on('message', (_channel, message) => received.push(message));
 
-    await runSweeper(env.db, pub, log);
+    await runSweeper(env.db, redis, pub, log);
     // The publish is fire-and-forget relative to the subscriber; give the
     // message a moment to land rather than racing the assertion.
     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -117,7 +134,7 @@ describe('runSweeper — stuck Shopify jobs', () => {
   it('refunds exactly once across two sweeps', async () => {
     const { storeId, jobId } = await seedStuckShopifyJob({ balance: 5, creditsCharged: 3 });
 
-    await runSweeper(env.db, pub, log);
+    await runSweeper(env.db, redis, pub, log);
     // The first sweep moves the job to FAILED, which drops it out of
     // IN_FLIGHT_STATES — so re-run the refund against a row forced back
     // in-flight, proving the ledger guard (not the status filter) is what
@@ -126,7 +143,7 @@ describe('runSweeper — stuck Shopify jobs', () => {
       .update(schema.jobs)
       .set({ status: 'GENERATING', startedAt: STUCK_AT, createdAt: STUCK_AT })
       .where(eq(schema.jobs.id, jobId));
-    await runSweeper(env.db, pub, log);
+    await runSweeper(env.db, redis, pub, log);
 
     expect(await storeBalance(storeId)).toBe(8);
 
@@ -165,7 +182,7 @@ describe('runSweeper — stuck Shopify jobs', () => {
       })
       .returning();
 
-    await runSweeper(env.db, pub, log);
+    await runSweeper(env.db, redis, pub, log);
 
     const [after] = await env.db
       .select()
@@ -175,5 +192,57 @@ describe('runSweeper — stuck Shopify jobs', () => {
 
     const [swept] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, job.id));
     expect(swept?.status).toBe('FAILED');
+  });
+  // ── Gap 4 ───────────────────────────────────────────────────────────────
+  // The store daily cap is a merchant-configured ceiling on their own spend.
+  // A swept job never ran and its credits are refunded, so it must stop
+  // counting against that ceiling — otherwise a worker outage silently ends
+  // the store's day while charging them nothing.
+
+  it('gives the store daily cap slot back when it sweeps a job', async () => {
+    const capKey = `shopify:cap:store:sweep-${Date.now()}:2026-08-31`;
+    await redis.set(capKey, '3');
+    const { jobId } = await seedStuckShopifyJob({
+      balance: 0,
+      creditsCharged: 1,
+      capKey,
+    });
+
+    await runSweeper(env.db, redis, pub, log);
+
+    expect(await redis.get(capKey)).toBe('2');
+    expect(await redis.get(`shopify:cap:released:${jobId}`)).toBe('1');
+    await redis.del(capKey, `shopify:cap:released:${jobId}`);
+  });
+
+  it('releases the slot only once even if the job is swept twice', async () => {
+    const capKey = `shopify:cap:store:sweep2-${Date.now()}:2026-08-31`;
+    await redis.set(capKey, '3');
+    const { jobId } = await seedStuckShopifyJob({
+      balance: 0,
+      creditsCharged: 1,
+      capKey,
+    });
+
+    await runSweeper(env.db, redis, pub, log);
+    // Re-open the job so a second sweep genuinely reaches the same code path,
+    // standing in for a sweeper racing the processor over one job.
+    await env.db.update(schema.jobs).set({ status: 'GENERATING' }).where(eq(schema.jobs.id, jobId));
+    await runSweeper(env.db, redis, pub, log);
+
+    expect(await redis.get(capKey)).toBe('2');
+    await redis.del(capKey, `shopify:cap:released:${jobId}`);
+  });
+
+  it('still refunds and fails a job that has no cap key pinned', async () => {
+    // Uncapped store, or a job created before the key was recorded. Losing the
+    // slot is acceptable; losing the refund is not.
+    const { storeId, jobId } = await seedStuckShopifyJob({ balance: 4, creditsCharged: 2 });
+
+    await runSweeper(env.db, redis, pub, log);
+
+    const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+    expect(job?.status).toBe('FAILED');
+    expect(await storeBalance(storeId)).toBe(6);
   });
 });

@@ -53,13 +53,15 @@ function sleep(ms: number): Promise<void> {
  * (a refusal or a compensated failure).
  */
 async function releaseSlotWithRetry(
-  slot: { release: () => Promise<void> },
+  slot: { release: (jobId: string) => Promise<void> },
   log: FastifyBaseLogger,
-  jobId?: string,
+  jobId: string,
 ): Promise<void> {
   for (let attempt = 1; attempt <= SLOT_RELEASE_MAX_ATTEMPTS; attempt++) {
     try {
-      await slot.release();
+      // Retrying is safe even if a previous attempt actually landed and only
+      // its reply was lost — the release is idempotent per jobId.
+      await slot.release(jobId);
       return;
     } catch (err) {
       if (attempt === SLOT_RELEASE_MAX_ATTEMPTS) {
@@ -486,6 +488,13 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
               // workflow under a job whose credits are already deducted.
               workflowTemplateId,
               dispatchTemplateVersion: resolvedWorkflow.version ?? null,
+              // Same reasoning as workflowTemplateId: pinned at creation rather
+              // than recomputed later. The dispatcher refunds this job's credits
+              // if the generation fails, and has to give the store's daily-cap
+              // slot back too — for the day the job was created, which it cannot
+              // safely derive once the store's local midnight has passed. Null
+              // when the store has no cap configured.
+              storeCapKey: slot.capKey,
             },
           });
           await atomicDeductStore(tx as never, storeId, jobCost, jobId);
@@ -526,7 +535,7 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
           // Only the store slot (reserved before the transaction) needs
           // releasing. The event insert happens after the rollback too, so a
           // failed write can never be undone by it.
-          await releaseSlotWithRetry(slot, app.log);
+          await releaseSlotWithRetry(slot, app.log, jobId);
           await recordRefusal(app, storeId, err.refusal.reason, clientId ?? null, shopifyProductId);
           return reply.code(202).send(err.refusal);
         }
