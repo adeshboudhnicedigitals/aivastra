@@ -50,6 +50,7 @@ class Aivastra_Settings_Page
         add_action('admin_post_aivastra_tryon_refresh', [self::class, 'handle_refresh']);
         add_action('admin_post_aivastra_tryon_disconnect', [self::class, 'handle_disconnect']);
         add_action('admin_post_aivastra_tryon_save_category_map', [self::class, 'handle_save_category_map']);
+        add_action('admin_post_aivastra_tryon_buy', [self::class, 'handle_buy']);
     }
 
     /**
@@ -70,6 +71,29 @@ class Aivastra_Settings_Page
             [],
             AIVASTRA_TRYON_VERSION
         );
+
+        if (!isset($_GET['aivastra_checkout'])) {
+            return;
+        }
+        $order = get_transient('aivastra_tryon_checkout_' . get_current_user_id());
+        if ($order === false) {
+            return;
+        }
+        delete_transient('aivastra_tryon_checkout_' . get_current_user_id());
+
+        wp_enqueue_script('razorpay-checkout', 'https://checkout.razorpay.com/v1/checkout.js', [], null, false);
+        wp_enqueue_script(
+            'aivastra-tryon-checkout',
+            AIVASTRA_TRYON_URL . 'admin/assets/checkout.js',
+            ['razorpay-checkout'],
+            AIVASTRA_TRYON_VERSION,
+            true
+        );
+        wp_localize_script('aivastra-tryon-checkout', 'aivastraCheckout', [
+            'order' => $order,
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce(Aivastra_Checkout_Ajax::NONCE_ACTION),
+        ]);
     }
 
     public static function register_menu(): void
@@ -216,6 +240,43 @@ class Aivastra_Settings_Page
         exit;
     }
 
+    /**
+     * Creates a Razorpay order for the selected plan using the stored full
+     * key, stashes the (non-secret) order details in a short-lived transient,
+     * and redirects back to the settings page, which opens the Razorpay
+     * modal automatically (see enqueue_assets()) — mirroring the auto-open
+     * pattern already used for the aivastra.com "Buy Now" deep link
+     * (docs/superpowers/specs/2026-08-18-pricing-plan-deep-link-design.md).
+     */
+    public static function handle_buy(): void
+    {
+        if (!current_user_can('manage_woocommerce')) {
+            wp_die(esc_html('You do not have permission to do this.'), 403);
+        }
+        check_admin_referer('aivastra_tryon_buy');
+
+        $planSlug = sanitize_key((string) ($_POST['aivastra_plan_slug'] ?? ''));
+        $settings = new Aivastra_Connection_Settings();
+        $service = new Aivastra_Connection_Service($settings, self::API_BASE);
+        $result = $service->create_order($planSlug);
+
+        if (!$result['ok']) {
+            wp_safe_redirect(add_query_arg(
+                ['page' => 'aivastra-tryon', 'aivastra_error' => $result['error'] ?? 'unknown'],
+                admin_url('options-general.php')
+            ));
+            exit;
+        }
+
+        set_transient('aivastra_tryon_checkout_' . get_current_user_id(), $result, 15 * MINUTE_IN_SECONDS);
+
+        wp_safe_redirect(add_query_arg(
+            ['page' => 'aivastra-tryon', 'aivastra_checkout' => '1'],
+            admin_url('options-general.php')
+        ));
+        exit;
+    }
+
     private static function icon(string $name): string
     {
         return self::ICONS[$name] ?? '';
@@ -299,6 +360,7 @@ class Aivastra_Settings_Page
           <?php endif; ?>
 
           <?php if ($connected): ?>
+            <?php self::render_plans($settings); ?>
             <?php self::render_category_mapping($settings); ?>
           <?php endif; ?>
         </div>
@@ -361,6 +423,41 @@ class Aivastra_Settings_Page
             esc_attr($type),
             esc_html($message)
         );
+    }
+
+    /**
+     * Only shown once connected — plan pricing needs the widget key
+     * (GET /v1/dev/plans), and purchasing needs a plan to buy against.
+     */
+    private static function render_plans(Aivastra_Connection_Settings $settings): void
+    {
+        $widgetKey = $settings->get_widget_key();
+        $service = new Aivastra_Connection_Service($settings, self::API_BASE);
+        $result = $widgetKey !== null ? $service->list_plans($widgetKey) : ['ok' => false, 'plans' => []];
+        ?>
+        <div class="aivastra-card aivastra-plans-card">
+          <h2 class="aivastra-card-heading">Plans &amp; credits</h2>
+          <?php if (!$result['ok']): ?>
+            <p class="aivastra-empty-state">Could not load plans right now — try reloading this page.</p>
+          <?php else: ?>
+            <div class="aivastra-plans-grid">
+              <?php foreach ($result['plans'] as $plan): ?>
+                <div class="aivastra-plan-tile">
+                  <h3 class="aivastra-plan-name"><?php echo esc_html($plan['name']); ?></h3>
+                  <p class="aivastra-plan-credits"><?php echo esc_html(number_format_i18n((int) $plan['credits'])); ?> credits</p>
+                  <p class="aivastra-plan-price">&#8377;<?php echo esc_html(number_format_i18n((int) $plan['priceInr'])); ?> + GST</p>
+                  <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                    <input type="hidden" name="action" value="aivastra_tryon_buy">
+                    <input type="hidden" name="aivastra_plan_slug" value="<?php echo esc_attr($plan['slug']); ?>">
+                    <?php wp_nonce_field('aivastra_tryon_buy'); ?>
+                    <button type="submit" class="aivastra-btn aivastra-btn-primary aivastra-btn-block">Buy</button>
+                  </form>
+                </div>
+              <?php endforeach; ?>
+            </div>
+          <?php endif; ?>
+        </div>
+        <?php
     }
 
     /**
