@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { and, asc, count, desc, eq, gte, ilike, isNotNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, ilike, isNotNull, lte, ne, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -13,6 +13,7 @@ export const UsersExportQuery = z.object({
   createdFrom: z.string().optional(),
   createdTo: z.string().optional(),
   tier: z.string().optional(),
+  excludeFree: z.coerce.boolean().optional(),
   sortDir: z.enum(['asc', 'desc']).default('desc'),
 });
 export type UsersExportQuery = z.infer<typeof UsersExportQuery>;
@@ -43,7 +44,16 @@ const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 // same rows, only the rendering differs.
 export async function loadUsersForExport(
   app: FastifyInstance,
-  { search, merchant, showBanned, createdFrom, createdTo, tier, sortDir }: UsersExportQuery,
+  {
+    search,
+    merchant,
+    showBanned,
+    createdFrom,
+    createdTo,
+    tier,
+    excludeFree,
+    sortDir,
+  }: UsersExportQuery,
 ): Promise<UserExportRow[]> {
   const searchWhere = search
     ? or(
@@ -68,6 +78,7 @@ export async function loadUsersForExport(
     fromInclusive ? gte(schema.users.createdAt, fromInclusive) : undefined,
     toInclusive ? lte(schema.users.createdAt, toInclusive) : undefined,
     tier ? eq(schema.users.tier, tier) : undefined,
+    excludeFree === true ? ne(schema.users.tier, 'free') : undefined,
   );
 
   const [{ total }] = await app.db

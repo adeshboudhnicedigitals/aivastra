@@ -8,6 +8,7 @@ export interface UsersExportFilters {
   createdFrom?: string;
   createdTo?: string;
   tier?: string;
+  excludeFree?: boolean;
   sortDir: 'asc' | 'desc';
 }
 
@@ -26,6 +27,7 @@ export function exportFilterSummary(filters: UsersExportFilters): string {
     parts.push(`Joined ${from} – ${to}`);
   }
   if (filters.tier) parts.push(`Plan: ${filters.tier}`);
+  if (filters.excludeFree) parts.push('Any paid plan');
   parts.push(
     `Sorted by join date (${filters.sortDir === 'asc' ? 'oldest first' : 'newest first'})`,
   );
