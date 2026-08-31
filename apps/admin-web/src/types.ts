@@ -273,6 +273,9 @@ export interface Job {
   id: string;
   userId?: string;
   userEmail?: string | null;
+  /** Merchant contact email captured for the Shopify free-credit bonus — only set on shopify-sourced jobs. */
+  shopEmail?: string | null;
+  shopDomain?: string | null;
   status: JobStatus;
   priority: boolean;
   creditsCharged: number;

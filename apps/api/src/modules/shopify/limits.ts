@@ -2,8 +2,9 @@ import type { DB } from '@aivastra/db';
 import { schema } from '@aivastra/db';
 import { and, count, gte, inArray, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import type { Redis } from 'ioredis';
 import { countingIdentity, type ShopperRow, shopperIdFilter } from './shopper.js';
-import { storeDayKey, windowStart } from './store-day.js';
+import { formatResetTime, storeDayKey, windowEnd, windowStart } from './store-day.js';
 
 type Store = typeof schema.shopifyStores.$inferSelect;
 
@@ -77,12 +78,15 @@ export async function checkShopperLimits(
 
   const cap = limits.perShopperCap;
   if (cap != null) {
-    const since = windowStart(store.ianaTimezone, limits.perShopperWindow ?? 'week');
+    const now = new Date();
+    const window = limits.perShopperWindow ?? 'week';
+    const since = windowStart(store.ianaTimezone, window, now);
     const used = await countShopperJobs(db, shopperIds, since);
     if (used >= cap) {
+      const resetAt = windowEnd(store.ianaTimezone, window, now);
       return {
         reason: 'shopper_limit',
-        message: "You've reached your try-on limit. Check back later.",
+        message: `You've reached your try-on limit. Come back ${formatResetTime(store.ianaTimezone, resetAt)} for more free try-ons.`,
       };
     }
   }
@@ -148,39 +152,96 @@ end
 return used
 `;
 
+// KEYS[1] = per-store-day counter key, KEYS[2] = per-job release marker
+// ARGV[1] = marker TTL seconds
+//
+// The marker is what makes a release exactly-once *per job*, across every
+// process that might compensate it: the API (admin cancel, enqueue failure)
+// and the dispatcher (GPU failure, stuck-job sweep) all reach this same
+// script, and a redelivered stream message or a retried request can drive any
+// of them twice. Claiming the marker with SET NX in the same script as the
+// DECR means only the first claimant decrements — there is no window between
+// "check whether we already released" and "release".
+//
+// The `used > 0` guard matters because DECR on a missing key creates it at -1:
+// once the day's key has expired, an unguarded release would leave a negative
+// counter that hands the next store-day free slots on top of its cap.
+const RELEASE_SLOT_LUA = `
+if not redis.call('SET', KEYS[2], '1', 'NX', 'EX', ARGV[1]) then
+  return 0
+end
+local raw = redis.call('GET', KEYS[1])
+if not raw then return 0 end
+local used = tonumber(raw)
+if not used or used <= 0 then return 0 end
+redis.call('DECR', KEYS[1])
+return 1
+`;
+
+/** Matches the counter's own 48h TTL — past that there is nothing left to give back. */
+const SLOT_TTL_SEC = 48 * 60 * 60;
+
+export interface ReservedStoreSlot {
+  ok: true;
+  /**
+   * The counter key this reservation incremented, or null when the store is
+   * uncapped. Pinned onto the job at creation so that whatever later
+   * compensates it — in this process or the dispatcher — gives back the slot
+   * for the day the job was *created*, with no need to recompute a
+   * store-local calendar day (and no way to decrement the wrong one when a
+   * job outlives the midnight it started before).
+   */
+  capKey: string | null;
+  release: (jobId: string) => Promise<void>;
+}
+
 /** Atomically reserve one slot against the store's local-calendar daily cap. */
 export async function reserveStoreDailySlot(
   app: FastifyInstance,
   store: Store,
-): Promise<{ ok: true; release: () => Promise<void> } | { ok: false }> {
+): Promise<ReservedStoreSlot | { ok: false }> {
   const cap = store.settings.limits?.storeDailyCap;
-  if (cap == null) return { ok: true, release: async () => {} };
+  if (cap == null) return { ok: true, capKey: null, release: async () => {} };
 
   const key = `shopify:cap:store:${store.id}:${storeDayKey(store.ianaTimezone)}`;
   // 48h, not 24: covers any timezone's day plus DST slack, and the key is
   // day-scoped so a stale one is never read again.
-  const used = (await app.redis.eval(RESERVE_SLOT_LUA, 1, key, cap, 48 * 60 * 60)) as number;
+  const used = (await app.redis.eval(RESERVE_SLOT_LUA, 1, key, cap, SLOT_TTL_SEC)) as number;
 
   if (used === -1) return { ok: false };
 
-  let released = false;
-  let releaseInFlight: Promise<void> | null = null;
   return {
     ok: true,
-    release: async () => {
-      if (released) return;
-      if (!releaseInFlight) {
-        releaseInFlight = app.redis
-          .decr(key)
-          .then(() => {
-            released = true;
-          })
-          .catch((err) => {
-            releaseInFlight = null;
-            throw err;
-          });
-      }
-      await releaseInFlight;
+    capKey: key,
+    // No in-memory "already released" guard any more: the script's own marker
+    // is stronger, since it also holds across processes and across a retry
+    // whose first attempt actually landed but whose reply was lost.
+    release: async (jobId: string) => {
+      await releaseStoreDailySlot(app.redis, key, jobId);
     },
   };
+}
+
+/**
+ * Give one slot back to a store's daily cap, at most once for the given job.
+ *
+ * Safe to call for a job that never reserved one, was already released, or
+ * whose day has since expired — each of those is a no-op returning false.
+ *
+ * The dispatcher runs the identical script from
+ * `apps/dispatcher/src/shopify/store-cap.ts`; the two must stay in step.
+ */
+export async function releaseStoreDailySlot(
+  redis: Redis,
+  capKey: string,
+  jobId: string,
+): Promise<boolean> {
+  const released = (await redis.eval(
+    RELEASE_SLOT_LUA,
+    2,
+    capKey,
+    `shopify:cap:released:${jobId}`,
+    SLOT_TTL_SEC,
+  )) as number;
+  return released === 1;
 }

@@ -5,7 +5,9 @@ import { loadEnv } from './env.js';
 import { hashPassword } from './modules/auth/service.js';
 import { startUserLowCreditAlertScheduler } from './modules/credits/low-credit-alert-scheduler.js';
 import { startAlertScheduler } from './modules/shopify/alert-scheduler.js';
+import { startAutorefillReconciler } from './modules/shopify/autorefill-reconciler.js';
 import { startCollectionResyncScheduler } from './modules/shopify/collections-resync-scheduler.js';
+import { startRedactionRetryScheduler } from './modules/shopify/gdpr-retry-scheduler.js';
 import { startSyncConsumer } from './modules/shopify/sync-consumer.js';
 import { startUploadSweeper } from './modules/uploads/sweeper.js';
 import { buildServer } from './server.js';
@@ -26,6 +28,8 @@ startSyncConsumer(app);
 startCollectionResyncScheduler(app);
 startUploadSweeper(app);
 startAlertScheduler(app);
+startAutorefillReconciler(app);
+startRedactionRetryScheduler(app);
 startUserLowCreditAlertScheduler(app);
 
 if (env.ADMIN_BOOTSTRAP_EMAIL && env.ADMIN_BOOTSTRAP_PASSWORD) {
