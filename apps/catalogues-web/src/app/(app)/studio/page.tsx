@@ -3034,7 +3034,7 @@ export default function StudioPage(): React.ReactElement {
                             }}
                           >
                             <PlayCircle size={14} />
-                            Watch Tutorial
+                            Watch Demo Video
                           </button>
                         )}
                         {selectedGarmentType?.instructionImageUrl && (
@@ -5202,7 +5202,7 @@ function TutorialVideoModal({ youtubeUrl, onClose }: { youtubeUrl: string; onClo
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Watch Tutorial"
+        aria-label="Watch Demo Video"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={() => {}}
         style={{
@@ -5246,7 +5246,7 @@ function TutorialVideoModal({ youtubeUrl, onClose }: { youtubeUrl: string; onClo
             // "Error 153: video player configuration error" even when embedding
             // is allowed for the video. See app/(app)/tutorials/page.tsx.
             src={`https://www.youtube.com/embed/${videoId}?autoplay=1&origin=${encodeURIComponent(window.location.origin)}`}
-            title="Watch Tutorial"
+            title="Watch Demo Video"
             frameBorder="0"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
             allowFullScreen

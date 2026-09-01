@@ -803,8 +803,8 @@ export function EditGarmentTypeModal({
                   onChange={(e) => setTutorialVideoUrl(e.target.value)}
                 />
                 <span className="hint">
-                  Shown to users as a "Watch Tutorial" link above the do's/don'ts image. Leave blank
-                  to hide it.
+                  Shown to users as a "Watch Demo Video" link above the do's/don'ts image. Leave
+                  blank to hide it.
                 </span>
               </div>
             </>
