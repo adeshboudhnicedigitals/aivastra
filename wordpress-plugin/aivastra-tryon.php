@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Aivastra Try-On
  * Description: Adds an AI virtual try-on button to WooCommerce product pages.
- * Version: 0.5.8
+ * Version: 0.5.13
  * Requires PHP: 8.1
  * Requires Plugins: woocommerce
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) {
     exit; // No direct access.
 }
 
-define('AIVASTRA_TRYON_VERSION', '0.5.8');
+define('AIVASTRA_TRYON_VERSION', '0.5.13');
 define('AIVASTRA_TRYON_DIR', plugin_dir_path(__FILE__));
 define('AIVASTRA_TRYON_URL', plugin_dir_url(__FILE__));
 

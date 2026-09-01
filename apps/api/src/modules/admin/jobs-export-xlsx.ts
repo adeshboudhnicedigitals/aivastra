@@ -17,6 +17,7 @@ const COLUMNS: Column[] = [
   { header: 'Job Type', width: 16 },
   { header: 'Started', width: 20 },
   { header: 'Ended', width: 20 },
+  { header: 'Duration', width: 12 },
   { header: 'Credits Used', width: 14 },
   { header: 'Credits Remaining', width: 16 },
   { header: 'Status', width: 16 },
@@ -29,6 +30,14 @@ function titleCaseStatus(status: string): string {
     .split('_')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
+}
+
+function fmtDuration(seconds: number | null): string {
+  if (seconds == null) return '';
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.round(seconds % 60);
+  return `${minutes}m ${rest}s`;
 }
 
 const FAILED_LIKE = new Set(['FAILED', 'CANCELLED']);
@@ -82,6 +91,7 @@ export async function renderJobsExportXlsx(
       titleCaseStatus(row.jobType || 'Tryon'),
       row.startedAt,
       row.completedAt,
+      fmtDuration(row.durationSeconds),
       row.creditsUsed,
       row.creditsRemaining,
       titleCaseStatus(row.status),

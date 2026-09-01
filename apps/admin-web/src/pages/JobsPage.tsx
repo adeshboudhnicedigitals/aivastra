@@ -54,6 +54,14 @@ function jobContactEmail(j: Job): string | null {
   return j.userEmail ?? j.shopEmail ?? null;
 }
 
+/** Converts a duration filter input (in the selected unit) to whole seconds for the API. */
+function toDurationSeconds(value: string, unit: 'seconds' | 'minutes'): number | undefined {
+  if (value === '') return undefined;
+  const n = Number(value);
+  if (Number.isNaN(n) || n < 0) return undefined;
+  return unit === 'minutes' ? n * 60 : n;
+}
+
 function EventRow({ ev }: { ev: JobEvent }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -145,7 +153,10 @@ function EventRow({ ev }: { ev: JobEvent }) {
 }
 
 interface Props {
-  onNav: (_page: string, _filter?: { page: string; filter?: string; userId?: string }) => void;
+  onNav: (
+    _page: string,
+    _filter?: { page: string; filter?: string; userId?: string; jobId?: string },
+  ) => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
@@ -168,6 +179,9 @@ export default function JobsPage({ onNav, toast }: Props) {
   const [workerFilter, setWorkerFilter] = useState<string>('');
   const [createdFrom, setCreatedFrom] = useState<string>('');
   const [createdTo, setCreatedTo] = useState<string>('');
+  const [durationMin, setDurationMin] = useState<string>('');
+  const [durationMax, setDurationMax] = useState<string>('');
+  const [durationUnit, setDurationUnit] = useState<'seconds' | 'minutes'>('seconds');
   const [jobTypeOptions, setJobTypeOptions] = useState<string[]>([]);
   const [workerOptions, setWorkerOptions] = useState<{ id: string; label: string }[]>([]);
   const [page, setPage] = useState(0);
@@ -235,6 +249,10 @@ export default function JobsPage({ onNav, toast }: Props) {
         if (workerFilter) params.set('workerId', workerFilter);
         if (createdFrom) params.set('createdFrom', createdFrom);
         if (createdTo) params.set('createdTo', createdTo);
+        const durationMinSec = toDurationSeconds(durationMin, durationUnit);
+        const durationMaxSec = toDurationSeconds(durationMax, durationUnit);
+        if (durationMinSec != null) params.set('durationMinSec', String(durationMinSec));
+        if (durationMaxSec != null) params.set('durationMaxSec', String(durationMaxSec));
         const data = await apiFetch<{ items: Job[]; total: number }>(`/admin/jobs?${params}`);
         setJobs(data.items);
         setTotal(data.total);
@@ -249,7 +267,20 @@ export default function JobsPage({ onNav, toast }: Props) {
         if (!silent) setLoading(false);
       }
     },
-    [page, filter, dateFilter, query, jobTypeFilter, workerFilter, createdFrom, createdTo, toast],
+    [
+      page,
+      filter,
+      dateFilter,
+      query,
+      jobTypeFilter,
+      workerFilter,
+      createdFrom,
+      createdTo,
+      durationMin,
+      durationMax,
+      durationUnit,
+      toast,
+    ],
   );
 
   useEffect(() => {
@@ -364,6 +395,14 @@ export default function JobsPage({ onNav, toast }: Props) {
     setCreatedTo(v);
     setPage(0);
   };
+  const handleDurationMin = (v: string) => {
+    setDurationMin(v);
+    setPage(0);
+  };
+  const handleDurationMax = (v: string) => {
+    setDurationMax(v);
+    setPage(0);
+  };
   const handleExportXlsx = async () => {
     setExportingXlsx(true);
     try {
@@ -375,6 +414,10 @@ export default function JobsPage({ onNav, toast }: Props) {
       if (workerFilter) params.set('workerId', workerFilter);
       if (createdFrom) params.set('createdFrom', createdFrom);
       if (createdTo) params.set('createdTo', createdTo);
+      const durationMinSec = toDurationSeconds(durationMin, durationUnit);
+      const durationMaxSec = toDurationSeconds(durationMax, durationUnit);
+      if (durationMinSec != null) params.set('durationMinSec', String(durationMinSec));
+      if (durationMaxSec != null) params.set('durationMaxSec', String(durationMaxSec));
       const blob = await apiFetchBlob(`/admin/jobs/export.xlsx?${params}`);
       const href = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
@@ -546,7 +589,13 @@ export default function JobsPage({ onNav, toast }: Props) {
             {requestedFromUserId && requestedJobId === j.id ? (
               <button
                 className="btn ghost"
-                onClick={() => onNav('users', { page: 'users', userId: requestedFromUserId })}
+                onClick={() =>
+                  onNav('users', {
+                    page: 'users',
+                    userId: requestedFromUserId,
+                    jobId: requestedJobId,
+                  })
+                }
               >
                 <Icon.Back /> Back to user
               </button>
@@ -940,7 +989,9 @@ export default function JobsPage({ onNav, toast }: Props) {
       jobTypeFilter ||
       workerFilter ||
       createdFrom ||
-      createdTo,
+      createdTo ||
+      durationMin ||
+      durationMax,
   );
 
   const clearAllFilters = () => {
@@ -951,6 +1002,8 @@ export default function JobsPage({ onNav, toast }: Props) {
     setWorkerFilter('');
     setCreatedFrom('');
     setCreatedTo('');
+    setDurationMin('');
+    setDurationMax('');
     setPage(0);
   };
 
@@ -1112,13 +1165,18 @@ export default function JobsPage({ onNav, toast }: Props) {
           <div ref={menuRef} className="filter-popover-wrapper">
             <button
               type="button"
-              className={`filter-toggle-btn ${menuOpen || jobTypeFilter || workerFilter || createdFrom || createdTo ? 'active' : ''}`}
+              className={`filter-toggle-btn ${menuOpen || jobTypeFilter || workerFilter || createdFrom || createdTo || durationMin || durationMax ? 'active' : ''}`}
               onClick={() => setMenuOpen(!menuOpen)}
               title="Filter options and export"
             >
               <Icon.Filter />
               <span>Options</span>
-              {(jobTypeFilter || workerFilter || createdFrom || createdTo) && (
+              {(jobTypeFilter ||
+                workerFilter ||
+                createdFrom ||
+                createdTo ||
+                durationMin ||
+                durationMax) && (
                 <span
                   style={{
                     width: 6,
@@ -1238,7 +1296,64 @@ export default function JobsPage({ onNav, toast }: Props) {
 
                 <div style={{ borderTop: '1px solid var(--border)' }} />
 
-                {/* 4. Download Excel */}
+                {/* 4. Duration Filter */}
+                <div>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      display: 'block',
+                      marginBottom: 6,
+                    }}
+                  >
+                    Generation Duration
+                  </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 12, color: 'var(--muted)', width: 40 }}>Min:</span>
+                      <input
+                        type="number"
+                        min={0}
+                        className="filter-input"
+                        value={durationMin}
+                        onChange={(e) => handleDurationMin(e.target.value)}
+                        placeholder="0"
+                        style={{ flex: 1, height: 32, fontSize: 12 }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 12, color: 'var(--muted)', width: 40 }}>Max:</span>
+                      <input
+                        type="number"
+                        min={0}
+                        className="filter-input"
+                        value={durationMax}
+                        onChange={(e) => handleDurationMax(e.target.value)}
+                        placeholder="Any"
+                        style={{ flex: 1, height: 32, fontSize: 12 }}
+                      />
+                    </div>
+                    <select
+                      className="filter-select"
+                      value={durationUnit}
+                      onChange={(e) => {
+                        setDurationUnit(e.target.value as 'seconds' | 'minutes');
+                        setPage(0);
+                      }}
+                      style={{ width: '100%', height: 32, fontSize: 12.5 }}
+                    >
+                      <option value="seconds">Seconds</option>
+                      <option value="minutes">Minutes</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div style={{ borderTop: '1px solid var(--border)' }} />
+
+                {/* 5. Download Excel */}
                 <div>
                   <span
                     style={{
@@ -1363,6 +1478,28 @@ export default function JobsPage({ onNav, toast }: Props) {
                 </button>
               </span>
             )}
+            {(durationMin || durationMax) && (
+              <span className="filter-chip">
+                Duration:{' '}
+                <strong>
+                  {durationMin || '0'}
+                  {durationUnit === 'minutes' ? 'm' : 's'} → {durationMax || 'Any'}
+                  {durationMax ? (durationUnit === 'minutes' ? 'm' : 's') : ''}
+                </strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setDurationMin('');
+                    setDurationMax('');
+                    setPage(0);
+                  }}
+                  title="Remove duration filter"
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
             {dateFilter && (
               <span className="filter-chip">
                 Day: <strong>{dateFilter}</strong>
@@ -1412,6 +1549,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                   <Th k="createdAt" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
                     Created
                   </Th>
+                  <th>Duration</th>
                   <th></th>
                 </tr>
               </thead>
@@ -1462,6 +1600,11 @@ export default function JobsPage({ onNav, toast }: Props) {
                       </span>
                     </td>
                     <td>
+                      <span className="mono sub" style={{ fontSize: 11 }}>
+                        {fmtDuration(j) ?? '—'}
+                      </span>
+                    </td>
+                    <td>
                       <div style={{ display: 'flex', gap: 4 }}>
                         {(j.status === 'QUEUED' ||
                           j.status === 'GENERATING' ||
@@ -1496,7 +1639,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                 {sorted.length === 0 && (
                   <tr>
                     <td
-                      colSpan={9}
+                      colSpan={10}
                       style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}
                     >
                       No jobs found.

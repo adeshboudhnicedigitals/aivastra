@@ -49,6 +49,7 @@ export default function AddProductScreen() {
         subcategoryId={subcategoryId}
         supportsTwoInputMannequin={subcategory?.supportsTwoInputMannequin ?? false}
         supportsTwoInputDirectTryon={subcategory?.supportsTwoInputDirectTryon ?? false}
+        requiresMannequinStep={subcategory?.requiresMannequinStep ?? false}
         onSaved={handleSaved}
         onCancel={goBackToProducts}
       />
