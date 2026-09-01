@@ -759,11 +759,11 @@ describe('admin workflows - floor validation', () => {
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body.regenerationReasonPrompts).toEqual([
-      { reason: 'Multiple body parts', prompt: '' },
-      { reason: 'Nudity', prompt: '' },
-      { reason: 'Draping issue', prompt: '' },
-      { reason: 'Additional assets', prompt: '' },
-      { reason: 'Texture issue', prompt: '' },
+      { reason: 'Multiple body parts', prompt: '', instruction: '' },
+      { reason: 'Nudity', prompt: '', instruction: '' },
+      { reason: 'Draping issue', prompt: '', instruction: '' },
+      { reason: 'Additional assets', prompt: '', instruction: '' },
+      { reason: 'Texture issue', prompt: '', instruction: '' },
     ]);
   });
 
@@ -808,7 +808,8 @@ describe('admin workflows - floor validation', () => {
     const id = createRes.json().id as string;
 
     // Simulates the admin edit screen: save right after opening, with the
-    // default reasons still present but none of them given a prompt yet.
+    // default reasons still present but none of them given a prompt/
+    // instruction yet.
     const patchRes = await app.inject({
       method: 'PATCH',
       url: `/admin/workflows/${id}`,
@@ -817,7 +818,11 @@ describe('admin workflows - floor validation', () => {
         regenerationReasonPrompts: [
           { reason: 'Multiple body parts', prompt: '' },
           { reason: 'Nudity', prompt: '' },
-          { reason: 'Draping issue', prompt: 'garment sits flat, no fabric warping' },
+          {
+            reason: 'Draping issue',
+            prompt: 'garment sits flat, no fabric warping',
+            instruction: 'preserve the original garment silhouette',
+          },
           { reason: '  ', prompt: 'should be dropped — blank reason label' },
         ],
       },
@@ -829,9 +834,13 @@ describe('admin workflows - floor validation', () => {
       .from(schema.workflowTemplates)
       .where(eq(schema.workflowTemplates.id, id));
     expect(row?.regenerationReasonPrompts).toEqual([
-      { reason: 'Multiple body parts', prompt: '' },
-      { reason: 'Nudity', prompt: '' },
-      { reason: 'Draping issue', prompt: 'garment sits flat, no fabric warping' },
+      { reason: 'Multiple body parts', prompt: '', instruction: '' },
+      { reason: 'Nudity', prompt: '', instruction: '' },
+      {
+        reason: 'Draping issue',
+        prompt: 'garment sits flat, no fabric warping',
+        instruction: 'preserve the original garment silhouette',
+      },
     ]);
   });
 
