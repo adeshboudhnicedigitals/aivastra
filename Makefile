@@ -86,7 +86,7 @@ shopify-deploy-dev:
 shopify-deploy-staging:
 	cd apps/shopify-extension && npx shopify app deploy --config staging --allow-updates
 
-# Runs `shopify app dev` against shopify.app.toml (prod "AiVastra" app, org Nice
+# Runs `shopify app dev` against shopify.app.toml (prod "AI Vastra" app, org Nice
 # Interactive). app_home resolves to the already-registered prod URL
 # (app.aivastra.com) -- this hits the PRODUCTION backend/DB, not local, even
 # though it installs on a dev store. Use for real end-to-end billing tests
@@ -94,7 +94,7 @@ shopify-deploy-staging:
 shopify-dev:
 	cd apps/shopify-extension && npx shopify app dev
 
-# Runs `shopify app dev` against shopify.app.dev.toml (separate "AiVastra Dev"
+# Runs `shopify app dev` against shopify.app.dev.toml (separate "AI Vastra Dev"
 # Partner Dashboard app). Needs the local API running (pnpm --filter
 # @aivastra/api dev, port 4000) and an ngrok tunnel on the reserved domain
 # (ngrok http 4000 --domain=wispy-plaza-mullets.ngrok-free.dev) live first, or
