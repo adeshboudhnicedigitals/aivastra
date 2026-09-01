@@ -729,7 +729,7 @@ function monitorHtml(): string {
 <title>Webtool results (all users)</title>
 <style>
 ${commonCss()}
-.page { max-width: 1600px; margin: 0 auto; padding: 24px 28px 40px; }
+.page { max-width: 1800px; margin: 0 auto; padding: 24px 28px 40px; }
 .header {
   display: flex; align-items: flex-end; justify-content: space-between;
   margin-bottom: 20px; gap: 16px; flex-wrap: wrap;
