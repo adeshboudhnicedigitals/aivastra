@@ -1027,6 +1027,7 @@ export function CatalogueManagerContent() {
         subcategoryId={selectedSubcategoryId}
         supportsTwoInputMannequin={selectedSub?.supportsTwoInputMannequin ?? false}
         supportsTwoInputDirectTryon={selectedSub?.supportsTwoInputDirectTryon ?? false}
+        requiresMannequinStep={selectedSub?.requiresMannequinStep ?? false}
         initialData={editingProd}
       />
 
@@ -1035,6 +1036,7 @@ export function CatalogueManagerContent() {
         onClose={() => setBulkModalOpen(false)}
         onSaved={handleBulkSaved}
         subcategoryId={selectedSubcategoryId}
+        requiresMannequinStep={selectedSub?.requiresMannequinStep ?? false}
       />
 
       <ConfirmDialog

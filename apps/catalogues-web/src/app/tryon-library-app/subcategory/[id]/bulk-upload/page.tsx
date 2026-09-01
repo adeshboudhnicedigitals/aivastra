@@ -99,6 +99,14 @@ function BulkUploadScreenInner() {
   const breadcrumb =
     categoryLabel && subcategory ? `${categoryLabel} > ${subcategory.name}` : undefined;
 
+  // A stale/bookmarked ?mode=flat deep link could otherwise strand a non-saree
+  // subcategory in flat mode with no toggle visible to switch back.
+  useEffect(() => {
+    if (subcategory && !subcategory.requiresMannequinStep && imageMode === 'flat') {
+      setImageMode('catalogue');
+    }
+  }, [subcategory, imageMode]);
+
   useEffect(() => {
     return () => {
       for (const item of itemsRef.current) {
@@ -363,63 +371,69 @@ function BulkUploadScreenInner() {
       />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16, padding: 16 }}>
-        <div
-          style={{
-            display: 'flex',
-            borderRadius: 8,
-            border: `1px solid ${LIGHT.border2}`,
-            overflow: 'hidden',
-            background: LIGHT.card,
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => setImageMode('catalogue')}
-            disabled={busy || items.length > 0}
+        {/* Flat Images (AI-generate) mode only applies to the mannequin (saree) pipeline —
+            every other garment type uses the flat photo directly for try-on, so the toggle
+            is hidden and Catalogue Images (direct upload) is the only mode. See
+            ProductForm.tsx / ProductModal.tsx for the sibling implementations. */}
+        {subcategory?.requiresMannequinStep && (
+          <div
             style={{
-              flex: 1,
               display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 6,
-              padding: '12px 16px',
-              border: 'none',
-              background: imageMode === 'catalogue' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
-              color: imageMode === 'catalogue' ? '#f55c7a' : LIGHT.text,
-              fontWeight: imageMode === 'catalogue' ? 600 : 500,
-              fontSize: 14,
-              fontFamily: 'inherit',
-              cursor: busy || items.length > 0 ? 'not-allowed' : 'pointer',
-              borderRight: `1px solid ${LIGHT.border2}`,
+              borderRadius: 8,
+              border: `1px solid ${LIGHT.border2}`,
+              overflow: 'hidden',
+              background: LIGHT.card,
             }}
           >
-            <ImagesIcon size={15} />
-            Catalogue Images
-          </button>
-          <button
-            type="button"
-            onClick={() => setImageMode('flat')}
-            disabled={busy || items.length > 0}
-            style={{
-              flex: 1,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 6,
-              padding: '12px 16px',
-              border: 'none',
-              background: imageMode === 'flat' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
-              color: imageMode === 'flat' ? '#f55c7a' : LIGHT.text,
-              fontWeight: imageMode === 'flat' ? 600 : 500,
-              fontSize: 14,
-              fontFamily: 'inherit',
-              cursor: busy || items.length > 0 ? 'not-allowed' : 'pointer',
-            }}
-          >
-            <GarmentIcon size={15} />
-            Flat Images
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => setImageMode('catalogue')}
+              disabled={busy || items.length > 0}
+              style={{
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                padding: '12px 16px',
+                border: 'none',
+                background: imageMode === 'catalogue' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
+                color: imageMode === 'catalogue' ? '#f55c7a' : LIGHT.text,
+                fontWeight: imageMode === 'catalogue' ? 600 : 500,
+                fontSize: 14,
+                fontFamily: 'inherit',
+                cursor: busy || items.length > 0 ? 'not-allowed' : 'pointer',
+                borderRight: `1px solid ${LIGHT.border2}`,
+              }}
+            >
+              <ImagesIcon size={15} />
+              Catalogue Images
+            </button>
+            <button
+              type="button"
+              onClick={() => setImageMode('flat')}
+              disabled={busy || items.length > 0}
+              style={{
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                padding: '12px 16px',
+                border: 'none',
+                background: imageMode === 'flat' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
+                color: imageMode === 'flat' ? '#f55c7a' : LIGHT.text,
+                fontWeight: imageMode === 'flat' ? 600 : 500,
+                fontSize: 14,
+                fontFamily: 'inherit',
+                cursor: busy || items.length > 0 ? 'not-allowed' : 'pointer',
+              }}
+            >
+              <GarmentIcon size={15} />
+              Flat Images
+            </button>
+          </div>
+        )}
 
         {!showDetails && (
           <>
