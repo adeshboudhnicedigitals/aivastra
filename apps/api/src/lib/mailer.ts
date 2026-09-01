@@ -240,6 +240,54 @@ export async function sendReportReceivedEmail(
   });
 }
 
+// Contact-request message is free-form user text going straight into HTML —
+// escape it so a stray `<`/`&` in what someone typed can't break the markup.
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function issueResolvedHtml(issueDescription: string): string {
+  return `<!DOCTYPE html>
+<html>
+<body style="font-family:sans-serif;background:#f6f6f6;margin:0;padding:40px 0;">
+  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;padding:40px;">
+    <h1 style="font-size:20px;font-weight:700;color:#1a1a1a;margin:0 0 20px;">Your Reported Issue Has Been Resolved! 🎉</h1>
+    <p style="font-size:14px;color:#555;margin:0 0 16px;">Hi,</p>
+    <p style="font-size:14px;color:#555;margin:0 0 16px;">Great news! 🎉 Your reported issue has been resolved. ✅</p>
+    <p style="font-size:14px;color:#1a1a1a;font-weight:700;margin:0 0 8px;">Resolved Issue Details</p>
+    <div style="background:#f9f9f9;border-radius:8px;padding:16px;font-size:14px;color:#555;margin:0 0 16px;">
+      <strong style="color:#1a1a1a;">Issue:</strong> ${escapeHtml(issueDescription)}
+    </div>
+    <p style="font-size:14px;color:#555;margin:0 0 16px;">Our team has reviewed and resolved the issue. You can now continue using AI Vastra without interruption.</p>
+    <p style="font-size:14px;color:#555;margin:0 0 16px;">✨ If you experience any further issues, our team is always here to help.</p>
+    <p style="font-size:14px;color:#555;margin:0 0 4px;">📧 <a href="mailto:support@aivastra.com" style="color:#1a1a1a;">support@aivastra.com</a></p>
+    <p style="font-size:14px;color:#555;margin:0 0 24px;">📱 WhatsApp: +91 7729883692</p>
+    <p style="font-size:14px;color:#555;margin:0 0 24px;">Keep creating. Keep selling with AI Vastra! 🚀</p>
+    <p style="font-size:14px;color:#555;margin:0;">Best regards,<br/>Team AI Vastra</p>
+  </div>
+</body>
+</html>`;
+}
+
+export async function sendIssueResolvedEmail(
+  apiKey: string,
+  from: string,
+  to: string,
+  issueDescription: string,
+): Promise<void> {
+  await send(apiKey, {
+    from,
+    to,
+    subject: 'Your Reported Issue Has Been Resolved! 🎉',
+    html: issueResolvedHtml(issueDescription),
+  });
+}
+
 function lowCreditsHtml(p: {
   appUrl: string;
   level: 'warning' | 'critical' | 'empty';
