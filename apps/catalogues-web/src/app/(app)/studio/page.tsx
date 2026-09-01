@@ -2221,6 +2221,29 @@ export default function StudioPage(): React.ReactElement {
                   title={hasMultipleUploadBoxes ? 'Upload Garment Images' : 'Upload Garment Image'}
                   subtitle="Upload a clean flat lay garment image"
                   stepNumber={3}
+                  right={
+                    selectedGarmentType?.tutorialVideoUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setTutorialModalOpen(true)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          background: 'none',
+                          border: 'none',
+                          padding: 0,
+                          color: C.pink,
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <PlayCircle size={14} />
+                        Watch Demo Video
+                      </button>
+                    )
+                  }
                 />
                 <div
                   style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}
@@ -3003,66 +3026,30 @@ export default function StudioPage(): React.ReactElement {
                       )}
                     </div>
 
-                    {(selectedGarmentType?.instructionImageUrl ||
-                      selectedGarmentType?.tutorialVideoUrl) && (
+                    {selectedGarmentType?.instructionImageUrl && (
                       <div
                         style={{
                           flex: 1,
-                          minWidth: 0,
+                          height: 210,
                           display: 'flex',
-                          flexDirection: 'column',
-                          gap: 8,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          minWidth: 0,
+                          borderRadius: 8,
+                          overflow: 'hidden',
                         }}
                       >
-                        {selectedGarmentType?.tutorialVideoUrl && (
-                          <button
-                            type="button"
-                            onClick={() => setTutorialModalOpen(true)}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: 6,
-                              alignSelf: 'flex-start',
-                              background: 'none',
-                              border: 'none',
-                              padding: 0,
-                              color: C.pink,
-                              fontSize: 12,
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            <PlayCircle size={14} />
-                            Watch Demo Video
-                          </button>
-                        )}
-                        {selectedGarmentType?.instructionImageUrl && (
-                          <div
-                            style={{
-                              flex: 1,
-                              height: 210,
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              minWidth: 0,
-                              borderRadius: 8,
-                              overflow: 'hidden',
-                            }}
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            {/* biome-ignore lint/performance/noImgElement: dynamic instruction image */}
-                            <img
-                              src={selectedGarmentType.instructionImageUrl}
-                              alt="Upload instructions"
-                              style={{
-                                width: '100%',
-                                height: '100%',
-                                objectFit: 'contain',
-                              }}
-                            />
-                          </div>
-                        )}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        {/* biome-ignore lint/performance/noImgElement: dynamic instruction image */}
+                        <img
+                          src={selectedGarmentType.instructionImageUrl}
+                          alt="Upload instructions"
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'contain',
+                          }}
+                        />
                       </div>
                     )}
                   </div>
