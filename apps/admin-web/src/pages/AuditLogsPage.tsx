@@ -36,7 +36,7 @@ type ActionRiskTier = 'destructive' | 'sensitive' | 'default';
 // Destructive: undoes or removes something. Sensitive: changes who can do what,
 // or moves credits/money. Everything else (create/patch/reassign/...) is routine.
 function actionRiskTier(action: string): ActionRiskTier {
-  if (/\.(delete|revoke|erase|ban)$/.test(action)) return 'destructive';
+  if (/(\.|_)(delete|revoke|erase|ban)$/.test(action)) return 'destructive';
   if (/\.(update_role|drain|deduct)$/.test(action)) return 'sensitive';
   return 'default';
 }
@@ -97,13 +97,23 @@ function humanizeActionFallback(action: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+function snapshotLabel(snapshot: Record<string, unknown> | null): string | undefined {
+  const label = snapshot?.label ?? snapshot?.title;
+  return typeof label === 'string' && label.length > 0 ? label : undefined;
+}
+
 // One plain-English sentence per action, written for a non-technical reader
 // (a manager checking "what happened," not an engineer reading a log line).
-// `who` is the resolved resource label (an email, a worker name, ...) —
-// falls back to the resourceType so the sentence still reads if a label
-// couldn't be resolved (e.g. the record was later deleted).
+// `who` prefers the label captured in the event's own before/after snapshot —
+// a permanent record — over the live resourceLabel join, which goes stale (or
+// falls back to resourceType) the moment the underlying row is deleted, even
+// for older events that predate the deletion.
 function describeAction(log: AuditLogItem): string {
-  const who = log.resourceLabel ?? log.resourceType.replace(/_/g, ' ');
+  const who =
+    snapshotLabel(log.after) ??
+    snapshotLabel(log.before) ??
+    log.resourceLabel ??
+    log.resourceType.replace(/_/g, ' ');
   const after = log.after ?? {};
   const amount = typeof after.amount === 'number' ? after.amount : undefined;
   const role = typeof after.role === 'string' ? after.role : undefined;
@@ -145,6 +155,74 @@ function describeAction(log: AuditLogItem): string {
       return `Reassigned workflow "${who}"`;
     case 'workflow.delete':
       return `Deleted workflow "${who}"`;
+    case 'face.create':
+      return `Added face "${who}"`;
+    case 'face.update':
+      return `Updated face "${who}"`;
+    case 'face.delete':
+      return `Deleted face "${who}"`;
+    case 'background.create':
+      return `Added background "${who}"`;
+    case 'background.update':
+      return `Updated background "${who}"`;
+    case 'background.delete':
+      return `Deleted background "${who}"`;
+    case 'background.bulk_update':
+      return 'Bulk-updated backgrounds';
+    case 'pose.create':
+      return `Added pose "${who}"`;
+    case 'pose.update':
+      return `Updated pose "${who}"`;
+    case 'pose.delete':
+      return `Deleted pose "${who}"`;
+    case 'pose.bulk_workflow_update':
+      return 'Bulk-assigned a workflow to poses';
+    case 'pose.bulk_rename':
+      return 'Bulk-renamed poses';
+    case 'sample_video.create':
+      return `Added sample video "${who}"`;
+    case 'sample_video.update':
+      return `Updated sample video "${who}"`;
+    case 'sample_video.delete':
+      return `Deleted sample video "${who}"`;
+    case 'saree_style.create':
+      return `Added saree style "${who}"`;
+    case 'saree_style.update':
+      return `Updated saree style "${who}"`;
+    case 'garment_type.create':
+      return `Added garment type "${who}"`;
+    case 'garment_type.update':
+      return `Updated garment type "${who}"`;
+    case 'garment_type.delete':
+      return `Deleted garment type "${who}"`;
+    case 'catalog_item.create':
+      return `Added catalog item "${who}"`;
+    case 'catalog_item.update':
+      return `Updated catalog item "${who}"`;
+    case 'catalog_item.delete':
+      return `Deleted catalog item "${who}"`;
+    case 'catalog_item.bulk_update':
+      return 'Bulk-updated catalog items';
+    case 'catalog_category.create':
+      return `Added catalog category "${who}"`;
+    case 'catalog_category.update':
+      return `Updated catalog category "${who}"`;
+    case 'catalog_category.delete':
+      return `Deleted catalog category "${who}"`;
+    case 'catalogue_template.create':
+      return `Added catalogue template "${who}"`;
+    case 'catalogue_template.update':
+      return `Updated catalogue template "${who}"`;
+    case 'catalogue_template.delete':
+      return `Deleted catalogue template "${who}"`;
+    case 'catalogue_template.update_looks':
+      return `Updated the looks for catalogue template "${who}"`;
+    case 'asset.restore':
+      return 'Restored an asset from the recycle bin';
+    case 'asset.permanent_delete':
+      return 'Permanently deleted an asset';
+    case 'asset.bulk_import':
+      return 'Bulk-imported assets from a ZIP';
     default:
       return `${humanizeActionFallback(log.action)} — ${who}`;
   }
@@ -233,6 +311,35 @@ const ACTION_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'workflow.update', label: 'Workflow updated' },
   { value: 'workflow.reassign', label: 'Workflow reassigned' },
   { value: 'workflow.delete', label: 'Workflow deleted' },
+  { value: 'face.create', label: 'Face added' },
+  { value: 'face.update', label: 'Face updated' },
+  { value: 'face.delete', label: 'Face deleted' },
+  { value: 'background.create', label: 'Background added' },
+  { value: 'background.update', label: 'Background updated' },
+  { value: 'background.delete', label: 'Background deleted' },
+  { value: 'pose.create', label: 'Pose added' },
+  { value: 'pose.update', label: 'Pose updated' },
+  { value: 'pose.delete', label: 'Pose deleted' },
+  { value: 'sample_video.create', label: 'Sample video added' },
+  { value: 'sample_video.update', label: 'Sample video updated' },
+  { value: 'sample_video.delete', label: 'Sample video deleted' },
+  { value: 'saree_style.create', label: 'Saree style added' },
+  { value: 'saree_style.update', label: 'Saree style updated' },
+  { value: 'garment_type.create', label: 'Garment type added' },
+  { value: 'garment_type.update', label: 'Garment type updated' },
+  { value: 'garment_type.delete', label: 'Garment type deleted' },
+  { value: 'catalog_item.create', label: 'Catalog item added' },
+  { value: 'catalog_item.update', label: 'Catalog item updated' },
+  { value: 'catalog_item.delete', label: 'Catalog item deleted' },
+  { value: 'catalog_category.create', label: 'Catalog category added' },
+  { value: 'catalog_category.update', label: 'Catalog category updated' },
+  { value: 'catalog_category.delete', label: 'Catalog category deleted' },
+  { value: 'catalogue_template.create', label: 'Catalogue template added' },
+  { value: 'catalogue_template.update', label: 'Catalogue template updated' },
+  { value: 'catalogue_template.delete', label: 'Catalogue template deleted' },
+  { value: 'asset.restore', label: 'Asset restored' },
+  { value: 'asset.permanent_delete', label: 'Asset permanently deleted' },
+  { value: 'asset.bulk_import', label: 'Assets bulk-imported' },
 ];
 
 const RESOURCE_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
@@ -241,6 +348,16 @@ const RESOURCE_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'user', label: 'Users' },
   { value: 'admin_user', label: 'Team members' },
   { value: 'user_credits', label: 'Credits' },
+  { value: 'face', label: 'Faces' },
+  { value: 'background', label: 'Backgrounds' },
+  { value: 'pose', label: 'Poses' },
+  { value: 'sample_video', label: 'Sample videos' },
+  { value: 'saree_style', label: 'Saree styles' },
+  { value: 'garment_type', label: 'Garment types' },
+  { value: 'catalog_item', label: 'Lower garments & shoes' },
+  { value: 'catalog_category', label: 'Catalog categories' },
+  { value: 'catalogue_template', label: 'Catalogue templates' },
+  { value: 'asset', label: 'Assets (general)' },
 ];
 
 export default function AuditLogsPage({ toast }: Props) {

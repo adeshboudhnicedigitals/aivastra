@@ -162,6 +162,7 @@ async function serializeSubcategory(
       garmentType?.requiresMannequinStep && garmentType?.mannequinTwoInputWorkflowTemplateId,
     ),
     supportsTwoInputDirectTryon: Boolean(garmentType?.twoInputTryonWorkflowTemplateId),
+    requiresMannequinStep: Boolean(garmentType?.requiresMannequinStep),
   };
 }
 

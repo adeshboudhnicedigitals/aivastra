@@ -377,6 +377,78 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
     };
   }
 
+  if (workflowType === 'regeneration') {
+    // Only the source-image and output nodes are auto-detected (fallback +
+    // throw) — the prompt nodes are Zod-required admin-set inputs (superRefine
+    // in packages/types/src/admin.ts), same convention as the tryon branch below.
+    const { detected: autoDetected } = detectTryonMappings(body.jsonContent);
+    const personNodeId = body.tryonPersonNodeId ?? autoDetected.personNodeId ?? '';
+    const outputNodeId = body.tryonOutputNodeId ?? autoDetected.outputNodeId ?? '';
+    // biome-ignore lint/style/noNonNullAssertion: guaranteed by superRefine
+    const negNode = body.facePhasePromptNode!;
+    // biome-ignore lint/style/noNonNullAssertion: guaranteed by superRefine
+    const posNode = body.garmentPhasePromptNode!;
+
+    if (!personNodeId)
+      throw new AppError(
+        'VALIDATION',
+        400,
+        'Could not detect source-image node — set tryonPersonNodeId manually',
+      );
+    if (!outputNodeId)
+      throw new AppError(
+        'VALIDATION',
+        400,
+        'Could not detect output node — set tryonOutputNodeId manually',
+      );
+
+    validateNodeExists(body.jsonContent, personNodeId, 'source image');
+    validateNodeType(body.jsonContent, personNodeId, 'image', 'source image');
+    validateNodeExists(body.jsonContent, outputNodeId, 'output');
+    validateNodeExists(body.jsonContent, negNode, 'negative prompt');
+    validateNodeExists(body.jsonContent, posNode, 'reason prompt');
+    validateNodeType(body.jsonContent, negNode, 'prompt', 'negative prompt');
+    validateNodeType(body.jsonContent, posNode, 'prompt', 'reason prompt');
+
+    const { defaultFacePhasePrompt, defaultGarmentPhasePrompt } = extractDefaultPrompts(
+      body.jsonContent,
+      negNode,
+      posNode,
+    );
+
+    return {
+      slug: body.slug,
+      label: body.label,
+      jsonContent: body.jsonContent,
+      workflowType,
+      faceNodeId: '',
+      poseNodeId: '',
+      bgNodeId: '',
+      upperNodeIds: [],
+      lowerNodeId: null,
+      shoeNodeId: null,
+      thirdNodeId: null,
+      sizeNodeIds: [],
+      latentSizeNodeIds: [],
+      latentMaxPx: 2048,
+      outputSizeNodeIds: [],
+      outputMaxPx: 2048,
+      resultNodeId: null,
+      facePhasePromptNode: negNode,
+      garmentPhasePromptNode: posNode,
+      defaultFacePhasePrompt,
+      defaultGarmentPhasePrompt,
+      stage1PositivePromptNode: null,
+      stage1NegativePromptNode: null,
+      defaultStage1PositivePrompt: '',
+      defaultStage1NegativePrompt: '',
+      tryonPersonNodeId: personNodeId,
+      tryonGarmentNodeId: null,
+      tryonGarmentNodeId2: null,
+      tryonOutputNodeId: outputNodeId,
+    };
+  }
+
   if (workflowType === 'tryon' || workflowType === 'saree_step1') {
     const { detected: autoDetected } = detectTryonMappings(body.jsonContent);
     const personNodeId = body.tryonPersonNodeId ?? autoDetected.personNodeId ?? '';
@@ -631,7 +703,11 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       }
 
       const parseWorkflowType = (req.body as { workflowType?: string }).workflowType;
-      if (parseWorkflowType === 'tryon' || parseWorkflowType === 'saree_step1') {
+      if (
+        parseWorkflowType === 'tryon' ||
+        parseWorkflowType === 'saree_step1' ||
+        parseWorkflowType === 'regeneration'
+      ) {
         const { detected, allImageNodes, allPromptNodes } = detectTryonMappings(jsonContent);
         return { detected, allImageNodes, allPromptNodes };
       }
@@ -671,15 +747,32 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       }
 
       // Every new workflow starts with the default reason pool (blank prompts —
-      // "no override yet") so the regenerate reason picker is never empty for
-      // it. /replace intentionally never sets this field, so an existing
-      // workflow's curated list survives a jsonContent swap untouched.
+      // "no override yet") so the regenerate reason picker is never empty — but
+      // only for the one workflow type where reasons are actually used.
+      // /replace intentionally never sets this field, so an existing workflow's
+      // curated list survives a jsonContent swap untouched.
       const values = {
         ...extractWorkflowInsertFields(body),
-        regenerationReasonPrompts: DEFAULT_REGENERATION_REASON_PROMPTS,
+        regenerationReasonPrompts:
+          body.workflowType === 'regeneration' ? DEFAULT_REGENERATION_REASON_PROMPTS : [],
       };
 
       const row = await app.db.transaction(async (tx) => {
+        // Single-active invariant: only one 'regeneration' template is ever
+        // live — every regenerate click uses whichever one is active, with no
+        // per-job selection. Mirrors admin/saree.routes.ts's demote-on-create.
+        if (values.workflowType === 'regeneration') {
+          await tx
+            .update(schema.workflowTemplates)
+            .set({ isActive: false, updatedAt: new Date() })
+            .where(
+              and(
+                eq(schema.workflowTemplates.workflowType, 'regeneration'),
+                eq(schema.workflowTemplates.isActive, true),
+              ),
+            );
+        }
+
         const [inserted] = await tx.insert(schema.workflowTemplates).values(values).returning();
         if (!inserted)
           throw new AppError('INSERT_FAILED', 500, 'failed to insert workflow template');
@@ -1029,6 +1122,13 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       if ('tryonOutputNodeId' in body)
         updateValues.tryonOutputNodeId = body.tryonOutputNodeId ?? null;
       if (body.regenerationReasonPrompts !== undefined) {
+        if (existing.workflowType !== 'regeneration') {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'regenerationReasonPrompts can only be set on a regeneration-type workflow',
+          );
+        }
         // Trim + drop rows with a blank REASON here rather than trusting the
         // client's array verbatim — an admin backspacing a reason label to
         // empty shouldn't leave a nameless row the picker can't render. A
@@ -1048,6 +1148,19 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
           .where(eq(schema.workflowTemplates.id, id))
           .for('update');
         if (!locked) throw new AppError('NOT_FOUND', 404, 'workflow not found');
+
+        if (locked.workflowType === 'regeneration' && body.isActive === true) {
+          await tx
+            .update(schema.workflowTemplates)
+            .set({ isActive: false, updatedAt: new Date() })
+            .where(
+              and(
+                eq(schema.workflowTemplates.workflowType, 'regeneration'),
+                eq(schema.workflowTemplates.isActive, true),
+                ne(schema.workflowTemplates.id, id),
+              ),
+            );
+        }
 
         await tx
           .update(schema.workflowTemplates)

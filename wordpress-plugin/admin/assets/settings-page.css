@@ -26,7 +26,27 @@
   --aivastra-radius-card: 16px;
   --aivastra-radius-control: 10px;
   --aivastra-shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px -12px rgba(15, 23, 42, 0.12);
-  max-width: 720px;
+  /* Same four stops as the mark in admin/assets/images/logo.svg — used
+     sparingly (nav active state, primary buttons, the credit number) so the
+     page reads as the same product as that logo instead of a generic navy
+     admin screen with a brand mark bolted on top. */
+  --aivastra-gradient: linear-gradient(135deg, #d946ef 0%, #6366f1 45%, #22d3ee 75%, #fb923c 100%);
+  /* The exact brand gradient from apps/catalogues-web/src/components/tokens.ts
+     (`grad`) — used only within the Plans & Credits card, so its pricing
+     tiles read as the same product as the consumer /pricing page instead of
+     the WordPress-plugin-specific --aivastra-gradient used everywhere else
+     on this settings screen. */
+  --aivastra-catalogue-gradient: linear-gradient(
+    91.84deg,
+    #521d9c 0.33%,
+    #bd2587 50.77%,
+    #f96657 99.67%
+  );
+  --aivastra-catalogue-dark: #141414;
+  /* 1500px matches the max-width apps/catalogues-web's own /pricing grid uses
+     — widened from 1180px so the Plans & Credits cards get room to breathe
+     instead of being squeezed to fit 4-across in a narrower column. */
+  max-width: 1500px;
   /* WordPress core's .wrap sets a small fixed left margin, which leaves this
      fixed-width block hugging the left edge on any screen wider than ~760px
      instead of sitting in the middle of the admin content area. Overriding
@@ -82,6 +102,116 @@
   margin: 0 0 20px;
 }
 
+/* Sidebar nav: was previously a single-column stack of every card in
+   sequence, which made a long scroll of "Plans", "Widget appearance",
+   "Category mapping", "Analytics" and "Support" feel like one page rather
+   than five distinct settings screens. */
+.aivastra-settings-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.aivastra-settings-nav {
+  flex: 0 0 210px;
+  background: var(--aivastra-surface);
+  border: 1px solid var(--aivastra-border);
+  border-radius: var(--aivastra-radius-card);
+  box-shadow: var(--aivastra-shadow-card);
+  padding: 10px;
+  /* Follows the page as you scroll a long section (e.g. the category
+     mapping list, or a long product table in Analytics) instead of
+     scrolling out of view — 32px clears WP admin's own fixed toolbar. */
+  position: sticky;
+  top: 32px;
+}
+
+.aivastra-nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px 10px 12px;
+  margin-bottom: 2px;
+  border-radius: var(--aivastra-radius-control);
+  color: var(--aivastra-text-main);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  box-shadow: none;
+  transition:
+    background 0.15s ease,
+    transform 0.1s ease;
+}
+
+.aivastra-nav-icon {
+  display: inline-flex;
+  color: var(--aivastra-text-subtle);
+  flex-shrink: 0;
+  transition: color 0.15s ease;
+}
+
+.aivastra-nav-item:hover,
+.aivastra-nav-item:focus {
+  background: var(--aivastra-surface-subtle);
+  color: var(--aivastra-text-main);
+  transform: translateX(1px);
+}
+
+/* A flat left border wouldn't follow the rounded corners of the item's own
+   background pill, so the accent is a gradient bar clipped to a rounded
+   pseudo-element instead of border-left, which would sit flush at the nav's
+   outer edge rather than the item's. */
+.aivastra-nav-item.is-active {
+  background: var(--aivastra-accent-soft);
+  color: var(--aivastra-accent);
+  font-weight: 600;
+}
+
+.aivastra-nav-item.is-active::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--aivastra-gradient);
+}
+
+.aivastra-nav-item.is-active .aivastra-nav-icon {
+  color: var(--aivastra-accent);
+}
+
+.aivastra-settings-content {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Matches WordPress core's own admin-menu collapse breakpoint, so the nav
+   drops to a horizontal scroller at the same width the main WP sidebar
+   already goes fluid at, rather than introducing a second, mismatched
+   breakpoint. */
+@media (max-width: 782px) {
+  .aivastra-settings-layout {
+    flex-direction: column;
+  }
+
+  .aivastra-settings-nav {
+    flex: 1 1 auto;
+    position: static;
+    display: flex;
+    overflow-x: auto;
+    gap: 4px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .aivastra-nav-item {
+    white-space: nowrap;
+  }
+}
+
 .aivastra-card {
   background: var(--aivastra-surface);
   border: 1px solid var(--aivastra-border);
@@ -133,9 +263,13 @@
 .aivastra-credit-number {
   font-size: 36px;
   font-weight: 700;
-  color: var(--aivastra-text-main);
   line-height: 1;
   font-variant-numeric: tabular-nums;
+  background: var(--aivastra-gradient);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: var(--aivastra-text-main); /* fallback if background-clip: text isn't supported */
 }
 
 .aivastra-credit-label {
@@ -418,14 +552,21 @@
 }
 
 .aivastra-btn-primary {
-  background: var(--aivastra-primary);
+  background: var(--aivastra-gradient);
   color: #fff;
   align-self: flex-start;
+  transition:
+    filter 0.15s ease,
+    transform 0.1s ease;
 }
 
 .aivastra-btn-primary:hover {
-  background: var(--aivastra-primary-hover);
+  filter: brightness(1.08) saturate(1.1);
   color: #fff;
+}
+
+.aivastra-btn-primary:active {
+  transform: translateY(1px);
 }
 
 .aivastra-btn-secondary {
@@ -445,19 +586,36 @@
   margin-top: 4px;
 }
 
-/* Plan tile's Buy Now button — centered rather than stretched full-width
-   like .aivastra-btn-block, since the tile's other content (name, credits,
-   price) stays left-aligned; only the button centers. margin-top: auto
-   pushes it to the bottom of the tile uniformly even when tiles have
-   different content heights (e.g. the highlighted tile's extra badge/label
-   lines), since .aivastra-plan-tile is a column flexbox. */
+/* Plan tile's Buy Now button — full width, matching the consumer pricing
+   page's CTA. margin-top: auto pushes it to the bottom of the tile uniformly
+   even when tiles have different content heights (e.g. the highlighted
+   tile's extra badge line), since .aivastra-plan-tile is a column flexbox. */
 .aivastra-plan-buy-btn {
-  align-self: center;
+  align-self: stretch;
+  justify-content: center;
   margin-top: auto;
-  padding-top: 9px;
-  padding-bottom: 9px;
-  padding-left: 24px;
-  padding-right: 24px;
+  padding-top: 11px;
+  padding-bottom: 11px;
+}
+
+.aivastra-btn-dark {
+  background: var(--aivastra-catalogue-dark);
+  color: #fff;
+}
+
+.aivastra-btn-dark:hover {
+  background: #2a2a2a;
+  color: #fff;
+}
+
+.aivastra-btn-catalogue-gradient {
+  background: var(--aivastra-catalogue-gradient);
+  color: #fff;
+}
+
+.aivastra-btn-catalogue-gradient:hover {
+  filter: brightness(1.08) saturate(1.1);
+  color: #fff;
 }
 
 .aivastra-btn-danger-ghost {
@@ -499,6 +657,9 @@
 
 /* Connect card / connect form (shared with the "Update connection keys" reveal) */
 .aivastra-connect-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-size: 17px;
   margin: 0 0 6px;
   color: var(--aivastra-text-main);
@@ -548,9 +709,24 @@
 
 /* Category mapping card */
 .aivastra-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-size: 16px;
   margin: 0 0 8px;
   color: var(--aivastra-text-main);
+}
+
+.aivastra-heading-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: var(--aivastra-accent-soft);
+  color: var(--aivastra-accent);
 }
 
 .aivastra-card-description {
@@ -613,93 +789,195 @@
   }
 }
 
-/* Plans & credits card */
+/* Plans & credits card — mirrors apps/catalogues-web's /pricing tryon-tab
+   cards (Desktop.tsx): icon chip + name/subtext, big price, a divider, a
+   static feature checklist, then a full-width CTA. */
 .aivastra-plans-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 14px;
+  /* Fixed 4 columns rather than auto-fit — with 4 real plans, auto-fit's
+     minmax(210px, 1fr) stopped fitting a 4th column just under ~900px of
+     content width (210*4 + 16*3 = 888px), silently wrapping the last card
+     onto its own row. Fixed columns keep all four side by side down to
+     whatever width 4 cards can still read at, and the media query below
+     steps down column count as that space runs out instead. */
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
   /* Room for the highlighted tile's badge, which floats above the tile edge. */
-  padding-top: 12px;
+  padding-top: 14px;
+}
+
+@media (max-width: 1000px) {
+  .aivastra-plans-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .aivastra-plans-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Outer wrapper only matters for the highlighted tile — it's what turns a
+   plain border into a 2px ring of pure gradient, the same "padding: 2,
+   gradient background" trick Desktop.tsx uses, since CSS has no shorthand
+   for a gradient-colored border that still respects border-radius cleanly. */
+.aivastra-plan-outer {
+  display: flex;
+  flex-direction: column;
+}
+
+.aivastra-plan-outer-highlighted {
+  padding: 2px;
+  border-radius: 16px;
+  background: var(--aivastra-catalogue-gradient);
+  box-shadow: 0 10px 28px -14px rgba(189, 37, 135, 0.45);
 }
 
 .aivastra-plan-tile {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 16px;
-  background: var(--aivastra-surface-subtle);
+  flex: 1;
+  padding: 18px;
+  background: var(--aivastra-surface);
   border: 1px solid var(--aivastra-border);
-  border-radius: var(--aivastra-radius-control);
+  border-radius: 14px;
 }
 
-/* Best Value / admin-flagged plan (credit_plans.is_highlighted + .badge) —
-   same signal the consumer /pricing page already shows, not a new one
-   invented for this admin screen. */
 .aivastra-plan-tile-highlighted {
-  background: var(--aivastra-accent-soft);
-  border-color: var(--aivastra-accent);
-  box-shadow: 0 0 0 1px var(--aivastra-accent);
+  border: none;
+  border-radius: 14px;
 }
 
 .aivastra-plan-badge {
   position: absolute;
-  top: -12px;
+  top: -13px;
   left: 50%;
   transform: translateX(-50%);
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 10px;
-  background: var(--aivastra-accent);
+  padding: 4px 12px;
+  background: var(--aivastra-catalogue-gradient);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
   border-radius: 999px;
   white-space: nowrap;
+  box-shadow: 0 2px 10px rgba(189, 37, 135, 0.35);
+}
+
+.aivastra-plan-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.aivastra-plan-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.aivastra-plan-head-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
 }
 
 .aivastra-plan-name {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--aivastra-text-main);
-  margin: 0;
 }
 
-.aivastra-plan-credits {
-  font-size: 13px;
+.aivastra-plan-subtext {
+  font-size: 10.5px;
+  font-weight: 600;
   color: var(--aivastra-text-muted);
-  margin: 0;
 }
 
-.aivastra-plan-units {
+.aivastra-plan-price-row {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.aivastra-plan-price-big {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--aivastra-text-main);
+  letter-spacing: -0.5px;
+}
+
+.aivastra-plan-unit {
+  font-size: 12.5px;
+  color: var(--aivastra-text-muted);
+}
+
+.aivastra-plan-gst {
   font-size: 11.5px;
-  font-weight: 500;
   color: var(--aivastra-text-subtle);
-  margin: 0;
+  margin: 2px 0 0;
 }
 
 .aivastra-plan-per-unit {
   font-size: 11.5px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--aivastra-text-main);
-  margin: 0 0 8px;
+  margin: 6px 0 0;
 }
 
-.aivastra-btn-highlighted {
-  background: var(--aivastra-accent);
-  color: #fff;
+.aivastra-plan-divider {
+  height: 1px;
+  background: var(--aivastra-border);
+  margin: 16px 0;
 }
 
-.aivastra-btn-highlighted:hover {
-  background: #4f46e5;
-  color: #fff;
+.aivastra-plan-features {
+  flex: 1;
 }
 
-.aivastra-plan-price {
+.aivastra-plan-features-heading {
   font-size: 12.5px;
-  color: var(--aivastra-text-subtle);
-  margin: 0 0 8px;
+  font-weight: 700;
+  color: var(--aivastra-text-main);
+  margin: 0 0 10px;
+}
+
+.aivastra-plan-feature-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 9px;
+}
+
+.aivastra-plan-feature-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.aivastra-plan-feature-check.is-gradient {
+  background: var(--aivastra-catalogue-gradient);
+  color: #fff;
+}
+
+.aivastra-plan-feature-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--aivastra-text-main);
 }
 
 /* Verifying-payment overlay — appended to document.body by checkout.js, so

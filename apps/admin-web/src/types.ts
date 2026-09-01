@@ -82,7 +82,13 @@ export interface WorkflowOption {
   id: string; // UUID from workflow_templates table
   slug: string;
   label: string;
-  workflowType: 'regular' | 'tryon' | 'saree_step1' | 'saree_step1_two_input' | 'two_stage';
+  workflowType:
+    | 'regular'
+    | 'tryon'
+    | 'saree_step1'
+    | 'saree_step1_two_input'
+    | 'two_stage'
+    | 'regeneration';
   isActive: boolean;
   poseCount: number;
   defaultFacePhasePrompt: string;

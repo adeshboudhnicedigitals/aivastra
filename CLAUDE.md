@@ -234,6 +234,16 @@ Job input model: 1 user-uploaded garment + `faceId` + `backgroundId` + `poseId`
 (all admin-curated) + optional `lowerCatalogId` / `shoeCatalogId`. Every ID must
 resolve to an active row before credits are deducted.
 
+Most job-creation paths snapshot `workflowTemplateId` into `job_inputs.params` so later admin
+inspection shows what actually ran. Merchant-catalog jobs and bare saree-mannequin step-1 jobs
+(no `secondGarmentKey`) deliberately don't — omitting the snapshot is what lets the dispatcher
+re-resolve the garment type's mannequin workflow **fresh at dispatch time**, so an admin fixing a
+misconfigured workflow has that fix apply to a job that's still queued, not just future ones. For
+these, the historical record instead lives in the job's most recent `COMFY_DISPATCH` `job_events`
+row (`payload.workflowTemplateId`) — every dispatch path writes one
+(`apps/dispatcher/src/job/processor.ts`) — which `GET /admin/jobs/:id` falls back to before ever
+trusting today's live pose/garment-config join.
+
 ### Adding a GPU worker
 
 Workers live in `schema.workers` (Postgres), loaded into the Redis registry at

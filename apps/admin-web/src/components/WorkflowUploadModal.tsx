@@ -120,7 +120,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
   const [showConvention, setShowConvention] = useState(false);
 
   const [workflowType, setWorkflowType] = useState<
-    'regular' | 'tryon' | 'saree_step1' | 'saree_step1_two_input' | 'two_stage'
+    'regular' | 'tryon' | 'saree_step1' | 'saree_step1_two_input' | 'two_stage' | 'regeneration'
   >('regular');
   const [slug, setSlug] = useState('');
   const [label, setLabel] = useState('');
@@ -196,7 +196,11 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
       );
       setParsed(result);
 
-      if (workflowType === 'tryon' || workflowType === 'saree_step1') {
+      if (
+        workflowType === 'tryon' ||
+        workflowType === 'saree_step1' ||
+        workflowType === 'regeneration'
+      ) {
         const d = result.detected as {
           personNodeId?: string;
           garmentNodeId?: string;
@@ -300,6 +304,15 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
         setError('Positive and negative prompt nodes are required');
         return;
       }
+    } else if (workflowType === 'regeneration') {
+      if (!tryonPersonNodeId.trim() || !tryonOutputNodeId.trim()) {
+        setError('Source-image and output node IDs are required');
+        return;
+      }
+      if (!positivePromptNode || !negativePromptNode) {
+        setError('Reason (positive) and negative prompt nodes are required');
+        return;
+      }
     } else if (workflowType === 'saree_step1_two_input') {
       if (!tryonGarmentNodeId.trim() || !tryonGarmentNodeId2.trim() || !tryonOutputNodeId.trim()) {
         setError('Body, pallu, and output node IDs are required');
@@ -351,7 +364,8 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
       if (
         workflowType === 'tryon' ||
         workflowType === 'saree_step1' ||
-        workflowType === 'saree_step1_two_input'
+        workflowType === 'saree_step1_two_input' ||
+        workflowType === 'regeneration'
       ) {
         payload = {
           slug: slug.trim(),
@@ -359,7 +373,9 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
           jsonContent,
           workflowType,
           tryonPersonNodeId: tryonPersonNodeId.trim() || undefined,
-          tryonGarmentNodeId: tryonGarmentNodeId.trim(),
+          ...(workflowType !== 'regeneration'
+            ? { tryonGarmentNodeId: tryonGarmentNodeId.trim() }
+            : {}),
           ...(workflowType === 'saree_step1_two_input'
             ? { tryonGarmentNodeId2: tryonGarmentNodeId2.trim() }
             : {}),
@@ -469,34 +485,36 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
     jsonFile &&
     slug.trim() &&
     label.trim() &&
-    (workflowType === 'tryon' || workflowType === 'saree_step1'
-      ? parsed &&
-        tryonGarmentNodeId &&
-        tryonOutputNodeId &&
-        positivePromptNode &&
-        negativePromptNode
-      : workflowType === 'saree_step1_two_input'
+    (workflowType === 'regeneration'
+      ? parsed && tryonPersonNodeId && tryonOutputNodeId && positivePromptNode && negativePromptNode
+      : workflowType === 'tryon' || workflowType === 'saree_step1'
         ? parsed &&
           tryonGarmentNodeId &&
-          tryonGarmentNodeId2 &&
           tryonOutputNodeId &&
           positivePromptNode &&
           negativePromptNode
-        : workflowType === 'two_stage'
+        : workflowType === 'saree_step1_two_input'
           ? parsed &&
-            faceNodeId &&
-            poseNodeId &&
-            bgNodeId &&
-            twoStageGarmentNodeId &&
-            stage1PositivePromptNode &&
-            stage1NegativePromptNode &&
+            tryonGarmentNodeId &&
+            tryonGarmentNodeId2 &&
+            tryonOutputNodeId &&
             positivePromptNode &&
             negativePromptNode
-          : parsed &&
-            poseNodeId &&
-            positivePromptNode &&
-            (!faceNodeId || negativePromptNode) &&
-            (upperNodeIds.filter(Boolean).length > 0 || lowerNodeId));
+          : workflowType === 'two_stage'
+            ? parsed &&
+              faceNodeId &&
+              poseNodeId &&
+              bgNodeId &&
+              twoStageGarmentNodeId &&
+              stage1PositivePromptNode &&
+              stage1NegativePromptNode &&
+              positivePromptNode &&
+              negativePromptNode
+            : parsed &&
+              poseNodeId &&
+              positivePromptNode &&
+              (!faceNodeId || negativePromptNode) &&
+              (upperNodeIds.filter(Boolean).length > 0 || lowerNodeId));
 
   return (
     <EditDrawer
@@ -510,31 +528,40 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {/* Workflow type selector */}
-        <div style={{ display: 'flex', gap: 8 }}>
-          {(['regular', 'tryon', 'saree_step1', 'saree_step1_two_input', 'two_stage'] as const).map(
-            (t) => (
-              <button
-                key={t}
-                className={`btn sm ${workflowType === t ? 'primary' : 'ghost'}`}
-                disabled={saving}
-                onClick={() => {
-                  setWorkflowType(t);
-                  setError(null);
-                }}
-                style={{ textTransform: 'capitalize' }}
-              >
-                {t === 'tryon'
-                  ? 'Tryon (person + garment)'
-                  : t === 'saree_step1'
-                    ? 'Saree Step 1 (mannequin)'
-                    : t === 'saree_step1_two_input'
-                      ? 'Saree Step 1 (body + pallu)'
-                      : t === 'two_stage'
-                        ? 'Two-Stage (build + dress)'
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {(
+            [
+              'regular',
+              'tryon',
+              'saree_step1',
+              'saree_step1_two_input',
+              'two_stage',
+              'regeneration',
+            ] as const
+          ).map((t) => (
+            <button
+              key={t}
+              className={`btn sm ${workflowType === t ? 'primary' : 'ghost'}`}
+              disabled={saving}
+              onClick={() => {
+                setWorkflowType(t);
+                setError(null);
+              }}
+              style={{ textTransform: 'capitalize' }}
+            >
+              {t === 'tryon'
+                ? 'Tryon (person + garment)'
+                : t === 'saree_step1'
+                  ? 'Saree Step 1 (mannequin)'
+                  : t === 'saree_step1_two_input'
+                    ? 'Saree Step 1 (body + pallu)'
+                    : t === 'two_stage'
+                      ? 'Two-Stage (build + dress)'
+                      : t === 'regeneration'
+                        ? 'Regeneration (single-image edit)'
                         : 'Catalogue workflows (pose-based)'}
-              </button>
-            ),
-          )}
+            </button>
+          ))}
         </div>
 
         {workflowType === 'two_stage' && (
@@ -658,7 +685,8 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
               workflowType === 'tryon' ||
               workflowType === 'saree_step1' ||
               workflowType === 'saree_step1_two_input' ||
-              workflowType === 'two_stage') && (
+              workflowType === 'two_stage' ||
+              workflowType === 'regeneration') && (
               <button
                 className="btn sm primary"
                 onClick={handleParse}
@@ -690,7 +718,8 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
 
         {(workflowType === 'tryon' ||
           workflowType === 'saree_step1' ||
-          workflowType === 'saree_step1_two_input') &&
+          workflowType === 'saree_step1_two_input' ||
+          workflowType === 'regeneration') &&
           parsed && (
             <>
               <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
@@ -723,7 +752,12 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
                 <div className="field">
                   <label>
-                    Person node (optional — leave blank if face is fixed inside the workflow)
+                    {workflowType === 'regeneration'
+                      ? 'Source image node'
+                      : 'Person node (optional — leave blank if face is fixed inside the workflow)'}
+                    {workflowType === 'regeneration' && (
+                      <span style={{ color: 'var(--danger)' }}> *</span>
+                    )}
                   </label>
                   <input
                     className="input"
@@ -732,18 +766,20 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
                     onChange={(e) => setTryonPersonNodeId(e.target.value.trim())}
                   />
                 </div>
-                <div className="field">
-                  <label>
-                    {workflowType === 'saree_step1_two_input' ? 'Body node' : 'Garment node'}{' '}
-                    <span style={{ color: 'var(--danger)' }}>*</span>
-                  </label>
-                  <input
-                    className="input"
-                    value={tryonGarmentNodeId}
-                    disabled={saving}
-                    onChange={(e) => setTryonGarmentNodeId(e.target.value.trim())}
-                  />
-                </div>
+                {workflowType !== 'regeneration' && (
+                  <div className="field">
+                    <label>
+                      {workflowType === 'saree_step1_two_input' ? 'Body node' : 'Garment node'}{' '}
+                      <span style={{ color: 'var(--danger)' }}>*</span>
+                    </label>
+                    <input
+                      className="input"
+                      value={tryonGarmentNodeId}
+                      disabled={saving}
+                      onChange={(e) => setTryonGarmentNodeId(e.target.value.trim())}
+                    />
+                  </div>
+                )}
                 {workflowType === 'saree_step1_two_input' && (
                   <div className="field">
                     <label>

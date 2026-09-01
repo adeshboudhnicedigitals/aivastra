@@ -11,6 +11,7 @@ import { and, asc, eq, gt, gte, ilike, inArray, isNull, lt, lte, ne, sql } from 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
 import { resolveForGarmentTypeShotType, resolveForMapping } from './shot-type-resolve.js';
 
@@ -142,6 +143,15 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
             tryonCategoryId: tryonCategoryId ?? null,
           })
           .returning();
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'garment_type.create',
+          resourceType: 'garment_type',
+          resourceId: inserted.id,
+          after: { id: inserted.id, label: inserted.label, genderSlug: inserted.genderSlug },
+          request: req,
+        });
         return inserted;
       });
       return row;
@@ -157,6 +167,12 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
     async (req) => {
       const { id } = req.params as { id: string };
       const body = req.body as Record<string, unknown>;
+
+      const [before] = await app.db
+        .select()
+        .from(schema.garmentSubcategories)
+        .where(eq(schema.garmentSubcategories.id, id));
+      if (!before) throw new AppError('NOT_FOUND', 404, 'garment type not found');
 
       if (typeof body.label === 'string') {
         const [current] = await app.db
@@ -192,14 +208,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
       // gender boundaries - the shifted range is always within one gender's list.
       const requestedSortOrder = typeof body.sortOrder === 'number' ? body.sortOrder : null;
       if (requestedSortOrder !== null) {
-        const [current] = await app.db
-          .select({
-            genderSlug: schema.garmentSubcategories.genderSlug,
-            sortOrder: schema.garmentSubcategories.sortOrder,
-          })
-          .from(schema.garmentSubcategories)
-          .where(eq(schema.garmentSubcategories.id, id));
-        if (!current) throw new AppError('NOT_FOUND', 404, 'garment type not found');
+        const current = before;
 
         if (requestedSortOrder !== current.sortOrder) {
           await app.db.transaction(async (tx) => {
@@ -236,6 +245,16 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
               .update(schema.garmentSubcategories)
               .set({ ...body, updatedAt: new Date() })
               .where(eq(schema.garmentSubcategories.id, id));
+            await recordAudit(tx, {
+              // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+              actor: { userId: req.userId, role: req.adminRole! },
+              action: 'garment_type.update',
+              resourceType: 'garment_type',
+              resourceId: id,
+              before,
+              after: { ...before, ...body },
+              request: req,
+            });
           });
           app.log.info(
             { adminUserId: req.userId, garmentTypeId: id, fields: Object.keys(body) },
@@ -245,12 +264,24 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
         }
       }
 
-      const [updated] = await app.db
-        .update(schema.garmentSubcategories)
-        .set({ ...body, updatedAt: new Date() })
-        .where(eq(schema.garmentSubcategories.id, id))
-        .returning({ id: schema.garmentSubcategories.id });
-      if (!updated) throw new AppError('NOT_FOUND', 404, 'garment type not found');
+      await app.db.transaction(async (tx) => {
+        const [updated] = await tx
+          .update(schema.garmentSubcategories)
+          .set({ ...body, updatedAt: new Date() })
+          .where(eq(schema.garmentSubcategories.id, id))
+          .returning({ id: schema.garmentSubcategories.id });
+        if (!updated) throw new AppError('NOT_FOUND', 404, 'garment type not found');
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'garment_type.update',
+          resourceType: 'garment_type',
+          resourceId: id,
+          before,
+          after: { ...before, ...body },
+          request: req,
+        });
+      });
       app.log.info(
         { adminUserId: req.userId, garmentTypeId: id, fields: Object.keys(body) },
         'garment type updated',
@@ -273,9 +304,18 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
         .where(eq(schema.garmentSubcategories.id, id));
       if (!sub) throw new AppError('NOT_FOUND', 404, 'garment type not found');
 
-      await app.db
-        .delete(schema.garmentSubcategories)
-        .where(eq(schema.garmentSubcategories.id, id));
+      await app.db.transaction(async (tx) => {
+        await tx.delete(schema.garmentSubcategories).where(eq(schema.garmentSubcategories.id, id));
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'garment_type.delete',
+          resourceType: 'garment_type',
+          resourceId: id,
+          before: { id: sub.id, label: sub.label, genderSlug: sub.genderSlug },
+          request: req,
+        });
+      });
 
       app.log.info({ adminUserId: req.userId, garmentTypeId: id }, 'garment type deleted');
       return { ok: true };
