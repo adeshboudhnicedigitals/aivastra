@@ -2,7 +2,7 @@
 Theme Name: Storefront Aivastra
 Template: storefront
 Description: Storefront child theme skinned with Aivastra's brand palette for the demo storefront.
-Version: 1.4.0
+Version: 1.4.1
 */
 
 :root {
@@ -14,6 +14,15 @@ Version: 1.4.0
   --aivastra-border: #e2e8f0;
   --aivastra-text-main: #0f172a;
   --aivastra-text-muted: #64748b;
+}
+
+/* Storefront caps .col-full (header/content/footer wrapper) at ~1064px, which
+   on any monitor wider than that reads as a narrow column with two dead
+   white gutters rather than a real store's layout. Scale with the viewport
+   instead of a fixed cap, so the gutter stays proportionate at every
+   resolution instead of just growing without bound past 1064px. */
+.col-full {
+  max-width: min(1600px, 94vw);
 }
 
 .main-navigation ul li a:hover,

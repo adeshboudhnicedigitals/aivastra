@@ -303,7 +303,9 @@ export async function adminJobsRoutes(app: FastifyInstance) {
           parentJobId: schema.jobs.parentJobId,
           faceLabel: schema.modelFaces.label,
           backgroundLabel: schema.modelBackgrounds.label,
-          poseLabel: schema.modelPoseAssets.displayName,
+          poseLabel: sql<
+            string | null
+          >`coalesce(${schema.modelPoseAssets.displayName}, ${schema.modelPoseAssets.label})`,
           hasLower: sql<boolean>`(${schema.jobInputs.lowerCatalogId} IS NOT NULL)`,
           hasShoe: sql<boolean>`(${schema.jobInputs.shoeCatalogId} IS NOT NULL)`,
           jobType: jobTypeSql(),
@@ -394,15 +396,17 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         row.customerPhotoKey ??
         undefined;
 
-      // For tryon-direct jobs the workflow comes from params.workflowTemplateId, not pose join
-      let workflowLabel = row.overrideWorkflowLabel ?? row.defaultWorkflowLabel ?? null;
-      if (!workflowLabel && typeof params.workflowTemplateId === 'string') {
+      // Prefer the workflow actually recorded at dispatch time — pose/garment config can
+      // change after the job ran, and showing the live join here silently rewrites history.
+      let workflowLabel: string | null = null;
+      if (typeof params.workflowTemplateId === 'string') {
         const [wt] = await app.db
           .select({ label: schema.workflowTemplates.label })
           .from(schema.workflowTemplates)
           .where(eq(schema.workflowTemplates.id, params.workflowTemplateId));
         workflowLabel = wt?.label ?? null;
       }
+      workflowLabel ??= row.overrideWorkflowLabel ?? row.defaultWorkflowLabel ?? null;
 
       return {
         ...row,
