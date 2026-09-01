@@ -17,7 +17,7 @@
  * Shopify rejects an application charge under $0.50 USD. No pack is close, so
  * this is a comment rather than a runtime check — prices are static.
  */
-export const CREDIT_PACK_IDS = ['pack_10', 'pack_25', 'pack_50', 'pack_100'] as const;
+export const CREDIT_PACK_IDS = ['pack_10', 'pack_25', 'pack_100'] as const;
 export type CreditPackId = (typeof CREDIT_PACK_IDS)[number];
 
 export interface CreditPack {
@@ -36,15 +36,14 @@ export interface CreditPack {
 }
 
 export const CREDIT_PACKS: Record<CreditPackId, CreditPack> = {
-  pack_10: { id: 'pack_10', priceUsd: 10, credits: 800, autorefillCredits: 880, label: 'Starter' },
-  pack_25: { id: 'pack_25', priceUsd: 25, credits: 2250, autorefillCredits: 2475, label: 'Growth' },
-  pack_50: { id: 'pack_50', priceUsd: 50, credits: 4800, autorefillCredits: 5280, label: 'Pro' },
+  pack_10: { id: 'pack_10', priceUsd: 10, credits: 800, autorefillCredits: 880, label: 'Silver' },
+  pack_25: { id: 'pack_25', priceUsd: 25, credits: 2250, autorefillCredits: 2475, label: 'Gold' },
   pack_100: {
     id: 'pack_100',
     priceUsd: 100,
     credits: 10000,
     autorefillCredits: 11000,
-    label: 'Enterprise',
+    label: 'Platinum',
   },
 };
 

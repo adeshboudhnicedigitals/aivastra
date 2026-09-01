@@ -1,5 +1,6 @@
 import {
   Badge,
+  Banner,
   BlockStack,
   Box,
   Button,
@@ -18,7 +19,7 @@ import {
   Thumbnail,
   Toast,
 } from '@shopify/polaris';
-import { useCallback, useEffect, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { isTabEditable } from '../lib/activationTabState';
 import { apiFetch } from '../lib/api';
@@ -61,12 +62,17 @@ interface ActivationSummary {
   counts: {
     enabledCollections: number;
     excludedCollections: number;
-    individuallyEnabledProducts: number;
-    excludedProducts: number;
     failedToSync: number;
+    // Products whose try-on is effectively on — global mode or an enabled
+    // collection counts, exclusion always removes. Deliberately not a count of
+    // the per-product `enabled` flag: that number excluded everything turned on
+    // by global mode or a collection, which made it misleading on its own.
+    tryonEnabledProducts: number;
+    syncedProductCount: number;
     // null when the live Shopify lookup this needs failed (rate limit,
-    // reauth needed, etc.) — the rest of the page still works without it.
-    notSynced: number | null;
+    // reauth needed, etc.) — the rest of the page still works without it,
+    // just without a denominator to show alongside syncedProductCount.
+    totalProductCount: number | null;
   };
 }
 
@@ -666,12 +672,35 @@ function FailedProductsModal({
   );
 }
 
+// Collections and Individual Products are moot under global mode — everything
+// is already enabled. The Tabs bar itself blocks switching into either one
+// (per-tab `disabled`, set from the same isTabEditable check below), but a
+// merchant already sitting on one of these tabs when the checkbox flips to
+// global stays on it — Tabs has no "eject the active disabled tab" behavior —
+// so the content still needs its own dimmed/inert treatment here. Exclusion
+// is never wrapped in this: it stays fully live under global mode (see
+// isTabEditable), so it must never go through this.
+function DisabledTabView({ disabled, children }: { disabled: boolean; children: ReactNode }) {
+  if (!disabled) return <>{children}</>;
+  return (
+    <BlockStack gap="300">
+      <Banner tone="info">
+        Inactive while Try-On is enabled on all products. Turn that off above to manage this list.
+      </Banner>
+      <div style={{ opacity: 0.5, pointerEvents: 'none' }} aria-hidden="true">
+        {children}
+      </div>
+    </BlockStack>
+  );
+}
+
 export default function ManagePage() {
   const [summary, setSummary] = useState<ActivationSummary | null>(null);
   const [error, setError] = useState<ClassifiedError | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [selectedTab, setSelectedTab] = useState(0);
   const [failedModalOpen, setFailedModalOpen] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   const loadSummary = useCallback(() => {
     apiFetch<ActivationSummary>('/v1/shopify/activation')
@@ -683,11 +712,40 @@ export default function ManagePage() {
     loadSummary();
   }, [loadSummary]);
 
+  // Unlike Dashboard's syncProducts, this never auto-switches activation mode
+  // to global — this page already exposes that toggle directly, so silently
+  // flipping it out from under a merchant who deliberately chose selective
+  // mode would undo their own setting.
+  async function syncProducts() {
+    setSyncing(true);
+    setError(null);
+    try {
+      await apiFetch('/v1/shopify/products/sync', { method: 'POST' });
+      setToastMessage('Products synced from Shopify.');
+      loadSummary();
+    } catch (err) {
+      setError(classifyError(err));
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   const toggleGlobalMode = useCallback(
     async (checked: boolean) => {
       const nextMode = checked ? 'global' : 'selective';
       const previous = summary;
       setSummary((s) => (s ? { ...s, mode: nextMode } : s));
+      // Turning global mode on locks the Collections and Individual Products
+      // tabs (isTabEditable) — sitting on one of those now shows a dimmed,
+      // inert view for a setting that no longer applies. Jump to Exclusion,
+      // the one tab that stays live and does anything under global mode.
+      const currentTabId = TABS[selectedTab].id;
+      if (
+        nextMode === 'global' &&
+        (currentTabId === 'collections' || currentTabId === 'individual')
+      ) {
+        setSelectedTab(TABS.findIndex((t) => t.id === 'exclusion'));
+      }
       try {
         await apiFetch('/v1/shopify/activation/mode', {
           method: 'PATCH',
@@ -703,7 +761,7 @@ export default function ManagePage() {
         setError(classifyError(err));
       }
     },
-    [summary],
+    [summary, selectedTab],
   );
 
   if (!summary) {
@@ -720,7 +778,11 @@ export default function ManagePage() {
   const activeTabId = TABS[selectedTab].id;
 
   return (
-    <Page title="Manage" subtitle="Control which products offer Try-On.">
+    <Page
+      title="Manage"
+      subtitle="Control which products offer Try-On."
+      primaryAction={{ content: 'Sync products', onAction: syncProducts, loading: syncing }}
+    >
       <BlockStack gap="400">
         <ErrorBanner error={error} onRetry={loadSummary} onDismiss={() => setError(null)} />
 
@@ -738,59 +800,62 @@ export default function ManagePage() {
           </BlockStack>
         </Card>
 
-        <InlineGrid columns={{ xs: 1, sm: 6 }} gap="400">
+        <InlineGrid columns={{ xs: 1, sm: 4 }} gap="400">
           <Card>
             <BlockStack gap="200">
               <Text as="p" tone="subdued">
-                Not Synced
+                Products Synced
               </Text>
               <Text as="p" variant="heading2xl">
-                {summary.counts.notSynced ?? '—'}
+                {summary.counts.syncedProductCount}
+                {summary.counts.totalProductCount !== null && (
+                  <Text as="span" tone="subdued">
+                    {' '}
+                    / {summary.counts.totalProductCount}
+                  </Text>
+                )}
               </Text>
-              {summary.counts.notSynced !== null && summary.counts.notSynced > 0 && (
-                <Text as="p" tone="subdued">
-                  Run Sync products on the Dashboard to import them.
-                </Text>
-              )}
+              {summary.counts.totalProductCount !== null &&
+                summary.counts.syncedProductCount < summary.counts.totalProductCount && (
+                  <Text as="p" tone="subdued">
+                    Use Sync products above to import the rest.
+                  </Text>
+                )}
             </BlockStack>
           </Card>
           <Card>
             <BlockStack gap="200">
               <Text as="p" tone="subdued">
-                Enabled Collections
+                Try-On Enabled
+              </Text>
+              <Text as="p" variant="heading2xl">
+                {summary.counts.tryonEnabledProducts}
+                <Text as="span" tone="subdued">
+                  {' '}
+                  / {summary.counts.syncedProductCount}
+                </Text>
+              </Text>
+              <Text as="p" tone="subdued">
+                {mode === 'global'
+                  ? 'All synced products, minus exclusions.'
+                  : 'Enabled individually or via a collection, minus exclusions.'}
+              </Text>
+            </BlockStack>
+          </Card>
+          <Card>
+            <BlockStack gap="200">
+              <Text as="p" tone="subdued">
+                Collections
               </Text>
               <Text as="p" variant="heading2xl">
                 {summary.counts.enabledCollections}
+                <Text as="span" tone="subdued">
+                  {' '}
+                  enabled
+                </Text>
               </Text>
-            </BlockStack>
-          </Card>
-          <Card>
-            <BlockStack gap="200">
               <Text as="p" tone="subdued">
-                Individually Enabled Products
-              </Text>
-              <Text as="p" variant="heading2xl">
-                {summary.counts.individuallyEnabledProducts}
-              </Text>
-            </BlockStack>
-          </Card>
-          <Card>
-            <BlockStack gap="200">
-              <Text as="p" tone="subdued">
-                Excluded Products
-              </Text>
-              <Text as="p" variant="heading2xl">
-                {summary.counts.excludedProducts}
-              </Text>
-            </BlockStack>
-          </Card>
-          <Card>
-            <BlockStack gap="200">
-              <Text as="p" tone="subdued">
-                Excluded Collections
-              </Text>
-              <Text as="p" variant="heading2xl">
-                {summary.counts.excludedCollections}
+                {summary.counts.excludedCollections} excluded
               </Text>
             </BlockStack>
           </Card>
@@ -825,25 +890,33 @@ export default function ManagePage() {
         </InlineGrid>
 
         <Card>
-          <Tabs tabs={[...TABS]} selected={selectedTab} onSelect={setSelectedTab}>
+          <Tabs
+            tabs={TABS.map((t) => ({ ...t, disabled: !isTabEditable(mode, t.id) }))}
+            selected={selectedTab}
+            onSelect={setSelectedTab}
+          >
             <Box padding="400">
               {activeTabId === 'collections' && (
-                <CollectionsPanel
-                  basePath="/v1/shopify/activation/collections"
-                  editable={isTabEditable(mode, 'collections')}
-                  addLabel="Add collections"
-                  emptyHeading="No enabled collections"
-                  onChanged={loadSummary}
-                  setError={setError}
-                />
+                <DisabledTabView disabled={!isTabEditable(mode, 'collections')}>
+                  <CollectionsPanel
+                    basePath="/v1/shopify/activation/collections"
+                    editable={isTabEditable(mode, 'collections')}
+                    addLabel="Add collections"
+                    emptyHeading="No enabled collections"
+                    onChanged={loadSummary}
+                    setError={setError}
+                  />
+                </DisabledTabView>
               )}
               {activeTabId === 'individual' && (
-                <IndividualProductsPanel
-                  editable={isTabEditable(mode, 'individual')}
-                  onChanged={loadSummary}
-                  setToastMessage={setToastMessage}
-                  setError={setError}
-                />
+                <DisabledTabView disabled={!isTabEditable(mode, 'individual')}>
+                  <IndividualProductsPanel
+                    editable={isTabEditable(mode, 'individual')}
+                    onChanged={loadSummary}
+                    setToastMessage={setToastMessage}
+                    setError={setError}
+                  />
+                </DisabledTabView>
               )}
               {activeTabId === 'exclusion' && (
                 <ExclusionPanel

@@ -161,12 +161,6 @@ export const SystemConfigBody = z.object({
               autorefillCredits: z.number().int().positive().max(1_000_000),
             })
             .partial(),
-          pack_50: z
-            .object({
-              credits: z.number().int().positive().max(1_000_000),
-              autorefillCredits: z.number().int().positive().max(1_000_000),
-            })
-            .partial(),
           pack_100: z
             .object({
               credits: z.number().int().positive().max(1_000_000),
@@ -354,7 +348,14 @@ export const CreateWorkflowBody = z
     label: z.string().min(1).max(120),
     jsonContent: z.record(z.any()),
     workflowType: z
-      .enum(['regular', 'tryon', 'saree_step1', 'saree_step1_two_input', 'two_stage'])
+      .enum([
+        'regular',
+        'tryon',
+        'saree_step1',
+        'saree_step1_two_input',
+        'two_stage',
+        'regeneration',
+      ])
       .default('regular'),
     // Regular workflow fields (required when workflowType = 'regular')
     faceNodeId: z.string().min(1).optional(),
@@ -390,6 +391,22 @@ export const CreateWorkflowBody = z
     stage1NegativePromptNode: z.string().min(1).optional(),
   })
   .superRefine((val, ctx) => {
+    // Only the two prompt-node fields are Zod-required here — tryonPersonNodeId
+    // and tryonOutputNodeId are auto-detected from the workflow JSON (with a
+    // fallback-then-throw in extractWorkflowInsertFields), same as the tryon
+    // branch below, but the prompt nodes are explicit admin-set inputs.
+    if (val.workflowType === 'regeneration') {
+      for (const field of ['facePhasePromptNode', 'garmentPhasePromptNode'] as const) {
+        if (!val[field]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field],
+            message: `${field} is required for regeneration workflows`,
+          });
+        }
+      }
+      return;
+    }
     if (val.workflowType === 'two_stage') {
       for (const field of [
         'faceNodeId',
@@ -475,7 +492,7 @@ export const ReplaceWorkflowBody = z.intersection(
 export const ParseWorkflowBody = z.object({
   jsonContent: z.record(z.any()),
   workflowType: z
-    .enum(['regular', 'tryon', 'saree_step1', 'saree_step1_two_input', 'two_stage'])
+    .enum(['regular', 'tryon', 'saree_step1', 'saree_step1_two_input', 'two_stage', 'regeneration'])
     .optional(),
 });
 
