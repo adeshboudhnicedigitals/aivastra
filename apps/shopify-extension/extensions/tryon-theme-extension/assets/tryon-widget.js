@@ -35,6 +35,14 @@
   const REQUEST_TIMEOUT_MS = 15 * 1000;
   const UPLOAD_TIMEOUT_MS = 3 * 60 * 1000;
 
+  // Short on purpose: tryon-button.liquid renders the widget `hidden` by
+  // default (Liquid has no access to Postgres activation state, only
+  // Shopify's own data), and this check is what un-hides it. Every product
+  // page pays this latency, so it needs to be well under REQUEST_TIMEOUT_MS —
+  // a slow/failed check fails open (shows the button, see checkEnabled below)
+  // rather than leaving every page's button invisible for 15s.
+  const ENABLED_CHECK_TIMEOUT_MS = 4 * 1000;
+
   // Job creation is the call that spends a credit, and a timeout on it is
   // ambiguous in a way the others are not — the job may exist and be charged
   // for on the far side of a connection that died. There is no idempotency key
@@ -135,6 +143,30 @@
     // apiBase directly (below) — App Proxy's behavior for a long-lived
     // streaming response isn't verified.
     const PROXY_BASE = '/apps/widget';
+
+    // Liquid rendered `root` hidden — reveal it only once we know this product
+    // is actually enabled (global mode, individually enabled, or in an
+    // enabled collection, and not excluded). Fire-and-forget: nothing else in
+    // initWidget depends on this resolving, and a failure must never leave
+    // the whole widget invisible.
+    (async () => {
+      try {
+        const res = await fetchWithTimeout(
+          `${PROXY_BASE}/customer/products/${productId}/enabled`,
+          {},
+          ENABLED_CHECK_TIMEOUT_MS,
+        );
+        if (!res.ok) throw new Error(`enabled check failed: ${res.status}`);
+        const body = await res.json();
+        if (body.enabled) root.hidden = false;
+      } catch (err) {
+        // Fail open: an unreachable/slow API must not hide try-on storewide.
+        // The submit-time check in the API is still the real gate — this is
+        // only ever a visibility convenience on top of it.
+        console.warn('[aivastra tryon] enabled check failed, showing button anyway', err);
+        root.hidden = false;
+      }
+    })();
 
     const button = root.querySelector('.aivastra-tryon__button');
     const modal = root.querySelector('.aivastra-tryon__modal');

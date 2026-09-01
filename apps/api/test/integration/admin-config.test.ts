@@ -94,7 +94,6 @@ describe('admin config', () => {
     expect(getRes.json().shopify.packCredits).toEqual({
       pack_10: { credits: 800, autorefillCredits: 880 },
       pack_25: { credits: 2250, autorefillCredits: 2475 },
-      pack_50: { credits: 4800, autorefillCredits: 5280 },
       pack_100: { credits: 10000, autorefillCredits: 11000 },
     });
 
@@ -110,7 +109,6 @@ describe('admin config', () => {
     expect(getRes2.json().shopify.packCredits).toEqual({
       pack_10: { credits: 3000, autorefillCredits: 880 },
       pack_25: { credits: 2250, autorefillCredits: 2475 },
-      pack_50: { credits: 4800, autorefillCredits: 5280 },
       pack_100: { credits: 10000, autorefillCredits: 11000 },
     });
   });
