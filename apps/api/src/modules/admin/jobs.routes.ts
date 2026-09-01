@@ -303,7 +303,9 @@ export async function adminJobsRoutes(app: FastifyInstance) {
           parentJobId: schema.jobs.parentJobId,
           faceLabel: schema.modelFaces.label,
           backgroundLabel: schema.modelBackgrounds.label,
-          poseLabel: schema.modelPoseAssets.displayName,
+          poseLabel: sql<
+            string | null
+          >`coalesce(${schema.modelPoseAssets.displayName}, ${schema.modelPoseAssets.label})`,
           hasLower: sql<boolean>`(${schema.jobInputs.lowerCatalogId} IS NOT NULL)`,
           hasShoe: sql<boolean>`(${schema.jobInputs.shoeCatalogId} IS NOT NULL)`,
           jobType: jobTypeSql(),
@@ -394,15 +396,36 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         row.customerPhotoKey ??
         undefined;
 
-      // For tryon-direct jobs the workflow comes from params.workflowTemplateId, not pose join
-      let workflowLabel = row.overrideWorkflowLabel ?? row.defaultWorkflowLabel ?? null;
-      if (!workflowLabel && typeof params.workflowTemplateId === 'string') {
+      // Precedence for "what workflow actually ran":
+      //   1. job_inputs.params.workflowTemplateId — snapshotted at job-creation time for job
+      //      types that pin it there (catalog w/ resolved config, tryon-direct, saree, shopify,
+      //      kiosk/widget, dev-API).
+      //   2. The most recent COMFY_DISPATCH job_events row's payload.workflowTemplateId —
+      //      merchant-catalog and bare saree-mannequin jobs deliberately omit the params
+      //      snapshot so the dispatcher can re-resolve garmentType.mannequinWorkflowTemplateId
+      //      fresh at dispatch time (late-binding config lets an admin fix land before a queued
+      //      job runs). The dispatcher logs whatever it actually resolved into this event on
+      //      every dispatch path (apps/dispatcher/src/job/processor.ts), so it's an equally
+      //      authoritative historical record — just not on job_inputs.
+      //   3. The live pose/garment-config join — only meaningful for a job that never reached
+      //      dispatch (QUEUED/HELD/failed pre-dispatch), where "what would run now" is the only
+      //      sensible thing to show.
+      const dispatchEvent = events.find((e) => e.eventType === 'COMFY_DISPATCH');
+      const dispatchedWorkflowTemplateId =
+        (dispatchEvent?.payload as { workflowTemplateId?: string } | undefined)
+          ?.workflowTemplateId ?? null;
+      const resolvedWorkflowTemplateId =
+        (typeof params.workflowTemplateId === 'string' ? params.workflowTemplateId : null) ??
+        dispatchedWorkflowTemplateId;
+      let workflowLabel: string | null = null;
+      if (resolvedWorkflowTemplateId) {
         const [wt] = await app.db
           .select({ label: schema.workflowTemplates.label })
           .from(schema.workflowTemplates)
-          .where(eq(schema.workflowTemplates.id, params.workflowTemplateId));
+          .where(eq(schema.workflowTemplates.id, resolvedWorkflowTemplateId));
         workflowLabel = wt?.label ?? null;
       }
+      workflowLabel ??= row.overrideWorkflowLabel ?? row.defaultWorkflowLabel ?? null;
 
       return {
         ...row,

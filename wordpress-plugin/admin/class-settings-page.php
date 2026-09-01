@@ -40,6 +40,49 @@ class Aivastra_Settings_Page
         'key' => '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>',
         'log-out' => '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>',
         'chevron' => '<svg class="aivastra-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>',
+        'link' => '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 7h3a5 5 0 0 1 0 10h-3m-6 0H6a5 5 0 0 1 0-10h3"/><line x1="8" y1="12" x2="16" y2="12"/></svg>',
+        'credit-card' => '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>',
+        'palette' => '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22a10 10 0 1 1 0-20 8 8 0 0 1 8 8c0 1.7-1.3 3-3 3h-2a2 2 0 0 0 0 4h.5a2.5 2.5 0 0 1 0 5z"/><circle cx="7.5" cy="10.5" r="1.4"/><circle cx="12" cy="7" r="1.4"/><circle cx="16.5" cy="10.5" r="1.4"/></svg>',
+        'tag' => '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.59 13.41 13.42 20.6a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>',
+        'bar-chart' => '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>',
+        'life-buoy' => '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="14.83" y1="9.17" x2="18.36" y2="5.64"/><line x1="9.17" y1="9.17" x2="5.64" y2="5.64"/><line x1="14.83" y1="14.83" x2="18.36" y2="18.36"/><line x1="9.17" y1="14.83" x2="5.64" y2="18.36"/></svg>',
+        'rocket' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></svg>',
+        'building' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 9h.01M9 13h.01M9 17h.01M14 9h.01M14 13h.01M14 17h.01"/></svg>',
+        'check-plain' => '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>',
+        'arrow-right' => '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>',
+        'bar-chart-icon' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>',
+    ];
+
+    // Per-tile icon/subtext/accent, matched by plan position to
+    // TRYON_PLAN_META in apps/catalogues-web/src/app/(app)/pricing/use-pricing-data.ts
+    // — GET /v1/dev/plans doesn't return this display metadata, so it's
+    // re-declared here to give this admin screen the same look as the
+    // consumer pricing page for the same four tiers.
+    private const PLAN_META = [
+        ['icon' => 'rocket', 'subtext' => 'Perfect for Startups', 'accent' => '#626262', 'checkGrad' => false],
+        ['icon' => 'bar-chart-icon', 'subtext' => 'Most Popular Choice', 'accent' => '#209e46', 'checkGrad' => true],
+        ['icon' => 'building', 'subtext' => 'Best for Growing Businesses', 'accent' => '#626262', 'checkGrad' => false],
+        ['icon' => 'building', 'subtext' => 'Enterprises & High Volume', 'accent' => '#626262', 'checkGrad' => false],
+    ];
+
+    // Same static copy as TRYON_FEATURES in use-pricing-data.ts — identical
+    // across every try-on plan there, so no per-plan variant is needed here.
+    private const PLAN_FEATURES = [
+        'Instant Priority Processing',
+        'Pay Only for Successful Try-Ons',
+        'White Label Integration',
+        'Website & Shopify Integration',
+        'Standard AI Quality',
+    ];
+
+    // Icon shown before each sidebar nav item's label.
+    private const NAV_ICONS = [
+        'connection' => 'link',
+        'plans' => 'credit-card',
+        'widget' => 'palette',
+        'categories' => 'tag',
+        'analytics' => 'bar-chart',
+        'support' => 'life-buoy',
     ];
 
     public static function init(): void
@@ -210,7 +253,7 @@ class Aivastra_Settings_Page
 
         $settings = new Aivastra_Connection_Settings();
         $widgetKey = $settings->get_widget_key();
-        $redirectArgs = ['page' => 'aivastra-tryon'];
+        $redirectArgs = ['page' => 'aivastra-tryon', 'section' => 'categories'];
 
         if ($widgetKey === null) {
             $redirectArgs['aivastra_error'] = 'not_connected';
@@ -263,7 +306,7 @@ class Aivastra_Settings_Page
 
         if (!$result['ok']) {
             wp_safe_redirect(add_query_arg(
-                ['page' => 'aivastra-tryon', 'aivastra_error' => $result['error'] ?? 'unknown'],
+                ['page' => 'aivastra-tryon', 'section' => 'plans', 'aivastra_error' => $result['error'] ?? 'unknown'],
                 admin_url('options-general.php')
             ));
             exit;
@@ -272,7 +315,7 @@ class Aivastra_Settings_Page
         set_transient('aivastra_tryon_checkout_' . get_current_user_id(), $result, 15 * MINUTE_IN_SECONDS);
 
         wp_safe_redirect(add_query_arg(
-            ['page' => 'aivastra-tryon', 'aivastra_checkout' => '1'],
+            ['page' => 'aivastra-tryon', 'section' => 'plans', 'aivastra_checkout' => '1'],
             admin_url('options-general.php')
         ));
         exit;
@@ -299,7 +342,7 @@ class Aivastra_Settings_Page
         (new Aivastra_Connection_Settings())->set_widget_customization($clean);
 
         wp_safe_redirect(add_query_arg(
-            ['page' => 'aivastra-tryon', 'aivastra_widget_saved' => '1'],
+            ['page' => 'aivastra-tryon', 'section' => 'widget', 'aivastra_widget_saved' => '1'],
             admin_url('options-general.php')
         ));
         exit;
@@ -310,13 +353,137 @@ class Aivastra_Settings_Page
         return self::ICONS[$name] ?? '';
     }
 
-    public static function render(): void
+    /**
+     * Section keys valid for the current connection state, in the order the
+     * sidebar nav shows them. Connection and Support are always reachable;
+     * everything else needs a working connection to have anything to show
+     * (each needs the widget or full key to call the API), matching the
+     * conditions the old single-page layout gated the same cards on.
+     */
+    private static function nav_items(bool $connected): array
     {
-        $settings = new Aivastra_Connection_Settings();
+        $items = ['connection' => 'Connection'];
+        if ($connected) {
+            $items['plans'] = 'Plans & Credits';
+            $items['widget'] = 'Widget Appearance';
+            $items['categories'] = 'Category Mapping';
+            $items['analytics'] = 'Analytics';
+        }
+        $items['support'] = 'Support';
+        return $items;
+    }
+
+    /**
+     * Reads $_GET['section'], falling back to 'connection' for a missing,
+     * unknown, or (for a not-yet-connected site) connection-only value —
+     * e.g. a bookmarked ?section=analytics link from before a disconnect.
+     */
+    private static function current_section(bool $connected): string
+    {
+        $requested = isset($_GET['section']) ? sanitize_key((string) $_GET['section']) : 'connection';
+        return array_key_exists($requested, self::nav_items($connected)) ? $requested : 'connection';
+    }
+
+    private static function render_nav(string $activeSection, bool $connected): void
+    {
+        ?>
+        <nav class="aivastra-settings-nav">
+          <?php foreach (self::nav_items($connected) as $key => $label): ?>
+            <a
+              href="<?php echo esc_url(add_query_arg(['page' => 'aivastra-tryon', 'section' => $key], admin_url('options-general.php'))); ?>"
+              class="aivastra-nav-item<?php echo $key === $activeSection ? ' is-active' : ''; ?>"
+            >
+              <span class="aivastra-nav-icon"><?php echo self::icon(self::NAV_ICONS[$key]); ?></span>
+              <?php echo esc_html($label); ?>
+            </a>
+          <?php endforeach; ?>
+        </nav>
+        <?php
+    }
+
+    /** Small colored icon chip shown before a section's <h2>, echoing the icon used for that section in the sidebar. */
+    private static function heading_icon(string $iconName): string
+    {
+        return '<span class="aivastra-heading-icon">' . self::icon($iconName) . '</span>';
+    }
+
+    private static function render_connection_section(Aivastra_Connection_Settings $settings, bool $connected): void
+    {
+        if (!$connected) {
+            ?>
+            <div class="aivastra-card aivastra-connect-card">
+              <h2 class="aivastra-connect-heading"><?php echo self::heading_icon('link'); ?>Connect your Aivastra account</h2>
+              <p class="aivastra-connect-description">Paste two keys from your Aivastra dashboard to enable virtual try-on on your storefront.</p>
+              <?php self::render_connect_form(); ?>
+            </div>
+            <?php
+            return;
+        }
+
         $companyName = $settings->get_company_name();
         $credits = $settings->get_credits();
         $creditsAsOf = $settings->get_credits_as_of();
-        $connected = $companyName !== null;
+        ?>
+        <div class="aivastra-card aivastra-status-card">
+          <div class="aivastra-status-top">
+            <span class="aivastra-badge aivastra-badge-success">
+              <?php echo self::icon('check-circle'); ?>
+              Connected
+            </span>
+            <span class="aivastra-status-company"><?php echo esc_html($companyName); ?></span>
+          </div>
+
+          <div class="aivastra-credit-stat">
+            <span class="aivastra-credit-number"><?php echo esc_html(number_format_i18n((int) $credits)); ?></span>
+            <span class="aivastra-credit-label">credits available</span>
+          </div>
+          <p class="aivastra-credit-meta">Balance last checked <?php echo esc_html($creditsAsOf ?? 'unknown'); ?></p>
+
+          <div class="aivastra-action-row">
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="aivastra-refresh-form">
+              <input type="hidden" name="action" value="aivastra_tryon_refresh">
+              <?php wp_nonce_field('aivastra_tryon_refresh'); ?>
+              <button type="submit" class="aivastra-btn aivastra-btn-secondary">
+                <?php echo self::icon('refresh'); ?>
+                Refresh balance
+              </button>
+            </form>
+
+            <details class="aivastra-accordion">
+              <summary>
+                <?php echo self::icon('key'); ?>
+                Update connection keys
+                <?php echo self::icon('chevron'); ?>
+              </summary>
+              <div class="aivastra-accordion-body">
+                <?php self::render_connect_form(); ?>
+              </div>
+            </details>
+          </div>
+
+          <div class="aivastra-danger-zone">
+            <div class="aivastra-danger-copy">
+              <strong>Disconnect this site</strong>
+              <p>Removes your stored keys and category mapping. The storefront button stops working until you reconnect.</p>
+            </div>
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+              <input type="hidden" name="action" value="aivastra_tryon_disconnect">
+              <?php wp_nonce_field('aivastra_tryon_disconnect'); ?>
+              <button type="submit" class="aivastra-btn aivastra-btn-danger-ghost">
+                <?php echo self::icon('log-out'); ?>
+                Disconnect
+              </button>
+            </form>
+          </div>
+        </div>
+        <?php
+    }
+
+    public static function render(): void
+    {
+        $settings = new Aivastra_Connection_Settings();
+        $connected = $settings->get_company_name() !== null;
+        $section = self::current_section($connected);
         ?>
         <div class="wrap aivastra-settings-wrap">
           <div class="aivastra-page-header">
@@ -329,75 +496,25 @@ class Aivastra_Settings_Page
 
           <?php self::render_notices(); ?>
 
-          <?php if ($connected): ?>
-            <div class="aivastra-card aivastra-status-card">
-              <div class="aivastra-status-top">
-                <span class="aivastra-badge aivastra-badge-success">
-                  <?php echo self::icon('check-circle'); ?>
-                  Connected
-                </span>
-                <span class="aivastra-status-company"><?php echo esc_html($companyName); ?></span>
-              </div>
+          <div class="aivastra-settings-layout">
+            <?php self::render_nav($section, $connected); ?>
 
-              <div class="aivastra-credit-stat">
-                <span class="aivastra-credit-number"><?php echo esc_html(number_format_i18n((int) $credits)); ?></span>
-                <span class="aivastra-credit-label">credits available</span>
-              </div>
-              <p class="aivastra-credit-meta">Balance last checked <?php echo esc_html($creditsAsOf ?? 'unknown'); ?></p>
-
-              <div class="aivastra-action-row">
-                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="aivastra-refresh-form">
-                  <input type="hidden" name="action" value="aivastra_tryon_refresh">
-                  <?php wp_nonce_field('aivastra_tryon_refresh'); ?>
-                  <button type="submit" class="aivastra-btn aivastra-btn-secondary">
-                    <?php echo self::icon('refresh'); ?>
-                    Refresh balance
-                  </button>
-                </form>
-
-                <details class="aivastra-accordion">
-                  <summary>
-                    <?php echo self::icon('key'); ?>
-                    Update connection keys
-                    <?php echo self::icon('chevron'); ?>
-                  </summary>
-                  <div class="aivastra-accordion-body">
-                    <?php self::render_connect_form(); ?>
-                  </div>
-                </details>
-              </div>
-
-              <div class="aivastra-danger-zone">
-                <div class="aivastra-danger-copy">
-                  <strong>Disconnect this site</strong>
-                  <p>Removes your stored keys and category mapping. The storefront button stops working until you reconnect.</p>
-                </div>
-                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-                  <input type="hidden" name="action" value="aivastra_tryon_disconnect">
-                  <?php wp_nonce_field('aivastra_tryon_disconnect'); ?>
-                  <button type="submit" class="aivastra-btn aivastra-btn-danger-ghost">
-                    <?php echo self::icon('log-out'); ?>
-                    Disconnect
-                  </button>
-                </form>
-              </div>
+            <div class="aivastra-settings-content">
+              <?php if ($section === 'connection'): ?>
+                <?php self::render_connection_section($settings, $connected); ?>
+              <?php elseif ($section === 'plans'): ?>
+                <?php self::render_plans($settings); ?>
+              <?php elseif ($section === 'widget'): ?>
+                <?php self::render_widget_customization($settings); ?>
+              <?php elseif ($section === 'categories'): ?>
+                <?php self::render_category_mapping($settings); ?>
+              <?php elseif ($section === 'analytics'): ?>
+                <?php self::render_analytics($settings); ?>
+              <?php elseif ($section === 'support'): ?>
+                <?php self::render_support(); ?>
+              <?php endif; ?>
             </div>
-          <?php else: ?>
-            <div class="aivastra-card aivastra-connect-card">
-              <h2 class="aivastra-connect-heading">Connect your Aivastra account</h2>
-              <p class="aivastra-connect-description">Paste two keys from your Aivastra dashboard to enable virtual try-on on your storefront.</p>
-              <?php self::render_connect_form(); ?>
-            </div>
-          <?php endif; ?>
-
-          <?php if ($connected): ?>
-            <?php self::render_plans($settings); ?>
-            <?php self::render_widget_customization($settings); ?>
-            <?php self::render_category_mapping($settings); ?>
-            <?php self::render_analytics($settings); ?>
-          <?php endif; ?>
-
-          <?php self::render_support(); ?>
+          </div>
         </div>
         <?php
     }
@@ -418,7 +535,7 @@ class Aivastra_Settings_Page
         $result = $service->get_analytics();
         ?>
         <div class="aivastra-card aivastra-analytics-card">
-          <h2 class="aivastra-card-heading">Analytics</h2>
+          <h2 class="aivastra-card-heading"><?php echo self::heading_icon('bar-chart'); ?>Analytics</h2>
           <?php if (!$result['ok']): ?>
             <p class="aivastra-empty-state">Could not load analytics right now — try reloading this page.</p>
           <?php else: ?>
@@ -500,7 +617,7 @@ class Aivastra_Settings_Page
     {
         ?>
         <div class="aivastra-card aivastra-support-card">
-          <h2 class="aivastra-card-heading">Support</h2>
+          <h2 class="aivastra-card-heading"><?php echo self::heading_icon('life-buoy'); ?>Support</h2>
           <p class="aivastra-card-description">Two ways to reach the team.</p>
           <div class="aivastra-support-banner">
             Live chat is the fastest option during business hours. Email is answered within 24 hours the rest of the time.
@@ -593,32 +710,70 @@ class Aivastra_Settings_Page
         $result = $widgetKey !== null ? $service->list_plans($widgetKey) : ['ok' => false, 'plans' => []];
         ?>
         <div class="aivastra-card aivastra-plans-card">
-          <h2 class="aivastra-card-heading">Plans &amp; credits</h2>
+          <h2 class="aivastra-card-heading"><?php echo self::heading_icon('credit-card'); ?>Plans &amp; credits</h2>
           <?php if (!$result['ok']): ?>
             <p class="aivastra-empty-state">Could not load plans right now — try reloading this page.</p>
           <?php else: ?>
             <div class="aivastra-plans-grid">
-              <?php foreach ($result['plans'] as $plan): ?>
-                <?php $highlighted = !empty($plan['isHighlighted']) && !empty($plan['badge']); ?>
-                <div class="aivastra-plan-tile<?php echo $highlighted ? ' aivastra-plan-tile-highlighted' : ''; ?>">
-                  <?php if ($highlighted): ?>
-                    <span class="aivastra-plan-badge">&#9733; <?php echo esc_html($plan['badge']); ?></span>
-                  <?php endif; ?>
-                  <h3 class="aivastra-plan-name"><?php echo esc_html($plan['name']); ?></h3>
-                  <p class="aivastra-plan-credits"><?php echo esc_html(number_format_i18n((int) $plan['credits'])); ?> credits</p>
-                  <p class="aivastra-plan-price">&#8377;<?php echo esc_html(number_format_i18n((int) $plan['priceInr'])); ?> + GST</p>
-                  <?php if (!empty($plan['unitCountLabel'])): ?>
-                    <p class="aivastra-plan-units"><?php echo esc_html($plan['unitCountLabel']); ?></p>
-                  <?php endif; ?>
-                  <?php if (!empty($plan['perUnitPriceLabel'])): ?>
-                    <p class="aivastra-plan-per-unit"><?php echo esc_html($plan['perUnitPriceLabel']); ?></p>
-                  <?php endif; ?>
-                  <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-                    <input type="hidden" name="action" value="aivastra_tryon_buy">
-                    <input type="hidden" name="aivastra_plan_slug" value="<?php echo esc_attr($plan['slug']); ?>">
-                    <?php wp_nonce_field('aivastra_tryon_buy'); ?>
-                    <button type="submit" class="aivastra-btn <?php echo $highlighted ? 'aivastra-btn-highlighted' : 'aivastra-btn-primary'; ?> aivastra-plan-buy-btn">Buy Now</button>
-                  </form>
+              <?php foreach ($result['plans'] as $idx => $plan): ?>
+                <?php
+                $meta = self::PLAN_META[$idx] ?? self::PLAN_META[0];
+                $highlighted = !empty($plan['isHighlighted']) && !empty($plan['badge']);
+                ?>
+                <div class="aivastra-plan-outer<?php echo $highlighted ? ' aivastra-plan-outer-highlighted' : ''; ?>">
+                  <div class="aivastra-plan-tile<?php echo $highlighted ? ' aivastra-plan-tile-highlighted' : ''; ?>">
+                    <?php if ($highlighted): ?>
+                      <span class="aivastra-plan-badge">&#9733; <?php echo esc_html($plan['badge']); ?></span>
+                    <?php endif; ?>
+
+                    <div class="aivastra-plan-head">
+                      <span class="aivastra-plan-icon" style="background: color-mix(in srgb, <?php echo esc_attr($meta['accent']); ?> 14%, transparent); color: <?php echo esc_attr($meta['accent']); ?>;">
+                        <?php echo self::icon($meta['icon']); ?>
+                      </span>
+                      <span class="aivastra-plan-head-text">
+                        <span class="aivastra-plan-name"><?php echo esc_html($plan['name']); ?></span>
+                        <span class="aivastra-plan-subtext"><?php echo esc_html($meta['subtext']); ?></span>
+                      </span>
+                    </div>
+
+                    <div class="aivastra-plan-price-row">
+                      <span class="aivastra-plan-price-big">&#8377;<?php echo esc_html(number_format_i18n((int) $plan['priceInr'])); ?></span>
+                      <?php if (!empty($plan['unitCountLabel'])): ?>
+                        <span class="aivastra-plan-unit">/ <?php echo esc_html($plan['unitCountLabel']); ?></span>
+                      <?php endif; ?>
+                    </div>
+                    <p class="aivastra-plan-gst">+ GST &middot; <?php echo esc_html(number_format_i18n((int) $plan['credits'])); ?> credits</p>
+                    <?php if (!empty($plan['perUnitPriceLabel'])): ?>
+                      <p class="aivastra-plan-per-unit"><?php echo esc_html($plan['perUnitPriceLabel']); ?></p>
+                    <?php endif; ?>
+
+                    <div class="aivastra-plan-divider"></div>
+
+                    <div class="aivastra-plan-features">
+                      <p class="aivastra-plan-features-heading">Included Features</p>
+                      <?php foreach (self::PLAN_FEATURES as $feature): ?>
+                        <div class="aivastra-plan-feature-row">
+                          <span
+                            class="aivastra-plan-feature-check<?php echo $meta['checkGrad'] ? ' is-gradient' : ''; ?>"
+                            <?php if (!$meta['checkGrad']): ?>
+                              style="background: color-mix(in srgb, <?php echo esc_attr($meta['accent']); ?> 16%, transparent); color: <?php echo esc_attr($meta['accent']); ?>;"
+                            <?php endif; ?>
+                          ><?php echo self::icon('check-plain'); ?></span>
+                          <span class="aivastra-plan-feature-label"><?php echo esc_html($feature); ?></span>
+                        </div>
+                      <?php endforeach; ?>
+                    </div>
+
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="aivastra-plan-buy-form">
+                      <input type="hidden" name="action" value="aivastra_tryon_buy">
+                      <input type="hidden" name="aivastra_plan_slug" value="<?php echo esc_attr($plan['slug']); ?>">
+                      <?php wp_nonce_field('aivastra_tryon_buy'); ?>
+                      <button type="submit" class="aivastra-btn aivastra-plan-buy-btn<?php echo $highlighted ? ' aivastra-btn-catalogue-gradient' : ' aivastra-btn-dark'; ?>">
+                        Buy Now
+                        <?php echo self::icon('arrow-right'); ?>
+                      </button>
+                    </form>
+                  </div>
                 </div>
               <?php endforeach; ?>
             </div>
@@ -638,7 +793,7 @@ class Aivastra_Settings_Page
         $c = $settings->get_widget_customization();
         ?>
         <div class="aivastra-card aivastra-widget-customization-card">
-          <h2 class="aivastra-card-heading">Widget appearance</h2>
+          <h2 class="aivastra-card-heading"><?php echo self::heading_icon('palette'); ?>Widget appearance</h2>
           <p class="aivastra-card-description">Customize the colors and copy shoppers see in the try-on button and modal. Leave a field blank to use the default.</p>
           <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="aivastra-form aivastra-widget-form">
             <input type="hidden" name="action" value="aivastra_tryon_save_widget_customization">
@@ -701,7 +856,7 @@ class Aivastra_Settings_Page
         $currentMap = $settings->get_category_map();
         ?>
         <div class="aivastra-card aivastra-category-card">
-          <h2 class="aivastra-card-heading">Try-on category mapping</h2>
+          <h2 class="aivastra-card-heading"><?php echo self::heading_icon('tag'); ?>Try-on category mapping</h2>
           <?php if (!$result['ok']): ?>
             <p class="aivastra-empty-state">Could not load your aivastra categories right now — try reloading this page.</p>
           <?php elseif (empty($result['categories'])): ?>
