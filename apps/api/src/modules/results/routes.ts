@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { schema } from '@aivastra/db';
+import { JOB_SOURCE } from '@aivastra/types';
 import AdmZip from 'adm-zip';
 import {
   and,
@@ -19,6 +20,7 @@ import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { recordAudit } from '../admin/audit.js';
 import { resolveAdminAccess } from '../admin/guard.js';
+import { jobTypeSql } from '../admin/job-type.js';
 import { signAccess, verifyAccess, verifyPassword } from '../auth/service.js';
 
 // Fixed QA flag categories shown in the flag modal's reason dropdown — mirrored
@@ -51,6 +53,12 @@ const ResultsQuery = z.object({
   date: z.enum(['any', 'today', '7d', '30d']).default('any'),
   status: z.enum(['completed', 'failed', 'all']).default('completed'),
   flag: z.enum(['all', 'flagged', 'resolved']).default('all'),
+  // Coarse grouping over jobs.source (via jobTypeSql — same taxonomy admin/jobs.routes.ts
+  // uses): 'catalog' is every *_catalog*/catalog_video source, 'regeneration' is exactly
+  // JOB_SOURCE.REGENERATE, 'tryon' is everything else (tryon, merchant_tryon, api_tryon,
+  // wordpress_tryon, shopify, saree*) — explicitly excluding regenerate jobs, which would
+  // otherwise fall into this bucket by default since they don't match '%catalog%' either.
+  jobType: z.enum(['all', 'tryon', 'catalog', 'regeneration']).default('all'),
 });
 const FlagBody = z
   .object({
@@ -170,7 +178,7 @@ export async function resultsRoutes(app: FastifyInstance) {
     '/results/data',
     { preHandler: requireResultsUser, schema: { querystring: ResultsQuery } },
     async (req) => {
-      const { page, pageSize, search, userId, date, status, flag } = req.query as z.infer<
+      const { page, pageSize, search, userId, date, status, flag, jobType } = req.query as z.infer<
         typeof ResultsQuery
       >;
       const conditions: (SQL | undefined)[] = [];
@@ -178,6 +186,14 @@ export async function resultsRoutes(app: FastifyInstance) {
       if (flag === 'flagged')
         conditions.push(and(eq(schema.jobs.flagged, true), isNull(schema.jobs.resolvedAt)));
       else if (flag === 'resolved') conditions.push(isNotNull(schema.jobs.resolvedAt));
+
+      if (jobType === 'catalog') conditions.push(sql`${jobTypeSql()} ILIKE ${'%catalog%'}`);
+      else if (jobType === 'regeneration')
+        conditions.push(sql`${jobTypeSql()} = ${JOB_SOURCE.REGENERATE}`);
+      else if (jobType === 'tryon')
+        conditions.push(
+          sql`${jobTypeSql()} NOT ILIKE ${'%catalog%'} AND ${jobTypeSql()} <> ${JOB_SOURCE.REGENERATE}`,
+        );
 
       if (status === 'completed') {
         conditions.push(eq(schema.jobs.status, 'COMPLETED'));
@@ -240,6 +256,23 @@ export async function resultsRoutes(app: FastifyInstance) {
           upperGarmentKey: schema.jobInputs.upperGarmentKey,
           lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
           poseThumbKey: schema.modelPoseAssets.thumbnailKey,
+          // No admin pose asset (poseThumbKey) means this job's "pose" slot
+          // is actually whatever image the customer/system supplied instead —
+          // a widget/kiosk customer photo (jobs.customerPhotoKey) or an
+          // uploaded tryon-direct person photo (job_inputs.params.personKey) —
+          // tagged "Person" client-side — or the source image a regenerate
+          // job is editing (job_inputs.params.sourceImageKey), tagged "Input".
+          // Folding these into the same slot instead of a separate column
+          // avoids a column that's empty for every catalogue/studio job.
+          personOrSourceKey: sql<
+            string | null
+          >`COALESCE(${schema.jobs.customerPhotoKey}, ${schema.jobInputs.params}->>'personKey', ${schema.jobInputs.params}->>'sourceImageKey')`,
+          personOrSourceTag: sql<'person' | 'input' | null>`CASE
+            WHEN ${schema.jobs.customerPhotoKey} IS NOT NULL
+              OR ${schema.jobInputs.params}->>'personKey' IS NOT NULL THEN 'person'
+            WHEN ${schema.jobInputs.params}->>'sourceImageKey' IS NOT NULL THEN 'input'
+            ELSE NULL
+          END`,
           backgroundThumbKey: schema.modelBackgrounds.thumbnailKey,
           lowerThumbKey: sql<
             string | null
@@ -284,7 +317,8 @@ export async function resultsRoutes(app: FastifyInstance) {
           resolvedAt: r.resolvedAt,
           resolvedNote: r.resolvedNote,
           garmentUrl: await presign(r.upperGarmentKey ?? r.lowerGarmentKey),
-          poseUrl: await presign(r.poseThumbKey),
+          poseUrl: await presign(r.poseThumbKey ?? r.personOrSourceKey),
+          poseTag: r.poseThumbKey ? null : r.personOrSourceTag,
           backgroundUrl: await presign(r.backgroundThumbKey),
           lowerUrl: await presign(r.lowerThumbKey),
           shoeUrl: await presign(r.shoeThumbKey),
@@ -443,6 +477,17 @@ export async function resultsRoutes(app: FastifyInstance) {
           lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
           faceThumbKey: schema.modelFaces.thumbnailKey,
           poseThumbKey: schema.modelPoseAssets.thumbnailKey,
+          // See the matching fields in /results/data above — same fallback
+          // for jobs with no admin pose asset.
+          personOrSourceKey: sql<
+            string | null
+          >`COALESCE(${schema.jobs.customerPhotoKey}, ${schema.jobInputs.params}->>'personKey', ${schema.jobInputs.params}->>'sourceImageKey')`,
+          personOrSourceTag: sql<'person' | 'input' | null>`CASE
+            WHEN ${schema.jobs.customerPhotoKey} IS NOT NULL
+              OR ${schema.jobInputs.params}->>'personKey' IS NOT NULL THEN 'person'
+            WHEN ${schema.jobInputs.params}->>'sourceImageKey' IS NOT NULL THEN 'input'
+            ELSE NULL
+          END`,
           backgroundThumbKey: schema.modelBackgrounds.thumbnailKey,
           lowerThumbKey: sql<
             string | null
@@ -494,7 +539,18 @@ export async function resultsRoutes(app: FastifyInstance) {
 
       await addKey('inputs', 'garment', row.upperGarmentKey ?? row.lowerGarmentKey);
       await addKey('inputs', 'face', row.faceThumbKey);
-      await addKey('inputs', 'pose', row.poseThumbKey);
+      // No admin pose asset means this job's only "pose"-slot image is
+      // whatever person/source photo it actually used — see the matching
+      // field comment above.
+      if (row.poseThumbKey) {
+        await addKey('inputs', 'pose', row.poseThumbKey);
+      } else {
+        await addKey(
+          'inputs',
+          row.personOrSourceTag === 'input' ? 'input' : 'person',
+          row.personOrSourceKey,
+        );
+      }
       await addKey('inputs', 'background', row.backgroundThumbKey);
       await addKey('inputs', 'lower', row.lowerThumbKey);
       await addKey('inputs', 'shoe', row.shoeThumbKey);
@@ -755,6 +811,11 @@ ${commonCss()}
 }
 .thumb-dl:hover { background: rgba(0,0,0,0.75); }
 .thumb-dl svg { width: 12px; height: 12px; }
+.thumb-tag {
+  position: absolute; top: 4px; left: 4px; padding: 1px 6px; border-radius: 4px;
+  background: rgba(0,0,0,0.6); color: #fff; font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.02em; pointer-events: none;
+}
 .credits-num { font-family: var(--mono); font-weight: 500; }
 .when-text { font-size: 12px; color: var(--muted); font-family: var(--mono); }
 
@@ -829,7 +890,7 @@ ${commonCss()}
   display: none; justify-content: center; align-items: center; cursor: zoom-out; backdrop-filter: blur(2px);
 }
 .lightbox.active { display: flex; overflow: hidden; }
-.lightbox img { max-width: 92vw; max-height: 92vh; border-radius: var(--r-lg); box-shadow: 0 24px 64px rgba(0,0,0,0.6); will-change: transform; user-select: none; -webkit-user-drag: none; }
+.lightbox img { border-radius: var(--r-lg); box-shadow: 0 24px 64px rgba(0,0,0,0.6); user-select: none; -webkit-user-drag: none; }
 .lightbox-close {
   position: absolute; top: 20px; right: 24px; color: #fff; font-size: 32px; line-height: 1;
   cursor: pointer; opacity: 0.8; transition: opacity 120ms ease; user-select: none;
@@ -897,6 +958,15 @@ ${commonCss()}
         <option value="all">All</option>
         <option value="flagged">Flagged only</option>
         <option value="resolved">Resolved only</option>
+      </select>
+    </div>
+    <div class="filter-group" style="min-width:140px;flex:0">
+      <label>Job type</label>
+      <select class="select" id="filter-jobtype">
+        <option value="all">All</option>
+        <option value="tryon">Try-on</option>
+        <option value="catalog">Catalogue</option>
+        <option value="regeneration">Regeneration</option>
       </select>
     </div>
     <div class="filter-group">
@@ -1045,7 +1115,7 @@ function appJs(): string {
 
   var state = {
     page: 1, pageSize: 25, total: 0, items: [], users: [],
-    filters: { userId: '', date: 'any', search: '', status: 'completed', flag: 'all' },
+    filters: { userId: '', date: 'any', search: '', status: 'completed', flag: 'all', jobType: 'all' },
     loading: false,
   };
 
@@ -1082,6 +1152,7 @@ function appJs(): string {
     if (state.filters.search) p.set('search', state.filters.search);
     if (state.filters.status !== 'completed') p.set('status', state.filters.status);
     if (state.filters.flag !== 'all') p.set('flag', state.filters.flag);
+    if (state.filters.jobType !== 'all') p.set('jobType', state.filters.jobType);
     api('/results/data?' + p.toString()).then(function(data) {
       state.items = data.items || [];
       state.total = data.total || 0;
@@ -1131,12 +1202,13 @@ function appJs(): string {
         var rowClass = item.resolvedAt ? 'resolved-row' : (item.flagged ? 'flagged-row' : '');
         var workerLabel = item.workerLabel || item.workerId || 'unassigned';
         var rowTitle = 'Job ID: ' + item.id + ' • Worker: ' + workerLabel;
+        var poseLabel = item.poseTag === 'input' ? 'Input' : item.poseTag === 'person' ? 'Person' : 'Pose';
         rows.push(
           '<tr class="' + rowClass + '" title="' + esc(rowTitle) + '">' +
           '<td class="col-id"><div class="id-num">' + rev + '</div><div class="id-sub">#' + seq + '</div></td>' +
           '<td class="col-user"><div class="user-name">' + esc(item.userEmail || '—') + '</div><div class="user-email">' + esc(item.userEmail || '') + '</div></td>' +
           '<td class="col-img">' + renderThumb(item.garmentUrl, 'Garment') + '</td>' +
-          '<td class="col-img">' + renderThumb(item.poseUrl, 'Pose') + '</td>' +
+          '<td class="col-img">' + renderThumb(item.poseUrl, poseLabel, item.poseTag ? poseLabel : null) + '</td>' +
           '<td class="col-img">' + renderThumb(item.backgroundUrl, 'Background') + '</td>' +
           '<td class="col-img">' + renderThumb(item.shoeUrl, 'Shoes') + '</td>' +
           '<td class="col-img">' + renderThumb(item.outputUrl, 'Output') + '</td>' +
@@ -1194,10 +1266,11 @@ function appJs(): string {
     return html;
   }
 
-  function renderThumb(url, label) {
+  function renderThumb(url, label, tag) {
     if (!url) return '<div class="thumb-placeholder">—</div>';
     return '<div class="thumb-wrap">' +
       '<div class="thumb-img">' +
+        (tag ? '<span class="thumb-tag">' + esc(tag) + '</span>' : '') +
         '<img class="thumb" src="' + esc(url) + '" alt="' + esc(label) + '" loading="lazy" data-lb="' + esc(url) + '">' +
         '<a class="thumb-dl" href="' + esc(url) + '" target="_blank" rel="noreferrer" download="' + esc(label.toLowerCase()) + '.jpg" title="Download">' +
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>' +
@@ -1243,22 +1316,57 @@ function appJs(): string {
   });
 
   // Lightbox — wheel zooms, left-click drag pans around the zoomed image.
+  //
+  // Zoom is done by resizing the <img>'s width/height, NOT a CSS transform:
+  // scale(). A transform scale is a compositor-only operation — the browser
+  // rasterizes the image once at its laid-out CSS size and then the GPU
+  // stretches that fixed bitmap, so a transform-scaled "zoom" looks
+  // increasingly soft no matter how high-res the source file is. Changing
+  // width/height instead makes the browser re-render the element at the new
+  // size, decoding detail from the full source up to its native resolution —
+  // which is why this looks sharp up to the same point where opening the raw
+  // URL in a new tab does, and not before.
   var lbImg = $('lightbox-img');
   var lbScale = 1, lbX = 0, lbY = 0;
+  var lbBaseW = 0, lbBaseH = 0;
+  var LB_MAX_SCALE = 6; // same zoom range as before — resizing width/height (not transform) is what keeps it sharp
   var lbDragging = false, lbDragMoved = false, lbDragStartX = 0, lbDragStartY = 0;
 
   function lbApply() {
-    lbImg.style.transform = 'translate(' + lbX + 'px, ' + lbY + 'px) scale(' + lbScale.toFixed(2) + ')';
+    if (lbBaseW > 0) {
+      lbImg.style.width = (lbBaseW * lbScale) + 'px';
+      lbImg.style.height = (lbBaseH * lbScale) + 'px';
+    }
+    lbImg.style.transform = 'translate(' + lbX + 'px, ' + lbY + 'px)';
     lbImg.style.cursor = lbScale > 1 ? 'grab' : 'zoom-out';
   }
   function lbReset() {
     lbScale = 1; lbX = 0; lbY = 0;
     lbApply();
   }
+  function lbFit() {
+    var nw = lbImg.naturalWidth, nh = lbImg.naturalHeight;
+    if (!nw || !nh) return;
+    // Only shrink to fit the viewport, never upscale past native resolution
+    // just to fill it — the fit size is scale 1; zooming (up to LB_MAX_SCALE)
+    // grows the actual width/height from there, so the browser re-renders
+    // from the full source at every step instead of stretching a fixed
+    // raster the way a CSS transform would.
+    var fitScale = Math.min(1, (window.innerWidth * 0.92) / nw, (window.innerHeight * 0.92) / nh);
+    lbBaseW = nw * fitScale;
+    lbBaseH = nh * fitScale;
+    lbApply();
+  }
 
   window.openLightbox = function(url) {
-    lbReset();
+    lbScale = 1; lbX = 0; lbY = 0; lbBaseW = 0; lbBaseH = 0;
+    lbImg.style.width = '';
+    lbImg.style.height = '';
+    lbImg.onload = lbFit;
     lbImg.src = url;
+    // If this exact URL was already loaded (e.g. reopening the same job),
+    // assigning .src again is a no-op and 'load' never fires — fit manually.
+    if (lbImg.complete && lbImg.naturalWidth) lbFit();
     $('lightbox').classList.add('active');
   };
   function closeLightbox() {
@@ -1273,7 +1381,7 @@ function appJs(): string {
   $('lightbox').addEventListener('wheel', function(e) {
     if (!$('lightbox').classList.contains('active')) return;
     e.preventDefault();
-    lbScale = Math.min(6, Math.max(1, lbScale + (e.deltaY < 0 ? 0.2 : -0.2)));
+    lbScale = Math.min(LB_MAX_SCALE, Math.max(1, lbScale + (e.deltaY < 0 ? 0.2 : -0.2)));
     if (lbScale <= 1) { lbX = 0; lbY = 0; }
     lbApply();
   }, { passive: false });
@@ -1308,6 +1416,7 @@ function appJs(): string {
     state.filters.date = $('filter-date').value;
     state.filters.status = $('filter-status').value;
     state.filters.flag = $('filter-flag').value;
+    state.filters.jobType = $('filter-jobtype').value;
     state.filters.search = $('filter-search').value.trim();
     state.page = 1;
     loadData();
@@ -1317,8 +1426,9 @@ function appJs(): string {
     $('filter-date').value = 'any';
     $('filter-status').value = 'completed';
     $('filter-flag').value = 'all';
+    $('filter-jobtype').value = 'all';
     $('filter-search').value = '';
-    state.filters = { userId: '', date: 'any', search: '', status: 'completed', flag: 'all' };
+    state.filters = { userId: '', date: 'any', search: '', status: 'completed', flag: 'all', jobType: 'all' };
     state.page = 1;
     loadData();
   });
