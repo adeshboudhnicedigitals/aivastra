@@ -1122,6 +1122,13 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       if ('tryonOutputNodeId' in body)
         updateValues.tryonOutputNodeId = body.tryonOutputNodeId ?? null;
       if (body.regenerationReasonPrompts !== undefined) {
+        if (existing.workflowType !== 'regeneration') {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'regenerationReasonPrompts can only be set on a regeneration-type workflow',
+          );
+        }
         // Trim + drop rows with a blank REASON here rather than trusting the
         // client's array verbatim — an admin backspacing a reason label to
         // empty shouldn't leave a nameless row the picker can't render. A

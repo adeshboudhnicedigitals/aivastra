@@ -768,6 +768,9 @@ describe('admin workflows - floor validation', () => {
   });
 
   it('PATCH keeps blank-prompt regeneration reasons instead of dropping them', async () => {
+    // regenerationReasonPrompts is only settable on a 'regeneration'-type
+    // workflow — see the 'rejects regenerationReasonPrompts on a
+    // non-regeneration workflow' test below for the 'regular' case.
     const createRes = await app.inject({
       method: 'POST',
       url: '/admin/workflows',
@@ -775,10 +778,30 @@ describe('admin workflows - floor validation', () => {
       payload: {
         slug: `keep_blank_reasons_${Date.now()}`,
         label: 'Keep blank reasons',
-        jsonContent,
-        workflowType: 'regular',
-        poseNodeId: 'pose_node',
-        lowerNodeId: 'lower_node',
+        jsonContent: {
+          person_node: {
+            inputs: { image: '' },
+            class_type: 'LoadImage',
+            _meta: { title: 'person' },
+          },
+          positive_node: {
+            inputs: { prompt: 'default reason prompt' },
+            class_type: 'CLIPTextEncode',
+            _meta: { title: 'positive_prompt' },
+          },
+          negative_node: {
+            inputs: { text: 'default negative' },
+            class_type: 'CLIPTextEncode',
+            _meta: { title: 'negative_prompt' },
+          },
+          output_node: {
+            inputs: {},
+            class_type: 'Save Image With Callback',
+            _meta: { title: 'output' },
+          },
+        },
+        workflowType: 'regeneration',
+        facePhasePromptNode: 'negative_node',
         garmentPhasePromptNode: 'positive_node',
       },
     });
@@ -810,6 +833,44 @@ describe('admin workflows - floor validation', () => {
       { reason: 'Nudity', prompt: '' },
       { reason: 'Draping issue', prompt: 'garment sits flat, no fabric warping' },
     ]);
+  });
+
+  it('PATCH rejects regenerationReasonPrompts on a non-regeneration workflow', async () => {
+    // regenerationReasonPrompts is meaningful only on a 'regeneration'-type
+    // template — a 'regular'/'tryon' template must reject it rather than
+    // silently accept (and possibly re-populate) the field.
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `reject_reasons_on_regular_${Date.now()}`,
+        label: 'Regular, rejects reasons',
+        jsonContent,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        garmentPhasePromptNode: 'positive_node',
+      },
+    });
+    expect(createRes.statusCode).toBe(200);
+    const id = createRes.json().id as string;
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/admin/workflows/${id}`,
+      headers,
+      payload: {
+        regenerationReasonPrompts: [{ reason: 'Nudity', prompt: 'should be rejected' }],
+      },
+    });
+    expect(patchRes.statusCode).toBe(400);
+
+    const [row] = await app.db
+      .select({ regenerationReasonPrompts: schema.workflowTemplates.regenerationReasonPrompts })
+      .from(schema.workflowTemplates)
+      .where(eq(schema.workflowTemplates.id, id));
+    expect(row?.regenerationReasonPrompts).toEqual([]);
   });
 
   describe('workflow replace with drain', () => {

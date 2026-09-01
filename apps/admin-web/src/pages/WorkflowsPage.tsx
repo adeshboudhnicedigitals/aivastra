@@ -214,8 +214,13 @@ export default function WorkflowsPage({ toast }: Props) {
         label: editForm.label.trim(),
         slug: editForm.slug.trim(),
         garmentPhasePrompt: editForm.garmentPhasePrompt.trim(),
-        regenerationReasonPrompts: cleanedRegenerationReasonPrompts,
       };
+      // regenerationReasonPrompts is only meaningful on a regeneration-type
+      // template — the API now rejects it for any other type, so omit the key
+      // entirely rather than send an echoed-back [] for other workflow types.
+      if (editingWf.workflowType === 'regeneration') {
+        patch.regenerationReasonPrompts = cleanedRegenerationReasonPrompts;
+      }
       if (editingWf.facePhasePromptNode) {
         patch.facePhasePrompt = editForm.facePhasePrompt.trim();
       }
@@ -259,7 +264,9 @@ export default function WorkflowsPage({ toast }: Props) {
                 label: editForm.label.trim(),
                 slug: editForm.slug.trim(),
                 defaultGarmentPhasePrompt: editForm.garmentPhasePrompt.trim(),
-                regenerationReasonPrompts: cleanedRegenerationReasonPrompts,
+                ...(editingWf.workflowType === 'regeneration'
+                  ? { regenerationReasonPrompts: cleanedRegenerationReasonPrompts }
+                  : {}),
                 ...(editingWf.facePhasePromptNode
                   ? { defaultFacePhasePrompt: editForm.facePhasePrompt.trim() }
                   : {}),
