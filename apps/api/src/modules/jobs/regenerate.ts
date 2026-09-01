@@ -1,16 +1,10 @@
 import { schema } from '@aivastra/db';
-import type {
-  CreateSareeJobRequest,
-  CreateSimpleTryonRequest,
-  CreateTryOnJobRequest,
-  Resolution,
-} from '@aivastra/types';
+import { keys } from '@aivastra/storage';
+import { JOB_SOURCE } from '@aivastra/types';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import type { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { createJob, createSimpleTryonJob } from './create.js';
-import { createSareeJob } from './createSaree.js';
+import { resolveQueueRouting } from './create.js';
 import { promptGuard } from './sanitize.js';
 
 const FREE_REGENERATE_DAILY_LIMIT = 5;
@@ -37,135 +31,59 @@ async function incrementFreeRegenerateCount(app: FastifyInstance, userId: string
   if (count === 1) await app.redis.expire(key, 172_800);
 }
 
-/**
- * Resolves which workflow template a (poseId, garmentTypeId) pair would
- * dispatch through today — mirrors the precedence apps/dispatcher/src/job/
- * processor.ts already applies at dispatch time (poseGarmentConfigs override,
- * else the pose's own default). Duplicated rather than shared because the two
- * call sites need different subsets of that resolution (the dispatcher also
- * resolves prompt text and the flat-saree branch; this only needs the template
- * id to look up its regenerationReasonPrompts) — see the patcher.ts `.inputs.prompt`
- * vs `.inputs.text` note in the plan for why this duplication is a known,
- * accepted risk rather than an oversight.
- */
-async function resolveEffectiveWorkflowTemplateId(
-  app: FastifyInstance,
-  params: Record<string, unknown>,
-  poseId: string,
-  garmentTypeId: string | null,
-): Promise<string | null> {
-  if (typeof params.workflowTemplateId === 'string') return params.workflowTemplateId;
-
-  if (garmentTypeId) {
-    // Flat-saree (and any future two-pass) garment types use ONE fixed workflow
-    // for every pose, set on the garment type itself — create.ts's resolveTryonPlan
-    // ignores the pose's own workflow/pose_garment_configs entirely for these.
-    // Mirroring that precedence here matters: getting it wrong would force the
-    // WRONG ComfyUI graph onto the regenerated job, not just the wrong prompt.
-    const [gtRow] = await app.db
-      .select({
-        requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep,
-        sareeStep2WorkflowTemplateId: schema.garmentSubcategories.sareeStep2WorkflowTemplateId,
-      })
-      .from(schema.garmentSubcategories)
-      .where(eq(schema.garmentSubcategories.id, garmentTypeId));
-    if (gtRow?.requiresMannequinStep) return gtRow.sareeStep2WorkflowTemplateId ?? null;
-
-    const [cfgRow] = await app.db
-      .select({ workflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId })
-      .from(schema.poseGarmentConfigs)
-      .where(
-        and(
-          eq(schema.poseGarmentConfigs.poseAssetId, poseId),
-          eq(schema.poseGarmentConfigs.subcategoryId, garmentTypeId),
-        ),
-      );
-    if (cfgRow?.workflowTemplateId) return cfgRow.workflowTemplateId;
-  }
-
-  const [poseRow] = await app.db
-    .select({ workflowTemplateId: schema.modelPoseAssets.workflowTemplateId })
-    .from(schema.modelPoseAssets)
-    .where(eq(schema.modelPoseAssets.id, poseId));
-  return poseRow?.workflowTemplateId ?? null;
-}
-
-async function getRegenerationReasonPrompts(
-  app: FastifyInstance,
-  workflowTemplateId: string,
-): Promise<{ reason: string; prompt: string }[]> {
+/** The one admin-configured regeneration workflow. Every regenerate click
+ *  runs through it, regardless of what produced the original image — see
+ *  docs/superpowers/specs/2026-08-31-dedicated-regeneration-workflow-design.md. */
+async function getActiveRegenerationTemplate(app: FastifyInstance) {
   const [row] = await app.db
-    .select({ regenerationReasonPrompts: schema.workflowTemplates.regenerationReasonPrompts })
+    .select({
+      id: schema.workflowTemplates.id,
+      version: schema.workflowTemplates.version,
+      regenerationReasonPrompts: schema.workflowTemplates.regenerationReasonPrompts,
+    })
     .from(schema.workflowTemplates)
-    .where(eq(schema.workflowTemplates.id, workflowTemplateId));
-  return row?.regenerationReasonPrompts ?? [];
+    .where(
+      and(
+        eq(schema.workflowTemplates.workflowType, 'regeneration'),
+        eq(schema.workflowTemplates.isActive, true),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
 }
 
 /**
- * Picks the admin-curated prompt whose reason exactly matches what the user
- * submitted. No match — an unconfigured reason, or the free-text "Other" —
- * returns null, and the caller falls back to rerunning the original prompt.
- */
-async function pickRegenerationPrompt(
-  app: FastifyInstance,
-  workflowTemplateId: string,
-  reason: string,
-): Promise<string | null> {
-  const pairs = await getRegenerationReasonPrompts(app, workflowTemplateId);
-  return pairs.find((p) => p.reason === reason)?.prompt ?? null;
-}
-
-/**
- * Resolves the reason labels to offer for regenerating a given job — the
- * configured labels for whichever workflow template that job would dispatch
- * through today. Same ownership/status rules as regenerateJob's read, since
- * this is shown before the user has committed to regenerating.
+ * Resolves the reason labels to offer for regenerating a given job. These are
+ * no longer job-specific — every job regenerates through the same single
+ * workflow, so this is just that workflow's configured reason list. jobId is
+ * still required and validated (ownership + existence) so a caller can't
+ * probe reasons for a job they don't own via this endpoint.
  */
 export async function getRegenerateReasons(
   app: FastifyInstance,
   userId: string,
   jobId: string,
 ): Promise<string[]> {
-  const [original] = await app.db
-    .select({ job: schema.jobs, inputs: schema.jobInputs })
+  const [job] = await app.db
+    .select({ userId: schema.jobs.userId })
     .from(schema.jobs)
-    .innerJoin(schema.jobInputs, eq(schema.jobs.id, schema.jobInputs.jobId))
     .where(eq(schema.jobs.id, jobId));
+  if (!job) throw new AppError('NOT_FOUND', 404, 'job not found');
+  if (job.userId !== userId) throw new AppError('NOT_FOUND', 404, 'job not found');
 
-  if (!original) throw new AppError('NOT_FOUND', 404, 'job not found');
-  if (original.job.userId !== userId) throw new AppError('NOT_FOUND', 404, 'job not found');
-
-  const { inputs } = original;
-  const params = (inputs.params ?? {}) as Record<string, unknown>;
-  // Saree and direct-tryon-from-catalogue regenerates never carry a poseId —
-  // they have no per-workflow reason pool (see the isSaree/isTryonDirect
-  // branches in regenerateJob, which never build a paramsOverride either).
-  if (!inputs.poseId) return [];
-
-  const effectiveWorkflowTemplateId = await resolveEffectiveWorkflowTemplateId(
-    app,
-    params,
-    inputs.poseId,
-    inputs.garmentTypeId,
-  );
-  if (!effectiveWorkflowTemplateId) return [];
-
-  const pairs = await getRegenerationReasonPrompts(app, effectiveWorkflowTemplateId);
-  return pairs.map((p) => p.reason);
+  const template = await getActiveRegenerationTemplate(app);
+  if (!template) return [];
+  return template.regenerationReasonPrompts.map((p) => p.reason);
 }
 
 /**
- * Regenerate = a brand-new job, validated exactly like a fresh request — same
- * createJob/createSimpleTryonJob/createSareeJob helpers the real routes use,
- * so catalog/pose-workflow validation and watermark entitlement can never
- * silently drift from the real routes. Pricing is the one deliberate
- * exception: within today's free allowance, `waiveCost: true` makes those
- * helpers create the job with creditsCharged=0 and skip atomicDeduct entirely
- * — genuinely never charged, not charged-then-refunded. That also means every
- * existing refund path (terminateJob's timeout/failure refund, the stuck-job
- * sweeper) naturally no-ops for a free regenerate, since they all guard on
- * `creditsCharged > 0` — there is nothing left to double-refund if a free
- * regenerate's job later fails.
+ * Regenerate = a brand-new job that runs the single dedicated regeneration
+ * ComfyUI workflow, taking the ORIGINAL job's own generated output as its
+ * only input — never the original job's own pipeline (studio/tryon-direct/
+ * saree all funnel through this one path now). Always free
+ * (creditsCharged: 0) within today's allowance — never charge-then-refund,
+ * so every existing refund path naturally no-ops for it (they all guard on
+ * `creditsCharged > 0`).
  */
 export async function regenerateJob(
   app: FastifyInstance,
@@ -179,11 +97,10 @@ export async function regenerateJob(
   const [original] = await app.db
     .select({
       job: schema.jobs,
-      inputs: schema.jobInputs,
+      resultKey: schema.jobOutputs.resultKey,
       downloadedAt: schema.jobOutputs.downloadedAt,
     })
     .from(schema.jobs)
-    .innerJoin(schema.jobInputs, eq(schema.jobs.id, schema.jobInputs.jobId))
     .leftJoin(schema.jobOutputs, eq(schema.jobs.id, schema.jobOutputs.jobId))
     .where(eq(schema.jobs.id, originalJobId));
 
@@ -211,141 +128,73 @@ export async function regenerateJob(
     }
   }
 
-  const { inputs } = original;
-  const params = (inputs.params ?? {}) as Record<string, unknown>;
-  const isSaree = params.kind === 'saree';
-  const isTryonDirect = typeof params.personKey === 'string';
+  const template = await getActiveRegenerationTemplate(app);
+  if (!template) {
+    throw new AppError('CONFIG', 400, 'regeneration is not configured by admin');
+  }
 
-  // Shared tail: log why, count today's free allowance, stamp parentJobId.
-  // Every branch below funnels through this before returning.
-  const finish = async (newJobId: string, catalogueId?: string) => {
-    // Logged against the NEW job (not the original) — parentJobId already links
-    // back to the original on the jobs row itself, and admins reviewing a
-    // regenerated job want the reason available right there, not on a
-    // different job's event log.
-    await app.db.insert(schema.jobEvents).values({
-      jobId: newJobId,
+  // Legacy rows (predating job_outputs.resultKey being populated for every
+  // job) fall back to the PNG convention — same fallback createCatalogVideoJob
+  // already uses for "reuse a completed job's own result as an input image."
+  const sourceImageKey = original.resultKey ?? keys.output(originalJobId);
+
+  // A non-empty match becomes the prompt override; no match (or a blank
+  // configured prompt, e.g. "Other") means the workflow's own baked-in
+  // default prompt runs unchanged — same "empty = no override" convention
+  // documented on regenerationReasonPrompts.
+  const promptOverride = template.regenerationReasonPrompts.find(
+    (p) => p.reason === cleanReason,
+  )?.prompt;
+
+  const { queueStream, priority, watermark } = await resolveQueueRouting(app, userId);
+
+  const newJobId = await app.db.transaction(async (tx) => {
+    const [newJob] = await tx
+      .insert(schema.jobs)
+      .values({
+        userId,
+        status: 'QUEUED',
+        priority,
+        queueStream,
+        watermark,
+        creditsCharged: 0,
+        source: JOB_SOURCE.REGENERATE,
+        parentJobId: originalJobId,
+      })
+      .returning();
+    if (!newJob) throw new AppError('INSERT_FAILED', 500, 'failed to create regenerate job');
+
+    await tx.insert(schema.jobInputs).values({
+      jobId: newJob.id,
+      params: {
+        kind: 'regenerate',
+        sourceImageKey,
+        sourceJobId: originalJobId,
+        workflowTemplateId: template.id,
+        dispatchTemplateVersion: template.version,
+        ...(promptOverride?.trim() ? { promptOverride } : {}),
+      },
+    });
+
+    // Logged against the NEW job (not the original) — parentJobId already
+    // links back to the original on the jobs row itself, and admins
+    // reviewing a regenerated job want the reason available right there.
+    await tx.insert(schema.jobEvents).values({
+      jobId: newJob.id,
       eventType: 'REGENERATE_REASON',
       payload: { reason: cleanReason, parentJobId: originalJobId },
     });
 
-    // Skipped while the cap is disabled too — otherwise local testing would
-    // silently burn through the real quota and the very first regenerate after
-    // re-enabling it could already be over the limit.
-    if (FREE_REGENERATE_LIMIT_ENABLED) await incrementFreeRegenerateCount(app, userId);
-
-    await setParentJobId(app, newJobId, originalJobId);
-    return { jobId: newJobId, catalogueId };
-  };
-
-  if (isSaree) {
-    if (!inputs.upperGarmentKey) {
-      throw new AppError('VALIDATION', 400, 'original job has no garment to regenerate');
-    }
-    const body: z.infer<typeof CreateSareeJobRequest> = { garmentKey: inputs.upperGarmentKey };
-    const result = await createSareeJob(app, userId, body, { waiveCost: true });
-    return finish(result.jobId, result.catalogueId);
-  }
-
-  if (isTryonDirect) {
-    const { personKey, sourceJobId } = params;
-    if (typeof personKey !== 'string' || typeof sourceJobId !== 'string') {
-      throw new AppError(
-        'VALIDATION',
-        400,
-        'this job cannot be regenerated — missing source reference',
-      );
-    }
-    const body: z.infer<typeof CreateSimpleTryonRequest> = { personKey, sourceJobId };
-    const result = await createSimpleTryonJob(app, userId, body, { waiveCost: true });
-    return finish(result.jobId, result.catalogueId);
-  }
-
-  // Studio/catalogue job — one poseId per job row, reconstruct the multi-pose
-  // request shape createJob expects with just that single pose.
-  if (!inputs.poseId || !inputs.faceId || !inputs.backgroundId) {
-    throw new AppError('VALIDATION', 400, 'original job is missing required inputs to regenerate');
-  }
-  const mappingId =
-    typeof params.catalogueTemplateMappingId === 'string'
-      ? params.catalogueTemplateMappingId
-      : undefined;
-  if (mappingId && !inputs.garmentTypeId) {
-    throw new AppError(
-      'VALIDATION',
-      400,
-      'mapped original job is missing its garment type and cannot be regenerated',
-    );
-  }
-
-  const trustedGarmentKeys = new Set<string>();
-  if (inputs.upperGarmentKey) trustedGarmentKeys.add(inputs.upperGarmentKey);
-  if (inputs.lowerGarmentKey) trustedGarmentKeys.add(inputs.lowerGarmentKey);
-
-  // Same workflow, different prompt: resolve which template this pose/garment-type
-  // combo would dispatch through today, then — only if the admin has configured
-  // alternates for it — force that same template id back onto the new job's
-  // params along with the chosen prompt text. processor.ts already honors this
-  // exact snapshot shape (see docs/superpowers plan) for the catalogue-template-
-  // mapping flow; this reuses it rather than adding a second mechanism.
-  let paramsOverride: Record<string, unknown> | undefined;
-  const effectiveWorkflowTemplateId = await resolveEffectiveWorkflowTemplateId(
-    app,
-    params,
-    inputs.poseId,
-    inputs.garmentTypeId,
-  );
-  if (effectiveWorkflowTemplateId) {
-    const chosenPrompt = await pickRegenerationPrompt(
-      app,
-      effectiveWorkflowTemplateId,
-      cleanReason,
-    );
-    if (chosenPrompt) {
-      paramsOverride = {
-        workflowTemplateId: effectiveWorkflowTemplateId,
-        promptGarmentPhase: chosenPrompt,
-      };
-    }
-  }
-
-  const body: z.infer<typeof CreateTryOnJobRequest> = {
-    catalogueId: original.job.catalogueId ?? undefined,
-    inputs: {
-      upperGarmentKey: inputs.upperGarmentKey ?? undefined,
-      faceId: inputs.faceId,
-      garmentTypeId: inputs.garmentTypeId ?? undefined,
-      lowerCatalogId: inputs.lowerCatalogId ?? undefined,
-      lowerGarmentKey: inputs.lowerGarmentKey ?? undefined,
-      shoeCatalogId: inputs.shoeCatalogId ?? undefined,
-      ...(mappingId
-        ? {
-            catalogueTemplateMappingId: mappingId,
-            looks: [{ poseId: inputs.poseId, backgroundId: inputs.backgroundId }],
-          }
-        : { backgroundId: inputs.backgroundId, poseIds: [inputs.poseId] }),
-    },
-    params: {
-      outputWidth: typeof params.outputWidth === 'number' ? params.outputWidth : undefined,
-      outputHeight: typeof params.outputHeight === 'number' ? params.outputHeight : undefined,
-    },
-    userHint: inputs.userHint ?? undefined,
-    aspectRatio: (typeof params.aspectRatio === 'string' ? params.aspectRatio : '1:1') as z.infer<
-      typeof CreateTryOnJobRequest
-    >['aspectRatio'],
-    resolution: (typeof params.resolution === 'string' ? params.resolution : '2K') as Resolution,
-    platform: typeof params.platform === 'string' ? params.platform : undefined,
-  };
-
-  const result = await createJob(app, userId, body, {
-    trustedGarmentKeys,
-    paramsOverride,
-    waiveCost: true,
+    return newJob.id;
   });
-  const newJobId = result.jobIds[0];
-  return finish(newJobId, result.catalogueId);
-}
 
-async function setParentJobId(app: FastifyInstance, jobId: string, parentJobId: string) {
-  await app.db.update(schema.jobs).set({ parentJobId }).where(eq(schema.jobs.id, jobId));
+  const stream = `jobs:${queueStream}`;
+  await app.redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', newJobId, 'userId', userId);
+
+  // Skipped while the cap is disabled too — otherwise local testing would
+  // silently burn through the real quota and the very first regenerate after
+  // re-enabling it could already be over the limit.
+  if (FREE_REGENERATE_LIMIT_ENABLED) await incrementFreeRegenerateCount(app, userId);
+
+  return { jobId: newJobId };
 }

@@ -29,11 +29,17 @@ describe('defaultTriggerCredits', () => {
   it('is 20% of the pack the merchant chose', () => {
     expect(defaultTriggerCredits('pack_10')).toBe(160);
     expect(defaultTriggerCredits('pack_25')).toBe(450);
-    expect(defaultTriggerCredits('pack_50')).toBe(960);
     expect(defaultTriggerCredits('pack_100')).toBe(2000);
   });
 
   it('is null for a pack we do not sell', () => {
     expect(defaultTriggerCredits('pack_999')).toBeNull();
+  });
+
+  // pack_50 (Pro) was discontinued — a store still enrolled with it on
+  // autorefillPackId must resolve to null so the "no longer sold" skip path
+  // in performAutoRefill fires instead of throwing.
+  it('is null for the discontinued Pro pack', () => {
+    expect(defaultTriggerCredits('pack_50')).toBeNull();
   });
 });

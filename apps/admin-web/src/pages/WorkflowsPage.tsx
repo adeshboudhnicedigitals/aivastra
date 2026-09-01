@@ -214,8 +214,13 @@ export default function WorkflowsPage({ toast }: Props) {
         label: editForm.label.trim(),
         slug: editForm.slug.trim(),
         garmentPhasePrompt: editForm.garmentPhasePrompt.trim(),
-        regenerationReasonPrompts: cleanedRegenerationReasonPrompts,
       };
+      // regenerationReasonPrompts is only meaningful on a regeneration-type
+      // template — the API now rejects it for any other type, so omit the key
+      // entirely rather than send an echoed-back [] for other workflow types.
+      if (editingWf.workflowType === 'regeneration') {
+        patch.regenerationReasonPrompts = cleanedRegenerationReasonPrompts;
+      }
       if (editingWf.facePhasePromptNode) {
         patch.facePhasePrompt = editForm.facePhasePrompt.trim();
       }
@@ -259,7 +264,9 @@ export default function WorkflowsPage({ toast }: Props) {
                 label: editForm.label.trim(),
                 slug: editForm.slug.trim(),
                 defaultGarmentPhasePrompt: editForm.garmentPhasePrompt.trim(),
-                regenerationReasonPrompts: cleanedRegenerationReasonPrompts,
+                ...(editingWf.workflowType === 'regeneration'
+                  ? { regenerationReasonPrompts: cleanedRegenerationReasonPrompts }
+                  : {}),
                 ...(editingWf.facePhasePromptNode
                   ? { defaultFacePhasePrompt: editForm.facePhasePrompt.trim() }
                   : {}),
@@ -344,6 +351,7 @@ export default function WorkflowsPage({ toast }: Props) {
                 <option value="tryon">Tryon</option>
                 <option value="saree_step1">Saree Step 1</option>
                 <option value="saree_step1_two_input">Saree Step 1 (2-input)</option>
+                <option value="regeneration">Regeneration</option>
               </select>
             </>
           )}
@@ -1247,85 +1255,86 @@ export default function WorkflowsPage({ toast }: Props) {
                 />
               </div>
             )}
-            <div className="field">
-              <label>Regeneration reasons & prompts (optional)</label>
-              <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--muted)' }}>
-                When a user regenerates a result from this workflow, the reason they pick is matched
-                against these labels and the matching prompt runs instead of the garment-phase
-                prompt above. A reason with no match here (including "Other") always reruns the
-                original prompt.
-              </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {editForm.regenerationReasonPrompts.map((pair, idx) => (
-                  <div key={idx} style={{ display: 'flex', gap: 8 }}>
-                    <input
-                      className="input"
-                      style={{ flex: '0 0 160px' }}
-                      placeholder="Reason (e.g. Wrong pose)"
-                      value={pair.reason}
-                      disabled={editSaving}
-                      onChange={(e) =>
-                        setEditForm((f) => ({
-                          ...f,
-                          regenerationReasonPrompts: f.regenerationReasonPrompts.map((p, i) =>
-                            i === idx ? { ...p, reason: e.target.value } : p,
-                          ),
-                        }))
-                      }
-                    />
-                    <textarea
-                      className="input"
-                      rows={2}
-                      style={{ flex: 1 }}
-                      placeholder="Alternate prompt"
-                      value={pair.prompt}
-                      disabled={editSaving}
-                      onChange={(e) =>
-                        setEditForm((f) => ({
-                          ...f,
-                          regenerationReasonPrompts: f.regenerationReasonPrompts.map((p, i) =>
-                            i === idx ? { ...p, prompt: e.target.value } : p,
-                          ),
-                        }))
-                      }
-                    />
-                    <button
-                      type="button"
-                      className="btn sm ghost"
-                      disabled={editSaving}
-                      onClick={() =>
-                        setEditForm((f) => ({
-                          ...f,
-                          regenerationReasonPrompts: f.regenerationReasonPrompts.filter(
-                            (_, i) => i !== idx,
-                          ),
-                        }))
-                      }
-                      title="Remove this reason"
-                    >
-                      <Icon.Trash />
-                    </button>
-                  </div>
-                ))}
-                <button
-                  type="button"
-                  className="btn sm ghost"
-                  disabled={editSaving}
-                  style={{ alignSelf: 'flex-start' }}
-                  onClick={() =>
-                    setEditForm((f) => ({
-                      ...f,
-                      regenerationReasonPrompts: [
-                        ...f.regenerationReasonPrompts,
-                        { reason: '', prompt: '' },
-                      ],
-                    }))
-                  }
-                >
-                  <Icon.Plus /> Add reason
-                </button>
+            {editingWf?.workflowType === 'regeneration' && (
+              <div className="field">
+                <label>Regeneration reasons & prompts (optional)</label>
+                <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--muted)' }}>
+                  When a user regenerates a result, the reason they pick is matched against these
+                  labels and the matching prompt is used. A reason with no match here (including
+                  "Other") reruns this workflow's own default prompt.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {editForm.regenerationReasonPrompts.map((pair, idx) => (
+                    <div key={idx} style={{ display: 'flex', gap: 8 }}>
+                      <input
+                        className="input"
+                        style={{ flex: '0 0 160px' }}
+                        placeholder="Reason (e.g. Wrong pose)"
+                        value={pair.reason}
+                        disabled={editSaving}
+                        onChange={(e) =>
+                          setEditForm((f) => ({
+                            ...f,
+                            regenerationReasonPrompts: f.regenerationReasonPrompts.map((p, i) =>
+                              i === idx ? { ...p, reason: e.target.value } : p,
+                            ),
+                          }))
+                        }
+                      />
+                      <textarea
+                        className="input"
+                        rows={2}
+                        style={{ flex: 1 }}
+                        placeholder="Alternate prompt"
+                        value={pair.prompt}
+                        disabled={editSaving}
+                        onChange={(e) =>
+                          setEditForm((f) => ({
+                            ...f,
+                            regenerationReasonPrompts: f.regenerationReasonPrompts.map((p, i) =>
+                              i === idx ? { ...p, prompt: e.target.value } : p,
+                            ),
+                          }))
+                        }
+                      />
+                      <button
+                        type="button"
+                        className="btn sm ghost"
+                        disabled={editSaving}
+                        onClick={() =>
+                          setEditForm((f) => ({
+                            ...f,
+                            regenerationReasonPrompts: f.regenerationReasonPrompts.filter(
+                              (_, i) => i !== idx,
+                            ),
+                          }))
+                        }
+                        title="Remove this reason"
+                      >
+                        <Icon.Trash />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className="btn sm ghost"
+                    disabled={editSaving}
+                    style={{ alignSelf: 'flex-start' }}
+                    onClick={() =>
+                      setEditForm((f) => ({
+                        ...f,
+                        regenerationReasonPrompts: [
+                          ...f.regenerationReasonPrompts,
+                          { reason: '', prompt: '' },
+                        ],
+                      }))
+                    }
+                  >
+                    <Icon.Plus /> Add reason
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
             {editingWf?.stage1PositivePromptNode && (
               <div className="field">
                 <label>Stage 1 positive prompt (build-person pass)</label>

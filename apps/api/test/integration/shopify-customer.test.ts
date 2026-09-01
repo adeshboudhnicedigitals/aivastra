@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer';
 import { schema } from '@aivastra/db';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildTestApp } from '../helpers/api.js';
 import { startContainers } from '../helpers/containers.js';
@@ -508,5 +508,94 @@ describe('shopify customer routes', () => {
       payload: { r2Key },
     });
     expect(res.statusCode).toBe(404);
+  });
+
+  describe('GET /v1/shopify/customer/products/:shopifyProductId/enabled', () => {
+    it('is enabled under global mode even for a product never synced', async () => {
+      const store = await seedStore(null);
+      await app.db
+        .update(schema.shopifyStores)
+        .set({ settings: { activation: { mode: 'global' } } })
+        .where(eq(schema.shopifyStores.id, store.id));
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/shopify/customer/products/999999/enabled',
+        headers: { 'x-widget-key': store.storeKey },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ enabled: true });
+    });
+
+    it('stays disabled under global mode for a product excluded despite it', async () => {
+      const store = await seedStore(null);
+      await app.db
+        .update(schema.shopifyStores)
+        .set({ settings: { activation: { mode: 'global' } } })
+        .where(eq(schema.shopifyStores.id, store.id));
+      await app.db.insert(schema.shopifyProductGarments).values({
+        storeId: store.id,
+        shopifyProductId: 902,
+        r2Key: `shopify-garments/${store.id}/902/garment.jpg`,
+        title: 'Excluded Shirt',
+        status: 'active',
+        enabled: true,
+        excluded: true,
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/shopify/customer/products/902/enabled',
+        headers: { 'x-widget-key': store.storeKey },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ enabled: false });
+    });
+
+    it('is disabled under selective mode for a product with no individual/collection enable', async () => {
+      const store = await seedStore(null);
+      await seedGarment(store.id, 903);
+      await app.db
+        .update(schema.shopifyProductGarments)
+        .set({ enabled: false })
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, store.id),
+            eq(schema.shopifyProductGarments.shopifyProductId, 903),
+          ),
+        );
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/shopify/customer/products/903/enabled',
+        headers: { 'x-widget-key': store.storeKey },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ enabled: false });
+    });
+
+    it('is enabled under selective mode for an individually enabled product', async () => {
+      const store = await seedStore(null);
+      await seedGarment(store.id, 904);
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/shopify/customer/products/904/enabled',
+        headers: { 'x-widget-key': store.storeKey },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ enabled: true });
+    });
+
+    it('rejects a non-numeric product id', async () => {
+      const store = await seedStore(null);
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/shopify/customer/products/not-a-number/enabled',
+        headers: { 'x-widget-key': store.storeKey },
+      });
+      expect(res.statusCode).toBe(400);
+    });
   });
 });

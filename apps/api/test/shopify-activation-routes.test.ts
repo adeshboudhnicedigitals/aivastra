@@ -82,9 +82,15 @@ describe('GET /v1/shopify/activation', () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.mode).toBe('selective');
-    expect(body.counts.individuallyEnabledProducts).toBe(1);
-    expect(body.counts.excludedProducts).toBe(1);
     expect(body.counts.failedToSync).toBe(1);
+    // Selective mode: only product 1 is individually enabled, product 3 is
+    // excluded, and no collections are enabled — so one product is live.
+    expect(body.counts.tryonEnabledProducts).toBe(1);
+    // 3 rows seeded above, regardless of status/enabled/excluded.
+    expect(body.counts.syncedProductCount).toBe(3);
+    // No real Shopify access token in this test, so the live productsCount
+    // lookup fails and falls back to null rather than throwing.
+    expect(body.counts.totalProductCount).toBeNull();
   });
 });
 

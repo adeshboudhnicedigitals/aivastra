@@ -2,6 +2,7 @@ import { schema } from '@aivastra/db';
 import { and, count, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { countEffectivelyEnabled } from './activation.js';
 import { searchCollections, syncCollectionMembership } from './collections.sync.js';
 import { shopifyGraphQL } from './service.js';
 import { mergeStoreSettingsObject, storeSettingsJson } from './settings-json.js';
@@ -16,17 +17,15 @@ const PRODUCTS_COUNT_QUERY = `
 `;
 
 /**
- * "Not synced" = products Shopify has that we've never even attempted —
- * distinct from `failedToSync` below, which already has a row (an attempt
- * that errored). Requires a live Shopify call since we only learn about a
- * product once we've synced it; a store's total catalog size isn't cached
- * anywhere. Returns null on failure (rate limit, reauth needed, etc.) rather
- * than throwing, so a Shopify hiccup never breaks the rest of the Manage page.
+ * Shopify's live catalog size — a store's total product count isn't cached
+ * anywhere, so this is a live GraphQL call. Returns null on failure (rate
+ * limit, reauth needed, etc.) rather than throwing, so a Shopify hiccup never
+ * breaks the rest of the Manage page — the "synced / total" figure just falls
+ * back to showing the synced count alone.
  */
-async function fetchNotSyncedCount(
+async function fetchTotalProductCount(
   app: FastifyInstance,
   store: typeof schema.shopifyStores.$inferSelect,
-  totalSynced: number,
 ): Promise<number | null> {
   try {
     const accessToken = await getValidAccessToken(app, store);
@@ -35,7 +34,7 @@ async function fetchNotSyncedCount(
       accessToken,
       PRODUCTS_COUNT_QUERY,
     );
-    return Math.max(0, data.productsCount.count - totalSynced);
+    return data.productsCount.count;
   } catch (err) {
     app.log.warn({ err, storeId: store.id }, 'failed to fetch Shopify productsCount');
     return null;
@@ -63,26 +62,6 @@ async function summaryCounts(
     .from(schema.shopifyExcludedCollections)
     .where(eq(schema.shopifyExcludedCollections.storeId, storeId));
 
-  const [{ individuallyEnabledProducts }] = await app.db
-    .select({ individuallyEnabledProducts: count() })
-    .from(schema.shopifyProductGarments)
-    .where(
-      and(
-        eq(schema.shopifyProductGarments.storeId, storeId),
-        eq(schema.shopifyProductGarments.enabled, true),
-      ),
-    );
-
-  const [{ excludedProducts }] = await app.db
-    .select({ excludedProducts: count() })
-    .from(schema.shopifyProductGarments)
-    .where(
-      and(
-        eq(schema.shopifyProductGarments.storeId, storeId),
-        eq(schema.shopifyProductGarments.excluded, true),
-      ),
-    );
-
   // Catalog-wide, deliberately independent of `enabled` — a product turned on
   // via a collection or global mode never appears in the individually-enabled
   // set and would otherwise have no failure visibility at all.
@@ -96,22 +75,26 @@ async function summaryCounts(
       ),
     );
 
-  // Every row we've ever created for this store, regardless of status — the
-  // denominator `fetchNotSyncedCount` subtracts from Shopify's live total.
+  // Every row we've ever created for this store, regardless of status.
   const [{ totalSynced }] = await app.db
     .select({ totalSynced: count() })
     .from(schema.shopifyProductGarments)
     .where(eq(schema.shopifyProductGarments.storeId, storeId));
 
-  const notSynced = await fetchNotSyncedCount(app, store, totalSynced);
+  // Effective enablement, not the `enabled` column: a product turned on by
+  // global mode or by an enabled collection counts here, and an excluded one
+  // never does. See countEffectivelyEnabled for why this is SQL.
+  const tryonEnabledProducts = await countEffectivelyEnabled(app, store);
+
+  const totalProductCount = await fetchTotalProductCount(app, store);
 
   return {
     enabledCollections,
     excludedCollections,
-    individuallyEnabledProducts,
-    excludedProducts,
     failedToSync,
-    notSynced,
+    tryonEnabledProducts,
+    syncedProductCount: totalSynced,
+    totalProductCount,
   };
 }
 

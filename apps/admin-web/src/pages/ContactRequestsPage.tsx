@@ -316,9 +316,9 @@ export default function ContactRequestsPage({ toast }: Props) {
             type="button"
             className="btn primary"
             onClick={() => void setStatus(r.id, 'done')}
-            title="Mark done"
+            title="Mark resolved — sends the customer a resolution email"
           >
-            <Icon.Check /> Ok
+            <Icon.Check /> Resolved
           </button>
         )}
         {r.status === 'done' && (
