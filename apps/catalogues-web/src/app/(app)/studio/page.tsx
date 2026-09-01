@@ -1,8 +1,15 @@
 'use client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { X as CloseIcon, PlayCircle } from 'lucide-react';
+import { X as CloseIcon } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CheckIcon, ImagePlusIcon, SparkleIcon, SpinnerIcon, XIcon } from '@/components/icons';
+import {
+  CheckIcon,
+  ImagePlusIcon,
+  SparkleIcon,
+  SpinnerIcon,
+  XIcon,
+  YoutubeIcon,
+} from '@/components/icons';
 import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { ErrorState } from '@/components/ui/error-state';
@@ -2239,7 +2246,7 @@ export default function StudioPage(): React.ReactElement {
                           cursor: 'pointer',
                         }}
                       >
-                        <PlayCircle size={14} />
+                        <YoutubeIcon size={16} />
                         Watch Demo Video
                       </button>
                     )

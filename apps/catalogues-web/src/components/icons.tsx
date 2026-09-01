@@ -95,6 +95,14 @@ export const CheckIcon = ({ color = C.pink, size = 16 }: { color?: string; size?
 export const XIcon = ({ size = 16, color = 'currentColor' }: { size?: number; color?: string }) => (
   <Icon d="M18 6L6 18M6 6l12 12" size={size} color={color} />
 );
+// Fixed brand colors (red badge, white triangle) — deliberately not `currentColor`,
+// so it doesn't recolor with surrounding text/theme like the rest of this file's icons.
+export const YoutubeIcon = ({ size = 16 }: { size?: number }) => (
+  <svg aria-hidden="true" width={size} height={(size * 14) / 20} viewBox="0 0 24 24" fill="none">
+    <rect x="2" y="5" width="20" height="14" rx="4" fill="#FF0000" />
+    <path d="M10 9l6 3-6 3V9z" fill="#FFFFFF" />
+  </svg>
+);
 export const DownloadIcon = ({ size = 24 }: { size?: number }) => (
   <svg
     aria-hidden="true"
