@@ -528,7 +528,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {/* Workflow type selector */}
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {(
             [
               'regular',
