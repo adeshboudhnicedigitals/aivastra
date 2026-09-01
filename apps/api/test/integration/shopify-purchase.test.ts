@@ -302,7 +302,7 @@ describe('credit pack purchase', () => {
 describe('one-time purchase webhook', () => {
   it('grants credits for a merchant who never returned to the confirm route', async () => {
     const chargeId = 'gid://shopify/AppPurchaseOneTime/webhook';
-    const { purchaseId } = await createPurchase(app, store, 'pack_50', {
+    const { purchaseId } = await createPurchase(app, store, 'pack_100', {
       createCharge: async () => ({
         confirmationUrl: 'https://shopify.test/c',
         purchase: fakeCharge({ id: chargeId }),
@@ -319,7 +319,7 @@ describe('one-time purchase webhook', () => {
       status: 'ACTIVE',
       test: false,
     });
-    expect(granted).toBe(4800);
+    expect(granted).toBe(10000);
 
     // The merchant later opens the app and hits confirm — must not double-grant.
     const confirmResult = await confirmPurchase(app, store, purchaseId, {
@@ -353,7 +353,7 @@ describe('app_purchases_one_time_update webhook — HTTP layer', () => {
     );
 
     const chargeId = 'gid://shopify/AppPurchaseOneTime/http-webhook';
-    const { purchaseId } = await createPurchase(app, webhookStore, 'pack_50', {
+    const { purchaseId } = await createPurchase(app, webhookStore, 'pack_100', {
       createCharge: async () => ({
         confirmationUrl: 'https://shopify.test/c',
         purchase: fakeCharge({ id: chargeId, status: 'PENDING' }),
@@ -414,7 +414,7 @@ describe('app_purchases_one_time_update webhook — HTTP layer', () => {
       .select()
       .from(schema.shopifyStoreCredits)
       .where(eq(schema.shopifyStoreCredits.storeId, webhookStore.id));
-    expect(creditRow.balance).toBe(4800);
+    expect(creditRow.balance).toBe(10000);
   });
 
   // The finding this test guards: the webhook's own try/catch used to swallow
@@ -440,7 +440,7 @@ describe('app_purchases_one_time_update webhook — HTTP layer', () => {
     );
 
     const chargeId = 'gid://shopify/AppPurchaseOneTime/http-webhook-fail';
-    const { purchaseId } = await createPurchase(app, webhookStore, 'pack_50', {
+    const { purchaseId } = await createPurchase(app, webhookStore, 'pack_100', {
       createCharge: async () => ({
         confirmationUrl: 'https://shopify.test/c',
         purchase: fakeCharge({ id: chargeId, status: 'PENDING' }),

@@ -16,6 +16,7 @@ export const JOB_SOURCE = {
   API_SAREE_MANNEQUIN: 'api_saree_mannequin',
   API_CATALOG: 'api_catalog',
   WORDPRESS_TRYON: 'wordpress_tryon',
+  REGENERATE: 'regenerate',
 } as const;
 export type JobSource = (typeof JOB_SOURCE)[keyof typeof JOB_SOURCE];
 export const jobSourceSchema = z.enum(Object.values(JOB_SOURCE) as [JobSource, ...JobSource[]]);

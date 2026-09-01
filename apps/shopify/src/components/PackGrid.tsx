@@ -40,7 +40,7 @@ export function PackGrid({
   }
 
   return (
-    <InlineGrid columns={{ xs: 1, sm: 2, lg: leadingCard ? 5 : 4 }} gap="400">
+    <InlineGrid columns={{ xs: 1, sm: 2, lg: leadingCard ? 4 : 3 }} gap="400">
       {leadingCard}
       {PACK_DISPLAY.map((pack) => (
         <Card key={pack.id}>

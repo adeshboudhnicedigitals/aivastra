@@ -7,10 +7,9 @@ import { apiErrorMessage, apiFetch } from '../../lib/data';
 // *charged* is a different risk class from config that changes what they
 // *receive*, so only the credit figures below are tunable.
 const PACKS = [
-  { id: 'pack_10', label: 'Starter', priceUsd: 10 },
-  { id: 'pack_25', label: 'Growth', priceUsd: 25 },
-  { id: 'pack_50', label: 'Pro', priceUsd: 50 },
-  { id: 'pack_100', label: 'Enterprise', priceUsd: 100 },
+  { id: 'pack_10', label: 'Silver', priceUsd: 10 },
+  { id: 'pack_25', label: 'Gold', priceUsd: 25 },
+  { id: 'pack_100', label: 'Platinum', priceUsd: 100 },
 ] as const;
 
 type PackId = (typeof PACKS)[number]['id'];
@@ -19,7 +18,6 @@ type PackCredits = Record<PackId, { credits: number; autorefillCredits: number }
 const DEFAULT_PACK_CREDITS: PackCredits = {
   pack_10: { credits: 800, autorefillCredits: 880 },
   pack_25: { credits: 2250, autorefillCredits: 2475 },
-  pack_50: { credits: 4800, autorefillCredits: 5280 },
   pack_100: { credits: 10000, autorefillCredits: 11000 },
 };
 

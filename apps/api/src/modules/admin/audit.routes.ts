@@ -10,6 +10,20 @@ import { requirePermission } from './guard.js';
 // rather than a fragile cross-type SQL join.
 const USER_SHAPED_RESOURCE_TYPES = new Set(['user', 'admin_user', 'user_credits']);
 
+// Asset resourceTypes whose row has a plain `label` (or label-shaped) text
+// column — one batched lookup per type, same reasoning as workers/workflows above.
+// biome-ignore lint/suspicious/noExplicitAny: each table has a different column shape; only `.id` and the named label column are ever read, both generically below
+const LABEL_TABLE_BY_RESOURCE_TYPE: Record<string, { table: any; labelCol: string }> = {
+  face: { table: schema.modelFaces, labelCol: 'label' },
+  background: { table: schema.modelBackgrounds, labelCol: 'label' },
+  pose: { table: schema.modelPoseAssets, labelCol: 'label' },
+  sample_video: { table: schema.sampleVideos, labelCol: 'title' },
+  saree_style: { table: schema.sareeMannequinStyles, labelCol: 'label' },
+  garment_type: { table: schema.garmentSubcategories, labelCol: 'label' },
+  catalog_item: { table: schema.catalogItems, labelCol: 'label' },
+  catalogue_template: { table: schema.catalogueTemplates, labelCol: 'label' },
+};
+
 async function resolveResourceLabels(
   app: FastifyInstance,
   rows: Array<{ resourceType: string; resourceId: string | null }>,
@@ -46,6 +60,20 @@ async function resolveResourceLabels(
       .from(schema.workflowTemplates)
       .where(inArray(schema.workflowTemplates.id, workflowIds));
     for (const wf of workflows) labels.set(wf.id, wf.label || wf.id);
+  }
+
+  for (const [resourceType, { table, labelCol }] of Object.entries(LABEL_TABLE_BY_RESOURCE_TYPE)) {
+    const ids = rows
+      .filter((r) => r.resourceType === resourceType && r.resourceId)
+      .map((r) => r.resourceId as string);
+    if (ids.length === 0) continue;
+    const assetRows = await app.db
+      .select({ id: table.id, labelValue: table[labelCol] })
+      .from(table)
+      .where(inArray(table.id, ids));
+    for (const r of assetRows as Array<{ id: string; labelValue: string | null }>) {
+      labels.set(r.id, r.labelValue || r.id);
+    }
   }
 
   return labels;

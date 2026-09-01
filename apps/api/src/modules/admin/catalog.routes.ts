@@ -13,6 +13,7 @@ import { and, count, eq, ilike, inArray, isNull, ne } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
 
 export async function adminCatalogRoutes(app: FastifyInstance) {
@@ -188,6 +189,15 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
             })),
           );
         }
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'catalog_item.create',
+          resourceType: 'catalog_item',
+          resourceId: inserted.id,
+          after: { id: inserted.id, label: inserted.label, type: inserted.type },
+          request: req,
+        });
         return { ...inserted, subcategoryIds: subcategoryIds ?? [] };
       });
       return row;
@@ -251,6 +261,12 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
         }
       }
       await app.db.transaction(async (tx) => {
+        const [before] = await tx
+          .select()
+          .from(schema.catalogItems)
+          .where(eq(schema.catalogItems.id, id))
+          .for('update');
+
         if (Object.keys(itemFields).length > 0) {
           await tx
             .update(schema.catalogItems)
@@ -268,6 +284,18 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
                 subcategoryIds.map((sid: string) => ({ catalogItemId: id, subcategoryId: sid })),
               );
           }
+        }
+        if (before) {
+          await recordAudit(tx, {
+            // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+            actor: { userId: req.userId, role: req.adminRole! },
+            action: 'catalog_item.update',
+            resourceType: 'catalog_item',
+            resourceId: id,
+            before,
+            after: { ...before, ...itemFields },
+            request: req,
+          });
         }
       });
       return { ok: true };
@@ -298,6 +326,15 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
           .set({ shoeCatalogId: null })
           .where(eq(schema.jobInputs.shoeCatalogId, id));
         await tx.delete(schema.catalogItems).where(eq(schema.catalogItems.id, id));
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'catalog_item.delete',
+          resourceType: 'catalog_item',
+          resourceId: id,
+          before: { id: item.id, label: item.label, type: item.type },
+          request: req,
+        });
       });
       await app.storage.deleteObject(item.r2Key);
       await app.storage.deleteObject(item.thumbnailKey);
@@ -325,8 +362,20 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
       if (existingLabel) {
         throw new AppError('CONFLICT', 409, `label "${body.label}" already exists`);
       }
-      const [row] = await app.db.insert(schema.catalogCategories).values(body).returning();
-      if (!row) throw new AppError('INTERNAL', 500, 'category insert returned no row');
+      const row = await app.db.transaction(async (tx) => {
+        const [inserted] = await tx.insert(schema.catalogCategories).values(body).returning();
+        if (!inserted) throw new AppError('INTERNAL', 500, 'category insert returned no row');
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'catalog_category.create',
+          resourceType: 'catalog_category',
+          resourceId: String(inserted.id),
+          after: { id: inserted.id, label: inserted.label },
+          request: req,
+        });
+        return inserted;
+      });
       const typeRow = await app.db
         .select({ slug: schema.catalogTypes.slug })
         .from(schema.catalogTypes)
@@ -372,7 +421,23 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
       ]);
       if (itemsCount > 0 || backgroundsCount > 0)
         throw new AppError('IN_USE', 409, 'category has active items');
-      await app.db.delete(schema.catalogCategories).where(eq(schema.catalogCategories.id, id));
+      const [category] = await app.db
+        .select()
+        .from(schema.catalogCategories)
+        .where(eq(schema.catalogCategories.id, id));
+      if (!category) throw new AppError('NOT_FOUND', 404, 'category not found');
+      await app.db.transaction(async (tx) => {
+        await tx.delete(schema.catalogCategories).where(eq(schema.catalogCategories.id, id));
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'catalog_category.delete',
+          resourceType: 'catalog_category',
+          resourceId: String(id),
+          before: { id: category.id, label: category.label },
+          request: req,
+        });
+      });
       return { ok: true };
     },
   );
@@ -415,10 +480,31 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
           throw new AppError('CONFLICT', 409, `label "${body.label}" already exists`);
         }
       }
-      await app.db
-        .update(schema.catalogCategories)
-        .set(body)
-        .where(eq(schema.catalogCategories.id, id));
+      await app.db.transaction(async (tx) => {
+        const [before] = await tx
+          .select()
+          .from(schema.catalogCategories)
+          .where(eq(schema.catalogCategories.id, id))
+          .for('update');
+
+        await tx
+          .update(schema.catalogCategories)
+          .set(body)
+          .where(eq(schema.catalogCategories.id, id));
+
+        if (before) {
+          await recordAudit(tx, {
+            // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+            actor: { userId: req.userId, role: req.adminRole! },
+            action: 'catalog_category.update',
+            resourceType: 'catalog_category',
+            resourceId: String(id),
+            before,
+            after: { ...before, ...body },
+            request: req,
+          });
+        }
+      });
       return { ok: true };
     },
   );
@@ -445,6 +531,14 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
               ),
             );
         }
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'catalog_item.bulk_update',
+          resourceType: 'catalog_item',
+          after: { ids, subcategoryIds },
+          request: req,
+        });
       });
       return { ok: true, updated: ids.length };
     },

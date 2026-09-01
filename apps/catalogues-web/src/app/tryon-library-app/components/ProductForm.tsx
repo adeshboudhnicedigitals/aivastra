@@ -19,6 +19,8 @@ export function ProductForm({
   initialData,
   supportsTwoInputMannequin = false,
   supportsTwoInputDirectTryon = false,
+  requiresMannequinStep = false,
+  instructionImageUrl = null,
   onSaved,
   onCancel,
 }: {
@@ -30,6 +32,12 @@ export function ProductForm({
   // and every existing caller predates this prop.
   supportsTwoInputMannequin?: boolean;
   supportsTwoInputDirectTryon?: boolean;
+  // True only for garment types on the mannequin (saree) pipeline — gates whether the
+  // Catalogue/Flat Image toggle shows at all. See ProductModal.tsx for the sibling.
+  requiresMannequinStep?: boolean;
+  // Admin-uploaded reference photo (garmentSubcategories.instructionImageKey) — the same
+  // asset Studio's upload step shows — illustrating how to shoot the body/pallu photo(s).
+  instructionImageUrl?: string | null;
   onSaved: () => void;
   onCancel: () => void;
 }) {
@@ -245,11 +253,12 @@ export function ProductForm({
           </div>
         ) : (
           <>
-            {/* Flat Image's AI-generate step isn't needed for two-input (body+pallu)
-                products — see ProductModal.tsx for the sibling implementation this
-                mirrors — so it's hidden (not removed) for two-input-capable
-                subcategories; Catalogue Image (direct upload) only. */}
-            {!supportsTwoInputMannequin && (
+            {/* Flat Image (AI-generate) mode only applies to the mannequin (saree)
+                pipeline — every other garment type uses the flat photo directly for
+                try-on, so the toggle is hidden and Catalogue Image (direct upload) is
+                the only mode. Within the saree pipeline, two-input (body+pallu)
+                subcategories also hide it — see ProductModal.tsx for the sibling. */}
+            {requiresMannequinStep && !supportsTwoInputMannequin && (
               <div
                 style={{
                   display: 'flex',
@@ -299,6 +308,41 @@ export function ProductForm({
                 >
                   Flat Image
                 </button>
+              </div>
+            )}
+
+            {instructionImageUrl && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                  padding: 12,
+                  borderRadius: 8,
+                  border: `1px solid ${LIGHT.border2}`,
+                  background: LIGHT.field,
+                }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 700, color: LIGHT.text }}>
+                  {requiresCataloguePallu
+                    ? 'How to photograph the body & pallu'
+                    : 'How to photograph this garment'}
+                </div>
+                <div
+                  style={{
+                    height: 160,
+                    borderRadius: 8,
+                    overflow: 'hidden',
+                    background: LIGHT.card,
+                  }}
+                >
+                  {/* biome-ignore lint/performance/noImgElement: admin-uploaded instruction photo */}
+                  <img
+                    src={instructionImageUrl}
+                    alt="How to photograph this garment"
+                    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                  />
+                </div>
               </div>
             )}
 
@@ -353,7 +397,9 @@ export function ProductForm({
                       <UploadIcon size={28} />
                     </div>
                     <div style={{ fontSize: 13, color: LIGHT.mid, fontWeight: 500 }}>
-                      Tap to choose a product photo
+                      {requiresCataloguePallu
+                        ? 'Tap to choose the body photo'
+                        : 'Tap to choose a product photo'}
                     </div>
                     <div style={{ display: 'flex', gap: 8 }}>
                       <button

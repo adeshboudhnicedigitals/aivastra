@@ -56,6 +56,32 @@ function userContact(u: { email: string | null; username: string | null }) {
   return u.email ?? (u.username ? `@${u.username}` : '\u2014');
 }
 
+interface JobPreviewInputImages {
+  person?: string;
+  face?: string;
+  background?: string;
+  pose?: string;
+  upper?: string;
+  lower?: string;
+  shoe?: string;
+}
+interface JobPreview {
+  id: string;
+  status: string;
+  jobType?: string;
+  createdAt: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  outputUrl?: string;
+  inputImages?: JobPreviewInputImages;
+}
+
+function fmtJobPreviewDuration(j: JobPreview): string | null {
+  if (!j.startedAt || !j.completedAt) return null;
+  const ms = new Date(j.completedAt).getTime() - new Date(j.startedAt).getTime();
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
 interface Props {
   onNav: (
     _page: string,
@@ -73,6 +99,7 @@ interface Props {
 export default function UsersPage({ onNav, toast }: Props) {
   const location = useLocation();
   const requestedUserId = (location.state as { userId?: string })?.userId;
+  const requestedJobId = (location.state as { jobId?: string })?.jobId;
   const { role: myRole } = useAuth();
   const isSuperAdmin = myRole === 'SUPER_ADMIN';
   const [query, setQuery] = useState('');
@@ -123,6 +150,9 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [creditActivity, setCreditActivity] = useState<CreditLedgerEntry[]>([]);
   const [creditActivityLoading, setCreditActivityLoading] = useState(false);
   const [showAllCreditActivity, setShowAllCreditActivity] = useState(false);
+  const [jobPreviewId, setJobPreviewId] = useState<string | null>(null);
+  const [jobPreview, setJobPreview] = useState<JobPreview | null>(null);
+  const [jobPreviewLoading, setJobPreviewLoading] = useState(false);
   const [exportFrom, setExportFrom] = useState('');
   const [exportTo, setExportTo] = useState('');
   const [exportSortDir, setExportSortDir] = useState<'asc' | 'desc'>('desc');
@@ -258,6 +288,28 @@ export default function UsersPage({ onNav, toast }: Props) {
     [toast],
   );
 
+  const openJobPreview = useCallback(
+    async (jobId: string) => {
+      setJobPreviewId(jobId);
+      setJobPreview(null);
+      setJobPreviewLoading(true);
+      try {
+        const full = await apiFetch<JobPreview>(`/admin/jobs/${jobId}`);
+        setJobPreview(full);
+      } catch (e) {
+        toast({
+          kind: 'error',
+          title: 'Failed to load job details',
+          body: apiErrorMessage(e, 'Please try again.'),
+        });
+        setJobPreviewId(null);
+      } finally {
+        setJobPreviewLoading(false);
+      }
+    },
+    [toast],
+  );
+
   const openDetail = async (u: User) => {
     setDetail(u);
     setSelectedTier(u.tier);
@@ -297,6 +349,10 @@ export default function UsersPage({ onNav, toast }: Props) {
         setSelectedTier(full.tier);
         setSelectedMaxDevices(String(full.maxActiveDevices ?? 1));
         setShowAllCreditActivity(false);
+        // Landed here via the job popup's "Go to job" link + the job page's
+        // "Back to user" — reopen the same popup instead of just the bare
+        // user detail, so the trip back feels like a round-trip, not a reset.
+        if (requestedJobId) void openJobPreview(requestedJobId);
       })
       .catch((e) => {
         if (!cancelled)
@@ -312,7 +368,7 @@ export default function UsersPage({ onNav, toast }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [requestedUserId, loadCreditActivity, toast]);
+  }, [requestedUserId, requestedJobId, loadCreditActivity, openJobPreview, toast]);
 
   const openAdjustCredits = () => {
     if (!detail) return;
@@ -1084,15 +1140,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                                   className="mono sub"
                                   style={{ cursor: 'pointer' }}
                                   title="Open job details"
-                                  onClick={() => {
-                                    const jobId = l.jobId as string;
-                                    onNav('jobs', {
-                                      page: 'jobs',
-                                      search: jobId,
-                                      jobId,
-                                      fromUserId: detail.id,
-                                    });
-                                  }}
+                                  onClick={() => void openJobPreview(l.jobId as string)}
                                 >
                                   {l.jobId.slice(0, 8)}&hellip;
                                 </span>
@@ -1144,6 +1192,166 @@ export default function UsersPage({ onNav, toast }: Props) {
               />
             </div>
           </EditDrawer>
+        )}
+
+        {jobPreviewId && (
+          <div
+            className="modal-overlay"
+            onClick={() => {
+              setJobPreviewId(null);
+              setJobPreview(null);
+            }}
+          >
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <h3 style={{ fontFamily: 'var(--mono)', fontSize: 13 }}>
+                  Job {jobPreviewId.slice(0, 8)}&hellip;
+                </h3>
+                {jobPreview && (
+                  <span style={{ marginLeft: 'auto' }}>
+                    <StatusBadge status={jobPreview.status} />
+                  </span>
+                )}
+              </div>
+              <div className="modal-body">
+                {jobPreviewLoading ? (
+                  <p style={{ color: 'var(--muted)', fontSize: 13 }}>Loading&hellip;</p>
+                ) : jobPreview ? (
+                  <>
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: 20,
+                        marginBottom: 14,
+                        fontSize: 12.5,
+                        color: 'var(--muted)',
+                      }}
+                    >
+                      <span>Created {new Date(jobPreview.createdAt).toLocaleString()}</span>
+                      <span>Duration {fmtJobPreviewDuration(jobPreview) ?? '—'}</span>
+                    </div>
+                    {jobPreview.outputUrl && (
+                      <div className="card" style={{ marginBottom: 14 }}>
+                        <div className="card-head">
+                          <h3>Output</h3>
+                        </div>
+                        <div className="card-body">
+                          <a
+                            href={jobPreview.outputUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="link"
+                          >
+                            View output <Icon.ExternalLink />
+                          </a>
+                        </div>
+                      </div>
+                    )}
+                    {jobPreview.inputImages &&
+                      Object.values(jobPreview.inputImages).some(Boolean) && (
+                        <div className="card">
+                          <div className="card-head">
+                            <h3>Input Images</h3>
+                          </div>
+                          <div className="card-body">
+                            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                              {(
+                                [
+                                  { key: 'person', label: 'Person' },
+                                  { key: 'face', label: 'Face (ComfyUI)' },
+                                  { key: 'background', label: 'Background (ComfyUI)' },
+                                  { key: 'pose', label: 'Pose' },
+                                  { key: 'upper', label: 'Upper Garment' },
+                                  { key: 'lower', label: 'Lower Garment' },
+                                  { key: 'shoe', label: 'Shoes' },
+                                ] as { key: keyof JobPreviewInputImages; label: string }[]
+                              ).map(({ key, label }) => {
+                                const url = jobPreview.inputImages?.[key];
+                                if (!url) return null;
+                                return (
+                                  <div key={key} style={{ textAlign: 'center' }}>
+                                    <a
+                                      href={url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      style={{ textDecoration: 'none' }}
+                                    >
+                                      {/* biome-ignore lint/performance/noImgElement: admin SPA, not Next.js */}
+                                      <img
+                                        src={url}
+                                        alt={label}
+                                        style={{
+                                          width: 96,
+                                          height: 96,
+                                          objectFit: 'cover',
+                                          borderRadius: 8,
+                                          border: '1px solid var(--border)',
+                                          display: 'block',
+                                          cursor: 'zoom-in',
+                                        }}
+                                        onError={(e) => {
+                                          (e.target as HTMLImageElement).style.display = 'none';
+                                        }}
+                                      />
+                                      <span
+                                        style={{
+                                          fontSize: 11,
+                                          color: 'var(--muted)',
+                                          marginTop: 4,
+                                          display: 'block',
+                                        }}
+                                      >
+                                        {label}
+                                      </span>
+                                    </a>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    {!jobPreview.outputUrl &&
+                      (!jobPreview.inputImages ||
+                        !Object.values(jobPreview.inputImages).some(Boolean)) && (
+                        <p style={{ color: 'var(--muted)', fontSize: 13 }}>
+                          No input or output images for this job.
+                        </p>
+                      )}
+                  </>
+                ) : (
+                  <p style={{ color: 'var(--muted)', fontSize: 13 }}>Job not found.</p>
+                )}
+              </div>
+              <div className="modal-foot">
+                {detail && (
+                  <button
+                    className="btn ghost"
+                    style={{ marginRight: 'auto' }}
+                    onClick={() =>
+                      onNav('jobs', {
+                        page: 'jobs',
+                        search: jobPreviewId,
+                        jobId: jobPreviewId,
+                        fromUserId: detail.id,
+                      })
+                    }
+                  >
+                    Go to job <Icon.ExternalLink />
+                  </button>
+                )}
+                <button
+                  className="btn ghost"
+                  onClick={() => {
+                    setJobPreviewId(null);
+                    setJobPreview(null);
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {confirmSuspend && (

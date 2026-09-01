@@ -21,6 +21,7 @@ import sharp from 'sharp';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
+import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
 
 export async function adminAssetsRoutes(app: FastifyInstance) {
@@ -111,20 +112,32 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           `label "${body.label}" already exists for ${body.gender}`,
         );
       }
-      const [row] = await app.db
-        .insert(schema.modelFaces)
-        .values({
-          label: body.label,
-          gender: body.gender,
-          continent: body.continent ?? null,
-          r2Key: body.r2Key,
-          thumbnailKey: body.thumbnailKey,
-          faceSideR2Key: body.faceSideR2Key ?? null,
-          sortOrder: body.sortOrder,
-          tags: body.tags ?? [],
-          publicApiSlug: body.publicApiSlug ?? null,
-        })
-        .returning();
+      const row = await app.db.transaction(async (tx) => {
+        const [inserted] = await tx
+          .insert(schema.modelFaces)
+          .values({
+            label: body.label,
+            gender: body.gender,
+            continent: body.continent ?? null,
+            r2Key: body.r2Key,
+            thumbnailKey: body.thumbnailKey,
+            faceSideR2Key: body.faceSideR2Key ?? null,
+            sortOrder: body.sortOrder,
+            tags: body.tags ?? [],
+            publicApiSlug: body.publicApiSlug ?? null,
+          })
+          .returning();
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'face.create',
+          resourceType: 'face',
+          resourceId: inserted.id,
+          after: { id: inserted.id, label: inserted.label, gender: inserted.gender },
+          request: req,
+        });
+        return inserted;
+      });
       return row;
     },
   );
@@ -162,12 +175,30 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           throw new AppError('CONFLICT', 409, `label "${body.label}" already exists for ${gender}`);
         }
       }
-      const [updated] = await app.db
-        .update(schema.modelFaces)
-        .set({ ...(req.body as object), updatedAt: new Date() })
-        .where(eq(schema.modelFaces.id, id))
-        .returning({ id: schema.modelFaces.id });
-      if (!updated) throw new AppError('NOT_FOUND', 404, 'face not found');
+      await app.db.transaction(async (tx) => {
+        const [before] = await tx
+          .select()
+          .from(schema.modelFaces)
+          .where(eq(schema.modelFaces.id, id))
+          .for('update');
+        if (!before) throw new AppError('NOT_FOUND', 404, 'face not found');
+
+        await tx
+          .update(schema.modelFaces)
+          .set({ ...(req.body as object), updatedAt: new Date() })
+          .where(eq(schema.modelFaces.id, id));
+
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'face.update',
+          resourceType: 'face',
+          resourceId: id,
+          before,
+          after: { ...before, ...(req.body as object) },
+          request: req,
+        });
+      });
       return { ok: true };
     },
   );
@@ -200,10 +231,21 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         .where(eq(schema.modelFaces.id, id));
       if (!face) throw new AppError('NOT_FOUND', 404, 'face not found');
 
-      await app.db
-        .update(schema.modelFaces)
-        .set({ deletedAt: new Date() })
-        .where(eq(schema.modelFaces.id, id));
+      await app.db.transaction(async (tx) => {
+        await tx
+          .update(schema.modelFaces)
+          .set({ deletedAt: new Date() })
+          .where(eq(schema.modelFaces.id, id));
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'face.delete',
+          resourceType: 'face',
+          resourceId: id,
+          before: { id: face.id, label: face.label, gender: face.gender },
+          request: req,
+        });
+      });
       return { ok: true };
     },
   );
@@ -216,10 +258,20 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { ids } = req.body as { ids: string[] };
-      await app.db
-        .update(schema.modelFaces)
-        .set({ deletedAt: new Date() })
-        .where(inArray(schema.modelFaces.id, ids));
+      await app.db.transaction(async (tx) => {
+        await tx
+          .update(schema.modelFaces)
+          .set({ deletedAt: new Date() })
+          .where(inArray(schema.modelFaces.id, ids));
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'face.delete',
+          resourceType: 'face',
+          before: { ids },
+          request: req,
+        });
+      });
       return { deleted: ids.length };
     },
   );
@@ -326,22 +378,34 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       const buf = await app.storage.getObject(body.r2Key);
       const thumb = await makeThumb(buf);
       await app.storage.putObject(thumbnailKey, thumb, 'image/jpeg');
-      const [row] = await app.db
-        .insert(schema.modelBackgrounds)
-        .values({
-          label: body.label,
-          r2Key: body.r2Key,
-          thumbnailKey,
-          bgComfyR2Key: body.bgComfyR2Key ?? null,
-          sortOrder: body.sortOrder,
-          genderSlug: body.genderSlug ?? null,
-          isWhiteBg: body.isWhiteBg ?? false,
-          categoryId: body.categoryId ?? null,
-          tags: body.tags ?? [],
-          specialTag: body.specialTag ?? null,
-          scope: body.scope ?? 'general',
-        })
-        .returning();
+      const row = await app.db.transaction(async (tx) => {
+        const [inserted] = await tx
+          .insert(schema.modelBackgrounds)
+          .values({
+            label: body.label,
+            r2Key: body.r2Key,
+            thumbnailKey,
+            bgComfyR2Key: body.bgComfyR2Key ?? null,
+            sortOrder: body.sortOrder,
+            genderSlug: body.genderSlug ?? null,
+            isWhiteBg: body.isWhiteBg ?? false,
+            categoryId: body.categoryId ?? null,
+            tags: body.tags ?? [],
+            specialTag: body.specialTag ?? null,
+            scope: body.scope ?? 'general',
+          })
+          .returning();
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'background.create',
+          resourceType: 'background',
+          resourceId: inserted.id,
+          after: { id: inserted.id, label: inserted.label, scope: inserted.scope },
+          request: req,
+        });
+        return inserted;
+      });
       return row;
     },
   );
@@ -371,12 +435,30 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         await app.storage.putObject(thumbnailKey, thumb, 'image/jpeg');
         body.thumbnailKey = thumbnailKey;
       }
-      const [updated] = await app.db
-        .update(schema.modelBackgrounds)
-        .set({ ...(body as object), updatedAt: new Date() })
-        .where(eq(schema.modelBackgrounds.id, id))
-        .returning({ id: schema.modelBackgrounds.id });
-      if (!updated) throw new AppError('NOT_FOUND', 404, 'background not found');
+      await app.db.transaction(async (tx) => {
+        const [before] = await tx
+          .select()
+          .from(schema.modelBackgrounds)
+          .where(eq(schema.modelBackgrounds.id, id))
+          .for('update');
+        if (!before) throw new AppError('NOT_FOUND', 404, 'background not found');
+
+        await tx
+          .update(schema.modelBackgrounds)
+          .set({ ...(body as object), updatedAt: new Date() })
+          .where(eq(schema.modelBackgrounds.id, id));
+
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'background.update',
+          resourceType: 'background',
+          resourceId: id,
+          before,
+          after: { ...before, ...(body as object) },
+          request: req,
+        });
+      });
       return { ok: true };
     },
   );
@@ -395,10 +477,21 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         .where(eq(schema.modelBackgrounds.id, id));
       if (!bg) throw new AppError('NOT_FOUND', 404, 'background not found');
 
-      await app.db
-        .update(schema.modelBackgrounds)
-        .set({ deletedAt: new Date() })
-        .where(eq(schema.modelBackgrounds.id, id));
+      await app.db.transaction(async (tx) => {
+        await tx
+          .update(schema.modelBackgrounds)
+          .set({ deletedAt: new Date() })
+          .where(eq(schema.modelBackgrounds.id, id));
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'background.delete',
+          resourceType: 'background',
+          resourceId: id,
+          before: { id: bg.id, label: bg.label },
+          request: req,
+        });
+      });
       return { ok: true };
     },
   );
@@ -411,10 +504,20 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { ids } = req.body as { ids: string[] };
-      await app.db
-        .update(schema.modelBackgrounds)
-        .set({ deletedAt: new Date() })
-        .where(inArray(schema.modelBackgrounds.id, ids));
+      await app.db.transaction(async (tx) => {
+        await tx
+          .update(schema.modelBackgrounds)
+          .set({ deletedAt: new Date() })
+          .where(inArray(schema.modelBackgrounds.id, ids));
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'background.delete',
+          resourceType: 'background',
+          before: { ids },
+          request: req,
+        });
+      });
       return { deleted: ids.length };
     },
   );
@@ -441,10 +544,20 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       if (categoryId !== undefined) patch.categoryId = categoryId;
       if (genderSlug !== undefined) patch.genderSlug = genderSlug;
       // isWhiteBg is intentionally excluded — it must stay unique across all backgrounds.
-      await app.db
-        .update(schema.modelBackgrounds)
-        .set(patch)
-        .where(inArray(schema.modelBackgrounds.id, ids));
+      await app.db.transaction(async (tx) => {
+        await tx
+          .update(schema.modelBackgrounds)
+          .set(patch)
+          .where(inArray(schema.modelBackgrounds.id, ids));
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'background.bulk_update',
+          resourceType: 'background',
+          after: { ids, categoryId, genderSlug },
+          request: req,
+        });
+      });
       return { updated: ids.length };
     },
   );
@@ -510,16 +623,28 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         prompt: string;
         sortOrder: number;
       };
-      const [row] = await app.db
-        .insert(schema.sampleVideos)
-        .values({
-          title: body.title,
-          videoR2Key: body.videoR2Key,
-          thumbnailR2Key: body.thumbnailR2Key,
-          prompt: body.prompt,
-          sortOrder: body.sortOrder,
-        })
-        .returning();
+      const row = await app.db.transaction(async (tx) => {
+        const [inserted] = await tx
+          .insert(schema.sampleVideos)
+          .values({
+            title: body.title,
+            videoR2Key: body.videoR2Key,
+            thumbnailR2Key: body.thumbnailR2Key,
+            prompt: body.prompt,
+            sortOrder: body.sortOrder,
+          })
+          .returning();
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'sample_video.create',
+          resourceType: 'sample_video',
+          resourceId: inserted.id,
+          after: { id: inserted.id, title: inserted.title },
+          request: req,
+        });
+        return inserted;
+      });
       const [video, thumbnail] = await Promise.all([
         app.storage.presignGet(row.videoR2Key, 3_600),
         app.storage.presignGet(row.thumbnailR2Key, 3_600),
@@ -539,12 +664,30 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     async (req) => {
       const { id } = req.params as { id: string };
       const body = req.body as Record<string, unknown>;
-      const [updated] = await app.db
-        .update(schema.sampleVideos)
-        .set({ ...(body as object), updatedAt: new Date() })
-        .where(eq(schema.sampleVideos.id, id))
-        .returning({ id: schema.sampleVideos.id });
-      if (!updated) throw new AppError('NOT_FOUND', 404, 'sample video not found');
+      await app.db.transaction(async (tx) => {
+        const [before] = await tx
+          .select()
+          .from(schema.sampleVideos)
+          .where(eq(schema.sampleVideos.id, id))
+          .for('update');
+        if (!before) throw new AppError('NOT_FOUND', 404, 'sample video not found');
+
+        await tx
+          .update(schema.sampleVideos)
+          .set({ ...(body as object), updatedAt: new Date() })
+          .where(eq(schema.sampleVideos.id, id));
+
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'sample_video.update',
+          resourceType: 'sample_video',
+          resourceId: id,
+          before,
+          after: { ...before, ...(body as object) },
+          request: req,
+        });
+      });
       return { ok: true };
     },
   );
@@ -559,10 +702,21 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         .from(schema.sampleVideos)
         .where(eq(schema.sampleVideos.id, id));
       if (!row) throw new AppError('NOT_FOUND', 404, 'sample video not found');
-      await app.db
-        .update(schema.sampleVideos)
-        .set({ deletedAt: new Date() })
-        .where(eq(schema.sampleVideos.id, id));
+      await app.db.transaction(async (tx) => {
+        await tx
+          .update(schema.sampleVideos)
+          .set({ deletedAt: new Date() })
+          .where(eq(schema.sampleVideos.id, id));
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'sample_video.delete',
+          resourceType: 'sample_video',
+          resourceId: id,
+          before: { id: row.id, title: row.title },
+          request: req,
+        });
+      });
       return { ok: true };
     },
   );
@@ -712,23 +866,35 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         throw new AppError('CONFLICT', 409, `label "${body.label}" already exists`);
       }
 
-      const [inserted] = await app.db
-        .insert(schema.modelPoseAssets)
-        .values({
-          label: body.label,
-          displayName: body.displayName ?? null,
-          genderSlug: body.genderSlug ?? null,
-          r2Key: body.r2Key,
-          thumbnailKey: body.thumbnailKey,
-          workflowTemplateId: body.workflowTemplateId ?? null,
-          promptGarmentPhase: body.promptGarmentPhase ?? null,
-          promptFacePhase: body.promptFacePhase ?? null,
-          isActive: body.isActive ?? true,
-          sortOrder: body.sortOrder ?? 0,
-          scope: body.scope ?? 'general',
-          shotType: body.shotType ?? null,
-        })
-        .returning();
+      const inserted = await app.db.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(schema.modelPoseAssets)
+          .values({
+            label: body.label,
+            displayName: body.displayName ?? null,
+            genderSlug: body.genderSlug ?? null,
+            r2Key: body.r2Key,
+            thumbnailKey: body.thumbnailKey,
+            workflowTemplateId: body.workflowTemplateId ?? null,
+            promptGarmentPhase: body.promptGarmentPhase ?? null,
+            promptFacePhase: body.promptFacePhase ?? null,
+            isActive: body.isActive ?? true,
+            sortOrder: body.sortOrder ?? 0,
+            scope: body.scope ?? 'general',
+            shotType: body.shotType ?? null,
+          })
+          .returning();
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'pose.create',
+          resourceType: 'pose',
+          resourceId: row.id,
+          after: { id: row.id, label: row.label, genderSlug: row.genderSlug },
+          request: req,
+        });
+        return row;
+      });
 
       return inserted;
     },
@@ -833,12 +999,32 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       // Already normalized ('' -> null) by PublicApiSlugField.
       if (body.publicApiSlug !== undefined) set.publicApiSlug = body.publicApiSlug;
 
-      const [updated] = await app.db
-        .update(schema.modelPoseAssets)
-        .set(set)
-        .where(eq(schema.modelPoseAssets.id, id))
-        .returning();
-      if (!updated) throw new AppError('NOT_FOUND', 404, 'pose asset not found');
+      const updated = await app.db.transaction(async (tx) => {
+        const [before] = await tx
+          .select()
+          .from(schema.modelPoseAssets)
+          .where(eq(schema.modelPoseAssets.id, id))
+          .for('update');
+        if (!before) throw new AppError('NOT_FOUND', 404, 'pose asset not found');
+
+        const [row] = await tx
+          .update(schema.modelPoseAssets)
+          .set(set)
+          .where(eq(schema.modelPoseAssets.id, id))
+          .returning();
+
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'pose.update',
+          resourceType: 'pose',
+          resourceId: id,
+          before,
+          after: { ...before, ...set },
+          request: req,
+        });
+        return row;
+      });
 
       return updated;
     },
@@ -853,16 +1039,27 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     async (req) => {
       const { id } = req.params as { id: string };
       const [asset] = await app.db
-        .select({ id: schema.modelPoseAssets.id })
+        .select({ id: schema.modelPoseAssets.id, label: schema.modelPoseAssets.label })
         .from(schema.modelPoseAssets)
         .where(eq(schema.modelPoseAssets.id, id));
       if (!asset) throw new AppError('NOT_FOUND', 404, 'pose asset not found');
 
       // Soft delete — keep R2 intact for potential restore
-      await app.db
-        .update(schema.modelPoseAssets)
-        .set({ deletedAt: new Date() })
-        .where(eq(schema.modelPoseAssets.id, id));
+      await app.db.transaction(async (tx) => {
+        await tx
+          .update(schema.modelPoseAssets)
+          .set({ deletedAt: new Date() })
+          .where(eq(schema.modelPoseAssets.id, id));
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'pose.delete',
+          resourceType: 'pose',
+          resourceId: id,
+          before: asset,
+          request: req,
+        });
+      });
       return { ok: true };
     },
   );
@@ -876,10 +1073,20 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { ids } = req.body as { ids: string[] };
-      await app.db
-        .update(schema.modelPoseAssets)
-        .set({ deletedAt: new Date() })
-        .where(inArray(schema.modelPoseAssets.id, ids));
+      await app.db.transaction(async (tx) => {
+        await tx
+          .update(schema.modelPoseAssets)
+          .set({ deletedAt: new Date() })
+          .where(inArray(schema.modelPoseAssets.id, ids));
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'pose.delete',
+          resourceType: 'pose',
+          before: { ids },
+          request: req,
+        });
+      });
       return { deleted: ids.length };
     },
   );
@@ -909,10 +1116,20 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         .from(schema.workflowTemplates)
         .where(eq(schema.workflowTemplates.id, workflowTemplateId));
       if (!wf) throw new AppError('NOT_FOUND', 404, 'workflow template not found');
-      await app.db
-        .update(schema.modelPoseAssets)
-        .set({ workflowTemplateId, promptGarmentPhase: wf.defaultGarmentPhasePrompt ?? null })
-        .where(inArray(schema.modelPoseAssets.id, ids));
+      await app.db.transaction(async (tx) => {
+        await tx
+          .update(schema.modelPoseAssets)
+          .set({ workflowTemplateId, promptGarmentPhase: wf.defaultGarmentPhasePrompt ?? null })
+          .where(inArray(schema.modelPoseAssets.id, ids));
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'pose.bulk_workflow_update',
+          resourceType: 'pose',
+          after: { ids, workflowTemplateId },
+          request: req,
+        });
+      });
       return { updated: ids.length };
     },
   );
@@ -931,10 +1148,20 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { ids, displayName } = req.body as { ids: string[]; displayName: string };
-      await app.db
-        .update(schema.modelPoseAssets)
-        .set({ displayName })
-        .where(inArray(schema.modelPoseAssets.id, ids));
+      await app.db.transaction(async (tx) => {
+        await tx
+          .update(schema.modelPoseAssets)
+          .set({ displayName })
+          .where(inArray(schema.modelPoseAssets.id, ids));
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'pose.bulk_rename',
+          resourceType: 'pose',
+          after: { ids, displayName },
+          request: req,
+        });
+      });
       return { updated: ids.length };
     },
   );
@@ -1013,22 +1240,32 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         type: 'face' | 'background' | 'poseAsset';
         ids: string[];
       };
-      if (type === 'face') {
-        await app.db
-          .update(schema.modelFaces)
-          .set({ deletedAt: null })
-          .where(inArray(schema.modelFaces.id, ids));
-      } else if (type === 'background') {
-        await app.db
-          .update(schema.modelBackgrounds)
-          .set({ deletedAt: null })
-          .where(inArray(schema.modelBackgrounds.id, ids));
-      } else {
-        await app.db
-          .update(schema.modelPoseAssets)
-          .set({ deletedAt: null })
-          .where(inArray(schema.modelPoseAssets.id, ids));
-      }
+      await app.db.transaction(async (tx) => {
+        if (type === 'face') {
+          await tx
+            .update(schema.modelFaces)
+            .set({ deletedAt: null })
+            .where(inArray(schema.modelFaces.id, ids));
+        } else if (type === 'background') {
+          await tx
+            .update(schema.modelBackgrounds)
+            .set({ deletedAt: null })
+            .where(inArray(schema.modelBackgrounds.id, ids));
+        } else {
+          await tx
+            .update(schema.modelPoseAssets)
+            .set({ deletedAt: null })
+            .where(inArray(schema.modelPoseAssets.id, ids));
+        }
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'asset.restore',
+          resourceType: type === 'poseAsset' ? 'pose' : type,
+          after: { ids, type },
+          request: req,
+        });
+      });
       return { restored: ids.length };
     },
   );
@@ -1049,61 +1286,72 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         type: 'face' | 'background' | 'poseAsset';
         ids: string[];
       };
-      if (type === 'face') {
-        const rows = await app.db
-          .select({ r2Key: schema.modelFaces.r2Key, thumbnailKey: schema.modelFaces.thumbnailKey })
-          .from(schema.modelFaces)
-          .where(inArray(schema.modelFaces.id, ids));
-        await app.db.delete(schema.modelFaces).where(inArray(schema.modelFaces.id, ids));
-        void Promise.allSettled(
-          rows.flatMap((r) => [
-            app.storage.deleteObject(r.r2Key),
-            app.storage.deleteObject(r.thumbnailKey),
-          ]),
-        );
-      } else if (type === 'background') {
-        const rows = await app.db
-          .select({
-            r2Key: schema.modelBackgrounds.r2Key,
-            thumbnailKey: schema.modelBackgrounds.thumbnailKey,
-          })
-          .from(schema.modelBackgrounds)
-          .where(inArray(schema.modelBackgrounds.id, ids));
-        await app.db
-          .delete(schema.modelBackgrounds)
-          .where(inArray(schema.modelBackgrounds.id, ids));
-        void Promise.allSettled(
-          rows.flatMap((r) => [
-            app.storage.deleteObject(r.r2Key),
-            app.storage.deleteObject(r.thumbnailKey),
-          ]),
-        );
-      } else {
-        const rows = await app.db
-          .select({
-            r2Key: schema.modelPoseAssets.r2Key,
-            thumbnailKey: schema.modelPoseAssets.thumbnailKey,
-          })
-          .from(schema.modelPoseAssets)
-          .where(inArray(schema.modelPoseAssets.id, ids));
-        // Remove referencing jobs before hard delete (job_inputs cascade via FK)
-        const jobRefs = await app.db
-          .select({ jobId: schema.jobInputs.jobId })
-          .from(schema.jobInputs)
-          .where(inArray(schema.jobInputs.poseId, ids));
-        if (jobRefs.length > 0) {
-          await app.db
-            .delete(schema.jobs)
-            .where(inArray(schema.jobs.id, [...new Set(jobRefs.map((r) => r.jobId))]));
+      await app.db.transaction(async (tx) => {
+        if (type === 'face') {
+          const rows = await tx
+            .select({
+              r2Key: schema.modelFaces.r2Key,
+              thumbnailKey: schema.modelFaces.thumbnailKey,
+            })
+            .from(schema.modelFaces)
+            .where(inArray(schema.modelFaces.id, ids));
+          await tx.delete(schema.modelFaces).where(inArray(schema.modelFaces.id, ids));
+          void Promise.allSettled(
+            rows.flatMap((r) => [
+              app.storage.deleteObject(r.r2Key),
+              app.storage.deleteObject(r.thumbnailKey),
+            ]),
+          );
+        } else if (type === 'background') {
+          const rows = await tx
+            .select({
+              r2Key: schema.modelBackgrounds.r2Key,
+              thumbnailKey: schema.modelBackgrounds.thumbnailKey,
+            })
+            .from(schema.modelBackgrounds)
+            .where(inArray(schema.modelBackgrounds.id, ids));
+          await tx.delete(schema.modelBackgrounds).where(inArray(schema.modelBackgrounds.id, ids));
+          void Promise.allSettled(
+            rows.flatMap((r) => [
+              app.storage.deleteObject(r.r2Key),
+              app.storage.deleteObject(r.thumbnailKey),
+            ]),
+          );
+        } else {
+          const rows = await tx
+            .select({
+              r2Key: schema.modelPoseAssets.r2Key,
+              thumbnailKey: schema.modelPoseAssets.thumbnailKey,
+            })
+            .from(schema.modelPoseAssets)
+            .where(inArray(schema.modelPoseAssets.id, ids));
+          // Remove referencing jobs before hard delete (job_inputs cascade via FK)
+          const jobRefs = await tx
+            .select({ jobId: schema.jobInputs.jobId })
+            .from(schema.jobInputs)
+            .where(inArray(schema.jobInputs.poseId, ids));
+          if (jobRefs.length > 0) {
+            await tx
+              .delete(schema.jobs)
+              .where(inArray(schema.jobs.id, [...new Set(jobRefs.map((r) => r.jobId))]));
+          }
+          await tx.delete(schema.modelPoseAssets).where(inArray(schema.modelPoseAssets.id, ids));
+          void Promise.allSettled(
+            rows.flatMap((r) => [
+              app.storage.deleteObject(r.r2Key),
+              app.storage.deleteObject(r.thumbnailKey),
+            ]),
+          );
         }
-        await app.db.delete(schema.modelPoseAssets).where(inArray(schema.modelPoseAssets.id, ids));
-        void Promise.allSettled(
-          rows.flatMap((r) => [
-            app.storage.deleteObject(r.r2Key),
-            app.storage.deleteObject(r.thumbnailKey),
-          ]),
-        );
-      }
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'asset.permanent_delete',
+          resourceType: type === 'poseAsset' ? 'pose' : type,
+          before: { ids, type },
+          request: req,
+        });
+      });
       return { deleted: ids.length };
     },
   );
@@ -1394,6 +1642,24 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         'bulk-import partial errors',
       );
     }
+    if (createdFaces + createdBackgrounds + createdPoses > 0) {
+      await app.db.transaction((tx) =>
+        recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'asset.bulk_import',
+          resourceType: 'asset',
+          after: {
+            faces: createdFaces,
+            backgrounds: createdBackgrounds,
+            poses: createdPoses,
+            genderSlug,
+            errorCount: errors.length,
+          },
+          request: req,
+        }),
+      );
+    }
     emit({
       done: true,
       created: { faces: createdFaces, backgrounds: createdBackgrounds, poses: createdPoses },
@@ -1455,17 +1721,29 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         sortOrder?: number;
         isActive?: boolean;
       };
-      const [inserted] = await app.db
-        .insert(schema.sareeMannequinStyles)
-        .values({
-          label: body.label,
-          previewImageKey: body.previewImageKey ?? null,
-          mannequinWorkflowTemplateId: body.mannequinWorkflowTemplateId,
-          mannequinTwoInputWorkflowTemplateId: body.mannequinTwoInputWorkflowTemplateId ?? null,
-          sortOrder: body.sortOrder ?? 0,
-          isActive: body.isActive ?? true,
-        })
-        .returning();
+      const inserted = await app.db.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(schema.sareeMannequinStyles)
+          .values({
+            label: body.label,
+            previewImageKey: body.previewImageKey ?? null,
+            mannequinWorkflowTemplateId: body.mannequinWorkflowTemplateId,
+            mannequinTwoInputWorkflowTemplateId: body.mannequinTwoInputWorkflowTemplateId ?? null,
+            sortOrder: body.sortOrder ?? 0,
+            isActive: body.isActive ?? true,
+          })
+          .returning();
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'saree_style.create',
+          resourceType: 'saree_style',
+          resourceId: row.id,
+          after: { id: row.id, label: row.label },
+          request: req,
+        });
+        return row;
+      });
       reply.code(201);
       return inserted;
     },
@@ -1497,12 +1775,32 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         sortOrder?: number;
         isActive?: boolean;
       };
-      const [updated] = await app.db
-        .update(schema.sareeMannequinStyles)
-        .set({ ...body, updatedAt: new Date() })
-        .where(eq(schema.sareeMannequinStyles.id, id))
-        .returning();
-      if (!updated) throw new AppError('NOT_FOUND', 404, 'saree style not found');
+      const updated = await app.db.transaction(async (tx) => {
+        const [before] = await tx
+          .select()
+          .from(schema.sareeMannequinStyles)
+          .where(eq(schema.sareeMannequinStyles.id, id))
+          .for('update');
+        if (!before) throw new AppError('NOT_FOUND', 404, 'saree style not found');
+
+        const [row] = await tx
+          .update(schema.sareeMannequinStyles)
+          .set({ ...body, updatedAt: new Date() })
+          .where(eq(schema.sareeMannequinStyles.id, id))
+          .returning();
+
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'saree_style.update',
+          resourceType: 'saree_style',
+          resourceId: id,
+          before,
+          after: { ...before, ...body },
+          request: req,
+        });
+        return row;
+      });
       return updated;
     },
   );

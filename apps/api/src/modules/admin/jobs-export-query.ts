@@ -4,6 +4,7 @@ import { and, count, desc, eq, gte, ilike, lte, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { jobDurationSecondsSql } from './job-duration.js';
 import { jobTypeSql } from './job-type.js';
 
 // Same filters as GET /admin/jobs (see JobsQuery there) so the export always
@@ -28,6 +29,8 @@ export const JobsExportQuery = z.object({
   workerId: z.string().optional(),
   createdFrom: z.string().optional(),
   createdTo: z.string().optional(),
+  durationMinSec: z.coerce.number().min(0).optional(),
+  durationMaxSec: z.coerce.number().min(0).optional(),
 });
 export type JobsExportQuery = z.infer<typeof JobsExportQuery>;
 
@@ -55,6 +58,11 @@ export function describeJobsExportFilters(query: JobsExportQuery): string {
     const to = query.createdTo ? fmtFilterDate(query.createdTo) : 'now';
     parts.push(`Created ${from} – ${to}`);
   }
+  if (query.durationMinSec != null || query.durationMaxSec != null) {
+    const min = query.durationMinSec != null ? `${query.durationMinSec}s` : '0s';
+    const max = query.durationMaxSec != null ? `${query.durationMaxSec}s` : 'any';
+    parts.push(`Duration ${min} – ${max}`);
+  }
   return parts.length > 0 ? parts.join(' · ') : 'All jobs';
 }
 
@@ -65,6 +73,7 @@ export interface JobExportRow {
   jobType: string;
   startedAt: Date | null;
   completedAt: Date | null;
+  durationSeconds: number | null;
   creditsUsed: number;
   creditsRemaining: number | null;
   status: string;
@@ -129,7 +138,17 @@ async function loadCreditSnapshots(
 
 export async function loadJobsForExport(
   app: FastifyInstance,
-  { status, search, date, jobType, workerId, createdFrom, createdTo }: JobsExportQuery,
+  {
+    status,
+    search,
+    date,
+    jobType,
+    workerId,
+    createdFrom,
+    createdTo,
+    durationMinSec,
+    durationMaxSec,
+  }: JobsExportQuery,
 ): Promise<JobExportRow[]> {
   const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
   const conditions = [
@@ -149,6 +168,8 @@ export async function loadJobsForExport(
           new Date(DATE_ONLY.test(createdTo) ? `${createdTo}T23:59:59.999Z` : createdTo),
         )
       : undefined,
+    durationMinSec != null ? sql`${jobDurationSecondsSql()} >= ${durationMinSec}` : undefined,
+    durationMaxSec != null ? sql`${jobDurationSecondsSql()} <= ${durationMaxSec}` : undefined,
     search
       ? or(
           ilike(sql`${schema.jobs.id}::text`, `%${search}%`),
@@ -208,6 +229,10 @@ export async function loadJobsForExport(
       jobType: r.jobType,
       startedAt: r.startedAt,
       completedAt: r.completedAt,
+      durationSeconds:
+        r.startedAt && r.completedAt
+          ? (r.completedAt.getTime() - r.startedAt.getTime()) / 1000
+          : null,
       creditsUsed: snapshot?.creditsUsed ?? 0,
       creditsRemaining: snapshot?.creditsRemaining ?? null,
       status: r.status,

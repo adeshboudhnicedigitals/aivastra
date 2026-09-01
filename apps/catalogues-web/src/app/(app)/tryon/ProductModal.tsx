@@ -14,6 +14,7 @@ interface ProductModalProps {
   subcategoryId: string | null;
   supportsTwoInputMannequin: boolean;
   supportsTwoInputDirectTryon: boolean;
+  requiresMannequinStep: boolean;
   initialData?: MerchantCatalogItem;
 }
 
@@ -24,6 +25,7 @@ export function ProductModal({
   subcategoryId,
   supportsTwoInputMannequin,
   supportsTwoInputDirectTryon,
+  requiresMannequinStep,
   initialData,
 }: ProductModalProps) {
   const [label, setLabel] = useState('');
@@ -325,11 +327,13 @@ export function ProductModal({
             </div>
           ) : (
             <>
-              {/* Flat Image's AI-generate step isn't needed for two-input (body+pallu)
-                  products — try-on already works directly off the body+pallu pair without
-                  an AI-generated mannequin photo — so it's hidden (not removed) for
-                  two-input-capable subcategories; Catalogue Image (direct upload) only. */}
-              {!supportsTwoInputMannequin && (
+              {/* Flat Image (AI-generate) mode only applies to the mannequin (saree)
+                  pipeline — every other garment type uses the flat photo directly for
+                  try-on, so the toggle is hidden (not removed) and Catalogue Image
+                  (direct upload) is the only mode. Within the saree pipeline, two-input
+                  (body+pallu) subcategories also hide it — try-on already works directly
+                  off the body+pallu pair without an AI-generated mannequin photo. */}
+              {requiresMannequinStep && !supportsTwoInputMannequin && (
                 <div
                   style={{
                     display: 'flex',
@@ -433,7 +437,7 @@ export function ProductModal({
                         </div>
                         <div style={{ fontSize: 13, color: C.mid, fontWeight: 500 }}>
                           {requiresCataloguePallu
-                            ? 'Click to upload the body (front) photo'
+                            ? 'Click to upload the body photo'
                             : 'Click to upload product image'}
                         </div>
                       </>
@@ -504,9 +508,7 @@ export function ProductModal({
                         <UploadIcon size={28} />
                       </div>
                       <div style={{ fontSize: 13, color: C.mid, fontWeight: 500 }}>
-                        {requiresPallu
-                          ? 'Upload the body (front) photo'
-                          : 'Upload flat garment photo'}
+                        {requiresPallu ? 'Upload the body photo' : 'Upload flat garment photo'}
                       </div>
                     </div>
                   ) : (

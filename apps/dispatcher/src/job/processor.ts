@@ -266,6 +266,25 @@ export async function processJob(
     return;
   }
 
+  // Regenerate jobs: single-image edit, no face/background/pose and no personKey
+  // (source is an already-generated job output, not an admin-curated model asset).
+  // kind === 'regenerate' in jobInputs.params — see apps/api/src/modules/jobs/regenerate.ts.
+  if (!inputs.faceId && !inputs.backgroundId && !inputs.poseId && rawParams.kind === 'regenerate') {
+    await processRegenerateJob(
+      cfg,
+      job,
+      inputs,
+      rawParams,
+      userId,
+      stream,
+      messageId,
+      jobLog,
+      startedAt,
+      retryCount,
+    );
+    return;
+  }
+
   // Saree mannequin (step-1) jobs: kind === 'saree_mannequin' in jobInputs.params.
   // Draped-mannequin generation, run once per flat-saree job regardless of pose
   // count; 0 credits; never surfaced to the user (see createSareeMannequinJob).
@@ -1121,6 +1140,244 @@ async function processTryonDirectJob(
     jobLog.info('tryon direct job completed');
   } catch (err) {
     jobLog.error({ err }, 'tryon direct job processing error');
+    await setWorkerStatus(redis, w.id, 'IDLE');
+    const errMsg = err instanceof Error ? err.message : String(err);
+    await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
+  }
+}
+
+// ── Regenerate job processor ────────────────────────────────────────────
+
+type RegenerateJob = {
+  id: string;
+  creditsCharged: number;
+  attempts: number;
+  createdAt: Date;
+  watermark: boolean;
+  source: string | null;
+};
+
+async function processRegenerateJob(
+  cfg: ProcessorConfig,
+  job: RegenerateJob,
+  _inputs: typeof schema.jobInputs.$inferSelect,
+  params: Record<string, unknown>,
+  userId: string,
+  stream: string,
+  messageId: string,
+  jobLog: Logger,
+  startedAt: number,
+  retryCount: number,
+): Promise<void> {
+  const { db, redis, pub, s3, r2Bucket } = cfg;
+  const jobId = job.id;
+
+  const sourceImageKey = params.sourceImageKey as string;
+  const workflowTemplateId = params.workflowTemplateId as string;
+  const promptOverride = typeof params.promptOverride === 'string' ? params.promptOverride : '';
+  const instructionOverride =
+    typeof params.instructionOverride === 'string' ? params.instructionOverride : '';
+
+  if (!workflowTemplateId) {
+    await markFailed(cfg, jobId, userId, stream, messageId, 'NO_WORKFLOW', jobLog, startedAt);
+    return;
+  }
+  if (!sourceImageKey) {
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'MISSING_SOURCE_IMAGE',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
+  const snapshotVersion =
+    typeof params.dispatchTemplateVersion === 'number' ? params.dispatchTemplateVersion : null;
+  const template = await resolveWorkflowTemplateVersion(db, workflowTemplateId, snapshotVersion);
+
+  if (!template) {
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'WORKFLOW_NOT_FOUND',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
+  const personNodeId = template.tryonPersonNodeId;
+  const promptNodeId = template.garmentPhasePromptNode;
+  const outputNodeId = template.tryonOutputNodeId;
+
+  if (!personNodeId || !outputNodeId) {
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'REGEN_NODES_NOT_CONFIGURED',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
+  await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
+  const worker = await selectWorker(redis, WORKER_POOL.TRYON);
+  if (!worker) {
+    if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
+      jobLog.warn(
+        'no idle tryon worker — regenerate job exceeded max queue wait, terminating with refund',
+      );
+      await terminateJob(
+        cfg,
+        jobId,
+        userId,
+        stream,
+        messageId,
+        'NO_WORKER',
+        job.creditsCharged,
+        jobLog,
+        startedAt,
+        job.source,
+      );
+    } else {
+      jobLog.warn('no idle worker — re-enqueuing regenerate job with backoff');
+      await requeueForNoWorker({
+        db,
+        redis,
+        jobId,
+        stream,
+        messageId,
+        retryCount,
+        extraFields: ['userId', userId],
+        jobLog,
+        startedAt,
+        jobType: job.source,
+      });
+    }
+    return;
+  }
+  const w = worker;
+  jobLog.info({ workerId: w.id }, 'worker claimed for regenerate');
+
+  try {
+    async function r2Download(key: string): Promise<Uint8Array> {
+      const res = await s3.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
+      if (!res.Body) throw new Error(`R2 object missing: ${key}`);
+      return res.Body.transformToByteArray();
+    }
+
+    async function uploadToComfy(key: string, prefix: string): Promise<string> {
+      const bytes = await r2Download(key);
+      const rawExt = key.split('.').pop()?.toLowerCase() ?? '';
+      const ext = rawExt === 'png' ? 'png' : rawExt === 'webp' ? 'webp' : 'jpg';
+      const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+      return uploadImageToComfy(w.url, w.apiKey, bytes, `${prefix}_${jobId}.${ext}`, mime, jobLog);
+    }
+
+    jobLog.info('uploading regenerate source image to ComfyUI');
+    const sourceFile = await uploadToComfy(sourceImageKey, 'source');
+
+    // Clone and patch workflow
+    const workflow = structuredClone(template.jsonContent) as Record<
+      string,
+      { inputs?: Record<string, unknown> }
+    >;
+    if (workflow[personNodeId]?.inputs) {
+      // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
+      workflow[personNodeId].inputs!.image = sourceFile;
+    }
+    // Empty/whitespace-only override is skipped so the workflow's own
+    // hardcoded default prompt/instruction text runs — same convention
+    // applyWorkflowPatch uses for every other workflow type's positive
+    // prompt. Both fields live on the same node (garmentPhasePromptNode) —
+    // `prompt` and `instruction` are separate inputs on
+    // TextEncodeQwenImageEditPlusPro_lrzjason (see regen.json).
+    if (promptOverride.trim() && promptNodeId && workflow[promptNodeId]?.inputs) {
+      // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
+      workflow[promptNodeId].inputs!.prompt = promptOverride;
+    }
+    if (instructionOverride.trim() && promptNodeId && workflow[promptNodeId]?.inputs) {
+      // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
+      workflow[promptNodeId].inputs!.instruction = instructionOverride;
+    }
+
+    await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);
+    const clientUuid = randomUUID();
+    const comfyStartedAt = Date.now();
+    const { promptId } = await submitPrompt(w.url, w.apiKey, clientUuid, workflow, jobLog);
+    jobLog.info({ promptId }, 'regenerate prompt submitted');
+
+    await db.insert(schema.jobEvents).values({
+      jobId,
+      eventType: 'COMFY_DISPATCH',
+      payload: {
+        promptId,
+        workerId: w.id,
+        workerUrl: w.url,
+        workflowTemplateId,
+        inputs: { sourceImageKey, sourceFile },
+      },
+    });
+
+    await waitForCompletion(
+      w.url,
+      w.apiKey,
+      clientUuid,
+      promptId,
+      300_000,
+      (update) => jobLog.debug(update, 'comfyui progress'),
+      {
+        info: jobLog.info.bind(jobLog),
+        debug: jobLog.debug.bind(jobLog),
+        error: jobLog.error.bind(jobLog),
+      },
+    );
+    await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
+
+    await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
+    const outputImages = await fetchHistory(w.url, w.apiKey, promptId, jobLog, outputNodeId);
+    const [firstImage] = outputImages;
+    if (!firstImage) throw new Error('ComfyUI returned no output images for regenerate job');
+
+    const imageBytes = await downloadOutputImage(
+      w.url,
+      w.apiKey,
+      firstImage.filename,
+      firstImage.subfolder,
+    );
+
+    // outputFormat: 'webp' — same convention as tryon-direct (processTryonDirectJob):
+    // a direct edit of an existing image, not a from-scratch catalogue render.
+    await finalizeOutput({
+      imageBytes,
+      jobId,
+      userId,
+      jobWatermark: job.watermark,
+      outputFormat: 'webp',
+      db,
+      pub,
+      s3,
+      r2Bucket,
+      jobLog,
+    });
+    await redis.xack(stream, 'dispatcher-cg', messageId);
+    await setWorkerStatus(redis, w.id, 'IDLE');
+    recordJobOutcome('success', startedAt, job.source);
+    jobLog.info('regenerate job completed');
+  } catch (err) {
+    jobLog.error({ err }, 'regenerate job processing error');
     await setWorkerStatus(redis, w.id, 'IDLE');
     const errMsg = err instanceof Error ? err.message : String(err);
     await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);

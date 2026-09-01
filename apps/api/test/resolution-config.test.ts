@@ -64,7 +64,7 @@ describe('getShopifyPackCredits', () => {
   it('falls back to the default amount for each known pack id when nothing is stored', async () => {
     expect(await getShopifyPackCredits(app, 'pack_10', 'manual')).toBe(800);
     expect(await getShopifyPackCredits(app, 'pack_25', 'manual')).toBe(2250);
-    expect(await getShopifyPackCredits(app, 'pack_50', 'manual')).toBe(4800);
+    expect(await getShopifyPackCredits(app, 'pack_100', 'manual')).toBe(10000);
   });
 
   it('reads the autorefill figure, distinct from the manual one, when nothing is stored', async () => {
@@ -90,6 +90,6 @@ describe('getShopifyPackCredits', () => {
 
   it('falls back to the default when the stored value is malformed', async () => {
     await app.redis.set(CONFIG_KEY, 'not json');
-    expect(await getShopifyPackCredits(app, 'pack_50', 'manual')).toBe(4800);
+    expect(await getShopifyPackCredits(app, 'pack_100', 'manual')).toBe(10000);
   });
 });

@@ -11,6 +11,7 @@ import { adminStreamHandler } from '../jobs/sse.js';
 import { releaseStoreDailySlot } from '../shopify/limits.js';
 import { recordAudit } from './audit.js';
 import { requireAdmin, requirePermission } from './guard.js';
+import { jobDurationSecondsSql } from './job-duration.js';
 import { jobTypeSql } from './job-type.js';
 import {
   describeJobsExportFilters,
@@ -44,6 +45,10 @@ const JobsQuery = z.object({
   // navigate here with via router state and must keep working unchanged.
   createdFrom: z.string().optional(),
   createdTo: z.string().optional(),
+  // Generation duration range (completedAt - startedAt), in whole seconds —
+  // the admin UI accepts minutes or seconds and converts to seconds client-side.
+  durationMinSec: z.coerce.number().min(0).optional(),
+  durationMaxSec: z.coerce.number().min(0).optional(),
 });
 
 const DELETE_ASSETS_TARGETS = ['result', 'person'] as const;
@@ -161,8 +166,19 @@ export async function adminJobsRoutes(app: FastifyInstance) {
     const query =
       // biome-ignore lint/suspicious/noExplicitAny: Fastify typed-provider workaround
       req.query as any;
-    const { page, pageSize, status, search, date, jobType, workerId, createdFrom, createdTo } =
-      query;
+    const {
+      page,
+      pageSize,
+      status,
+      search,
+      date,
+      jobType,
+      workerId,
+      createdFrom,
+      createdTo,
+      durationMinSec,
+      durationMaxSec,
+    } = query;
 
     const conditions: ReturnType<typeof eq>[] = [];
     if (status) conditions.push(eq(schema.jobs.status, status));
@@ -186,6 +202,16 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         DATE_ONLY.test(createdTo) ? `${createdTo}T23:59:59.999Z` : createdTo,
       );
       conditions.push(lte(schema.jobs.createdAt, toInclusive));
+    }
+    if (durationMinSec != null) {
+      conditions.push(
+        sql`${jobDurationSecondsSql()} >= ${durationMinSec}` as ReturnType<typeof eq>,
+      );
+    }
+    if (durationMaxSec != null) {
+      conditions.push(
+        sql`${jobDurationSecondsSql()} <= ${durationMaxSec}` as ReturnType<typeof eq>,
+      );
     }
     if (search) {
       conditions.push(
@@ -303,7 +329,9 @@ export async function adminJobsRoutes(app: FastifyInstance) {
           parentJobId: schema.jobs.parentJobId,
           faceLabel: schema.modelFaces.label,
           backgroundLabel: schema.modelBackgrounds.label,
-          poseLabel: schema.modelPoseAssets.displayName,
+          poseLabel: sql<
+            string | null
+          >`coalesce(${schema.modelPoseAssets.displayName}, ${schema.modelPoseAssets.label})`,
           hasLower: sql<boolean>`(${schema.jobInputs.lowerCatalogId} IS NOT NULL)`,
           hasShoe: sql<boolean>`(${schema.jobInputs.shoeCatalogId} IS NOT NULL)`,
           jobType: jobTypeSql(),
@@ -394,15 +422,36 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         row.customerPhotoKey ??
         undefined;
 
-      // For tryon-direct jobs the workflow comes from params.workflowTemplateId, not pose join
-      let workflowLabel = row.overrideWorkflowLabel ?? row.defaultWorkflowLabel ?? null;
-      if (!workflowLabel && typeof params.workflowTemplateId === 'string') {
+      // Precedence for "what workflow actually ran":
+      //   1. job_inputs.params.workflowTemplateId — snapshotted at job-creation time for job
+      //      types that pin it there (catalog w/ resolved config, tryon-direct, saree, shopify,
+      //      kiosk/widget, dev-API).
+      //   2. The most recent COMFY_DISPATCH job_events row's payload.workflowTemplateId —
+      //      merchant-catalog and bare saree-mannequin jobs deliberately omit the params
+      //      snapshot so the dispatcher can re-resolve garmentType.mannequinWorkflowTemplateId
+      //      fresh at dispatch time (late-binding config lets an admin fix land before a queued
+      //      job runs). The dispatcher logs whatever it actually resolved into this event on
+      //      every dispatch path (apps/dispatcher/src/job/processor.ts), so it's an equally
+      //      authoritative historical record — just not on job_inputs.
+      //   3. The live pose/garment-config join — only meaningful for a job that never reached
+      //      dispatch (QUEUED/HELD/failed pre-dispatch), where "what would run now" is the only
+      //      sensible thing to show.
+      const dispatchEvent = events.find((e) => e.eventType === 'COMFY_DISPATCH');
+      const dispatchedWorkflowTemplateId =
+        (dispatchEvent?.payload as { workflowTemplateId?: string } | undefined)
+          ?.workflowTemplateId ?? null;
+      const resolvedWorkflowTemplateId =
+        (typeof params.workflowTemplateId === 'string' ? params.workflowTemplateId : null) ??
+        dispatchedWorkflowTemplateId;
+      let workflowLabel: string | null = null;
+      if (resolvedWorkflowTemplateId) {
         const [wt] = await app.db
           .select({ label: schema.workflowTemplates.label })
           .from(schema.workflowTemplates)
-          .where(eq(schema.workflowTemplates.id, params.workflowTemplateId));
+          .where(eq(schema.workflowTemplates.id, resolvedWorkflowTemplateId));
         workflowLabel = wt?.label ?? null;
       }
+      workflowLabel ??= row.overrideWorkflowLabel ?? row.defaultWorkflowLabel ?? null;
 
       return {
         ...row,

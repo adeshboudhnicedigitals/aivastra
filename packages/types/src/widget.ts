@@ -196,6 +196,15 @@ export const MerchantCatalogSubcategory = z.object({
   // AI-generate mode's Pallu box instead) — a garment type can have either, both, or
   // neither configured.
   supportsTwoInputDirectTryon: z.boolean(),
+  // True only for garment types on the mannequin (saree) pipeline. Gates whether
+  // ProductModal/BulkUploadModal offer the "Flat Image" (AI-generate) mode at all —
+  // every other garment type only ever uses the flat photo directly for try-on, so
+  // that mode is hidden there rather than running an unnecessary generation step.
+  requiresMannequinStep: z.boolean(),
+  // Admin-uploaded reference photo (garmentSubcategories.instructionImageKey) showing how to
+  // shoot the garment — the same asset Studio's upload step shows. Null when the admin hasn't
+  // configured one for this garment type.
+  instructionImageUrl: z.string().nullable(),
   sortOrder: z.number().int(),
   productCount: z.number().int(),
   createdAt: z.string(),

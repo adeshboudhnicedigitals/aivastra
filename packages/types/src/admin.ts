@@ -161,12 +161,6 @@ export const SystemConfigBody = z.object({
               autorefillCredits: z.number().int().positive().max(1_000_000),
             })
             .partial(),
-          pack_50: z
-            .object({
-              credits: z.number().int().positive().max(1_000_000),
-              autorefillCredits: z.number().int().positive().max(1_000_000),
-            })
-            .partial(),
           pack_100: z
             .object({
               credits: z.number().int().positive().max(1_000_000),
@@ -354,7 +348,14 @@ export const CreateWorkflowBody = z
     label: z.string().min(1).max(120),
     jsonContent: z.record(z.any()),
     workflowType: z
-      .enum(['regular', 'tryon', 'saree_step1', 'saree_step1_two_input', 'two_stage'])
+      .enum([
+        'regular',
+        'tryon',
+        'saree_step1',
+        'saree_step1_two_input',
+        'two_stage',
+        'regeneration',
+      ])
       .default('regular'),
     // Regular workflow fields (required when workflowType = 'regular')
     faceNodeId: z.string().min(1).optional(),
@@ -390,6 +391,22 @@ export const CreateWorkflowBody = z
     stage1NegativePromptNode: z.string().min(1).optional(),
   })
   .superRefine((val, ctx) => {
+    // Only the two prompt-node fields are Zod-required here — tryonPersonNodeId
+    // and tryonOutputNodeId are auto-detected from the workflow JSON (with a
+    // fallback-then-throw in extractWorkflowInsertFields), same as the tryon
+    // branch below, but the prompt nodes are explicit admin-set inputs.
+    if (val.workflowType === 'regeneration') {
+      for (const field of ['facePhasePromptNode', 'garmentPhasePromptNode'] as const) {
+        if (!val[field]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field],
+            message: `${field} is required for regeneration workflows`,
+          });
+        }
+      }
+      return;
+    }
     if (val.workflowType === 'two_stage') {
       for (const field of [
         'faceNodeId',
@@ -475,7 +492,7 @@ export const ReplaceWorkflowBody = z.intersection(
 export const ParseWorkflowBody = z.object({
   jsonContent: z.record(z.any()),
   workflowType: z
-    .enum(['regular', 'tryon', 'saree_step1', 'saree_step1_two_input', 'two_stage'])
+    .enum(['regular', 'tryon', 'saree_step1', 'saree_step1_two_input', 'two_stage', 'regeneration'])
     .optional(),
 });
 
@@ -526,8 +543,19 @@ export const UpdateWorkflowBody = z.object({
   // Prompt has no length cap — these are often a full original prompt plus
   // added corrective clauses, which can run well past a short user-hint's
   // length; reason is a short label shown verbatim in the reason picker.
+  // `instruction` overrides the same reason-prompt node's separate
+  // `instruction` input (see TextEncodeQwenImageEditPlusPro's `instruction`
+  // widget in regen.json) — same "blank = no override, rerun the workflow's
+  // own baked-in instruction" convention as `prompt`. Optional/defaulted so
+  // existing rows saved before this field existed still parse.
   regenerationReasonPrompts: z
-    .array(z.object({ reason: z.string().min(1).max(100), prompt: z.string() }))
+    .array(
+      z.object({
+        reason: z.string().min(1).max(100),
+        prompt: z.string(),
+        instruction: z.string().default(''),
+      }),
+    )
     .max(50)
     .optional(),
   // Same TEXT vs node-id-column distinction as above, for two_stage's own stage-1
@@ -564,12 +592,16 @@ export const UpdateWorkflowBody = z.object({
 // workflow. Blank prompts mean "no override yet"; an admin fills them in
 // later from the workflow's edit screen. Existing pre-this-feature workflows
 // were backfilled once via migration 0178_seed_default_regen_reasons.
-export const DEFAULT_REGENERATION_REASON_PROMPTS: { reason: string; prompt: string }[] = [
-  { reason: 'Multiple body parts', prompt: '' },
-  { reason: 'Nudity', prompt: '' },
-  { reason: 'Draping issue', prompt: '' },
-  { reason: 'Additional assets', prompt: '' },
-  { reason: 'Texture issue', prompt: '' },
+export const DEFAULT_REGENERATION_REASON_PROMPTS: {
+  reason: string;
+  prompt: string;
+  instruction: string;
+}[] = [
+  { reason: 'Multiple body parts', prompt: '', instruction: '' },
+  { reason: 'Nudity', prompt: '', instruction: '' },
+  { reason: 'Draping issue', prompt: '', instruction: '' },
+  { reason: 'Additional assets', prompt: '', instruction: '' },
+  { reason: 'Texture issue', prompt: '', instruction: '' },
 ];
 
 export const ReassignWorkflowBody = z.object({
