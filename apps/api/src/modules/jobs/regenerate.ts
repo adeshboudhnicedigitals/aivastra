@@ -10,6 +10,12 @@ import { promptGuard } from './sanitize.js';
 const FREE_REGENERATE_DAILY_LIMIT = 5;
 const FREE_REGENERATE_LIMIT_ENABLED = true;
 
+// REGENERATE_DAILY_LIMIT_DISABLED is a local-only escape hatch (see env.ts) —
+// never set in production, so this only ever weakens the cap in dev.
+function regenerateLimitEnabled(app: FastifyInstance): boolean {
+  return FREE_REGENERATE_LIMIT_ENABLED && app.env.REGENERATE_DAILY_LIMIT_DISABLED !== true;
+}
+
 function freeRegenerateKey(userId: string): string {
   // UTC calendar day — a fixed boundary is simpler and good enough for a soft
   // daily allowance; no need to account for the user's own timezone here.
@@ -117,7 +123,7 @@ export async function regenerateJob(
     );
   }
 
-  if (FREE_REGENERATE_LIMIT_ENABLED) {
+  if (regenerateLimitEnabled(app)) {
     const freeUsedToday = await getFreeRegenerateCount(app, userId);
     if (freeUsedToday >= FREE_REGENERATE_DAILY_LIMIT) {
       throw new AppError(
@@ -195,7 +201,7 @@ export async function regenerateJob(
   // Skipped while the cap is disabled too — otherwise local testing would
   // silently burn through the real quota and the very first regenerate after
   // re-enabling it could already be over the limit.
-  if (FREE_REGENERATE_LIMIT_ENABLED) await incrementFreeRegenerateCount(app, userId);
+  if (regenerateLimitEnabled(app)) await incrementFreeRegenerateCount(app, userId);
 
   return { jobId: newJobId };
 }

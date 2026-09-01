@@ -25,9 +25,11 @@ afterEach(() => {
  * own shell or .env they would otherwise leak in through `original` and make a
  * "defaults to false when unset" case pass or fail depending on whose machine
  * it runs on — which is exactly what happened once a real .env carried
- * SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS=true for local Shopify testing.
+ * SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS=true for local Shopify testing. Same reason
+ * REGENERATE_DAILY_LIMIT_DISABLED is cleared here — the repo's own .env sets
+ * it to true for local regenerate testing.
  */
-const CLEARED = ['SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS'];
+const CLEARED = ['SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS', 'REGENERATE_DAILY_LIMIT_DISABLED'];
 
 function load(overrides: Record<string, string> = {}) {
   const base = { ...original, ...REQUIRED } as NodeJS.ProcessEnv;
@@ -70,6 +72,40 @@ describe('SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS', () => {
     '1',
   ])('treats %o as false', (value) => {
     expect(load({ SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS: value }).SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS).toBe(
+      false,
+    );
+  });
+});
+
+describe('REGENERATE_DAILY_LIMIT_DISABLED', () => {
+  // Same "explicit opt-in only" shape as SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS above —
+  // this one gates the 5/day free-regenerate cap, and must never silently turn
+  // off in production from a stray 'false'/'0'/etc. value.
+  it('defaults to false when unset', () => {
+    const env = load();
+    expect(env.REGENERATE_DAILY_LIMIT_DISABLED).toBe(false);
+  });
+
+  it('is true only for the exact string "true"', () => {
+    expect(load({ REGENERATE_DAILY_LIMIT_DISABLED: 'true' }).REGENERATE_DAILY_LIMIT_DISABLED).toBe(
+      true,
+    );
+  });
+
+  it.each([
+    'false',
+    'False',
+    'FALSE',
+    '0',
+    'no',
+    'off',
+    '',
+    'TRUE',
+    'True',
+    'yes',
+    '1',
+  ])('treats %o as false', (value) => {
+    expect(load({ REGENERATE_DAILY_LIMIT_DISABLED: value }).REGENERATE_DAILY_LIMIT_DISABLED).toBe(
       false,
     );
   });

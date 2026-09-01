@@ -95,6 +95,11 @@ const Env = z.object({
   // Unset = open to everyone (dev default). Set in production to restrict the
   // feature to a soft-launch cohort without a code change.
   CATALOG_VIDEO_ALLOWED_EMAILS: z.string().optional(),
+  // Lets a developer bypass the 5/day free-regenerate cap while iterating
+  // locally, without touching the limit itself. Off unless the value is
+  // exactly 'true' — same reasoning as SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS above
+  // (a stray 'false' must never coerce to "on"); never set in production.
+  REGENERATE_DAILY_LIMIT_DISABLED: z.preprocess((v) => v === 'true', z.boolean()).default(false),
 });
 export type Env = z.infer<typeof Env>;
 export function loadEnv(): Env {
