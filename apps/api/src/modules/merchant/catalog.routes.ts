@@ -152,9 +152,16 @@ async function serializeSubcategory(
       mannequinTwoInputWorkflowTemplateId:
         schema.garmentSubcategories.mannequinTwoInputWorkflowTemplateId,
       twoInputTryonWorkflowTemplateId: schema.garmentSubcategories.twoInputTryonWorkflowTemplateId,
+      instructionImageKey: schema.garmentSubcategories.instructionImageKey,
     })
     .from(schema.garmentSubcategories)
     .where(eq(schema.garmentSubcategories.id, row.garmentSubcategoryId));
+  const instructionImageUrl = garmentType?.instructionImageKey
+    ? await app.storage
+        .presignGet(garmentType.instructionImageKey, 3600)
+        .then((result) => result.url)
+        .catch(() => null)
+    : null;
   return {
     ...row,
     productCount: n,
@@ -163,6 +170,7 @@ async function serializeSubcategory(
     ),
     supportsTwoInputDirectTryon: Boolean(garmentType?.twoInputTryonWorkflowTemplateId),
     requiresMannequinStep: Boolean(garmentType?.requiresMannequinStep),
+    instructionImageUrl,
   };
 }
 

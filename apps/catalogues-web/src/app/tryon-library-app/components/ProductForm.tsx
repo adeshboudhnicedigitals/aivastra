@@ -20,6 +20,7 @@ export function ProductForm({
   supportsTwoInputMannequin = false,
   supportsTwoInputDirectTryon = false,
   requiresMannequinStep = false,
+  instructionImageUrl = null,
   onSaved,
   onCancel,
 }: {
@@ -34,6 +35,9 @@ export function ProductForm({
   // True only for garment types on the mannequin (saree) pipeline — gates whether the
   // Catalogue/Flat Image toggle shows at all. See ProductModal.tsx for the sibling.
   requiresMannequinStep?: boolean;
+  // Admin-uploaded reference photo (garmentSubcategories.instructionImageKey) — the same
+  // asset Studio's upload step shows — illustrating how to shoot the body/pallu photo(s).
+  instructionImageUrl?: string | null;
   onSaved: () => void;
   onCancel: () => void;
 }) {
@@ -307,6 +311,41 @@ export function ProductForm({
               </div>
             )}
 
+            {instructionImageUrl && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                  padding: 12,
+                  borderRadius: 8,
+                  border: `1px solid ${LIGHT.border2}`,
+                  background: LIGHT.field,
+                }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 700, color: LIGHT.text }}>
+                  {requiresCataloguePallu
+                    ? 'How to photograph the body & pallu'
+                    : 'How to photograph this garment'}
+                </div>
+                <div
+                  style={{
+                    height: 160,
+                    borderRadius: 8,
+                    overflow: 'hidden',
+                    background: LIGHT.card,
+                  }}
+                >
+                  {/* biome-ignore lint/performance/noImgElement: admin-uploaded instruction photo */}
+                  <img
+                    src={instructionImageUrl}
+                    alt="How to photograph this garment"
+                    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                  />
+                </div>
+              </div>
+            )}
+
             {imageMode === 'catalogue' ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {previewUrl ? (
@@ -358,7 +397,9 @@ export function ProductForm({
                       <UploadIcon size={28} />
                     </div>
                     <div style={{ fontSize: 13, color: LIGHT.mid, fontWeight: 500 }}>
-                      Tap to choose a product photo
+                      {requiresCataloguePallu
+                        ? 'Tap to choose the body photo'
+                        : 'Tap to choose a product photo'}
                     </div>
                     <div style={{ display: 'flex', gap: 8 }}>
                       <button

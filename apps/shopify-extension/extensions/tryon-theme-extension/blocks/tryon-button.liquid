@@ -14,6 +14,14 @@
   `enabled_on.templates` pins this to product templates: `product` is blank
   everywhere else, so the guard below would render nothing anyway, and the
   block would just be dead weight in the theme editor's picker.
+
+  Rendered `hidden` on purpose: Liquid has no access to the merchant's
+  Postgres activation state (global/selective mode, per-product/collection
+  enables, exclusions) — only Shopify's own data and shop metafields, and we
+  don't sync per-product metafields. tryon-widget.js calls
+  GET .../customer/products/:id/enabled on load and un-hides this only when
+  that product is actually enabled, so a disabled product's button never
+  flashes into view before disappearing.
 {% endcomment %}
 
 {%- assign widget_key = shop.metafields.aivastra.widget_key -%}
@@ -21,15 +29,22 @@
 {%- if product != blank and widget_key != blank -%}
   <div
     class="aivastra-tryon"
+    hidden
     data-widget-key="{{ widget_key }}"
     data-product-id="{{ product.id }}"
     data-product-title="{{ product.title | escape }}"
     data-product-url="{{ product.url }}"
     data-product-image="{% if product.featured_image %}{{ product.featured_image | image_url: width: 200 }}{% endif %}"
-    {%- if customer -%}
+    {%- comment -%}
+      Plain (undashed) tags on purpose: whitespace-stripping delimiters here
+      collapse the newline on both sides, so a logged-out shopper rendered
+      `data-product-image="…"data-api-base="…"` with no separator between the
+      two attributes. Browsers recover from that, but it is a parse error.
+    {%- endcomment -%}
+    {% if customer %}
       data-customer-id="{{ customer.id }}"
       data-customer-email="{{ customer.email }}"
-    {%- endif -%}
+    {% endif %}
     data-api-base="{{ block.settings.api_base | default: 'https://app.aivastra.com' | escape }}"
     style="--aivastra-button-color: {{ block.settings.button_color }}; --aivastra-text-color: {{ block.settings.text_color }}; --aivastra-border-radius: {{ block.settings.border_radius }}px;{% if cfg.theme.accentColor %} --aivastra-accent: {{ cfg.theme.accentColor | escape }};{% endif %}"
   >
