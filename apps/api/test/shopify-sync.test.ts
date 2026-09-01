@@ -303,7 +303,35 @@ describe('syncProduct', () => {
 });
 
 describe('syncOneTask — full sync pagination', () => {
-  it('threads the cursor across pages and syncs products from both', async () => {
+  it('threads the cursor across pages, syncs products from both, and reconciles a product Shopify no longer returns', async () => {
+    // Isolated store: a full sync now reconciles deletions against every row
+    // it finds for the store, and this test's mocked catalog (601, 602 only)
+    // would otherwise wrongly mark other tests' unrelated products in the
+    // shared `storeId` as deleted.
+    const store = await upsertShopifyStore(
+      app,
+      {
+        shopifyShopId: 704,
+        shopDomain: 'full-sync.myshopify.com',
+        myshopifyDomain: 'full-sync.myshopify.com',
+        name: 'Full Sync Store',
+        email: 'full-sync@s.com',
+      },
+      'tok',
+      'read_products',
+    );
+
+    // Pre-existing row for a product Shopify no longer returns in this sync —
+    // simulates a deletion whose products/delete webhook never arrived.
+    await app.db.insert(schema.shopifyProductGarments).values({
+      storeId: store.id,
+      shopifyProductId: 699,
+      shopifyVariantId: 0,
+      r2Key: 'stale',
+      title: 'Gone Product',
+      status: 'active',
+    });
+
     let callCount = 0;
     const originalFetch = global.fetch;
     global.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -362,7 +390,7 @@ describe('syncOneTask — full sync pagination', () => {
     }) as typeof fetch;
 
     try {
-      await syncOneTask(app, { storeId, mode: 'full' });
+      await syncOneTask(app, { storeId: store.id, mode: 'full' });
       expect(callCount).toBe(2);
 
       const rows = await app.db
@@ -370,7 +398,7 @@ describe('syncOneTask — full sync pagination', () => {
         .from(schema.shopifyProductGarments)
         .where(
           and(
-            eq(schema.shopifyProductGarments.storeId, storeId),
+            eq(schema.shopifyProductGarments.storeId, store.id),
             eq(schema.shopifyProductGarments.shopifyProductId, 601),
           ),
         );
@@ -379,12 +407,23 @@ describe('syncOneTask — full sync pagination', () => {
         .from(schema.shopifyProductGarments)
         .where(
           and(
-            eq(schema.shopifyProductGarments.storeId, storeId),
+            eq(schema.shopifyProductGarments.storeId, store.id),
             eq(schema.shopifyProductGarments.shopifyProductId, 602),
           ),
         );
       expect(rows[0]?.title).toBe('Page One Product');
       expect(row2?.title).toBe('Page Two Product');
+
+      const [staleRow] = await app.db
+        .select()
+        .from(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, store.id),
+            eq(schema.shopifyProductGarments.shopifyProductId, 699),
+          ),
+        );
+      expect(staleRow.status).toBe('deleted');
     } finally {
       global.fetch = originalFetch;
     }
@@ -441,7 +480,7 @@ describe('syncOneTask — product mode', () => {
     }
   });
 
-  it('still records a failure row when Shopify reports the product does not exist', async () => {
+  it('marks the product deleted (not failed) when Shopify reports it does not exist', async () => {
     const originalFetch = global.fetch;
     global.fetch = (async () =>
       new Response(JSON.stringify({ data: { product: null } }), {
@@ -461,7 +500,10 @@ describe('syncOneTask — product mode', () => {
             eq(schema.shopifyProductGarments.shopifyProductId, 703),
           ),
         );
-      expect(row.status).toBe('failed');
+      // "Not found" is the same confirmation the products/delete webhook acts
+      // on — this must land in the same terminal state, not under a
+      // failed-to-sync count that would never clear.
+      expect(row.status).toBe('deleted');
       expect(row.failedReason).toBe('product not found on Shopify');
     } finally {
       global.fetch = originalFetch;

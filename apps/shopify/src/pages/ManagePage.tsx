@@ -6,6 +6,7 @@ import {
   Button,
   Card,
   Checkbox,
+  ContextualSaveBar,
   EmptyState,
   IndexTable,
   InlineGrid,
@@ -19,11 +20,19 @@ import {
   Thumbnail,
   Toast,
 } from '@shopify/polaris';
-import { type ReactNode, useCallback, useEffect, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { ErrorBanner } from '../components/ErrorBanner';
+import {
+  type DraftList,
+  diffActions,
+  emptyDraftList,
+  mergeById,
+  type PendingAction,
+} from '../lib/activationDraft';
 import { isTabEditable } from '../lib/activationTabState';
 import { apiFetch } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
+import { setNavGuard } from '../lib/navGuard';
 import type { ShopifyProductListItem } from '../types';
 
 type DisplayStatus = 'active' | 'processing' | 'failed' | 'disabled' | 'excluded';
@@ -76,10 +85,12 @@ interface ActivationSummary {
   };
 }
 
-interface CollectionListItem {
+interface CollectionRow {
   shopifyCollectionId: number;
   title: string;
-  productCount: number;
+  // null only for a collection staged locally and not yet saved — Shopify
+  // hasn't been asked to sync its membership yet, so there's no count to show.
+  productCount: number | null;
 }
 
 interface CollectionSearchResult {
@@ -102,13 +113,18 @@ const TABS = [
   { id: 'exclusion', content: 'Exclusion' },
 ] as const;
 
+// Draft staging (mergeById, diffActions, DraftList — see lib/activationDraft.ts)
+// — nothing there calls the API. Every Add/Remove click below just records
+// intent; the actual PATCH/POST/DELETE calls only fire from saveChanges, when
+// the merchant clicks Save.
+
 function CollectionPickerModal({
   onClose,
   onPicked,
   setError,
 }: {
   onClose: () => void;
-  onPicked: (shopifyCollectionId: number) => void;
+  onPicked: (result: CollectionSearchResult) => void;
   setError: (e: ClassifiedError) => void;
 }) {
   const [query, setQuery] = useState('');
@@ -152,7 +168,7 @@ function CollectionPickerModal({
           {results.map((r) => (
             <InlineStack key={r.shopifyCollectionId} align="space-between" blockAlign="center">
               <Text as="span">{r.title}</Text>
-              <Button size="slim" onClick={() => onPicked(r.shopifyCollectionId)}>
+              <Button size="slim" onClick={() => onPicked(r)}>
                 Add
               </Button>
             </InlineStack>
@@ -168,41 +184,39 @@ function CollectionsPanel({
   editable,
   addLabel,
   emptyHeading,
-  onChanged,
+  refreshToken,
+  draft,
+  onAdd,
+  onRemove,
   setError,
 }: {
   basePath: string;
   editable: boolean;
   addLabel: string;
   emptyHeading: string;
-  onChanged: () => void;
+  refreshToken: number;
+  draft: DraftList<CollectionRow>;
+  onAdd: (result: CollectionSearchResult) => void;
+  onRemove: (shopifyCollectionId: number) => void;
   setError: (e: ClassifiedError) => void;
 }) {
-  const [items, setItems] = useState<CollectionListItem[]>([]);
+  const [baseItems, setBaseItems] = useState<CollectionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  const load = useCallback(() => {
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refreshToken is a deliberate refetch trigger (bumps after a successful Save), not referenced in the body
+  useEffect(() => {
     setLoading(true);
-    apiFetch<{ items: CollectionListItem[] }>(basePath)
-      .then((res) => setItems(res.items))
+    apiFetch<{ items: CollectionRow[] }>(basePath)
+      .then((res) => setBaseItems(res.items))
       .catch((err) => setError(classifyError(err)))
       .finally(() => setLoading(false));
-  }, [basePath, setError]);
+  }, [basePath, refreshToken, setError]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  async function remove(shopifyCollectionId: number) {
-    try {
-      await apiFetch(`${basePath}/${shopifyCollectionId}`, { method: 'DELETE' });
-      load();
-      onChanged();
-    } catch (err) {
-      setError(classifyError(err));
-    }
-  }
+  const items = useMemo(
+    () => mergeById(baseItems, (i) => i.shopifyCollectionId, draft),
+    [baseItems, draft],
+  );
 
   return (
     <BlockStack gap="400">
@@ -229,16 +243,21 @@ function CollectionsPanel({
             position={index}
           >
             <IndexTable.Cell>
-              <Text as="span" fontWeight="semibold">
-                {item.title}
-              </Text>
+              <InlineStack gap="200" blockAlign="center">
+                <Text as="span" fontWeight="semibold">
+                  {item.title}
+                </Text>
+                {draft.actions.get(item.shopifyCollectionId) === 'add' && (
+                  <Badge tone="info">Pending</Badge>
+                )}
+              </InlineStack>
             </IndexTable.Cell>
-            <IndexTable.Cell>{item.productCount}</IndexTable.Cell>
+            <IndexTable.Cell>{item.productCount ?? '—'}</IndexTable.Cell>
             <IndexTable.Cell>
               <Button
                 size="slim"
                 disabled={!editable}
-                onClick={() => remove(item.shopifyCollectionId)}
+                onClick={() => onRemove(item.shopifyCollectionId)}
               >
                 Remove
               </Button>
@@ -251,18 +270,9 @@ function CollectionsPanel({
         <CollectionPickerModal
           onClose={() => setPickerOpen(false)}
           setError={setError}
-          onPicked={async (shopifyCollectionId) => {
-            try {
-              await apiFetch(basePath, {
-                method: 'POST',
-                body: JSON.stringify({ shopifyCollectionIds: [shopifyCollectionId] }),
-              });
-              setPickerOpen(false);
-              load();
-              onChanged();
-            } catch (err) {
-              setError(classifyError(err));
-            }
+          onPicked={(result) => {
+            onAdd(result);
+            setPickerOpen(false);
           }}
         />
       )}
@@ -282,7 +292,7 @@ function ProductPickerModal({
   searchParams: Record<string, string>;
   actionLabel: string;
   onClose: () => void;
-  onPicked: (shopifyProductId: number) => void;
+  onPicked: (item: ShopifyProductListItem) => void;
   setError: (e: ClassifiedError) => void;
 }) {
   const [query, setQuery] = useState('');
@@ -328,7 +338,7 @@ function ProductPickerModal({
                 <Thumbnail source={r.thumbnailUrl} alt={r.title ?? 'Product'} size="small" />
                 <Text as="span">{r.title}</Text>
               </InlineStack>
-              <Button size="slim" onClick={() => onPicked(r.shopifyProductId)}>
+              <Button size="slim" onClick={() => onPicked(r)}>
                 {actionLabel}
               </Button>
             </InlineStack>
@@ -341,23 +351,28 @@ function ProductPickerModal({
 
 function IndividualProductsPanel({
   editable,
-  onChanged,
-  setToastMessage,
+  refreshToken,
+  draft,
+  onAdd,
+  onRemove,
   setError,
 }: {
   editable: boolean;
-  onChanged: () => void;
-  setToastMessage: (m: string) => void;
+  refreshToken: number;
+  draft: DraftList<ShopifyProductListItem>;
+  onAdd: (item: ShopifyProductListItem) => void;
+  onRemove: (shopifyProductId: number) => void;
   setError: (e: ClassifiedError) => void;
 }) {
-  const [items, setItems] = useState<ShopifyProductListItem[]>([]);
+  const [baseItems, setBaseItems] = useState<ShopifyProductListItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  const load = useCallback(() => {
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refreshToken is a deliberate refetch trigger (bumps after a successful Save), not referenced in the body
+  useEffect(() => {
     setLoading(true);
     const params = new URLSearchParams({
       enabled: 'true',
@@ -367,30 +382,17 @@ function IndividualProductsPanel({
     });
     apiFetch<ProductListResponse>(`/v1/shopify/products?${params}`)
       .then((res) => {
-        setItems(res.items);
+        setBaseItems(res.items);
         setTotal(res.total);
       })
       .catch((err) => setError(classifyError(err)))
       .finally(() => setLoading(false));
-  }, [page, query, setError]);
+  }, [page, query, refreshToken, setError]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  async function removeProduct(shopifyProductId: number) {
-    try {
-      await apiFetch(`/v1/shopify/products/${shopifyProductId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ enabled: false }),
-      });
-      setToastMessage('Removed from Try-On.');
-      load();
-      onChanged();
-    } catch (err) {
-      setError(classifyError(err));
-    }
-  }
+  const items = useMemo(
+    () => mergeById(baseItems, (i) => i.shopifyProductId, draft),
+    [baseItems, draft],
+  );
 
   return (
     <BlockStack gap="400">
@@ -420,6 +422,7 @@ function IndividualProductsPanel({
       >
         {items.map((item, index) => {
           const status = displayStatus(item);
+          const pending = draft.actions.get(item.shopifyProductId) === 'add';
           return (
             <IndexTable.Row
               id={String(item.shopifyProductId)}
@@ -439,13 +442,19 @@ function IndividualProductsPanel({
                 </InlineStack>
               </IndexTable.Cell>
               <IndexTable.Cell>
-                <Badge tone={STATUS_TONE[status]}>{STATUS_LABEL[status]}</Badge>
+                <InlineStack gap="200">
+                  {pending ? (
+                    <Badge tone="info">Pending</Badge>
+                  ) : (
+                    <Badge tone={STATUS_TONE[status]}>{STATUS_LABEL[status]}</Badge>
+                  )}
+                </InlineStack>
               </IndexTable.Cell>
               <IndexTable.Cell>
                 <Button
                   size="slim"
                   disabled={!editable}
-                  onClick={() => removeProduct(item.shopifyProductId)}
+                  onClick={() => onRemove(item.shopifyProductId)}
                 >
                   Remove
                 </Button>
@@ -470,18 +479,9 @@ function IndividualProductsPanel({
           actionLabel="Add"
           onClose={() => setPickerOpen(false)}
           setError={setError}
-          onPicked={async (shopifyProductId) => {
-            try {
-              await apiFetch(`/v1/shopify/products/${shopifyProductId}`, {
-                method: 'PATCH',
-                body: JSON.stringify({ enabled: true }),
-              });
-              setPickerOpen(false);
-              load();
-              onChanged();
-            } catch (err) {
-              setError(classifyError(err));
-            }
+          onPicked={(item) => {
+            onAdd(item);
+            setPickerOpen(false);
           }}
         />
       )}
@@ -491,44 +491,42 @@ function IndividualProductsPanel({
 
 function ExclusionPanel({
   mode,
-  onChanged,
-  setToastMessage,
+  refreshToken,
+  productDraft,
+  collectionDraft,
+  onAddProduct,
+  onRemoveProduct,
+  onAddCollection,
+  onRemoveCollection,
   setError,
 }: {
   mode: 'global' | 'selective';
-  onChanged: () => void;
-  setToastMessage: (m: string) => void;
+  refreshToken: number;
+  productDraft: DraftList<ShopifyProductListItem>;
+  collectionDraft: DraftList<CollectionRow>;
+  onAddProduct: (item: ShopifyProductListItem) => void;
+  onRemoveProduct: (shopifyProductId: number) => void;
+  onAddCollection: (result: CollectionSearchResult) => void;
+  onRemoveCollection: (shopifyCollectionId: number) => void;
   setError: (e: ClassifiedError) => void;
 }) {
-  const [excludedProducts, setExcludedProducts] = useState<ShopifyProductListItem[]>([]);
+  const [baseProducts, setBaseProducts] = useState<ShopifyProductListItem[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [productPickerOpen, setProductPickerOpen] = useState(false);
 
-  const loadProducts = useCallback(() => {
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refreshToken is a deliberate refetch trigger (bumps after a successful Save), not referenced in the body
+  useEffect(() => {
     setLoadingProducts(true);
     apiFetch<ProductListResponse>('/v1/shopify/products?excluded=true&pageSize=100')
-      .then((res) => setExcludedProducts(res.items))
+      .then((res) => setBaseProducts(res.items))
       .catch((err) => setError(classifyError(err)))
       .finally(() => setLoadingProducts(false));
-  }, [setError]);
+  }, [refreshToken, setError]);
 
-  useEffect(() => {
-    loadProducts();
-  }, [loadProducts]);
-
-  async function unexclude(shopifyProductId: number) {
-    try {
-      await apiFetch(`/v1/shopify/products/${shopifyProductId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ excluded: false }),
-      });
-      setToastMessage('Removed from exclusions.');
-      loadProducts();
-      onChanged();
-    } catch (err) {
-      setError(classifyError(err));
-    }
-  }
+  const excludedProducts = useMemo(
+    () => mergeById(baseProducts, (i) => i.shopifyProductId, productDraft),
+    [baseProducts, productDraft],
+  );
 
   const editable = isTabEditable(mode, 'exclusion');
 
@@ -567,13 +565,16 @@ function ExclusionPanel({
                   <Text as="span" fontWeight="semibold">
                     {item.title}
                   </Text>
+                  {productDraft.actions.get(item.shopifyProductId) === 'add' && (
+                    <Badge tone="info">Pending</Badge>
+                  )}
                 </InlineStack>
               </IndexTable.Cell>
               <IndexTable.Cell>
                 <Button
                   size="slim"
                   disabled={!editable}
-                  onClick={() => unexclude(item.shopifyProductId)}
+                  onClick={() => onRemoveProduct(item.shopifyProductId)}
                 >
                   Remove
                 </Button>
@@ -588,7 +589,10 @@ function ExclusionPanel({
         editable={editable}
         addLabel="Exclude collections"
         emptyHeading="No excluded collections"
-        onChanged={onChanged}
+        refreshToken={refreshToken}
+        draft={collectionDraft}
+        onAdd={onAddCollection}
+        onRemove={onRemoveCollection}
         setError={setError}
       />
 
@@ -599,18 +603,9 @@ function ExclusionPanel({
           actionLabel="Exclude"
           onClose={() => setProductPickerOpen(false)}
           setError={setError}
-          onPicked={async (shopifyProductId) => {
-            try {
-              await apiFetch(`/v1/shopify/products/${shopifyProductId}`, {
-                method: 'PATCH',
-                body: JSON.stringify({ excluded: true }),
-              });
-              setProductPickerOpen(false);
-              loadProducts();
-              onChanged();
-            } catch (err) {
-              setError(classifyError(err));
-            }
+          onPicked={(item) => {
+            onAddProduct(item);
+            setProductPickerOpen(false);
           }}
         />
       )}
@@ -701,6 +696,21 @@ export default function ManagePage() {
   const [selectedTab, setSelectedTab] = useState(0);
   const [failedModalOpen, setFailedModalOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // null = untouched this session — the effective mode is summary.mode.
+  const [draftMode, setDraftMode] = useState<'global' | 'selective' | null>(null);
+  const [enabledCollections, setEnabledCollections] =
+    useState<DraftList<CollectionRow>>(emptyDraftList);
+  const [excludedCollections, setExcludedCollections] =
+    useState<DraftList<CollectionRow>>(emptyDraftList);
+  const [individualProducts, setIndividualProducts] =
+    useState<DraftList<ShopifyProductListItem>>(emptyDraftList);
+  const [excludedProducts, setExcludedProducts] =
+    useState<DraftList<ShopifyProductListItem>>(emptyDraftList);
+  // Bumped after a successful save so every panel re-fetches its base list —
+  // the draft entries that just got cleared are now real server rows.
+  const [refreshToken, setRefreshToken] = useState(0);
 
   const loadSummary = useCallback(() => {
     apiFetch<ActivationSummary>('/v1/shopify/activation')
@@ -712,10 +722,28 @@ export default function ManagePage() {
     loadSummary();
   }, [loadSummary]);
 
-  // Unlike Dashboard's syncProducts, this never auto-switches activation mode
-  // to global — this page already exposes that toggle directly, so silently
-  // flipping it out from under a merchant who deliberately chose selective
-  // mode would undo their own setting.
+  const isDirty =
+    (draftMode !== null && draftMode !== summary?.mode) ||
+    enabledCollections.actions.size > 0 ||
+    excludedCollections.actions.size > 0 ||
+    individualProducts.actions.size > 0 ||
+    excludedProducts.actions.size > 0;
+
+  // Standing infrastructure in lib/navGuard.ts for exactly this: block
+  // programmatic in-app navigation (nav menu, dev sidebar) while there are
+  // unsaved changes, same as leaving any other unsaved form in this app.
+  useEffect(() => {
+    setNavGuard(
+      isDirty ? () => window.confirm('You have unsaved changes. Leave without saving?') : null,
+    );
+    return () => setNavGuard(null);
+  }, [isDirty]);
+
+  // Sync now already reconciles deletions as of the products-resync backstop
+  // (products.sync.ts) — every full sync, not just the hourly scheduled one,
+  // marks any product Shopify no longer returns as deleted. Nothing extra to
+  // wire up here: this button already enqueues a 'full' sync task, which is
+  // the same path.
   async function syncProducts() {
     setSyncing(true);
     setError(null);
@@ -723,6 +751,7 @@ export default function ManagePage() {
       await apiFetch('/v1/shopify/products/sync', { method: 'POST' });
       setToastMessage('Products synced from Shopify.');
       loadSummary();
+      setRefreshToken((t) => t + 1);
     } catch (err) {
       setError(classifyError(err));
     } finally {
@@ -730,11 +759,10 @@ export default function ManagePage() {
     }
   }
 
-  const toggleGlobalMode = useCallback(
-    async (checked: boolean) => {
+  const stageMode = useCallback(
+    (checked: boolean) => {
       const nextMode = checked ? 'global' : 'selective';
-      const previous = summary;
-      setSummary((s) => (s ? { ...s, mode: nextMode } : s));
+      setDraftMode(nextMode);
       // Turning global mode on locks the Collections and Individual Products
       // tabs (isTabEditable) — sitting on one of those now shows a dimmed,
       // inert view for a setting that no longer applies. Jump to Exclusion,
@@ -746,23 +774,151 @@ export default function ManagePage() {
       ) {
         setSelectedTab(TABS.findIndex((t) => t.id === 'exclusion'));
       }
+    },
+    [selectedTab],
+  );
+
+  function discardChanges() {
+    setDraftMode(null);
+    setEnabledCollections(emptyDraftList());
+    setExcludedCollections(emptyDraftList());
+    setIndividualProducts(emptyDraftList());
+    setExcludedProducts(emptyDraftList());
+  }
+
+  async function saveCollectionList(
+    basePath: string,
+    list: DraftList<CollectionRow>,
+    setList: (d: DraftList<CollectionRow>) => void,
+    failLabel: string,
+    failures: string[],
+  ) {
+    const { toAdd, toRemove } = diffActions(list.actions);
+    const stillActions = new Map<number, PendingAction>();
+    const stillMeta = new Map<number, CollectionRow>();
+
+    if (toAdd.length > 0) {
+      try {
+        await apiFetch(basePath, {
+          method: 'POST',
+          body: JSON.stringify({ shopifyCollectionIds: toAdd }),
+        });
+      } catch {
+        for (const id of toAdd) {
+          stillActions.set(id, 'add');
+          const meta = list.meta.get(id);
+          if (meta) stillMeta.set(id, meta);
+        }
+        failures.push(failLabel);
+      }
+    }
+    const removeResults = await Promise.allSettled(
+      toRemove.map((id) => apiFetch(`${basePath}/${id}`, { method: 'DELETE' })),
+    );
+    removeResults.forEach((r, i) => {
+      if (r.status === 'rejected') {
+        stillActions.set(toRemove[i], 'remove');
+        failures.push(failLabel);
+      }
+    });
+    setList({ actions: stillActions, meta: stillMeta });
+  }
+
+  async function saveProductList(
+    fieldName: 'enabled' | 'excluded',
+    list: DraftList<ShopifyProductListItem>,
+    setList: (d: DraftList<ShopifyProductListItem>) => void,
+    failLabel: string,
+    failures: string[],
+  ) {
+    const entries = [...list.actions];
+    const results = await Promise.allSettled(
+      entries.map(([id, action]) =>
+        apiFetch(`/v1/shopify/products/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ [fieldName]: action === 'add' }),
+        }),
+      ),
+    );
+    const stillActions = new Map<number, PendingAction>();
+    const stillMeta = new Map<number, ShopifyProductListItem>();
+    results.forEach((r, i) => {
+      if (r.status === 'rejected') {
+        const [id, action] = entries[i];
+        stillActions.set(id, action);
+        const meta = list.meta.get(id);
+        if (meta) stillMeta.set(id, meta);
+        failures.push(failLabel);
+      }
+    });
+    setList({ actions: stillActions, meta: stillMeta });
+  }
+
+  async function saveChanges() {
+    setSaving(true);
+    setError(null);
+    const failures: string[] = [];
+
+    if (draftMode !== null && draftMode !== summary?.mode) {
       try {
         await apiFetch('/v1/shopify/activation/mode', {
           method: 'PATCH',
-          body: JSON.stringify({ mode: nextMode }),
+          body: JSON.stringify({ mode: draftMode }),
         });
-        setToastMessage(
-          nextMode === 'global'
-            ? 'Try-On enabled on all products.'
-            : 'Switched to selective activation.',
-        );
-      } catch (err) {
-        setSummary(previous);
-        setError(classifyError(err));
+        setDraftMode(null);
+      } catch {
+        failures.push('activation mode');
       }
-    },
-    [summary, selectedTab],
-  );
+    }
+
+    await Promise.all([
+      saveCollectionList(
+        '/v1/shopify/activation/collections',
+        enabledCollections,
+        setEnabledCollections,
+        'enabled collections',
+        failures,
+      ),
+      saveCollectionList(
+        '/v1/shopify/activation/exclusions/collections',
+        excludedCollections,
+        setExcludedCollections,
+        'excluded collections',
+        failures,
+      ),
+      saveProductList(
+        'enabled',
+        individualProducts,
+        setIndividualProducts,
+        'individually enabled products',
+        failures,
+      ),
+      saveProductList(
+        'excluded',
+        excludedProducts,
+        setExcludedProducts,
+        'excluded products',
+        failures,
+      ),
+    ]);
+
+    loadSummary();
+    setRefreshToken((t) => t + 1);
+    setSaving(false);
+
+    if (failures.length > 0) {
+      const unique = [...new Set(failures)];
+      setError(
+        classifyError(
+          new Error(
+            `Some changes couldn't be saved (${unique.join(', ')}). They're still pending — try Save again.`,
+          ),
+        ),
+      );
+    } else {
+      setToastMessage('Changes saved.');
+    }
+  }
 
   if (!summary) {
     return (
@@ -774,7 +930,7 @@ export default function ManagePage() {
     );
   }
 
-  const mode = summary.mode;
+  const mode = draftMode ?? summary.mode;
   const activeTabId = TABS[selectedTab].id;
 
   return (
@@ -783,6 +939,13 @@ export default function ManagePage() {
       subtitle="Control which products offer Try-On."
       primaryAction={{ content: 'Sync products', onAction: syncProducts, loading: syncing }}
     >
+      {isDirty && (
+        <ContextualSaveBar
+          message="Unsaved changes"
+          saveAction={{ content: 'Save', onAction: saveChanges, loading: saving }}
+          discardAction={{ content: 'Discard', onAction: discardChanges, disabled: saving }}
+        />
+      )}
       <BlockStack gap="400">
         <ErrorBanner error={error} onRetry={loadSummary} onDismiss={() => setError(null)} />
 
@@ -791,11 +954,11 @@ export default function ManagePage() {
             <Checkbox
               label="Enable Try-On on all products (except exclusions)"
               checked={mode === 'global'}
-              onChange={toggleGlobalMode}
+              onChange={stageMode}
             />
             <Text as="p" tone="subdued">
               When on, every synced product offers Try-On unless it — or a collection it belongs to
-              — is excluded below.
+              — is excluded below. Click Save above to apply.
             </Text>
           </BlockStack>
         </Card>
@@ -903,7 +1066,24 @@ export default function ManagePage() {
                     editable={isTabEditable(mode, 'collections')}
                     addLabel="Add collections"
                     emptyHeading="No enabled collections"
-                    onChanged={loadSummary}
+                    refreshToken={refreshToken}
+                    draft={enabledCollections}
+                    onAdd={(result) =>
+                      setEnabledCollections((d) => {
+                        const actions = new Map(d.actions).set(result.shopifyCollectionId, 'add');
+                        const meta = new Map(d.meta).set(result.shopifyCollectionId, {
+                          ...result,
+                          productCount: null,
+                        });
+                        return { actions, meta };
+                      })
+                    }
+                    onRemove={(id) =>
+                      setEnabledCollections((d) => ({
+                        actions: new Map(d.actions).set(id, 'remove'),
+                        meta: d.meta,
+                      }))
+                    }
                     setError={setError}
                   />
                 </DisabledTabView>
@@ -912,8 +1092,20 @@ export default function ManagePage() {
                 <DisabledTabView disabled={!isTabEditable(mode, 'individual')}>
                   <IndividualProductsPanel
                     editable={isTabEditable(mode, 'individual')}
-                    onChanged={loadSummary}
-                    setToastMessage={setToastMessage}
+                    refreshToken={refreshToken}
+                    draft={individualProducts}
+                    onAdd={(item) =>
+                      setIndividualProducts((d) => ({
+                        actions: new Map(d.actions).set(item.shopifyProductId, 'add'),
+                        meta: new Map(d.meta).set(item.shopifyProductId, item),
+                      }))
+                    }
+                    onRemove={(id) =>
+                      setIndividualProducts((d) => ({
+                        actions: new Map(d.actions).set(id, 'remove'),
+                        meta: d.meta,
+                      }))
+                    }
                     setError={setError}
                   />
                 </DisabledTabView>
@@ -921,8 +1113,37 @@ export default function ManagePage() {
               {activeTabId === 'exclusion' && (
                 <ExclusionPanel
                   mode={mode}
-                  onChanged={loadSummary}
-                  setToastMessage={setToastMessage}
+                  refreshToken={refreshToken}
+                  productDraft={excludedProducts}
+                  collectionDraft={excludedCollections}
+                  onAddProduct={(item) =>
+                    setExcludedProducts((d) => ({
+                      actions: new Map(d.actions).set(item.shopifyProductId, 'add'),
+                      meta: new Map(d.meta).set(item.shopifyProductId, item),
+                    }))
+                  }
+                  onRemoveProduct={(id) =>
+                    setExcludedProducts((d) => ({
+                      actions: new Map(d.actions).set(id, 'remove'),
+                      meta: d.meta,
+                    }))
+                  }
+                  onAddCollection={(result) =>
+                    setExcludedCollections((d) => {
+                      const actions = new Map(d.actions).set(result.shopifyCollectionId, 'add');
+                      const meta = new Map(d.meta).set(result.shopifyCollectionId, {
+                        ...result,
+                        productCount: null,
+                      });
+                      return { actions, meta };
+                    })
+                  }
+                  onRemoveCollection={(id) =>
+                    setExcludedCollections((d) => ({
+                      actions: new Map(d.actions).set(id, 'remove'),
+                      meta: d.meta,
+                    }))
+                  }
                   setError={setError}
                 />
               )}
