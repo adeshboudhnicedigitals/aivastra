@@ -543,8 +543,19 @@ export const UpdateWorkflowBody = z.object({
   // Prompt has no length cap — these are often a full original prompt plus
   // added corrective clauses, which can run well past a short user-hint's
   // length; reason is a short label shown verbatim in the reason picker.
+  // `instruction` overrides the same reason-prompt node's separate
+  // `instruction` input (see TextEncodeQwenImageEditPlusPro's `instruction`
+  // widget in regen.json) — same "blank = no override, rerun the workflow's
+  // own baked-in instruction" convention as `prompt`. Optional/defaulted so
+  // existing rows saved before this field existed still parse.
   regenerationReasonPrompts: z
-    .array(z.object({ reason: z.string().min(1).max(100), prompt: z.string() }))
+    .array(
+      z.object({
+        reason: z.string().min(1).max(100),
+        prompt: z.string(),
+        instruction: z.string().default(''),
+      }),
+    )
     .max(50)
     .optional(),
   // Same TEXT vs node-id-column distinction as above, for two_stage's own stage-1
@@ -581,12 +592,16 @@ export const UpdateWorkflowBody = z.object({
 // workflow. Blank prompts mean "no override yet"; an admin fills them in
 // later from the workflow's edit screen. Existing pre-this-feature workflows
 // were backfilled once via migration 0178_seed_default_regen_reasons.
-export const DEFAULT_REGENERATION_REASON_PROMPTS: { reason: string; prompt: string }[] = [
-  { reason: 'Multiple body parts', prompt: '' },
-  { reason: 'Nudity', prompt: '' },
-  { reason: 'Draping issue', prompt: '' },
-  { reason: 'Additional assets', prompt: '' },
-  { reason: 'Texture issue', prompt: '' },
+export const DEFAULT_REGENERATION_REASON_PROMPTS: {
+  reason: string;
+  prompt: string;
+  instruction: string;
+}[] = [
+  { reason: 'Multiple body parts', prompt: '', instruction: '' },
+  { reason: 'Nudity', prompt: '', instruction: '' },
+  { reason: 'Draping issue', prompt: '', instruction: '' },
+  { reason: 'Additional assets', prompt: '', instruction: '' },
+  { reason: 'Texture issue', prompt: '', instruction: '' },
 ];
 
 export const ReassignWorkflowBody = z.object({

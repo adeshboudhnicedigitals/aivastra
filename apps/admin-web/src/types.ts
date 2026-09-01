@@ -93,7 +93,7 @@ export interface WorkflowOption {
   poseCount: number;
   defaultFacePhasePrompt: string;
   defaultGarmentPhasePrompt: string;
-  regenerationReasonPrompts: { reason: string; prompt: string }[];
+  regenerationReasonPrompts: { reason: string; prompt: string; instruction: string }[];
   facePhasePromptNode: string | null;
   // two_stage only — stage 1's own prompt pair (stage 2's reuses the fields above)
   stage1PositivePromptNode: string | null;
