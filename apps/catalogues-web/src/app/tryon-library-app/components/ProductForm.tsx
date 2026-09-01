@@ -19,6 +19,7 @@ export function ProductForm({
   initialData,
   supportsTwoInputMannequin = false,
   supportsTwoInputDirectTryon = false,
+  requiresMannequinStep = false,
   onSaved,
   onCancel,
 }: {
@@ -30,6 +31,9 @@ export function ProductForm({
   // and every existing caller predates this prop.
   supportsTwoInputMannequin?: boolean;
   supportsTwoInputDirectTryon?: boolean;
+  // True only for garment types on the mannequin (saree) pipeline — gates whether the
+  // Catalogue/Flat Image toggle shows at all. See ProductModal.tsx for the sibling.
+  requiresMannequinStep?: boolean;
   onSaved: () => void;
   onCancel: () => void;
 }) {
@@ -245,11 +249,12 @@ export function ProductForm({
           </div>
         ) : (
           <>
-            {/* Flat Image's AI-generate step isn't needed for two-input (body+pallu)
-                products — see ProductModal.tsx for the sibling implementation this
-                mirrors — so it's hidden (not removed) for two-input-capable
-                subcategories; Catalogue Image (direct upload) only. */}
-            {!supportsTwoInputMannequin && (
+            {/* Flat Image (AI-generate) mode only applies to the mannequin (saree)
+                pipeline — every other garment type uses the flat photo directly for
+                try-on, so the toggle is hidden and Catalogue Image (direct upload) is
+                the only mode. Within the saree pipeline, two-input (body+pallu)
+                subcategories also hide it — see ProductModal.tsx for the sibling. */}
+            {requiresMannequinStep && !supportsTwoInputMannequin && (
               <div
                 style={{
                   display: 'flex',

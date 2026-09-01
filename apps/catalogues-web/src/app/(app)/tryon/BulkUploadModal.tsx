@@ -30,11 +30,18 @@ interface BulkUploadModalProps {
   onClose: () => void;
   onSaved: () => void;
   subcategoryId: string | null;
+  requiresMannequinStep: boolean;
 }
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
-export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkUploadModalProps) {
+export function BulkUploadModal({
+  open,
+  onClose,
+  onSaved,
+  subcategoryId,
+  requiresMannequinStep,
+}: BulkUploadModalProps) {
   const [items, setItems] = useState<QueueItem[]>([]);
   const [imageMode, setImageMode] = useState<'catalogue' | 'flat'>('catalogue');
   const [isDragging, setIsDragging] = useState(false);
@@ -382,55 +389,59 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
           </button>
         </div>
 
-        {/* Mode toggle */}
-        <div
-          style={{
-            display: 'flex',
-            borderRadius: 8,
-            border: `1px solid ${C.border2}`,
-            overflow: 'hidden',
-            background: C.white,
-            flexShrink: 0,
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => setImageMode('catalogue')}
-            disabled={busy || items.length > 0}
+        {/* Mode toggle — Flat Images (AI-generate) only applies to the mannequin (saree)
+            pipeline; every other garment type uses the flat photo directly for try-on,
+            so the toggle is hidden and Catalogue Images (direct upload) is the only mode. */}
+        {requiresMannequinStep && (
+          <div
             style={{
-              flex: 1,
-              padding: '12px 16px',
-              border: 'none',
-              background: imageMode === 'catalogue' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
-              color: imageMode === 'catalogue' ? C.pink : C.text,
-              fontWeight: imageMode === 'catalogue' ? 600 : 500,
-              fontSize: 14,
-              cursor: busy || items.length > 0 ? 'not-allowed' : 'pointer',
-              transition: 'all 0.15s ease',
-              borderRight: `1px solid ${C.border2}`,
+              display: 'flex',
+              borderRadius: 8,
+              border: `1px solid ${C.border2}`,
+              overflow: 'hidden',
+              background: C.white,
+              flexShrink: 0,
             }}
           >
-            Catalogue Images
-          </button>
-          <button
-            type="button"
-            onClick={() => setImageMode('flat')}
-            disabled={busy || items.length > 0}
-            style={{
-              flex: 1,
-              padding: '12px 16px',
-              border: 'none',
-              background: imageMode === 'flat' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
-              color: imageMode === 'flat' ? C.pink : C.text,
-              fontWeight: imageMode === 'flat' ? 600 : 500,
-              fontSize: 14,
-              cursor: busy || items.length > 0 ? 'not-allowed' : 'pointer',
-              transition: 'all 0.15s ease',
-            }}
-          >
-            Flat Images
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => setImageMode('catalogue')}
+              disabled={busy || items.length > 0}
+              style={{
+                flex: 1,
+                padding: '12px 16px',
+                border: 'none',
+                background: imageMode === 'catalogue' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
+                color: imageMode === 'catalogue' ? C.pink : C.text,
+                fontWeight: imageMode === 'catalogue' ? 600 : 500,
+                fontSize: 14,
+                cursor: busy || items.length > 0 ? 'not-allowed' : 'pointer',
+                transition: 'all 0.15s ease',
+                borderRight: `1px solid ${C.border2}`,
+              }}
+            >
+              Catalogue Images
+            </button>
+            <button
+              type="button"
+              onClick={() => setImageMode('flat')}
+              disabled={busy || items.length > 0}
+              style={{
+                flex: 1,
+                padding: '12px 16px',
+                border: 'none',
+                background: imageMode === 'flat' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
+                color: imageMode === 'flat' ? C.pink : C.text,
+                fontWeight: imageMode === 'flat' ? 600 : 500,
+                fontSize: 14,
+                cursor: busy || items.length > 0 ? 'not-allowed' : 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              Flat Images
+            </button>
+          </div>
+        )}
 
         {/* Dropzone */}
         <div
