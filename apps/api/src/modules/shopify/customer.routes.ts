@@ -618,6 +618,57 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
     },
   );
 
+  // The theme block always renders the button/modal markup — Liquid has no
+  // access to our Postgres activation state, only Shopify's own data and shop
+  // metafields, and we don't sync per-product metafields. So tryon-widget.js
+  // calls this on load and hides the whole widget when the answer is false,
+  // rather than the button rendering unconditionally and only soft-declining
+  // at submit time (which is all that gated it before this route existed).
+  // No rate limit here (unlike presign/preview/jobs above): it's a cheap
+  // read-only lookup fired once per storefront product-page view, and those
+  // three share one 60/min-per-store bucket that a per-page-load check would
+  // blow through immediately on any moderately busy store.
+  registerProxied(
+    app,
+    'get',
+    '/products/:shopifyProductId/enabled',
+    { preHandler: app.requireShopifyStoreKey },
+    async (req) => {
+      const storeId = req.shopifyStoreId as string;
+      const store = req.shopifyStoreRow as typeof schema.shopifyStores.$inferSelect;
+      const { shopifyProductId } = req.params as { shopifyProductId: string };
+      const productId = Number(shopifyProductId);
+      if (!Number.isInteger(productId)) {
+        throw new AppError('BAD_REQUEST', 400, 'invalid product id');
+      }
+
+      const [garment] = await app.db
+        .select({
+          enabled: schema.shopifyProductGarments.enabled,
+          excluded: schema.shopifyProductGarments.excluded,
+        })
+        .from(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, storeId),
+            eq(schema.shopifyProductGarments.shopifyProductId, productId),
+          ),
+        )
+        .limit(1);
+
+      // Not-yet-synced products have no individual/exclusion state of their
+      // own yet — fall through to whatever mode + collection membership say,
+      // same as resolveEffectiveEnabled does for a garment that exists.
+      const enabled = await resolveEffectiveEnabled(app, store, {
+        shopifyProductId: productId,
+        enabled: garment?.enabled ?? false,
+        excluded: garment?.excluded ?? false,
+      });
+
+      return { enabled };
+    },
+  );
+
   app.get(
     '/v1/shopify/customer/jobs/:id/events',
     { preHandler: app.requireShopifyStoreKey },
