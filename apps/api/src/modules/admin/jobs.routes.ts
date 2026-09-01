@@ -11,6 +11,7 @@ import { adminStreamHandler } from '../jobs/sse.js';
 import { releaseStoreDailySlot } from '../shopify/limits.js';
 import { recordAudit } from './audit.js';
 import { requireAdmin, requirePermission } from './guard.js';
+import { jobDurationSecondsSql } from './job-duration.js';
 import { jobTypeSql } from './job-type.js';
 import {
   describeJobsExportFilters,
@@ -44,6 +45,10 @@ const JobsQuery = z.object({
   // navigate here with via router state and must keep working unchanged.
   createdFrom: z.string().optional(),
   createdTo: z.string().optional(),
+  // Generation duration range (completedAt - startedAt), in whole seconds —
+  // the admin UI accepts minutes or seconds and converts to seconds client-side.
+  durationMinSec: z.coerce.number().min(0).optional(),
+  durationMaxSec: z.coerce.number().min(0).optional(),
 });
 
 const DELETE_ASSETS_TARGETS = ['result', 'person'] as const;
@@ -161,8 +166,19 @@ export async function adminJobsRoutes(app: FastifyInstance) {
     const query =
       // biome-ignore lint/suspicious/noExplicitAny: Fastify typed-provider workaround
       req.query as any;
-    const { page, pageSize, status, search, date, jobType, workerId, createdFrom, createdTo } =
-      query;
+    const {
+      page,
+      pageSize,
+      status,
+      search,
+      date,
+      jobType,
+      workerId,
+      createdFrom,
+      createdTo,
+      durationMinSec,
+      durationMaxSec,
+    } = query;
 
     const conditions: ReturnType<typeof eq>[] = [];
     if (status) conditions.push(eq(schema.jobs.status, status));
@@ -186,6 +202,16 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         DATE_ONLY.test(createdTo) ? `${createdTo}T23:59:59.999Z` : createdTo,
       );
       conditions.push(lte(schema.jobs.createdAt, toInclusive));
+    }
+    if (durationMinSec != null) {
+      conditions.push(
+        sql`${jobDurationSecondsSql()} >= ${durationMinSec}` as ReturnType<typeof eq>,
+      );
+    }
+    if (durationMaxSec != null) {
+      conditions.push(
+        sql`${jobDurationSecondsSql()} <= ${durationMaxSec}` as ReturnType<typeof eq>,
+      );
     }
     if (search) {
       conditions.push(
