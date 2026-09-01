@@ -97,10 +97,12 @@ export const XIcon = ({ size = 16, color = 'currentColor' }: { size?: number; co
 );
 // Fixed brand colors (red badge, white triangle) — deliberately not `currentColor`,
 // so it doesn't recolor with surrounding text/theme like the rest of this file's icons.
-export const YoutubeIcon = ({ size = 16 }: { size?: number }) => (
-  <svg aria-hidden="true" width={size} height={(size * 14) / 20} viewBox="0 0 24 24" fill="none">
-    <rect x="2" y="5" width="20" height="14" rx="4" fill="#FF0000" />
-    <path d="M10 9l6 3-6 3V9z" fill="#FFFFFF" />
+// viewBox matches the real YouTube mark's ~1.4:1 aspect ratio rather than a square,
+// which is what made the first pass read as an arbitrary rounded rectangle.
+export const YoutubeIcon = ({ size = 18 }: { size?: number }) => (
+  <svg aria-hidden="true" width={size} height={(size * 20) / 28} viewBox="0 0 28 20" fill="none">
+    <rect width="28" height="20" rx="6" fill="#FF0000" />
+    <path d="M11.5 5.8v8.4L19 10 11.5 5.8z" fill="#FFFFFF" />
   </svg>
 );
 export const DownloadIcon = ({ size = 24 }: { size?: number }) => (

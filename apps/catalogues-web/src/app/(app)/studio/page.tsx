@@ -2246,7 +2246,7 @@ export default function StudioPage(): React.ReactElement {
                           cursor: 'pointer',
                         }}
                       >
-                        <YoutubeIcon size={16} />
+                        <YoutubeIcon size={18} />
                         Watch Demo Video
                       </button>
                     )
