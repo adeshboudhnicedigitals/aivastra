@@ -161,12 +161,6 @@ export const SystemConfigBody = z.object({
               autorefillCredits: z.number().int().positive().max(1_000_000),
             })
             .partial(),
-          pack_50: z
-            .object({
-              credits: z.number().int().positive().max(1_000_000),
-              autorefillCredits: z.number().int().positive().max(1_000_000),
-            })
-            .partial(),
           pack_100: z
             .object({
               credits: z.number().int().positive().max(1_000_000),
