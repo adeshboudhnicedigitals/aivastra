@@ -368,6 +368,7 @@ export function EditGarmentTypeModal({
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [instructionFile, setInstructionFile] = useState<File | null>(null);
   const [removeInstructionImage, setRemoveInstructionImage] = useState(false);
+  const [tutorialVideoUrl, setTutorialVideoUrl] = useState(garmentType.tutorialVideoUrl ?? '');
   const [saving, setSaving] = useState(false);
   const [categories, setCategories] = useState<CatalogCategory[]>([]);
 
@@ -405,7 +406,8 @@ export function EditGarmentTypeModal({
     sareeStep2WorkflowTemplateId !== (garmentType.sareeStep2WorkflowTemplateId ?? '') ||
     mannequinTwoInputWorkflowTemplateId !==
       (garmentType.mannequinTwoInputWorkflowTemplateId ?? '') ||
-    twoInputTryonWorkflowTemplateId !== (garmentType.twoInputTryonWorkflowTemplateId ?? '');
+    twoInputTryonWorkflowTemplateId !== (garmentType.twoInputTryonWorkflowTemplateId ?? '') ||
+    tutorialVideoUrl !== (garmentType.tutorialVideoUrl ?? '');
 
   const save = async () => {
     setSaving(true);
@@ -483,6 +485,9 @@ export function EditGarmentTypeModal({
       }
       if (twoInputTryonWorkflowTemplateId !== (garmentType.twoInputTryonWorkflowTemplateId ?? '')) {
         patchBody.twoInputTryonWorkflowTemplateId = twoInputTryonWorkflowTemplateId || null;
+      }
+      if (tutorialVideoUrl !== (garmentType.tutorialVideoUrl ?? '')) {
+        patchBody.tutorialVideoUrl = tutorialVideoUrl.trim() || null;
       }
 
       if (Object.keys(patchBody).length > 0) {
@@ -769,24 +774,40 @@ export function EditGarmentTypeModal({
         {
           title: 'Instruction Image',
           children: (
-            <UploadBox
-              label="instruction image"
-              hint="Shown to users as an upload guide for this garment type."
-              previewUrl={instructionPreview}
-              onPick={(f) => {
-                setInstructionFile(f);
-                setRemoveInstructionImage(false);
-              }}
-              onRemove={
-                instructionPreview
-                  ? () => {
-                      setInstructionFile(null);
-                      setRemoveInstructionImage(true);
-                    }
-                  : undefined
-              }
-              disabled={saving}
-            />
+            <>
+              <UploadBox
+                label="instruction image"
+                hint="Shown to users as an upload guide for this garment type."
+                previewUrl={instructionPreview}
+                onPick={(f) => {
+                  setInstructionFile(f);
+                  setRemoveInstructionImage(false);
+                }}
+                onRemove={
+                  instructionPreview
+                    ? () => {
+                        setInstructionFile(null);
+                        setRemoveInstructionImage(true);
+                      }
+                    : undefined
+                }
+                disabled={saving}
+              />
+              <div className="field">
+                <label>Tutorial Video (YouTube link)</label>
+                <input
+                  className="input"
+                  placeholder="https://youtu.be/…"
+                  value={tutorialVideoUrl}
+                  disabled={saving}
+                  onChange={(e) => setTutorialVideoUrl(e.target.value)}
+                />
+                <span className="hint">
+                  Shown to users as a "Watch Tutorial" link above the do's/don'ts image. Leave blank
+                  to hide it.
+                </span>
+              </div>
+            </>
           ),
         },
       ]}

@@ -56,6 +56,7 @@ export interface GarmentType {
   thumbnailUrl?: string | null;
   instructionImageKey?: string | null;
   instructionImageUrl?: string | null;
+  tutorialVideoUrl?: string | null;
   isActive: boolean;
   sortOrder: number;
   requiresLowerUpload: boolean;
