@@ -803,6 +803,7 @@ ${commonCss()}
 .thumb-placeholder {
   width: 100%; max-width: 110px; aspect-ratio: 3/4; border-radius: var(--r); border: 1px dashed var(--border);
   background: var(--surface-2); display: grid; place-items: center; color: var(--muted-2); font-size: 18px;
+  margin: 0 auto;
 }
 .thumb-dl {
   position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 50%;
