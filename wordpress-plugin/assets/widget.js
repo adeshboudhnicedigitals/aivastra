@@ -7,10 +7,74 @@
   const REUSE_STORAGE_KEY = 'aivastra_tryon_last_photo';
   const REUSE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
+  // Merchant branding from Settings -> Aivastra Try-On -> Widget appearance
+  // (Aivastra_Widget_Customization). Every field is nullable/optional —
+  // absent means "use the hardcoded default below", never a forced re-save
+  // for merchants who haven't opened that form.
+  const customization = config.customization || {};
+
+  const ESCAPE_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+  // Everything else injected via innerHTML in this file is either a
+  // hardcoded literal or an attribute-context URL — this is the only path
+  // for merchant-entered text, so it is the only place that needs escaping.
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, (ch) => ESCAPE_MAP[ch]);
+  }
+
+  const CLIENT_ID_STORAGE_KEY = 'aivastra_tryon_client_id';
+
+  // A private-browsing session or blocked storage returns null here — events
+  // still send, just without a stable id, so that shopper won't count toward
+  // "unique shoppers" (an undercount, never a crash).
+  function getOrCreateClientId() {
+    try {
+      let id = localStorage.getItem(CLIENT_ID_STORAGE_KEY);
+      if (!id) {
+        id =
+          typeof crypto !== 'undefined' && crypto.randomUUID
+            ? crypto.randomUUID()
+            : `c-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        localStorage.setItem(CLIENT_ID_STORAGE_KEY, id);
+      }
+      return id;
+    } catch {
+      return null;
+    }
+  }
+
+  const widgetClientId = getOrCreateClientId();
+  const isMobileDevice = /Mobi|Android/i.test(navigator.userAgent);
+
+  /**
+   * ADVISORY ONLY, client-reported and forgeable — see the comment on
+   * POST /v1/dev/widget-event in apps/api/src/modules/dev/routes.ts. Never
+   * awaited and its failure is always swallowed: a blocked ad-blocker or a
+   * flaky network must never affect the shopper's actual try-on flow.
+   */
+  function sendWidgetEvent(type) {
+    const payload = { type, device: isMobileDevice ? 'mobile' : 'desktop' };
+    if (widgetClientId) payload.clientId = widgetClientId;
+    if (config.productId) payload.productId = config.productId;
+    fetch(`${config.apiBase}/v1/dev/widget-event`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.widgetKey}` },
+      body: JSON.stringify(payload),
+      keepalive: true,
+    }).catch(() => {});
+  }
+
   let currentImage = config.productImage;
   const button = document.getElementById('aivastra-tryon-button');
   const modal = document.getElementById('aivastra-tryon-modal');
   if (!button || !modal) return;
+
+  // Set once at init on the root element rather than inline on the button:
+  // the modal is reparented to <body> below (a sibling of the button, not a
+  // descendant), so a custom property set on the button could never cascade
+  // into it. :root is the common ancestor of both.
+  if (customization.accentColor) {
+    document.documentElement.style.setProperty('--aivastra-accent', customization.accentColor);
+  }
 
   // Themes routinely give a section ancestor `transform`, `filter`, or
   // `contain` (sticky headers, gallery/parallax sections), which makes that
@@ -477,6 +541,18 @@
   }
 
   function renderCompleted(imageUrl) {
+    sendWidgetEvent('result_view');
+    // false is a deliberate merchant choice (the toggle was unchecked and
+    // saved); anything else — including absent, for a merchant who has never
+    // opened the appearance form — defaults to shown, matching the Liquid
+    // block's `unless cfg.behavior.addToCart == false`.
+    const showAddToCart = customization.addToCart !== false;
+    const showShare = customization.share !== false;
+    const addToCartLabel = customization.addToCartLabel
+      ? escapeHtml(customization.addToCartLabel)
+      : 'Add to Cart';
+    const shareLabel = customization.shareLabel ? escapeHtml(customization.shareLabel) : 'Share';
+
     renderModal({
       badge: 'Ready',
       title: 'Your Try-On is Ready',
@@ -493,22 +569,26 @@
         '</button>' +
         '</div>' +
         '<div class="aivastra-button-stack">' +
-        '<button type="button" class="aivastra-primary-btn" data-action="add-to-cart">' +
-        ICONS.cart +
-        '<span>Add to Cart</span>' +
-        '</button>' +
-        '<p class="aivastra-inline-status" data-role="cart-status" hidden></p>' +
+        (showAddToCart
+          ? '<button type="button" class="aivastra-primary-btn" data-action="add-to-cart">' +
+            ICONS.cart +
+            `<span>${addToCartLabel}</span>` +
+            '</button>' +
+            '<p class="aivastra-inline-status" data-role="cart-status" hidden></p>'
+          : '') +
         '<div class="aivastra-button-row">' +
         '<button type="button" class="aivastra-secondary-btn" data-action="download">' +
         ICONS.download +
         '<span>Download</span>' +
         '</button>' +
-        '<button type="button" class="aivastra-secondary-btn" data-action="share">' +
-        ICONS.share +
-        '<span>Share</span>' +
-        '</button>' +
+        (showShare
+          ? '<button type="button" class="aivastra-secondary-btn" data-action="share">' +
+            ICONS.share +
+            `<span>${shareLabel}</span>` +
+            '</button>'
+          : '') +
         '</div>' +
-        '<p class="aivastra-inline-status" data-role="share-flash" hidden></p>' +
+        (showShare ? '<p class="aivastra-inline-status" data-role="share-flash" hidden></p>' : '') +
         '<button type="button" class="aivastra-secondary-btn" data-action="upload">' +
         ICONS.refresh +
         '<span>Try Another Photo</span>' +
@@ -682,11 +762,16 @@
   function renderUploadStep(initialPreviewUrl = null) {
     const hasPreview = Boolean(initialPreviewUrl);
     let selectedDataUrl = initialPreviewUrl;
+    const ctaLabel = customization.ctaLabel
+      ? escapeHtml(customization.ctaLabel)
+      : 'Generate Try-On';
 
     renderModal({
       badge: 'AI Fitting Room',
-      title: 'Virtual Try-On',
-      subtitle: 'Upload a full-body photo to see how it looks on you.',
+      title: customization.heading ? escapeHtml(customization.heading) : 'Virtual Try-On',
+      subtitle: customization.subheading
+        ? escapeHtml(customization.subheading)
+        : 'Upload a full-body photo to see how it looks on you.',
       bodyHtml:
         '<div class="aivastra-upload-section">' +
         `<label class="aivastra-upload-dropzone" id="aivastra-upload-dropzone" ${hasPreview ? 'hidden' : ''}>` +
@@ -717,7 +802,7 @@
         '<div class="aivastra-button-stack">' +
         `<button type="button" class="aivastra-primary-btn" id="aivastra-tryon-generate" ${hasPreview ? '' : 'disabled'}>` +
         ICONS.sparkle +
-        '<span>Generate Try-On</span>' +
+        `<span>${ctaLabel}</span>` +
         '</button>' +
         '</div>',
     });
@@ -732,6 +817,7 @@
         renderUnavailable('That photo is too large. Please choose one under 25MB.');
         return;
       }
+      sendWidgetEvent('upload');
       const reader = new FileReader();
       reader.onload = () => {
         selectedDataUrl = reader.result;
@@ -777,7 +863,10 @@
     }
   }
 
-  button.addEventListener('click', () => enterUploadStep());
+  button.addEventListener('click', () => {
+    sendWidgetEvent('button_click');
+    enterUploadStep();
+  });
 
   modal.addEventListener('click', (event) => {
     if (event.target === modal) {
@@ -808,6 +897,7 @@
       return;
     }
     if (event.target.closest('[data-action="add-to-cart"]')) {
+      sendWidgetEvent('add_to_cart');
       addToCart(
         event.target.closest('[data-action="add-to-cart"]'),
         modal.querySelector('[data-role="cart-status"]'),
@@ -820,6 +910,7 @@
       return;
     }
     if (event.target.closest('[data-action="share"]')) {
+      sendWidgetEvent('share');
       const resultImg = modal.querySelector('.aivastra-result-image');
       if (resultImg) shareResult(resultImg.src, modal.querySelector('[data-role="share-flash"]'));
       return;

@@ -312,14 +312,44 @@ reprovision (`apps/api/src/plugins/shopify-auth.ts`).
 which the SPA turns into one-click reauth that repairs the row. Rotating that key
 puts every store into that state at once.
 
-**Billing is Shopify App Pricing** (formerly Managed Pricing): Shopify hosts the
-plan picker and sends **no webhooks**, so subscription state must be polled via
-Admin GraphQL `currentAppInstallation.activeSubscriptions` — by the hourly
-scheduler and by the post-approval redirect. Grants are idempotent on
-`external_ref`. Two traps: the Admin API exposes only the plan's display `name`
-(no handle), so the strings in `billing-plans.ts` must match Partner Dashboard
-exactly; and `AppSubscription.test` is `true` for every development store, gated
-by `SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS` (off in production).
+**Billing is prepaid credit packs, not a subscription plan.** There is no
+hosted plan picker and no recurring plan. `CREDIT_PACKS` (`packs.ts`) defines
+the packs; buying one is a **one-time charge** via Admin GraphQL
+`appPurchaseOneTimeCreate`, and the merchant is returned through
+`/v1/shopify/billing/purchase/return` → `/confirm` (`purchase.ts`,
+`purchase.routes.ts`). Credits land in `shopify_store_credits` /
+`shopify_credit_ledger`, never in a user's balance.
+
+**Auto-refill is the only recurring piece**, and it is opt-in: enrolment
+creates a usage-based `appSubscriptionCreate` with a merchant-approved monthly
+ceiling, and each refill is an `appUsageRecordCreate` against that
+subscription's *line item* (`autorefill.ts`, `autorefill-client.ts`, routes
+under `/v1/shopify/billing/autorefill`). The store's `autorefill_*` columns are
+the only subscription state on `shopify_stores`.
+
+Shopify **does** send billing webhooks here, and they are registered per-shop:
+`app_purchases_one_time/update`, `app_subscriptions/update`, and
+`app_subscriptions/approaching_capped_amount` (`webhook.routes.ts`). The charge
+id is the only field trusted off the payload — status is always re-fetched
+live, exactly as the confirm route does.
+
+Traps worth knowing:
+
+- Grants are idempotent on `external_ref` (`shopify_pack:{chargeId}`,
+  `shopify_autorefill:{recordId}`), which is what makes a replayed webhook and
+  the merchant's own confirm visit safe to race.
+- `observed.test` is `true` for every development store. Test charges still
+  grant — refusing outright once failed App Store review — but only on a real
+  partner development store and only up to `TEST_GRANT_LIMIT`, under the
+  distinct ledger reasons `SHOPIFY_PACK_TEST` / `SHOPIFY_AUTOREFILL_TEST`.
+  `SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS` lifts the bound; it is off in production.
+- `createUsageRecord` can **throw** rather than return a failure, leaving the
+  purchase row `PENDING`. The partial unique index
+  `shopify_credit_purchases_one_pending_autorefill` then blocks every later
+  refill for that store, so `autorefill-reconciler.ts` replays the charge under
+  its original idempotency key to settle it. Never resolve such a row by
+  marking it `FAILED`: a later refill would mint a new idempotency key and
+  could double-charge a charge Shopify had actually accepted.
 
 **Theme extension** (`apps/shopify-extension/extensions/tryon-theme-extension`)
 ships one **app block** (`blocks/tryon-button.liquid`, `target: "section"`) that
@@ -384,7 +414,7 @@ catalogs, `params` JSONB), `job_outputs`, `job_events`.
 **Merchant & widget** — `merchants` (one per user; no balance of its own —
 merchant spend draws from `user_credits`), `merchant_payments`, `kiosk_devices`.
 
-**Shopify** — `shopify_stores` (encrypted tokens, plan/subscription state),
+**Shopify** — `shopify_stores` (encrypted tokens, auto-refill subscription state),
 `shopify_store_credits` + `shopify_credit_ledger` (stores bill themselves; not
 the linked user), `shopify_shoppers`, `shopify_catalog_jobs`,
 `shopify_widget_events` (append-only storefront interaction log, advisory only —
@@ -420,8 +450,30 @@ template determines which inputs that pose supports.
 | `merchant/` | merchant self-serve (API key regen, webhook config, credits) |
 | `kiosk/` | `/v1/kiosk/*` — device-authed customer-facing tryon |
 | `support/`, `backgrounds/`, `dev/` | contact form; user-uploaded backgrounds; public API-key-authed developer API |
-| `shopify/` | install/token exchange, merchant `/me` + `/settings` + `/shoppers`, catalog generate/publish, widget-config + republish, onboarding (theme-editor deep link), product sync, customer job creation, billing confirm + scheduler, GDPR webhooks, `/customer/event`, `/analytics` |
+| `shopify/` | install/token exchange, merchant `/me` + `/settings` + `/shoppers`, catalog generate/publish, widget-config + republish, onboarding (theme-editor deep link), product sync, customer job creation, credit-pack purchase + auto-refill enrolment, GDPR + billing webhooks, `/customer/event`, `/analytics` |
 | `admin/` | full CRUD under `/admin/*` — users, credits, catalog, assets, jobs, workers, config, workflows, merchants, kiosk devices, saree + Shopify settings |
+
+### Background loops in the api process
+
+Started in `apps/api/src/main.ts` **after** `app.listen(...)` — not in
+`server.ts`, so they are invisible to anyone reading the route wiring alone,
+and they do not run in tests (which build the app via `buildTestApp`). Each is
+`setInterval` + a re-entrancy guard, and each exports its tick function so a
+test can drive one pass directly.
+
+| Loop | Interval | Purpose |
+|---|---|---|
+| `startSyncConsumer` | continuous | Redis `shopify:sync` stream → product/collection sync |
+| `startCollectionResyncScheduler` | 1h | re-syncs collection membership |
+| `startUploadSweeper` | 1h | deletes uploads orphaned >24h |
+| `startAlertScheduler` | 1h | low-store-credit merchant emails |
+| `startAutorefillReconciler` | 15m | settles auto-refill purchase rows stranded `PENDING` by a thrown charge |
+| `startRedactionRetryScheduler` | 30m | finishes GDPR erasures whose object deletes failed |
+| `startUserLowCreditAlertScheduler` | 1h | low-credit emails for platform users |
+
+The dispatcher runs its own, separately: the stuck-job sweeper and the
+`XPENDING` recovery pass (`apps/dispatcher/src/stream/`).
+
 
 ---
 
@@ -488,9 +540,12 @@ hangs on streaming responses.
 - `packages/db/src/index.ts` exports `* as schema` — never add a duplicate
   `schema` re-export. Import `@aivastra/db` as `workspace:*`, never by relative
   path into `packages/`.
-- Shopify credit grants are idempotent on `external_ref`, and the stored cycle
-  marker advances only when a grant was actually possible — otherwise an unbilled
-  cycle is silently marked seen and the merchant never receives those credits.
+- Shopify credit grants are idempotent on `external_ref` — that is what lets a
+  replayed billing webhook race the merchant's own confirm visit without
+  double-granting. A stranded `PENDING` auto-refill purchase is settled by
+  replaying its charge under the row's original idempotency key, never by
+  marking it `FAILED`: a later refill would mint a new key and could
+  double-charge one Shopify had actually accepted.
 - `shopify_widget_events` is advisory only. Never read it for a credit, limit, or
   authorization decision.
 - No schema or data changes against production. See "Production safety" above.
@@ -511,8 +566,7 @@ hangs on streaming responses.
 | `WORKER_API_KEY` | dispatcher |
 | `PIXVERSE_*`, `VIDEO_CONCURRENCY` | dispatcher (catalog video lane) |
 | `SHOPIFY_API_KEY` / `_SECRET` / `_APP_URL` / `_SCOPES` / `_TOKEN_ENC_KEY` | api |
-| `SHOPIFY_APP_HANDLE` + `VITE_SHOPIFY_APP_HANDLE` | builds the hosted plan-picker URL; the `VITE_` one is the functional half (build arg) |
-| `SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS` | api — grants credits for Shopify *test* charges. Accepts only the literal `'true'` (deliberately not `z.coerce.boolean()`, which turns `'false'` into `true`). Off in production |
+| `SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS` | api — lifts the `TEST_GRANT_LIMIT` bound on credits granted for Shopify *test* charges (development stores grant up to that bound regardless). Accepts only the literal `'true'` (deliberately not `z.coerce.boolean()`, which turns `'false'` into `true`). Off in production |
 | `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_BASE_PATH` | catalogues-web (build time) |
 | `VITE_API_BASE_URL`, `VITE_SHOPIFY_API_KEY`, `VITE_CHATBOT_URL` | SPAs (build time) |
 
@@ -530,7 +584,8 @@ self-hosted MinIO, not Cloudflare R2 — see Stack above.
 | Job creation (credit + enqueue) | `apps/api/src/modules/jobs/create.ts` |
 | Auth routes / service / plugin | `apps/api/src/modules/auth/routes.ts`, `service.ts`, `apps/api/src/plugins/auth.ts` |
 | Shopify session + provisioning | `apps/api/src/plugins/shopify-auth.ts`, `modules/shopify/token.ts` |
-| Shopify billing | `modules/shopify/billing.ts`, `billing-plans.ts`, `billing-scheduler.ts`, `subscription-client.ts` |
+| Shopify billing | `modules/shopify/packs.ts`, `purchase.ts`, `purchase.routes.ts` |
+| Shopify auto-refill | `modules/shopify/autorefill.ts`, `autorefill-client.ts`, `autorefill.routes.ts`, `autorefill-reconciler.ts` |
 | DB factory + schema re-export | `packages/db/src/index.ts` |
 | Shared Zod types | `packages/types/src/*.ts` |
 | Storage provider + keys | `packages/storage/src/r2.ts`, `keys.ts` |

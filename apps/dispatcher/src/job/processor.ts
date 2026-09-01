@@ -24,6 +24,7 @@ import {
 import { JobCancelledError, waitForCompletion } from '../comfyui/progress.js';
 import { loadEnv } from '../env.js';
 import { createVideoTask, pollVideoTask } from '../pixverse/client.js';
+import { releaseStoreCapSlot } from '../shopify/store-cap.js';
 import { setWorkerStatus } from '../worker/registry.js';
 import { selectWorker } from '../worker/selector.js';
 import { checkAndCleanupArchiveForJob } from '../workflow/drain-cleanup.js';
@@ -2385,6 +2386,7 @@ async function processShopifyJob(
       jobLog,
       startedAt,
       job.source,
+      params.storeCapKey,
     );
     return;
   }
@@ -2407,6 +2409,7 @@ async function processShopifyJob(
       jobLog,
       startedAt,
       job.source,
+      params.storeCapKey,
     );
     return;
   }
@@ -2427,6 +2430,7 @@ async function processShopifyJob(
       jobLog,
       startedAt,
       job.source,
+      params.storeCapKey,
     );
     return;
   }
@@ -2453,6 +2457,7 @@ async function processShopifyJob(
         jobLog,
         startedAt,
         job.source,
+        params.storeCapKey,
       );
     } else {
       jobLog.warn('no idle shopify worker — re-enqueuing with backoff');
@@ -2595,6 +2600,7 @@ async function processShopifyJob(
       jobLog,
       startedAt,
       job.source,
+      params.storeCapKey,
     );
   }
 }
@@ -2685,6 +2691,8 @@ async function markShopifyFailed(
   log: Logger,
   startedAt: number,
   jobType: string | null,
+  /** `job_inputs.params.storeCapKey`, pinned by the API at creation. */
+  storeCapKey?: unknown,
 ): Promise<void> {
   const { db, redis, pub } = cfg;
 
@@ -2721,6 +2729,10 @@ async function markShopifyFailed(
   }
 
   await transitionJob(db, pub, jobId, '', 'FAILED', { errorCode, shopifyStoreId }, log);
+  // The credits are back; give the merchant's daily-cap slot back too. A
+  // try-on that failed did not run, and the cap counts try-ons that ran.
+  // Idempotent per jobId, so a redelivered message cannot inflate the cap.
+  await releaseStoreCapSlot(redis, storeCapKey, jobId, log);
   await redis.xack(stream, 'dispatcher-cg', messageId);
   recordJobOutcome('failed', startedAt, jobType);
   log.warn({ jobId, shopifyStoreId, errorCode }, 'shopify job FAILED — store credits refunded');

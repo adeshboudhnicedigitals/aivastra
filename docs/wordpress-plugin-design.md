@@ -275,20 +275,17 @@ shows this matters.
   supersedes the earlier "per-product-category enable toggle" placeholder —
   the real need turned out to be *routing*, not an on/off switch).
 
-  **Do not persist the full key.** It's used exactly once, at save time, for a
-  `GET /v1/dev/me` connection check (company name, credit balance), then
-  discarded — only the resulting snapshot (`companyName`, `creditsAsOf`
-  timestamp) and the widget key are stored in `wp_options`. WordPress installs
-  vary enormously in hosting security, and a plugin holding a full
-  account-level credential at rest indefinitely is a materially larger blast
-  radius than the widget key that's already accepted as page-source-exposed —
-  the entire reason for the scope split (§4.2) is to keep the powerful
-  credential out of the least-trusted environment; discarding it after use
-  extends that same reasoning to storage, not just transport. Cost: the
-  displayed credit balance goes stale until the merchant re-enters the full
-  key via an explicit "Refresh connection" action — an acceptable trade for
-  not keeping a standing full-account secret on infrastructure this platform
-  doesn't control.
+  **The full key is now persisted, encrypted at rest.** Originally discarded
+  after the one-time `GET /v1/dev/me` connection check, it is stored
+  (AES-256-CBC, key derived from `wp_salt('auth')`) starting with the
+  in-plugin credit-purchase feature — see
+  `docs/superpowers/specs/2026-08-31-wordpress-plugin-credit-purchase-design.md`.
+  Creating a Razorpay order is a money-committing, account-identifying action
+  that needs full-scope authority, and persisting the key lets "Buy" be a
+  single click in wp-admin, matching Shopify's embedded purchase flow. This
+  is a deliberate reversal of the original discard-after-use decision: a
+  compromised WordPress install now exposes a standing full-account
+  credential, not just the already-page-source-exposed widget key.
 - **Key lifecycle / error handling** — the storefront widget and the admin
   settings page must handle an invalid key distinctly, since a widget key can
   be revoked out from under a live storefront at any time:

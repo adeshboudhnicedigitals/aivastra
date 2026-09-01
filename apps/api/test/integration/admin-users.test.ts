@@ -79,6 +79,48 @@ describe('admin-users', () => {
     );
   });
 
+  it('excludeFree=true returns only paid-plan users, omits free-tier users', async () => {
+    const { token: adminToken, userId: adminId } = await createVerifiedUserToken(
+      app,
+      'admin_paid_filter@x.com',
+    );
+    await app.db.insert(schema.adminUsers).values({ userId: adminId, role: 'SUPER_ADMIN' });
+
+    await app.db.insert(schema.creditPlans).values({
+      slug: 'paid_filter_plan',
+      name: 'Paid Filter Plan',
+      credits: 100,
+      basePaise: 10000,
+    });
+    const { userId: paidId } = await createVerifiedUserToken(app, 'paid_filter_target@x.com');
+    await app.db
+      .update(schema.users)
+      .set({ tier: 'paid_filter_plan' })
+      .where(eq(schema.users.id, paidId));
+
+    const { userId: freeId } = await createVerifiedUserToken(app, 'free_filter_target@x.com');
+
+    const excludeFreeRes = await app.inject({
+      method: 'GET',
+      url: '/admin/users?pageSize=100&excludeFree=true',
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    expect(excludeFreeRes.statusCode).toBe(200);
+    const excludeFreeIds = excludeFreeRes.json().items.map((item: { id: string }) => item.id);
+    expect(excludeFreeIds).toContain(paidId);
+    expect(excludeFreeIds).not.toContain(freeId);
+
+    const defaultRes = await app.inject({
+      method: 'GET',
+      url: '/admin/users?pageSize=100',
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    expect(defaultRes.statusCode).toBe(200);
+    const defaultIds = defaultRes.json().items.map((item: { id: string }) => item.id);
+    expect(defaultIds).toContain(paidId);
+    expect(defaultIds).toContain(freeId);
+  });
+
   it('performs full PII erasure on single delete for regular user', async () => {
     const { token: superAdminToken, userId: superAdminUserId } = await createVerifiedUserToken(
       app,

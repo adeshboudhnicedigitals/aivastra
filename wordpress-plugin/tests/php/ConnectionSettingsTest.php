@@ -37,24 +37,33 @@ final class ConnectionSettingsTest extends TestCase
         $this->assertNull($settings->get_widget_key());
     }
 
-    public function test_set_widget_key_and_snapshot_persists_both_in_one_write(): void
+    public function test_set_widget_key_and_snapshot_persists_the_encrypted_full_key_too(): void
     {
+        Functions\when('wp_salt')->justReturn('a-fixed-test-salt-value-not-a-real-secret');
+
         Functions\expect('update_option')
             ->once()
-            ->with('aivastra_tryon_settings', [
-                'widget_key' => 'sk_live_new',
-                'company_name' => 'Acme Co',
-                'credits' => 500,
-                'credits_as_of' => '2026-08-26 00:00:00',
-            ])
+            ->with(
+                'aivastra_tryon_settings',
+                Mockery::on(function ($saved) {
+                    return $saved['widget_key'] === 'sk_live_new'
+                        && $saved['company_name'] === 'Acme Co'
+                        && $saved['credits'] === 500
+                        && $saved['credits_as_of'] === '2026-08-26 00:00:00'
+                        && Aivastra_Crypto::decrypt($saved['full_key']) === 'sk_live_full_original';
+                })
+            )
             ->andReturn(true);
 
         $settings = new Aivastra_Connection_Settings();
-        $settings->set_widget_key_and_snapshot('sk_live_new', 'Acme Co', 500, '2026-08-26 00:00:00');
+        $settings->set_widget_key_and_snapshot(
+            'sk_live_new',
+            'sk_live_full_original',
+            'Acme Co',
+            500,
+            '2026-08-26 00:00:00'
+        );
 
-        // The assertion is the Functions\expect(...)->once()->with(...) above,
-        // verified by Monkey\tearDown() — this satisfies PHPUnit's "risky test"
-        // check, which otherwise flags a test with no explicit assertion.
         $this->addToAssertionCount(1);
     }
 
@@ -154,11 +163,67 @@ final class ConnectionSettingsTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
-    public function test_never_exposes_a_setter_for_the_full_key(): void
+    public function test_get_full_key_decrypts_the_stored_value(): void
     {
-        $methods = get_class_methods(Aivastra_Connection_Settings::class);
-        foreach ($methods as $method) {
-            $this->assertStringNotContainsStringIgnoringCase('full_key', $method);
-        }
+        Functions\when('wp_salt')->justReturn('a-fixed-test-salt-value-not-a-real-secret');
+        $encrypted = Aivastra_Crypto::encrypt('sk_live_full_original');
+
+        Functions\expect('get_option')
+            ->once()
+            ->with('aivastra_tryon_settings', [])
+            ->andReturn(['full_key' => $encrypted]);
+
+        $settings = new Aivastra_Connection_Settings();
+        $this->assertSame('sk_live_full_original', $settings->get_full_key());
+    }
+
+    public function test_get_full_key_returns_null_when_unset(): void
+    {
+        Functions\expect('get_option')->once()->andReturn([]);
+        $settings = new Aivastra_Connection_Settings();
+        $this->assertNull($settings->get_full_key());
+    }
+
+    public function test_get_widget_customization_returns_defaults_when_never_saved(): void
+    {
+        Functions\expect('get_option')->once()->andReturn([]);
+        $settings = new Aivastra_Connection_Settings();
+        $this->assertSame(Aivastra_Widget_Customization::defaults(), $settings->get_widget_customization());
+    }
+
+    public function test_get_widget_customization_merges_a_partial_stored_row_with_defaults(): void
+    {
+        Functions\expect('get_option')
+            ->once()
+            ->with('aivastra_tryon_settings', [])
+            ->andReturn(['widget_customization' => ['accentColor' => '#ff0000', 'share' => false]]);
+
+        $settings = new Aivastra_Connection_Settings();
+        $customization = $settings->get_widget_customization();
+
+        $this->assertSame('#ff0000', $customization['accentColor']);
+        $this->assertFalse($customization['share']);
+        $this->assertTrue($customization['addToCart']);
+        $this->assertNull($customization['heading']);
+    }
+
+    public function test_set_widget_customization_merges_into_the_existing_options_row(): void
+    {
+        Functions\expect('get_option')
+            ->once()
+            ->with('aivastra_tryon_settings', [])
+            ->andReturn(['widget_key' => 'sk_live_widget']);
+        Functions\expect('update_option')
+            ->once()
+            ->with('aivastra_tryon_settings', [
+                'widget_key' => 'sk_live_widget',
+                'widget_customization' => ['accentColor' => '#ff0000'],
+            ])
+            ->andReturn(true);
+
+        $settings = new Aivastra_Connection_Settings();
+        $settings->set_widget_customization(['accentColor' => '#ff0000']);
+
+        $this->addToAssertionCount(1);
     }
 }

@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { and, count, eq, gte, sql } from 'drizzle-orm';
+import { and, count, eq, gte, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { computeRunway } from './runway.js';
 import { windowStart } from './store-day.js';
@@ -96,6 +96,12 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
         and(
           eq(schema.jobs.shopifyStoreId, store.id),
           gte(schema.jobs.createdAt, windowStart(store.ianaTimezone, 'day')),
+          // Excluded so this number keeps matching the ceiling it is displayed
+          // against ("42 / 250"): a failed try-on is refunded and gives its cap
+          // slot back, so counting it here would show a merchant creeping
+          // toward a limit they are not actually approaching. Same rule the
+          // per-shopper cap already applies in limits.ts.
+          ne(schema.jobs.status, 'FAILED'),
         ),
       );
 

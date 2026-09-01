@@ -2,6 +2,27 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-08-31 — WordPress plugin in-admin plan browsing & credit purchase (v0.5.0)
+
+Implemented the full 8-task plan from `docs/superpowers/plans/2026-08-31-wordpress-plugin-credit-purchase.md` based on spec `docs/superpowers/specs/2026-08-31-wordpress-plugin-credit-purchase-design.md`.
+
+**Done**
+- **Task 1 (refactor)**: Extracted shared `apps/api/src/modules/merchant/razorpay.ts` (`GST_RATE`, `createRazorpayOrder`, `grantMerchantCredits`, `verifyRazorpaySignature`), refactored `payments.routes.ts`.
+- **Task 2 (API)**: Added `GET /v1/dev/plans`, `POST /v1/dev/payments/orders` (requires full API key), and `POST /v1/dev/payments/verify` (accepts widget key) to `apps/api/src/modules/dev/routes.ts` with schemas in `@aivastra/types`.
+- **Task 3 (Plugin crypto)**: Implemented `Aivastra_Crypto` (`wordpress-plugin/includes/class-crypto.php`) with AES-256-CBC encryption using `wp_salt('auth')`.
+- **Task 4 (Key persistence)**: Updated `Aivastra_Connection_Settings` to encrypt/persist full API key alongside widget key and snapshot; updated `Aivastra_Connection_Service::connect()`.
+- **Task 5 (Service methods)**: Added `list_plans()`, `create_order()`, and `verify_payment()` to `Aivastra_Connection_Service`.
+- **Task 6 (AJAX & checkout)**: Created `Aivastra_Checkout_Ajax` (`includes/class-checkout-ajax.php`) and `checkout.js` (`admin/assets/checkout.js`) with Razorpay checkout integration.
+- **Task 7 (Admin UI)**: Added "Plans & Credits" card with plan tiles, Buy form handler (`admin_post_aivastra_tryon_buy`), transient stashing, and modal trigger in `admin/class-settings-page.php` and `settings-page.css`.
+- **Task 8 (Docs & version)**: Updated `docs/wordpress-plugin-design.md` §4.3 and bumped plugin version to `0.5.0` in `wordpress-plugin/aivastra-tryon.php`.
+
+**Verification**
+- Full API unit test suite: 75 files passed (627 tests).
+- API integration tests: 11 tests passed in `test/integration/dev-payments.test.ts` and `test/integration/merchant-payments.test.ts`.
+- Full WordPress PHPUnit suite: 47 tests passed (69 assertions).
+- TypeScript check: clean (`pnpm --filter @aivastra/api typecheck`).
+
+
 ## 2026-08-30 — Thermal collapse is fleet-wide, not a GPU3 defect; `cloudflared` claim retracted
 
 GPU work now lives in `aivastra-gpu`; this entry records only what affects **this** repo.

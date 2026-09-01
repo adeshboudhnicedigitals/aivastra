@@ -14,6 +14,9 @@ import { apiErrorMessage, apiFetch, apiFetchBlob } from '../lib/data';
 import type { CreditLedgerEntry, CreditPlan, User } from '../types';
 
 const PAGE_SIZE = 20;
+// Sentinel planFilter value meaning "any plan except free" — sent to the API
+// as excludeFree=true rather than tier=<slug>, since it isn't a real plan slug.
+const PAID_PLAN_FILTER = '__paid__';
 
 const EMPTY_GRANT_MERCHANT_FORM = {
   companyName: '',
@@ -148,7 +151,8 @@ export default function UsersPage({ onNav, toast }: Props) {
       if (showBanned) params.set('showBanned', 'true');
       if (exportFrom) params.set('createdFrom', exportFrom);
       if (exportTo) params.set('createdTo', exportTo);
-      if (planFilter) params.set('tier', planFilter);
+      if (planFilter === PAID_PLAN_FILTER) params.set('excludeFree', 'true');
+      else if (planFilter) params.set('tier', planFilter);
       const data = await apiFetch<{ items: User[]; total: number }>(`/admin/users?${params}`);
       setUsers(data.items);
       setTotal(data.total);
@@ -193,7 +197,8 @@ export default function UsersPage({ onNav, toast }: Props) {
       if (showBanned) params.set('showBanned', 'true');
       if (exportFrom) params.set('createdFrom', exportFrom);
       if (exportTo) params.set('createdTo', exportTo);
-      if (planFilter) params.set('tier', planFilter);
+      if (planFilter === PAID_PLAN_FILTER) params.set('excludeFree', 'true');
+      else if (planFilter) params.set('tier', planFilter);
       const blob = await apiFetchBlob(`/admin/users/export.${format}?${params}`);
       const href = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
@@ -1690,6 +1695,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                     style={{ width: '100%', height: 32, fontSize: 12.5 }}
                   >
                     <option value="">All plans</option>
+                    <option value={PAID_PLAN_FILTER}>Any paid plan</option>
                     {tierOptions.map((slug) => (
                       <option key={slug} value={slug} style={{ textTransform: 'capitalize' }}>
                         {slug}
@@ -1888,7 +1894,10 @@ export default function UsersPage({ onNav, toast }: Props) {
             )}
             {planFilter && (
               <span className="filter-chip">
-                Plan: <strong style={{ textTransform: 'capitalize' }}>{planFilter}</strong>
+                Plan:{' '}
+                <strong style={{ textTransform: 'capitalize' }}>
+                  {planFilter === PAID_PLAN_FILTER ? 'Any paid plan' : planFilter}
+                </strong>
                 <button
                   type="button"
                   className="filter-chip-remove"
