@@ -2233,9 +2233,9 @@ export default function StudioPage(): React.ReactElement {
                           background: 'none',
                           border: 'none',
                           padding: 0,
-                          color: C.pink,
-                          fontSize: 12,
-                          fontWeight: 600,
+                          color: C.text,
+                          fontSize: hasMultipleUploadBoxes ? 11 : 12,
+                          fontWeight: 500,
                           cursor: 'pointer',
                         }}
                       >
