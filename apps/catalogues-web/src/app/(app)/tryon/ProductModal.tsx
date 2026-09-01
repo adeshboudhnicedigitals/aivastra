@@ -437,7 +437,7 @@ export function ProductModal({
                         </div>
                         <div style={{ fontSize: 13, color: C.mid, fontWeight: 500 }}>
                           {requiresCataloguePallu
-                            ? 'Click to upload the body (front) photo'
+                            ? 'Click to upload the body photo'
                             : 'Click to upload product image'}
                         </div>
                       </>
@@ -508,9 +508,7 @@ export function ProductModal({
                         <UploadIcon size={28} />
                       </div>
                       <div style={{ fontSize: 13, color: C.mid, fontWeight: 500 }}>
-                        {requiresPallu
-                          ? 'Upload the body (front) photo'
-                          : 'Upload flat garment photo'}
+                        {requiresPallu ? 'Upload the body photo' : 'Upload flat garment photo'}
                       </div>
                     </div>
                   ) : (
