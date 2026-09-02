@@ -10,7 +10,7 @@ import { refundStoreAndMarkCancelled } from '../credits/shopify-ledger.js';
 import { adminStreamHandler } from '../jobs/sse.js';
 import { releaseStoreDailySlot } from '../shopify/limits.js';
 import { recordAudit } from './audit.js';
-import { requireAdmin, requirePermission } from './guard.js';
+import { requirePermission } from './guard.js';
 import { jobDurationSecondsSql } from './job-duration.js';
 import { jobTypeSql } from './job-type.js';
 import {
@@ -624,7 +624,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
   app.post(
     '/admin/jobs/:id/delete-assets',
     {
-      preHandler: requireAdmin(['SUPER_ADMIN']),
+      preHandler: requirePermission('jobs.delete_assets'),
       schema: { params: z.object({ id: z.string().uuid() }), body: DeleteAssetsBody },
     },
     async (req) => {
@@ -711,7 +711,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
             .where(eq(schema.jobInputs.jobId, id));
         }
         await recordAudit(tx, {
-          actor: { userId: req.userId, role: req.adminRole ?? 'SUPER_ADMIN' },
+          actor: { userId: req.userId, role: req.adminRole ?? '' },
           action: 'jobs.delete_assets',
           resourceType: 'job',
           resourceId: id,

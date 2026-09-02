@@ -36,7 +36,7 @@ type ActionRiskTier = 'destructive' | 'sensitive' | 'default';
 // Destructive: undoes or removes something. Sensitive: changes who can do what,
 // or moves credits/money. Everything else (create/patch/reassign/...) is routine.
 function actionRiskTier(action: string): ActionRiskTier {
-  if (/(\.|_)(delete|revoke|erase|ban)$/.test(action)) return 'destructive';
+  if (/(\.|_)(delete|delete_\w+|revoke|erase|ban)$/.test(action)) return 'destructive';
   if (/\.(update_role|drain|deduct)$/.test(action)) return 'sensitive';
   return 'default';
 }
@@ -217,6 +217,13 @@ function describeAction(log: AuditLogItem): string {
       return `Deleted catalogue template "${who}"`;
     case 'catalogue_template.update_looks':
       return `Updated the looks for catalogue template "${who}"`;
+    case 'jobs.delete_assets': {
+      const deleted = Array.isArray(after.deleted) ? (after.deleted as string[]) : [];
+      const jobRef = log.resourceId ? `#${log.resourceId.slice(0, 8)}` : 'a job';
+      return deleted.length > 0
+        ? `Deleted job assets (${deleted.join(', ')}) for job ${jobRef}`
+        : `Deleted job assets for job ${jobRef}`;
+    }
     case 'asset.restore':
       return 'Restored an asset from the recycle bin';
     case 'asset.permanent_delete':
@@ -337,12 +344,14 @@ const ACTION_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'catalogue_template.create', label: 'Catalogue template added' },
   { value: 'catalogue_template.update', label: 'Catalogue template updated' },
   { value: 'catalogue_template.delete', label: 'Catalogue template deleted' },
+  { value: 'jobs.delete_assets', label: 'Job assets deleted' },
   { value: 'asset.restore', label: 'Asset restored' },
   { value: 'asset.permanent_delete', label: 'Asset permanently deleted' },
   { value: 'asset.bulk_import', label: 'Assets bulk-imported' },
 ];
 
 const RESOURCE_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'job', label: 'Jobs' },
   { value: 'worker', label: 'Workers' },
   { value: 'workflow', label: 'Workflows' },
   { value: 'user', label: 'Users' },

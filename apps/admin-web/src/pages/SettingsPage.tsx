@@ -39,13 +39,17 @@ type SettingsSection =
   | 'system'
   | 'session';
 
-const SETTING_SECTIONS: { k: SettingsSection; label: string }[] = [
+// `perm` mirrors the permission each section's own backend routes already
+// require (e.g. GET /admin/credit-plans requires credit_plans.write) — a
+// section with no `perm` (Appearance, Notifications, Session) is available to
+// every admin role regardless of permissions.
+const SETTING_SECTIONS: { k: SettingsSection; label: string; perm?: string }[] = [
   { k: 'appearance', label: 'Appearance' },
   { k: 'notifications', label: 'Notifications' },
-  { k: 'credit-plans', label: 'Credit Plans' },
-  { k: 'signup-campaigns', label: 'Signup Campaigns' },
-  { k: 'roles-permissions', label: 'Roles & Permissions' },
-  { k: 'system', label: 'System' },
+  { k: 'credit-plans', label: 'Credit Plans', perm: 'credit_plans.write' },
+  { k: 'signup-campaigns', label: 'Signup Campaigns', perm: 'signup_campaigns.write' },
+  { k: 'roles-permissions', label: 'Roles & Permissions', perm: 'admin_users.manage' },
+  { k: 'system', label: 'System', perm: 'config.read' },
   { k: 'session', label: 'Session' },
 ];
 
@@ -236,9 +240,13 @@ function CampaignModal({
 }
 
 export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: Props) {
-  const { logout } = useAuth();
+  const { logout, hasPermission } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const section = (searchParams.get('s') as SettingsSection | null) ?? 'appearance';
+  const visibleSections = SETTING_SECTIONS.filter((s) => !s.perm || hasPermission(s.perm));
+  const requestedSection = (searchParams.get('s') as SettingsSection | null) ?? 'appearance';
+  const section = visibleSections.some((s) => s.k === requestedSection)
+    ? requestedSection
+    : 'appearance';
   const [creditSubTab, setCreditSubTab] = useState<'purchasable' | 'job-costs' | 'shopify'>(
     'purchasable',
   );
@@ -538,7 +546,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
       </div>
 
       <div className="tabs">
-        {SETTING_SECTIONS.map((s) => (
+        {visibleSections.map((s) => (
           <button
             key={s.k}
             className={`tab ${section === s.k ? 'active' : ''}`}
