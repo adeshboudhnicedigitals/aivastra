@@ -772,11 +772,11 @@ export function EditGarmentTypeModal({
           ),
         },
         {
-          title: 'Instruction Image',
+          title: 'Catalogue Instruction Image',
           children: (
             <>
               <UploadBox
-                label="instruction image"
+                label="catalogue instruction image"
                 hint="Shown to users as an upload guide for this garment type."
                 previewUrl={instructionPreview}
                 onPick={(f) => {
