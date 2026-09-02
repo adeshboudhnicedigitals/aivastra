@@ -77,6 +77,7 @@ import { paymentsRoutes } from './modules/payments/routes.js';
 import { posePresetsRoutes } from './modules/pose-presets/routes.js';
 import { resultsRoutes } from './modules/results/routes.js';
 import { shopifyCustomerRoutes } from './modules/shopify/customer.routes.js';
+import { shopifyFunnelRulesRoutes } from './modules/shopify/funnel-rules.routes.js';
 import { shopifyRoutes } from './modules/shopify/routes.js';
 import { supportRoutes } from './modules/support/routes.js';
 import { uploadsRoutes } from './modules/uploads/routes.js';
@@ -394,6 +395,7 @@ export async function buildServer(env: Env) {
   await app.register(devCatalogRoutes);
   await app.register(shopifyRoutes);
   await app.register(shopifyCustomerRoutes);
+  await app.register(shopifyFunnelRulesRoutes);
   await app.register(modelsRoutes);
   await app.register(adminAuditRoutes);
   await app.register(adminAuthRoutes);
