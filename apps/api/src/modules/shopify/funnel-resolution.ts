@@ -1,4 +1,6 @@
-import type { schema } from '@aivastra/db';
+import { schema } from '@aivastra/db';
+import { and, eq, isNull, or } from 'drizzle-orm';
+import type { FastifyInstance } from 'fastify';
 
 export type BasketSource = 'manual' | 'rule' | 'default';
 
@@ -147,4 +149,99 @@ export function resolveBasketFrom(
 
   const fallback = activeBasket(ruleSet, ruleSet.defaultBasketId);
   return fallback ? resolved(fallback, 'default') : null;
+}
+
+/**
+ * Loads every basket plus both rule tiers for one store, with this store's
+ * suppressions already removed from the global tier.
+ *
+ * Deliberately NOT cached. This is one small query per REQUEST (not per
+ * product) on a path that then runs a GPU job; a Redis cache would need
+ * invalidation fanned out to every store on each global-rule edit, for no
+ * measured gain. Callers listing many products call this once and then run
+ * resolveBasketFrom per row — that split is what keeps the list endpoints
+ * free of an N+1.
+ */
+export async function loadRuleSet(app: FastifyInstance, storeId: string): Promise<BasketRuleSet> {
+  const [basketRows, ruleRows] = await Promise.all([
+    app.db
+      .select({
+        id: schema.shopifyFunnelTemplates.id,
+        label: schema.shopifyFunnelTemplates.label,
+        workflowTemplateId: schema.shopifyFunnelTemplates.workflowTemplateId,
+        workflowTemplateVersion: schema.workflowTemplates.version,
+        isActive: schema.shopifyFunnelTemplates.isActive,
+        isDefault: schema.shopifyFunnelTemplates.isDefault,
+      })
+      .from(schema.shopifyFunnelTemplates)
+      .leftJoin(
+        schema.workflowTemplates,
+        eq(schema.workflowTemplates.id, schema.shopifyFunnelTemplates.workflowTemplateId),
+      ),
+    app.db
+      .select({
+        ruleId: schema.shopifyFunnelRules.id,
+        storeId: schema.shopifyFunnelRules.storeId,
+        basketId: schema.shopifyFunnelRules.funnelTemplateId,
+        priority: schema.shopifyFunnelRules.priority,
+        conditions: schema.shopifyFunnelRules.conditions,
+        suppressedAt: schema.shopifyStoreDisabledFunnelRules.createdAt,
+      })
+      .from(schema.shopifyFunnelRules)
+      .leftJoin(
+        schema.shopifyStoreDisabledFunnelRules,
+        and(
+          eq(schema.shopifyStoreDisabledFunnelRules.ruleId, schema.shopifyFunnelRules.id),
+          eq(schema.shopifyStoreDisabledFunnelRules.storeId, storeId),
+        ),
+      )
+      .where(
+        or(
+          eq(schema.shopifyFunnelRules.storeId, storeId),
+          isNull(schema.shopifyFunnelRules.storeId),
+        ),
+      ),
+  ]);
+
+  const baskets = new Map<string, BasketInfo>();
+  let defaultBasketId: string | null = null;
+  for (const row of basketRows) {
+    baskets.set(row.id, {
+      id: row.id,
+      label: row.label,
+      workflowTemplateId: row.workflowTemplateId,
+      workflowTemplateVersion: row.workflowTemplateVersion ?? null,
+      isActive: row.isActive,
+    });
+    if (row.isDefault) defaultBasketId = row.id;
+  }
+
+  const storeRules: BasketRule[] = [];
+  const globalRules: BasketRule[] = [];
+  for (const row of ruleRows) {
+    const rule: BasketRule = {
+      ruleId: row.ruleId,
+      basketId: row.basketId,
+      priority: row.priority,
+      conditions: row.conditions ?? [],
+    };
+    if (row.storeId) {
+      storeRules.push(rule);
+    } else if (!row.suppressedAt) {
+      // A global rule this store has switched off. Suppression is per-store,
+      // so it must be dropped here rather than anywhere shared.
+      globalRules.push(rule);
+    }
+  }
+
+  return { storeRules, globalRules, baskets, defaultBasketId };
+}
+
+/** Single-product convenience wrapper. Never use this inside a loop. */
+export async function resolveBasket(
+  app: FastifyInstance,
+  storeId: string,
+  target: BasketMatchTarget,
+): Promise<ResolvedBasket | null> {
+  return resolveBasketFrom(await loadRuleSet(app, storeId), target);
 }
