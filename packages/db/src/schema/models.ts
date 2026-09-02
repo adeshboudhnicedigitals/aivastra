@@ -106,6 +106,11 @@ export const garmentSubcategories = pgTable('garment_subcategories', {
   label: text('label').notNull(),
   thumbnailKey: text('thumbnail_key'),
   instructionImageKey: text('instruction_image_key'),
+  // Separate from instructionImageKey above: that one is Studio's do's/don'ts guide,
+  // this one is the reference photo shown when a merchant adds a product in the
+  // Try-On Library app (merchant/catalog.routes.ts's serializeSubcategory). Two
+  // distinct admin uploads because the two flows shoot the garment differently.
+  tryonLibraryInstructionImageKey: text('tryon_library_instruction_image_key'),
   // Admin-pasted YouTube link (any of the youtu.be/watch/embed forms extractYoutubeId
   // accepts) shown to users as a "Watch Tutorial" trigger above the do's/don'ts
   // instruction image in the studio wizard's garment-upload step. Null = hidden.

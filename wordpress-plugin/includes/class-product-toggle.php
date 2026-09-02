@@ -29,7 +29,7 @@ class Aivastra_Product_Toggle
     {
         add_meta_box(
             'aivastra_tryon_product_toggle',
-            'Aivastra Try-On',
+            'Ai Vastra Try-On',
             [self::class, 'render_meta_box'],
             'product',
             'side',

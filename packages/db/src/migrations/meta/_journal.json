@@ -1310,6 +1310,20 @@
       "when": 1788264818245,
       "tag": "0186_dry_jasper_sitwell",
       "breakpoints": true
+    },
+    {
+      "idx": 187,
+      "version": "7",
+      "when": 1788329703373,
+      "tag": "0187_useful_salo",
+      "breakpoints": true
+    },
+    {
+      "idx": 188,
+      "version": "7",
+      "when": 1788341148860,
+      "tag": "0188_jobs_delete_assets_permission",
+      "breakpoints": true
     }
   ]
 }
