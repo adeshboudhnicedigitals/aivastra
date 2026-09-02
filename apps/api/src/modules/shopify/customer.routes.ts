@@ -23,6 +23,7 @@ import { atomicDeductStore, refundStoreAndMarkFailed } from '../credits/shopify-
 import { resolveEffectiveEnabled } from './activation.js';
 import { runRefill } from './autorefill.js';
 import { mintAccountLinkCode } from './customer-auth.js';
+import { resolveBasket } from './funnel-resolution.js';
 import {
   checkShopperLimits,
   type LimitRefusal,
@@ -175,41 +176,6 @@ async function requireStoreHasCredits(
   if (!credits || credits.balance < jobCost) {
     throw new AppError('INSUFFICIENT_CREDITS', 402, 'insufficient credits');
   }
-}
-
-/**
- * The workflow every Shopify try-on runs. Resolved here, at creation, and pinned
- * onto job_inputs.params so the dispatcher never has to look it up again — and so
- * an admin promoting a different default mid-flight cannot change the workflow
- * under a job whose credits are already deducted.
- *
- * Returning null means no active default is configured at all, which is a system
- * misconfiguration rather than anything the merchant did. The caller refuses the
- * job before deducting credits: enqueueing would burn a credit and produce a
- * FAILED row with NO_WORKFLOW_CONFIGURED for something no merchant can fix.
- */
-async function resolveWorkflowTemplate(
-  app: FastifyInstance,
-): Promise<{ workflowTemplateId: string; version: number | null } | null> {
-  const [row] = await app.db
-    .select({
-      workflowTemplateId: schema.shopifyFunnelTemplates.workflowTemplateId,
-      version: schema.workflowTemplates.version,
-    })
-    .from(schema.shopifyFunnelTemplates)
-    .leftJoin(
-      schema.workflowTemplates,
-      eq(schema.workflowTemplates.id, schema.shopifyFunnelTemplates.workflowTemplateId),
-    )
-    .where(
-      and(
-        eq(schema.shopifyFunnelTemplates.isDefault, true),
-        eq(schema.shopifyFunnelTemplates.isActive, true),
-      ),
-    )
-    .limit(1);
-  if (!row?.workflowTemplateId) return null;
-  return { workflowTemplateId: row.workflowTemplateId, version: row.version };
 }
 
 /**
@@ -394,21 +360,21 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
           .send({ message: 'This product is not available for try-on right now.' });
       }
 
-      const resolvedWorkflow = await resolveWorkflowTemplate(app);
-      if (!resolvedWorkflow) {
-        // error, not warn: after the funnel removal this can only mean no active
-        // default template exists, which is ours to fix, not the merchant's. The
-        // shopper still sees the same soft message as a disabled product — no
-        // internal state leaks to the storefront.
+      const resolvedBasket = await resolveBasket(app, storeId, garment);
+      if (!resolvedBasket) {
+        // No basket resolved AND no active default exists — a system
+        // misconfiguration, not anything the merchant did. Refuse here, before
+        // the deduct: enqueueing would burn a credit and produce a FAILED row
+        // with NO_WORKFLOW_CONFIGURED that no merchant can fix.
         app.log.error(
           { storeId, shopifyProductId, garmentId: garment.id },
-          'shopify try-on blocked before enqueue: no active default funnel template is configured',
+          'shopify try-on blocked before enqueue: no basket resolved and no active default',
         );
         return reply
           .code(202)
           .send({ message: 'This product is not available for try-on right now.' });
       }
-      const workflowTemplateId = resolvedWorkflow.workflowTemplateId;
+      const workflowTemplateId = resolvedBasket.workflowTemplateId;
 
       // Deployed widget versions did not send clientId. They still receive the
       // store cap, while shopper-specific limits wait until an identity exists.
@@ -486,7 +452,7 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
               // than re-resolving — a default promoted mid-flight can't change the
               // workflow under a job whose credits are already deducted.
               workflowTemplateId,
-              dispatchTemplateVersion: resolvedWorkflow.version ?? null,
+              dispatchTemplateVersion: resolvedBasket.workflowTemplateVersion,
               // Same reasoning as workflowTemplateId: pinned at creation rather
               // than recomputed later. The dispatcher refunds this job's credits
               // if the generation fails, and has to give the store's daily-cap

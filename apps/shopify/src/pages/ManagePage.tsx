@@ -14,6 +14,7 @@ import {
   Modal,
   Page,
   Pagination,
+  Select,
   Tabs,
   Text,
   TextField,
@@ -64,6 +65,26 @@ const STATUS_TONE: Record<
   failed: 'critical',
   disabled: 'info',
   excluded: 'warning',
+};
+
+interface Basket {
+  id: string;
+  label: string;
+}
+
+type BasketSource = 'manual' | 'rule' | 'default';
+
+const BASKET_SOURCE_LABEL: Record<BasketSource, string> = {
+  manual: 'Pinned',
+  rule: 'Rule',
+  default: 'Default',
+};
+
+// Deliberately no tone for 'default' — it's the expected fallback, not
+// something that needs to stand out the way a merchant-set pin does.
+const BASKET_SOURCE_TONE: Partial<Record<BasketSource, 'success' | 'info'>> = {
+  manual: 'success',
+  rule: 'info',
 };
 
 interface ActivationSummary {
@@ -370,29 +391,71 @@ function IndividualProductsPanel({
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [baskets, setBaskets] = useState<Basket[]>([]);
+  // The product whose basket PATCH is currently in flight — disables just
+  // that row's controls rather than the whole table, since the change is
+  // immediate (not staged behind the Save bar like enabled/excluded).
+  const [basketBusyId, setBasketBusyId] = useState<number | null>(null);
+
+  // silent: true skips the loading spinner — used for the refetch after a
+  // basket PATCH, so one row's pin doesn't flash the whole table.
+  const loadProducts = useCallback(
+    (opts?: { silent?: boolean }) => {
+      if (!opts?.silent) setLoading(true);
+      const params = new URLSearchParams({
+        enabled: 'true',
+        page: String(page),
+        pageSize: String(PAGE_SIZE),
+        ...(query ? { q: query } : {}),
+      });
+      return apiFetch<ProductListResponse>(`/v1/shopify/products?${params}`)
+        .then((res) => {
+          setBaseItems(res.items);
+          setTotal(res.total);
+        })
+        .catch((err) => setError(classifyError(err)))
+        .finally(() => {
+          if (!opts?.silent) setLoading(false);
+        });
+    },
+    [page, query, setError],
+  );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: refreshToken is a deliberate refetch trigger (bumps after a successful Save), not referenced in the body
   useEffect(() => {
-    setLoading(true);
-    const params = new URLSearchParams({
-      enabled: 'true',
-      page: String(page),
-      pageSize: String(PAGE_SIZE),
-      ...(query ? { q: query } : {}),
-    });
-    apiFetch<ProductListResponse>(`/v1/shopify/products?${params}`)
-      .then((res) => {
-        setBaseItems(res.items);
-        setTotal(res.total);
-      })
-      .catch((err) => setError(classifyError(err)))
-      .finally(() => setLoading(false));
-  }, [page, query, refreshToken, setError]);
+    loadProducts();
+  }, [loadProducts, refreshToken]);
+
+  useEffect(() => {
+    apiFetch<{ items: Basket[] }>('/v1/shopify/baskets')
+      .then((res) => setBaskets(res.items))
+      .catch((err) => setError(classifyError(err)));
+  }, [setError]);
 
   const items = useMemo(
     () => mergeById(baseItems, (i) => i.shopifyProductId, draft),
     [baseItems, draft],
   );
+
+  // funnelTemplateId null resets to automatic routing (rule or default).
+  // No optimistic update: the effective source after a reset (rule vs.
+  // default) is decided server-side by funnel-resolution.ts, which the
+  // client doesn't replicate — a silent refetch is the only accurate way to
+  // show the real result.
+  async function updateBasket(shopifyProductId: number, funnelTemplateId: string | null) {
+    setBasketBusyId(shopifyProductId);
+    try {
+      await apiFetch(`/v1/shopify/products/${shopifyProductId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ funnelTemplateId }),
+      });
+      await loadProducts({ silent: true });
+    } catch (err) {
+      setError(classifyError(err));
+    } finally {
+      setBasketBusyId(null);
+    }
+  }
 
   return (
     <BlockStack gap="400">
@@ -417,12 +480,13 @@ function IndividualProductsPanel({
         loading={loading}
         itemCount={items.length}
         resourceName={{ singular: 'product', plural: 'products' }}
-        headings={[{ title: 'Product' }, { title: 'Status' }, { title: '' }]}
+        headings={[{ title: 'Product' }, { title: 'Status' }, { title: 'Basket' }, { title: '' }]}
         emptyState={<EmptyState heading="No individually enabled products" image="" />}
       >
         {items.map((item, index) => {
           const status = displayStatus(item);
           const pending = draft.actions.get(item.shopifyProductId) === 'add';
+          const basketBusy = basketBusyId === item.shopifyProductId;
           return (
             <IndexTable.Row
               id={String(item.shopifyProductId)}
@@ -449,6 +513,67 @@ function IndividualProductsPanel({
                     <Badge tone={STATUS_TONE[status]}>{STATUS_LABEL[status]}</Badge>
                   )}
                 </InlineStack>
+              </IndexTable.Cell>
+              <IndexTable.Cell>
+                {item.basket === null ? (
+                  <BlockStack gap="100">
+                    <Text as="span" tone="subdued">
+                      Unavailable
+                    </Text>
+                    {item.pinnedBasketId !== null && (
+                      <Text as="span" tone="subdued">
+                        Pinned basket unavailable, no fallback configured
+                      </Text>
+                    )}
+                    {item.pinnedBasketId !== null && (
+                      <Button
+                        size="slim"
+                        disabled={!editable || basketBusy}
+                        onClick={() => updateBasket(item.shopifyProductId, null)}
+                      >
+                        Reset to automatic
+                      </Button>
+                    )}
+                  </BlockStack>
+                ) : (
+                  <BlockStack gap="100">
+                    <InlineStack gap="200" blockAlign="center">
+                      <Text as="span">{item.basket.label}</Text>
+                      <Badge tone={BASKET_SOURCE_TONE[item.basket.source]}>
+                        {BASKET_SOURCE_LABEL[item.basket.source]}
+                      </Badge>
+                    </InlineStack>
+                    {/* A pin whose basket was deactivated falls through to a rule/default —
+                        source is no longer 'manual', so the badge above looks identical to a
+                        product that was never pinned. Surface the fallen-through pin so the
+                        merchant knows why this product isn't on the basket they set, and so
+                        "Reset to automatic" (below) has a reason to still be offered. */}
+                    {item.pinnedBasketId !== null && item.basket.source !== 'manual' && (
+                      <Text as="span" tone="subdued">
+                        Pinned basket unavailable, using {item.basket.label}
+                      </Text>
+                    )}
+                    <InlineStack gap="200" blockAlign="center">
+                      <Select
+                        label="Basket"
+                        labelHidden
+                        disabled={!editable || basketBusy || baskets.length === 0}
+                        options={baskets.map((b) => ({ value: b.id, label: b.label }))}
+                        value={item.basket.id}
+                        onChange={(value) => updateBasket(item.shopifyProductId, value)}
+                      />
+                      {item.pinnedBasketId !== null && (
+                        <Button
+                          size="slim"
+                          disabled={!editable || basketBusy}
+                          onClick={() => updateBasket(item.shopifyProductId, null)}
+                        >
+                          Reset to automatic
+                        </Button>
+                      )}
+                    </InlineStack>
+                  </BlockStack>
+                )}
               </IndexTable.Cell>
               <IndexTable.Cell>
                 <Button

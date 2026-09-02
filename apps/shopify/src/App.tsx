@@ -17,6 +17,7 @@ import BillingCallbackPage from './pages/BillingCallbackPage';
 import DashboardPage from './pages/DashboardPage';
 import ManagePage from './pages/ManagePage';
 import PricingPage from './pages/PricingPage';
+import RoutingPage from './pages/RoutingPage';
 import SettingsPage from './pages/SettingsPage';
 import SupportPage from './pages/SupportPage';
 import type { ShopifyMe } from './types';
@@ -123,6 +124,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/manage" element={<ManagePage />} />
+          <Route path="/routing" element={<RoutingPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/settings" element={<SettingsPage />} />

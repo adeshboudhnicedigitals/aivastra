@@ -1,5 +1,5 @@
 import { type DB, schema } from '@aivastra/db';
-import { asc, count, eq } from 'drizzle-orm';
+import { asc, count, countDistinct, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -36,6 +36,47 @@ const PatchFunnelTemplateBody = CreateFunnelTemplateBody.partial();
 const ReassignFunnelTemplateBody = z.object({
   targetId: z.string().uuid(),
 });
+
+interface DeleteImpact {
+  productsInUse: number;
+  rulesAffected: number;
+  storesAffected: number;
+  hasGlobalRule: boolean;
+}
+
+// Shared by the DELETE route and the .../delete-impact preview route so a
+// confirm modal can show the same numbers the delete itself will report —
+// per this repo's rule to state what will be lost before a cascade.
+//
+// shopify_funnel_rules cascades on funnel_template_id (schema/shopify.ts:280),
+// so deleting a basket silently deletes every store's rules for it. That's
+// what this function exists to protect against: state what will be lost
+// before the cascade, not after.
+async function computeDeleteImpact(app: FastifyInstance, id: string): Promise<DeleteImpact> {
+  const [{ value: productsInUse }] = await app.db
+    .select({ value: count() })
+    .from(schema.shopifyProductGarments)
+    .where(eq(schema.shopifyProductGarments.funnelTemplateId, id));
+
+  const [ruleImpact] = await app.db
+    .select({
+      rules: count(),
+      // countDistinct(storeId) skips NULL by Postgres COUNT(DISTINCT ...)
+      // semantics, so it's correct for store-scoped rules but silent about a
+      // global rule (storeId IS NULL) — surfaced separately as hasGlobalRule.
+      stores: countDistinct(schema.shopifyFunnelRules.storeId),
+      hasGlobalRule: sql<boolean>`coalesce(bool_or(${schema.shopifyFunnelRules.storeId} is null), false)`,
+    })
+    .from(schema.shopifyFunnelRules)
+    .where(eq(schema.shopifyFunnelRules.funnelTemplateId, id));
+
+  return {
+    productsInUse,
+    rulesAffected: ruleImpact.rules,
+    storesAffected: ruleImpact.stores,
+    hasGlobalRule: ruleImpact.hasGlobalRule,
+  };
+}
 
 export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
   const RW = requirePermission('shopify_funnels.write');
@@ -147,15 +188,29 @@ export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
         .limit(1);
       if (!target) throw new AppError('NOT_FOUND', 404, 'target funnel template not found');
 
-      // Marked 'manual' since this is an explicit admin-driven move, not the
-      // rule-matching engine's own resolution — re-run should leave these alone.
+      // 'admin_reassign' — an explicit admin-driven move, distinct from a merchant's
+      // own manual pin (both are equally sticky: resolveBasketFrom only checks
+      // whether funnelTemplateId is non-null, never this column, so re-run leaves
+      // these alone regardless of which value is stored here).
       const reassigned = await app.db
         .update(schema.shopifyProductGarments)
-        .set({ funnelTemplateId: targetId, funnelAssignmentSource: 'manual' })
+        .set({ funnelTemplateId: targetId, funnelAssignmentSource: 'admin_reassign' })
         .where(eq(schema.shopifyProductGarments.funnelTemplateId, id))
         .returning({ id: schema.shopifyProductGarments.id });
 
       return { ok: true, reassigned: reassigned.length };
+    },
+  );
+
+  // Preview-only: runs the same impact query the DELETE route uses, without
+  // deleting anything, so a confirm modal can show real numbers before the
+  // admin commits to an irreversible delete.
+  app.get(
+    '/admin/shopify/funnel-templates/:id/delete-impact',
+    { preHandler: RW, schema: { params: uuidParam } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      return computeDeleteImpact(app, id);
     },
   );
 
@@ -164,21 +219,18 @@ export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
     { preHandler: RW, schema: { params: uuidParam } },
     async (req) => {
       const { id } = req.params as { id: string };
+      const impact = await computeDeleteImpact(app, id);
 
       // shopifyProductGarments.funnelTemplateId has no onDelete cascade (unlike
       // shopifyFunnelRules, which cascades per-merchant rule configs) — a bare
       // delete would either 500 on the FK violation or, if it somehow succeeded,
       // silently orphan whichever merchants' products were assigned to this
       // global, admin-owned template. Block with a clear message instead.
-      const [{ value: inUse }] = await app.db
-        .select({ value: count() })
-        .from(schema.shopifyProductGarments)
-        .where(eq(schema.shopifyProductGarments.funnelTemplateId, id));
-      if (inUse > 0) {
+      if (impact.productsInUse > 0) {
         throw new AppError(
           'CONFLICT',
           409,
-          `Cannot delete: ${inUse} product(s) across merchant stores are still assigned to this funnel template. Reassign or deactivate it instead.`,
+          `Cannot delete: ${impact.productsInUse} product(s) across merchant stores are still assigned to this funnel template. Reassign or deactivate it instead.`,
         );
       }
 
@@ -187,7 +239,12 @@ export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
         .where(eq(schema.shopifyFunnelTemplates.id, id))
         .returning({ id: schema.shopifyFunnelTemplates.id });
       if (!deleted) throw new AppError('NOT_FOUND', 404, 'funnel template not found');
-      return { ok: true };
+      return {
+        ok: true,
+        rulesAffected: impact.rulesAffected,
+        storesAffected: impact.storesAffected,
+        hasGlobalRule: impact.hasGlobalRule,
+      };
     },
   );
 }
