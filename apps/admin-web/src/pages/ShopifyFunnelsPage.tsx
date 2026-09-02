@@ -1117,7 +1117,8 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
               onChange={(e) => setRulePriority(Number(e.target.value))}
             />
             <span className="hint">
-              When a product matches more than one rule, the highest priority wins.
+              Lower numbers are checked first — a rule with priority 10 wins over one with priority
+              20.
             </span>
           </div>
         </EditDrawer>

@@ -516,9 +516,25 @@ function IndividualProductsPanel({
               </IndexTable.Cell>
               <IndexTable.Cell>
                 {item.basket === null ? (
-                  <Text as="span" tone="subdued">
-                    Unavailable
-                  </Text>
+                  <BlockStack gap="100">
+                    <Text as="span" tone="subdued">
+                      Unavailable
+                    </Text>
+                    {item.pinnedBasketId !== null && (
+                      <Text as="span" tone="subdued">
+                        Pinned basket unavailable, no fallback configured
+                      </Text>
+                    )}
+                    {item.pinnedBasketId !== null && (
+                      <Button
+                        size="slim"
+                        disabled={!editable || basketBusy}
+                        onClick={() => updateBasket(item.shopifyProductId, null)}
+                      >
+                        Reset to automatic
+                      </Button>
+                    )}
+                  </BlockStack>
                 ) : (
                   <BlockStack gap="100">
                     <InlineStack gap="200" blockAlign="center">
@@ -527,6 +543,16 @@ function IndividualProductsPanel({
                         {BASKET_SOURCE_LABEL[item.basket.source]}
                       </Badge>
                     </InlineStack>
+                    {/* A pin whose basket was deactivated falls through to a rule/default —
+                        source is no longer 'manual', so the badge above looks identical to a
+                        product that was never pinned. Surface the fallen-through pin so the
+                        merchant knows why this product isn't on the basket they set, and so
+                        "Reset to automatic" (below) has a reason to still be offered. */}
+                    {item.pinnedBasketId !== null && item.basket.source !== 'manual' && (
+                      <Text as="span" tone="subdued">
+                        Pinned basket unavailable, using {item.basket.label}
+                      </Text>
+                    )}
                     <InlineStack gap="200" blockAlign="center">
                       <Select
                         label="Basket"
@@ -536,7 +562,7 @@ function IndividualProductsPanel({
                         value={item.basket.id}
                         onChange={(value) => updateBasket(item.shopifyProductId, value)}
                       />
-                      {item.basket.source === 'manual' && (
+                      {item.pinnedBasketId !== null && (
                         <Button
                           size="slim"
                           disabled={!editable || basketBusy}

@@ -68,7 +68,7 @@ export async function adminShopifyFunnelRulesRoutes(app: FastifyInstance) {
       )
       .where(isNull(schema.shopifyFunnelRules.storeId))
       .groupBy(schema.shopifyFunnelRules.id)
-      .orderBy(asc(schema.shopifyFunnelRules.priority));
+      .orderBy(asc(schema.shopifyFunnelRules.priority), asc(schema.shopifyFunnelRules.id));
     return { items };
   });
 

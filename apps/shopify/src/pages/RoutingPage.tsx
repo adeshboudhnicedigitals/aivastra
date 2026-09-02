@@ -258,7 +258,7 @@ function RuleEditorModal({
             autoComplete="off"
             value={priority}
             onChange={setPriority}
-            helpText="When a product matches more than one rule, the highest priority wins."
+            helpText="Lower numbers are checked first — a rule with priority 10 wins over one with priority 20."
           />
         </BlockStack>
       </Modal.Section>

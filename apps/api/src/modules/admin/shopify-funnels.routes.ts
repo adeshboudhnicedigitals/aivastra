@@ -188,11 +188,13 @@ export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
         .limit(1);
       if (!target) throw new AppError('NOT_FOUND', 404, 'target funnel template not found');
 
-      // Marked 'manual' since this is an explicit admin-driven move, not the
-      // rule-matching engine's own resolution — re-run should leave these alone.
+      // 'admin_reassign' — an explicit admin-driven move, distinct from a merchant's
+      // own manual pin (both are equally sticky: resolveBasketFrom only checks
+      // whether funnelTemplateId is non-null, never this column, so re-run leaves
+      // these alone regardless of which value is stored here).
       const reassigned = await app.db
         .update(schema.shopifyProductGarments)
-        .set({ funnelTemplateId: targetId, funnelAssignmentSource: 'manual' })
+        .set({ funnelTemplateId: targetId, funnelAssignmentSource: 'admin_reassign' })
         .where(eq(schema.shopifyProductGarments.funnelTemplateId, id))
         .returning({ id: schema.shopifyProductGarments.id });
 

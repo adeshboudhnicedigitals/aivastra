@@ -306,3 +306,71 @@ describe('admin shopify funnel template delete-impact response', () => {
     });
   });
 });
+
+describe('admin shopify funnel template reassign-on-delete', () => {
+  async function createBasket(slug: string) {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/shopify/funnel-templates',
+      headers: adminHeaders,
+      payload: { slug, label: slug, workflowTemplateId, sortOrder: 0 },
+    });
+    expect(res.statusCode).toBe(200);
+    return res.json().id as string;
+  }
+
+  it("reassigns pinned products to 'admin_reassign', not 'manual', when their basket is deleted", async () => {
+    const sourceBasketId = await createBasket('reassign-source');
+    const targetBasketId = await createBasket('reassign-target');
+
+    const [store] = await app.db
+      .insert(schema.shopifyStores)
+      .values({
+        shopDomain: `reassign-${Date.now()}.myshopify.com`,
+        shopifyShopId: Date.now(),
+        accessToken: 'enc',
+        scope: 'read_products',
+      })
+      .returning();
+
+    const productId = Date.now();
+    await app.db.insert(schema.shopifyProductGarments).values({
+      storeId: store.id,
+      shopifyProductId: productId,
+      r2Key: `shopify-garments/${store.id}/${productId}/garment.jpg`,
+      title: 'Reassign Product',
+      status: 'active',
+      enabled: true,
+      // The merchant pinned this themselves — 'manual' is the value the
+      // reassign route must overwrite, since the row is about to be moved by
+      // an admin action, not the merchant.
+      funnelTemplateId: sourceBasketId,
+      funnelAssignmentSource: 'manual',
+    });
+
+    // The admin flow: reassign every product pinned to the basket being
+    // removed onto a target basket, then delete the now-empty source.
+    const reassignRes = await app.inject({
+      method: 'POST',
+      url: `/admin/shopify/funnel-templates/${sourceBasketId}/reassign`,
+      headers: adminHeaders,
+      payload: { targetId: targetBasketId },
+    });
+    expect(reassignRes.statusCode).toBe(200);
+    expect(reassignRes.json()).toMatchObject({ ok: true, reassigned: 1 });
+
+    const deleteRes = await app.inject({
+      method: 'DELETE',
+      url: `/admin/shopify/funnel-templates/${sourceBasketId}`,
+      headers: adminHeaders,
+    });
+    expect(deleteRes.statusCode).toBe(200);
+
+    const [row] = await app.db
+      .select()
+      .from(schema.shopifyProductGarments)
+      .where(eq(schema.shopifyProductGarments.shopifyProductId, productId));
+    expect(row.funnelTemplateId).toBe(targetBasketId);
+    expect(row.funnelAssignmentSource).toBe('admin_reassign');
+  });
+});

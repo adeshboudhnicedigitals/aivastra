@@ -122,6 +122,12 @@ export interface ShopifyProductListItem {
   // null means no basket resolved and no active default — the state where
   // try-on is refused for this product (see customer.routes.ts).
   basket: { id: string; label: string; source: 'manual' | 'rule' | 'default' } | null;
+  // The raw pin on this row, independent of whether it's currently being honored.
+  // Non-null with basket.source !== 'manual' means the pinned basket was
+  // deactivated and resolution fell through to a rule/default — a stale pin
+  // that's still clearable via "Reset to automatic" even though it's invisible
+  // in `basket` itself.
+  pinnedBasketId: string | null;
 }
 
 export interface ShopifyProductImage {

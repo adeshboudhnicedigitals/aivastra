@@ -12,8 +12,10 @@ template: they now route to one of several admin-defined "baskets"
 manual pins and per-store suppression of Aivastra-authored global rules.
 
 **Done**
-- Schema: `shopify_funnel_templates` gained `isDefault`; `shopify_funnel_rules`
-  (nullable `store_id` — NULL means an Aivastra-authored global rule); new table
+- Schema: `shopify_funnel_templates.isDefault` predates this branch (unchanged
+  here); this branch's migration `0185_great_thor_girl.sql` touches only
+  `shopify_funnel_rules` (nullable `store_id` — NULL means an Aivastra-authored
+  global rule; its `mode` column was dropped) and adds the new table
   `shopify_store_disabled_funnel_rules` (per-store suppression of a global rule).
 - `apps/api/src/modules/shopify/funnel-resolution.ts` — the one place precedence
   lives (`resolveBasketFrom`): manual per-product pin → the store's own rules →
@@ -110,6 +112,34 @@ manual pins and per-store suppression of Aivastra-authored global rules.
   ```
   Someone with actual VPS/production access must run both before this ships.
   Neither has been verified at any point in this plan.
+- **BLOCKING PRE-DEPLOY STEP — not merely open, must be run and decided before
+  this branch deploys.** Found during the final whole-branch review, distinct
+  from the two checks above: before this branch,
+  `shopify_product_garments.funnel_template_id` was written (by the admin
+  reassign-on-basket-delete path in `shopify-funnels.routes.ts`) but read by
+  nothing on the try-on path. After this branch, it's tier 1 of routing
+  precedence (`resolveBasketFrom` in `funnel-resolution.ts`). So any
+  pre-existing pinned row in production will silently switch to a different
+  ComfyUI workflow the moment this deploys — even though no migration seeds
+  anything and zero global rules exist at deploy. This is the "deploy is not
+  inert" failure mode the spec's Rollout section describes, reached through a
+  different mechanism than a migration seed. Someone with production access
+  must run, before shipping:
+  ```sql
+  select funnel_template_id, count(*)
+  from shopify_product_garments
+  where funnel_template_id is not null
+  group by funnel_template_id;
+  ```
+  If this returns no rows, the deploy is inert as designed and it's safe to
+  ship. If it returns any rows, someone with production access must decide,
+  per basket, whether to accept the re-route (and record that decision) or
+  null those pins out in a follow-up migration first so routing starts from
+  zero for every product. This cannot be verified from this sandbox — there is
+  no production database access here. Note also: `docs/audits/open-findings.md`
+  (referenced elsewhere in `CLAUDE.md` as the place for tracking findings like
+  this) is gitignored and does not exist in this checkout, so this finding
+  could not be filed there — it lives only in this progress.md entry for now.
 
 **Open Questions**
 - **Per-store default basket** — deliberately deferred (see the plan's "Deferred"

@@ -139,6 +139,11 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
             enabled: r.enabled,
             excluded: r.excluded,
             basket: basket && { id: basket.basketId, label: basket.label, source: basket.source },
+            // The raw pin on this row, independent of whether it's currently being
+            // honored. Lets the client distinguish "no pin" from "pin exists but its
+            // basket was deactivated, so we fell through to a rule/default" — the
+            // resolved `basket.source` alone can't tell those apart.
+            pinnedBasketId: r.funnelTemplateId,
           };
         }),
       );
