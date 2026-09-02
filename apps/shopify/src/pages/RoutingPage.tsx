@@ -45,6 +45,9 @@ interface RulesResponse {
   globalRules: GlobalRule[];
   counts: Record<string, number>;
   countsOmitted: boolean;
+  // null when countsOmitted — the catalog was never scanned, so there is no
+  // count to report either way.
+  unrouted: number | null;
 }
 
 const FIELD_LABEL: Record<Condition['field'], string> = {
@@ -487,7 +490,7 @@ export default function RoutingPage() {
                   <Text as="p" tone="subdued">
                     Catalog too large to summarize.
                   </Text>
-                ) : Object.keys(rules.counts).length === 0 ? (
+                ) : Object.keys(rules.counts).length === 0 && !rules.unrouted ? (
                   <Text as="p" tone="subdued">
                     No products have matched a rule yet.
                   </Text>
@@ -503,6 +506,20 @@ export default function RoutingPage() {
                           </Text>
                         </InlineStack>
                       ))}
+                    {rules.unrouted !== null && (
+                      <InlineStack align="space-between">
+                        <Text as="span" tone={rules.unrouted > 0 ? 'critical' : 'subdued'}>
+                          Not routed (try-on unavailable)
+                        </Text>
+                        <Text
+                          as="span"
+                          fontWeight="semibold"
+                          tone={rules.unrouted > 0 ? 'critical' : 'subdued'}
+                        >
+                          {rules.unrouted}
+                        </Text>
+                      </InlineStack>
+                    )}
                   </BlockStack>
                 )}
               </BlockStack>
