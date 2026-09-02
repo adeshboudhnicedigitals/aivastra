@@ -1312,10 +1312,10 @@
       "breakpoints": true
     },
     {
-      "idx": 187,
+      "idx": 188,
       "version": "7",
       "when": 1788341148860,
-      "tag": "0187_jobs_delete_assets_permission",
+      "tag": "0188_jobs_delete_assets_permission",
       "breakpoints": true
     }
   ]
