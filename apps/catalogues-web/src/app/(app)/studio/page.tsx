@@ -1,7 +1,15 @@
 'use client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { X as CloseIcon } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CheckIcon, ImagePlusIcon, SparkleIcon, SpinnerIcon, XIcon } from '@/components/icons';
+import {
+  CheckIcon,
+  ImagePlusIcon,
+  SparkleIcon,
+  SpinnerIcon,
+  XIcon,
+  YoutubeIcon,
+} from '@/components/icons';
 import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { ErrorState } from '@/components/ui/error-state';
@@ -12,6 +20,7 @@ import { api } from '@/lib/api';
 import { BREAKPOINTS } from '@/lib/breakpoints';
 import { ApiError } from '@/lib/errors';
 import { isSupportedImageBytes } from '@/lib/image-validation';
+import { extractYoutubeId } from '@/lib/youtube';
 import { BatchMode } from './batch/batch-mode';
 import { type GenerationJob, GenerationPanel } from './generation-panel';
 import { PreviewPanel } from './preview-panel';
@@ -26,6 +35,7 @@ interface GarmentType {
   label: string;
   thumbnailUrl?: string | null;
   instructionImageUrl?: string | null;
+  tutorialVideoUrl?: string | null;
   requiresLowerUpload: boolean;
   upperUploadLabel?: string | null;
   lowerUploadLabel?: string | null;
@@ -525,6 +535,7 @@ export default function StudioPage(): React.ReactElement {
     const cfg = BRAND_CONFIG[p];
     if (cfg) setAspect(cfg.default);
   };
+  const [tutorialModalOpen, setTutorialModalOpen] = useState(false);
   const [garmentFile, setGarmentFile] = useState<File | null>(null);
   const garmentPreviewUrl = useMemo(
     () => (garmentFile ? URL.createObjectURL(garmentFile) : ''),
@@ -2217,6 +2228,29 @@ export default function StudioPage(): React.ReactElement {
                   title={hasMultipleUploadBoxes ? 'Upload Garment Images' : 'Upload Garment Image'}
                   subtitle="Upload a clean flat lay garment image"
                   stepNumber={3}
+                  right={
+                    selectedGarmentType?.tutorialVideoUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setTutorialModalOpen(true)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          background: 'none',
+                          border: 'none',
+                          padding: 0,
+                          color: C.text,
+                          fontSize: hasMultipleUploadBoxes ? 11 : 12,
+                          fontWeight: 500,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <YoutubeIcon size={18} />
+                        Watch Demo Video
+                      </button>
+                    )
+                  }
                 />
                 <div
                   style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}
@@ -3028,6 +3062,13 @@ export default function StudioPage(): React.ReactElement {
                   </div>
                 </div>
               </section>
+
+              {tutorialModalOpen && selectedGarmentType?.tutorialVideoUrl && (
+                <TutorialVideoModal
+                  youtubeUrl={selectedGarmentType.tutorialVideoUrl}
+                  onClose={() => setTutorialModalOpen(false)}
+                />
+              )}
 
               {/* ── Model ── */}
               <section className="studio-section-card" style={sectionCardStyle}>
@@ -5124,5 +5165,103 @@ export default function StudioPage(): React.ReactElement {
         </div>
       )}
     </>
+  );
+}
+
+// Plays the admin-pasted garment-type tutorial link inline. Only the extracted video
+// ID (never the raw pasted URL) reaches the iframe `src`, matching the pattern in
+// app/(app)/tutorials/page.tsx.
+function TutorialVideoModal({ youtubeUrl, onClose }: { youtubeUrl: string; onClose: () => void }) {
+  const videoId = extractYoutubeId(youtubeUrl);
+  return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: backdrop dismisses modal
+    <div
+      role="presentation"
+      onClick={onClose}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') onClose();
+      }}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.6)',
+        zIndex: 1000,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 24,
+        boxSizing: 'border-box',
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Watch Demo Video"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={() => {}}
+        style={{
+          position: 'relative',
+          width: 'min(720px, 100%)',
+          aspectRatio: '16/9',
+          background: '#000',
+          borderRadius: 12,
+          overflow: 'hidden',
+        }}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          style={{
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            zIndex: 1,
+            width: 32,
+            height: 32,
+            borderRadius: '50%',
+            background: 'rgba(0,0,0,0.6)',
+            border: 'none',
+            color: C.white,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+          }}
+        >
+          <CloseIcon size={16} />
+        </button>
+        {videoId ? (
+          <iframe
+            width="100%"
+            height="100%"
+            // origin is required by some videos' embed player to validate the
+            // requesting site — omitting it is a common cause of YouTube's
+            // "Error 153: video player configuration error" even when embedding
+            // is allowed for the video. See app/(app)/tutorials/page.tsx.
+            src={`https://www.youtube.com/embed/${videoId}?autoplay=1&origin=${encodeURIComponent(window.location.origin)}`}
+            title="Watch Demo Video"
+            frameBorder="0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen
+            style={{ position: 'absolute', inset: 0 }}
+          />
+        ) : (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: C.white,
+              fontSize: 13,
+            }}
+          >
+            Couldn't load this video.
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

@@ -138,13 +138,13 @@ export async function regenerateJob(
   // already uses for "reuse a completed job's own result as an input image."
   const sourceImageKey = original.resultKey ?? keys.output(originalJobId);
 
-  // A non-empty match becomes the prompt override; no match (or a blank
-  // configured prompt, e.g. "Other") means the workflow's own baked-in
-  // default prompt runs unchanged — same "empty = no override" convention
-  // documented on regenerationReasonPrompts.
-  const promptOverride = template.regenerationReasonPrompts.find(
-    (p) => p.reason === cleanReason,
-  )?.prompt;
+  // A non-empty match becomes the prompt/instruction override; no match (or a
+  // blank configured prompt/instruction, e.g. "Other") means the workflow's
+  // own baked-in defaults run unchanged — same "empty = no override"
+  // convention documented on regenerationReasonPrompts.
+  const matchedReason = template.regenerationReasonPrompts.find((p) => p.reason === cleanReason);
+  const promptOverride = matchedReason?.prompt;
+  const instructionOverride = matchedReason?.instruction;
 
   const { queueStream, priority, watermark } = await resolveQueueRouting(app, userId);
 
@@ -173,6 +173,7 @@ export async function regenerateJob(
         workflowTemplateId: template.id,
         dispatchTemplateVersion: template.version,
         ...(promptOverride?.trim() ? { promptOverride } : {}),
+        ...(instructionOverride?.trim() ? { instructionOverride } : {}),
       },
     });
 
