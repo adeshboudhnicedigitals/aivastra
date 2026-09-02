@@ -47,6 +47,11 @@ interface DeleteImpact {
 // Shared by the DELETE route and the .../delete-impact preview route so a
 // confirm modal can show the same numbers the delete itself will report —
 // per this repo's rule to state what will be lost before a cascade.
+//
+// shopify_funnel_rules cascades on funnel_template_id (schema/shopify.ts:280),
+// so deleting a basket silently deletes every store's rules for it. That's
+// what this function exists to protect against: state what will be lost
+// before the cascade, not after.
 async function computeDeleteImpact(app: FastifyInstance, id: string): Promise<DeleteImpact> {
   const [{ value: productsInUse }] = await app.db
     .select({ value: count() })
