@@ -119,6 +119,9 @@ export interface ShopifyProductListItem {
   status: string;
   enabled: boolean;
   excluded: boolean;
+  // null means no basket resolved and no active default — the state where
+  // try-on is refused for this product (see customer.routes.ts).
+  basket: { id: string; label: string; source: 'manual' | 'rule' | 'default' } | null;
 }
 
 export interface ShopifyProductImage {
