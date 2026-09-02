@@ -41,7 +41,7 @@ export default function AddProductScreen() {
     >
       <ScreenHeader
         variant="back"
-        title="Add Product"
+        title="Add Garment"
         subtitle={breadcrumb}
         onBack={goBackToProducts}
       />
