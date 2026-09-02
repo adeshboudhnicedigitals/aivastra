@@ -6,6 +6,9 @@ interface ConfirmModalProps {
   what?: string;
   danger?: boolean;
   confirmLabel?: string;
+  /** Blocks the confirm action — e.g. while a pre-confirm impact preview is
+   *  still loading or failed to load, so the admin can't confirm blind. */
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onClose: () => void;
 }
@@ -16,6 +19,7 @@ export function ConfirmModal({
   what,
   danger,
   confirmLabel,
+  confirmDisabled,
   onConfirm,
   onClose,
 }: ConfirmModalProps) {
@@ -36,7 +40,11 @@ export function ConfirmModal({
           <button className="btn btn-ghost" onClick={onClose}>
             Cancel
           </button>
-          <button className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`} onClick={onConfirm}>
+          <button
+            className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`}
+            disabled={confirmDisabled}
+            onClick={onConfirm}
+          >
             {confirmLabel || 'Confirm'}
           </button>
         </div>

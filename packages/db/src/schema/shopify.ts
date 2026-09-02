@@ -7,6 +7,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   unique,
@@ -272,13 +273,13 @@ export const shopifyFunnelRules = pgTable(
   'shopify_funnel_rules',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    storeId: uuid('store_id')
-      .notNull()
-      .references(() => shopifyStores.id, { onDelete: 'cascade' }),
+    // Null means a global, Aivastra-authored rule that applies to every store.
+    // Non-null is a store's own rule, which always resolves before any global
+    // one — see resolveBasketFrom in modules/shopify/funnel-resolution.ts.
+    storeId: uuid('store_id').references(() => shopifyStores.id, { onDelete: 'cascade' }),
     funnelTemplateId: uuid('funnel_template_id')
       .notNull()
       .references(() => shopifyFunnelTemplates.id, { onDelete: 'cascade' }),
-    mode: text('mode').notNull().default('manual'),
     conditions: jsonb('conditions').$type<FunnelRuleCondition[]>().notNull().default([]),
     priority: integer('priority').notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -286,6 +287,32 @@ export const shopifyFunnelRules = pgTable(
   },
   (t) => ({
     uq: unique().on(t.storeId, t.funnelTemplateId),
+    // Postgres treats NULLs as distinct, so `uq` above does NOT constrain the
+    // global tier at all — without this, unlimited duplicate global rules per
+    // basket are insertable and resolution order becomes arbitrary.
+    singleGlobalPerBasket: uniqueIndex('shopify_funnel_rules_one_global_per_basket_idx')
+      .on(t.funnelTemplateId)
+      .where(sql`${t.storeId} is null`),
+  }),
+);
+
+// A merchant switching off one Aivastra global rule for their store alone.
+// Keyed on rule_id rather than funnel_template_id so it keeps its meaning if
+// global rules ever go multi-per-basket. Cascading from both sides means
+// deleting a global rule cleans up every store's suppression of it.
+export const shopifyStoreDisabledFunnelRules = pgTable(
+  'shopify_store_disabled_funnel_rules',
+  {
+    storeId: uuid('store_id')
+      .notNull()
+      .references(() => shopifyStores.id, { onDelete: 'cascade' }),
+    ruleId: uuid('rule_id')
+      .notNull()
+      .references(() => shopifyFunnelRules.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.storeId, t.ruleId] }),
   }),
 );
 

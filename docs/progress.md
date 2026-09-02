@@ -2,6 +2,174 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-02 — Shopify basket routing
+
+Implemented the full 11-task plan from
+`.superpowers/sdd/2026-09-02-shopify-basket-routing/`, each task TDD'd and reviewed
+via subagent-driven-development. Products no longer all share one ComfyUI workflow
+template: they now route to one of several admin-defined "baskets"
+(`shopify_funnel_templates`) via rules (`shopify_funnel_rules`), with per-product
+manual pins and per-store suppression of Aivastra-authored global rules.
+
+**Done**
+- Schema: `shopify_funnel_templates.isDefault` predates this branch (unchanged
+  here); this branch's migration `0189_great_thor_girl.sql` touches only
+  `shopify_funnel_rules` (nullable `store_id` — NULL means an Aivastra-authored
+  global rule; its `mode` column was dropped) and adds the new table
+  `shopify_store_disabled_funnel_rules` (per-store suppression of a global rule).
+- `apps/api/src/modules/shopify/funnel-resolution.ts` — the one place precedence
+  lives (`resolveBasketFrom`): manual per-product pin → the store's own rules →
+  global rules → the default basket. Every caller (try-on creation, the merchant
+  product list, the Routing page counts) goes through it.
+- Merchant-facing: `funnel-rules.routes.ts` (store-scoped rule CRUD), the basket
+  pin on `products.routes.ts`, the Routing page (`apps/shopify/src/pages/RoutingPage.tsx`)
+  and the basket column on Manage (`ManagePage.tsx`).
+- Admin-facing: `admin/shopify-funnel-rules.routes.ts` (global-rule CRUD, fully
+  audited via `recordAudit`), `admin/shopify-funnels.routes.ts` (basket CRUD,
+  extended — see below), and the admin Shopify Funnels page (`ShopifyFunnelsPage.tsx`).
+- **Task 7's admin POST route** (`POST /admin/shopify/funnel-rules`) ships with a
+  basket-existence/active check added during its own review round — the brief's
+  original text went straight to insert, so a bad or inactive `funnelTemplateId`
+  hit an uncaught Postgres FK violation and a 500 instead of a clean 404. Now
+  mirrors the merchant-facing POST's existing check.
+- **Extra route added beyond the original plan/spec**: `GET
+  /admin/shopify/funnel-templates/:id/delete-impact`
+  (`apps/api/src/modules/admin/shopify-funnels.routes.ts`). Discovered mid-build:
+  the original `DELETE` route only computed rule/store cascade-impact numbers as
+  part of the delete itself, so Task 10's admin delete-confirmation modal could
+  only show real numbers *after* the irreversible action — a direct violation of
+  this file's "before a DROP, a CASCADE, a delete... state what will be lost"
+  rule. This dedicated preview route (its own brief, test, and review round)
+  extracts the existing impact query into a shared `computeDeleteImpact` helper
+  and returns the same shape without deleting anything; Task 10's confirm modal
+  calls it before the Confirm button is enabled.
+- CLAUDE.md's Shopify surface section: added a paragraph on basket routing
+  (table names, precedence, where the logic lives) — no prior claim of "one
+  default template for every product" existed to replace, so this is a pure
+  addition.
+- **Migration index collision resolved before merge into `dev` — twice**: `dev`
+  had independently picked `0185`-`0187` for three unrelated migrations
+  (`0185_regen_reason_instruction`, `0186_dry_jasper_sitwell`,
+  `0187_useful_salo` — none touch `shopify_funnel_*` tables). Per
+  `docs/version-control.md`'s "Migration Index Conflicts" rule (server's index
+  is canonical, the feature branch yields), this branch's `0185_great_thor_girl`
+  was renamed to `0188_great_thor_girl` (SQL file, meta snapshot, and journal
+  entry), with the snapshot's `prevId` re-chained onto dev's `0187` snapshot id.
+  Between this branch's push and its merge, another PR (#306,
+  `0188_jobs_delete_assets_permission` — a `permissions`/`role_permissions`
+  INSERT, also unrelated to `shopify_funnel_*`) landed on `dev` and independently
+  claimed `0188` too, so this branch's migration was renamed a second time to
+  `0189_great_thor_girl`, re-chaining `prevId` onto dev's `0188` snapshot id.
+
+**Verification (Task 11 — commands re-run in full, real output)**
+- `pnpm typecheck` — exit 0, all 12 workspace packages clean (`db`, `logger`,
+  `observability`, `storage`, `types`, `api`, `catalogues-web`, `chatbot`,
+  `shopify`, `admin-mobile` — the last typechecks clean incidentally; it remains
+  out of scope per this file's "Admin mobile is paused" note).
+- `pnpm lint` — exit 0, 183 warnings / 2 infos, zero errors (full-repo run,
+  includes long-standing `wordpress-plugin/` and `admin-web/src/styles/tokens.css`
+  `!important` warnings unrelated to this branch). A scoped `biome check` against
+  exactly the 33 files this branch touches found only 1 warning
+  (`apps/admin-web/src/pages/WorkflowsPage.tsx:1268`, `noArrayIndexKey` on
+  `.map((pair, idx) => <div key={idx}>`) — confirmed via `git show main:...` that
+  the identical `key={idx}` pattern already existed on `main` before this branch
+  touched the file (it only added an `instruction` field to the same array), so
+  this is pre-existing, not a new warning.
+- `pnpm --filter @aivastra/api test` — **78/78 files, 657/657 tests passed**,
+  exit 0.
+- Integration files run individually (per the shared-rate-limiter cascade noted
+  elsewhere in this file — do not run as one batch):
+  - `shopify-funnel-schema.test.ts` — 3/3 passed
+  - `shopify-funnel-loader.test.ts` — 4/4 passed
+  - `shopify-basket-routing.test.ts` — 4/4 passed
+  - `shopify-merchant-funnel-rules.test.ts` — 8/8 passed
+  - `shopify-product-basket.test.ts` — 4/4 passed
+  - `shopify-admin-funnel-rules.test.ts` — 8/8 passed
+  - the `shopify-customer` pattern matched two files —
+    `shopify-customer-app-proxy.test.ts` (5/5) and `shopify-customer.test.ts`
+    (23/23)
+  - **All 7 invocations green, 56/56 tests total.**
+
+**Failed / Not Done**
+- **The local deploy-inertness check did not return a clean `0`.**
+  `select count(*) from shopify_funnel_rules where store_id is null;` against the
+  local dev DB (docker-compose Postgres, confirmed via `.env`'s
+  `DATABASE_URL=postgres://tryon:...@127.0.0.1:5432/tryon_dev` — not production)
+  returned `1`. Investigated rather than accepted at face value: grepped both
+  migration files that touch `shopify_funnel_rules`
+  (`0100_melted_franklin_richards.sql`, `0189_great_thor_girl.sql`) and confirmed
+  neither contains an `INSERT` — both are pure DDL, so the migration path itself
+  is inert. The one row present (id `68f3b897-a78f-4c16-83ae-5a3f373ce903`,
+  `created_at` 2026-09-02 08:49:20 UTC, pointing at the pre-existing "Default"
+  basket) predates this verification session's own dev-server start (12:35) and
+  has no matching `shopify_funnel_rule.create` row in `audit_logs` — unlike two
+  other now-deleted rules that *do* show a proper audited create/update trail —
+  so it was not created through the audited admin route; its exact origin
+  (most likely ad-hoc manual/SQL testing during an earlier task) is unconfirmed.
+  Attempted to delete it to leave a genuinely clean `0` for the record; the
+  delete was blocked by this sandbox's own permission classifier and not forced
+  through. **The row remains in the local dev DB as of this entry.** This does
+  not show the *deploy* is non-inert (no migration seeds this table, and the
+  finding above is local-sandbox data, not anything that ships), but it means
+  Task 11's literal Step 3 output was `1`, not the `0` the brief expected —
+  recorded here exactly as it happened. Whoever next touches this local DB
+  should clean up that row (or reset the dev DB) before relying on this check
+  again.
+- **The two Task 1 production-only checks were never run against production.**
+  This sandbox has no network path to it — `.env.production`'s `DATABASE_URL`
+  resolves to the internal Docker Compose hostname, reachable only from inside
+  the production VPS itself. Carried forward from Task 1, still open:
+  ```sql
+  select count(*) from shopify_funnel_rules;                                       -- must be 0
+  select count(*) from shopify_product_garments where funnel_template_id is not null;
+  ```
+  Someone with actual VPS/production access must run both before this ships.
+  Neither has been verified at any point in this plan.
+- **BLOCKING PRE-DEPLOY STEP — not merely open, must be run and decided before
+  this branch deploys.** Found during the final whole-branch review, distinct
+  from the two checks above: before this branch,
+  `shopify_product_garments.funnel_template_id` was written (by the admin
+  reassign-on-basket-delete path in `shopify-funnels.routes.ts`) but read by
+  nothing on the try-on path. After this branch, it's tier 1 of routing
+  precedence (`resolveBasketFrom` in `funnel-resolution.ts`). So any
+  pre-existing pinned row in production will silently switch to a different
+  ComfyUI workflow the moment this deploys — even though no migration seeds
+  anything and zero global rules exist at deploy. This is the "deploy is not
+  inert" failure mode the spec's Rollout section describes, reached through a
+  different mechanism than a migration seed. Someone with production access
+  must run, before shipping:
+  ```sql
+  select funnel_template_id, count(*)
+  from shopify_product_garments
+  where funnel_template_id is not null
+  group by funnel_template_id;
+  ```
+  If this returns no rows, the deploy is inert as designed and it's safe to
+  ship. If it returns any rows, someone with production access must decide,
+  per basket, whether to accept the re-route (and record that decision) or
+  null those pins out in a follow-up migration first so routing starts from
+  zero for every product. This cannot be verified from this sandbox — there is
+  no production database access here. Note also: `docs/audits/open-findings.md`
+  (referenced elsewhere in `CLAUDE.md` as the place for tracking findings like
+  this) is gitignored and does not exist in this checkout, so this finding
+  could not be filed there — it lives only in this progress.md entry for now.
+
+**Open Questions**
+- **Per-store default basket** — deliberately deferred (see the plan's "Deferred"
+  list): a nullable `settings.defaultFunnelTemplateId` plus one precedence tier
+  between store rules and the global default, to be built once a merchant
+  actually asks for it.
+- **Basket-CRUD audit gap** — `admin/shopify-funnels.routes.ts` (baskets/templates:
+  create, update, delete, including the cascade-triggering delete) does not write
+  `audit_logs`, unlike the sibling `admin/shopify-funnel-rules.routes.ts` (global
+  rules), which fully audits create/update/delete via `recordAudit` in the same
+  transaction. Pre-existing gap, not introduced by this plan, called out during
+  Task 7's review but left unfixed as out of scope for this plan. Worth closing —
+  it's also why two rules seen in `audit_logs` today (created/updated with a
+  proper trail) are no longer present in `shopify_funnel_rules`: the most likely
+  explanation is their parent basket was deleted via this unaudited route,
+  cascading them away with no record of who did it or why.
+
 ## 2026-08-31 — WordPress plugin in-admin plan browsing & credit purchase (v0.5.0)
 
 Implemented the full 8-task plan from `docs/superpowers/plans/2026-08-31-wordpress-plugin-credit-purchase.md` based on spec `docs/superpowers/specs/2026-08-31-wordpress-plugin-credit-purchase-design.md`.
