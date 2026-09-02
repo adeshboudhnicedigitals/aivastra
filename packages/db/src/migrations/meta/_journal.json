@@ -1319,6 +1319,13 @@
       "breakpoints": true
     },
     {
+      "idx": 188,
+      "version": "7",
+      "when": 1788341148860,
+      "tag": "0188_jobs_delete_assets_permission",
+      "breakpoints": true
+    },
+    {
       "idx": 189,
       "version": "7",
       "when": 1788332856347,

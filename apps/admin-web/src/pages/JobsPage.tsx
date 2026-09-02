@@ -54,6 +54,45 @@ function jobContactEmail(j: Job): string | null {
   return j.userEmail ?? j.shopEmail ?? null;
 }
 
+/** Small corner toggle overlaid on an asset thumbnail — the click target for delete-selection, kept separate from the thumbnail's own click-to-view-full-size link. */
+function AssetSelectBadge({
+  selected,
+  onToggle,
+  size = 22,
+}: {
+  selected: boolean;
+  onToggle: () => void;
+  size?: number;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={selected}
+      title={selected ? 'Selected for deletion — click to unselect' : 'Select for deletion'}
+      style={{
+        position: 'absolute',
+        top: 6,
+        right: 6,
+        width: size,
+        height: size,
+        borderRadius: '50%',
+        border: `1px solid ${selected ? 'var(--danger)' : 'var(--border-strong)'}`,
+        background: selected ? 'var(--danger)' : 'var(--bg)',
+        color: selected ? 'var(--bg)' : 'var(--muted)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor: 'pointer',
+        padding: 0,
+        lineHeight: 0,
+      }}
+    >
+      {selected ? <Icon.Check /> : null}
+    </button>
+  );
+}
+
 /** Converts a duration filter input (in the selected unit) to whole seconds for the API. */
 function toDurationSeconds(value: string, unit: 'seconds' | 'minutes'): number | undefined {
   if (value === '') return undefined;
@@ -165,7 +204,7 @@ import { useAuth } from '../context/AuthContext';
 
 export default function JobsPage({ onNav, toast }: Props) {
   const location = useLocation();
-  const { role } = useAuth();
+  const { hasPermission } = useAuth();
   const requestedJobId = (location.state as { jobId?: string })?.jobId;
   const requestedFromUserId = (location.state as { fromUserId?: string })?.fromUserId;
   const [filter, setFilter] = useState<FilterKey>(
@@ -201,6 +240,7 @@ export default function JobsPage({ onNav, toast }: Props) {
   );
   const [deleteAssetsOpen, setDeleteAssetsOpen] = useState(false);
   const [deleteAssetsPassword, setDeleteAssetsPassword] = useState('');
+  const [deleteAssetsError, setDeleteAssetsError] = useState<string | null>(null);
   const [deletingAssets, setDeletingAssets] = useState(false);
   const [flushing, setFlushing] = useState(false);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
@@ -527,6 +567,7 @@ export default function JobsPage({ onNav, toast }: Props) {
   const handleDeleteAssets = async () => {
     if (!detail || deleteAssetsTargets.size === 0) return;
     setDeletingAssets(true);
+    setDeleteAssetsError(null);
     try {
       const res = await apiFetch<{ ok: boolean; deleted: ('result' | 'person')[] }>(
         `/admin/jobs/${detail.id}/delete-assets`,
@@ -545,17 +586,23 @@ export default function JobsPage({ onNav, toast }: Props) {
       setDeleteAssetsTargets(new Set());
       void openDetail(detail);
     } catch (e) {
-      toast({
-        kind: 'error',
-        title: 'Delete failed',
-        body: apiErrorMessage(e, 'Please try again.'),
-      });
       // Wrong password is the one failure the admin can fix by retrying in
-      // place; every other error (404/409/500) closes the dialog since
-      // retrying with the same input won't help.
-      if (!(e instanceof ApiError) || e.status !== 403) {
+      // place — surfaced inline on the modal itself, not just a toast, since
+      // it's the modal's own submit that failed. Every other error (404/409/500)
+      // closes the dialog since retrying with the same input won't help, and
+      // refetches the job so a stale selection doesn't linger against
+      // asset/status state that may have changed server-side.
+      if (e instanceof ApiError && e.status === 403) {
+        setDeleteAssetsError('Incorrect password. Please try again.');
+      } else {
+        toast({
+          kind: 'error',
+          title: 'Delete failed',
+          body: apiErrorMessage(e, 'Please try again.'),
+        });
         setDeleteAssetsOpen(false);
         setDeleteAssetsPassword('');
+        void openDetail(detail);
       }
     } finally {
       setDeletingAssets(false);
@@ -581,6 +628,11 @@ export default function JobsPage({ onNav, toast }: Props) {
 
   if (detail) {
     const j = detail;
+    const canDeleteAssets =
+      hasPermission('jobs.delete_assets') && TERMINAL_JOB_STATUSES.includes(j.status);
+    const selectedAssetLabels = Array.from(deleteAssetsTargets)
+      .map((t) => (t === 'result' ? 'Result image' : 'Person image'))
+      .join(', ');
     return (
       <>
         <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
@@ -706,28 +758,53 @@ export default function JobsPage({ onNav, toast }: Props) {
                   <h3>Output</h3>
                 </div>
                 <div className="card-body">
-                  <a href={j.outputUrl} target="_blank" rel="noreferrer" className="link">
-                    View output <Icon.ExternalLink />
-                  </a>
-                  {role === 'SUPER_ADMIN' && TERMINAL_JOB_STATUSES.includes(j.status) && (
-                    <label
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        marginTop: 10,
-                        fontSize: 13,
-                        color: 'var(--muted)',
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={deleteAssetsTargets.has('result')}
-                        onChange={(e) => toggleDeleteTarget('result', e.target.checked)}
-                      />
-                      Select result image for deletion
-                    </label>
-                  )}
+                  {(() => {
+                    const resultSelected = deleteAssetsTargets.has('result');
+                    return (
+                      <div
+                        style={{
+                          position: 'relative',
+                          display: 'inline-block',
+                          borderRadius: 8,
+                          border: `1px solid ${resultSelected ? 'var(--danger-border)' : 'var(--border)'}`,
+                          background: resultSelected ? 'var(--danger-soft)' : 'transparent',
+                          padding: 6,
+                        }}
+                      >
+                        <a
+                          href={j.outputUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ display: 'block' }}
+                        >
+                          {/* biome-ignore lint/performance/noImgElement: admin SPA, not Next.js */}
+                          <img
+                            src={j.outputUrl}
+                            alt="Result"
+                            style={{
+                              display: 'block',
+                              maxWidth: 280,
+                              maxHeight: 240,
+                              width: '100%',
+                              objectFit: 'contain',
+                              borderRadius: 6,
+                              background: 'var(--bg)',
+                              cursor: 'zoom-in',
+                            }}
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                        </a>
+                        {canDeleteAssets && (
+                          <AssetSelectBadge
+                            selected={resultSelected}
+                            onToggle={() => toggleDeleteTarget('result', !resultSelected)}
+                          />
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             )}
@@ -738,6 +815,11 @@ export default function JobsPage({ onNav, toast }: Props) {
                   <h3>Input Images</h3>
                 </div>
                 <div className="card-body">
+                  {canDeleteAssets && (
+                    <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 12px' }}>
+                      Only the person's uploaded photo can be deleted.
+                    </p>
+                  )}
                   <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
                     {(
                       [
@@ -752,89 +834,67 @@ export default function JobsPage({ onNav, toast }: Props) {
                     ).map(({ key, label }) => {
                       const url = j.inputImages?.[key];
                       if (!url) return null;
+                      const isPersonSelectable = key === 'person' && canDeleteAssets;
+                      const personSelected = key === 'person' && deleteAssetsTargets.has('person');
                       return (
                         <div key={key} style={{ textAlign: 'center' }}>
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noreferrer"
-                            style={{ textDecoration: 'none' }}
+                          <div
+                            style={{
+                              position: 'relative',
+                              display: 'inline-block',
+                              borderRadius: 8,
+                              border: `1px solid ${personSelected ? 'var(--danger-border)' : 'transparent'}`,
+                              background: personSelected ? 'var(--danger-soft)' : 'transparent',
+                              padding: personSelected ? 3 : 0,
+                            }}
                           >
-                            {/* biome-ignore lint/performance/noImgElement: admin SPA, not Next.js */}
-                            <img
-                              src={url}
-                              alt={label}
-                              style={{
-                                width: 96,
-                                height: 96,
-                                objectFit: 'cover',
-                                borderRadius: 8,
-                                border: '1px solid var(--border)',
-                                display: 'block',
-                                cursor: 'zoom-in',
-                              }}
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).style.display = 'none';
-                              }}
-                            />
-                            <span
-                              style={{
-                                fontSize: 11,
-                                color: 'var(--muted)',
-                                marginTop: 4,
-                                display: 'block',
-                              }}
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{ display: 'block' }}
                             >
-                              {label}
-                            </span>
-                          </a>
-                          {key === 'person' &&
-                            role === 'SUPER_ADMIN' &&
-                            TERMINAL_JOB_STATUSES.includes(j.status) && (
-                              <label
+                              {/* biome-ignore lint/performance/noImgElement: admin SPA, not Next.js */}
+                              <img
+                                src={url}
+                                alt={label}
                                 style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  gap: 4,
-                                  marginTop: 4,
-                                  fontSize: 11,
-                                  color: 'var(--muted)',
+                                  width: 96,
+                                  height: 96,
+                                  objectFit: 'cover',
+                                  borderRadius: 8,
+                                  border: '1px solid var(--border)',
+                                  display: 'block',
+                                  cursor: 'zoom-in',
                                 }}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={deleteAssetsTargets.has('person')}
-                                  onChange={(e) => toggleDeleteTarget('person', e.target.checked)}
-                                />
-                                Select for deletion
-                              </label>
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).style.display = 'none';
+                                }}
+                              />
+                            </a>
+                            {isPersonSelectable && (
+                              <AssetSelectBadge
+                                selected={personSelected}
+                                onToggle={() => toggleDeleteTarget('person', !personSelected)}
+                              />
                             )}
+                          </div>
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: personSelected ? 600 : 400,
+                              color: personSelected ? 'var(--danger-ink)' : 'var(--muted)',
+                              marginTop: 4,
+                              display: 'block',
+                            }}
+                          >
+                            {label}
+                          </span>
                         </div>
                       );
                     })}
                   </div>
                 </div>
-              </div>
-            )}
-
-            {deleteAssetsTargets.size > 0 && (
-              <div
-                className="card"
-                style={{
-                  marginBottom: 14,
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: 12,
-                }}
-              >
-                <span style={{ fontSize: 13, color: 'var(--muted)' }}>
-                  {deleteAssetsTargets.size} image{deleteAssetsTargets.size > 1 ? 's' : ''} selected
-                </span>
-                <button className="btn sm danger" onClick={() => setDeleteAssetsOpen(true)}>
-                  <Icon.Trash /> Delete selected
-                </button>
               </div>
             )}
 
@@ -914,6 +974,47 @@ export default function JobsPage({ onNav, toast }: Props) {
           </div>
         )}
 
+        {canDeleteAssets && deleteAssetsTargets.size > 0 && !deleteAssetsOpen && (
+          <div
+            style={{
+              position: 'fixed',
+              left: '50%',
+              bottom: 24,
+              transform: 'translateX(-50%)',
+              zIndex: 40,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 14,
+              padding: '10px 12px 10px 18px',
+              borderRadius: 999,
+              background: 'var(--danger-soft)',
+              border: '1px solid var(--danger-border)',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+            }}
+          >
+            <span style={{ fontSize: 13, color: 'var(--danger-ink)', fontWeight: 600 }}>
+              {deleteAssetsTargets.size} asset{deleteAssetsTargets.size > 1 ? 's' : ''} selected
+              <span style={{ fontWeight: 400 }}> — {selectedAssetLabels}</span>
+            </span>
+            <button
+              className="btn sm ghost"
+              onClick={() => setDeleteAssetsTargets(new Set())}
+              title="Clear selection"
+            >
+              Clear
+            </button>
+            <button
+              className="btn sm danger"
+              onClick={() => {
+                setDeleteAssetsError(null);
+                setDeleteAssetsOpen(true);
+              }}
+            >
+              <Icon.Trash /> Delete
+            </button>
+          </div>
+        )}
+
         {deleteAssetsOpen && (
           <div
             className="modal-overlay"
@@ -921,25 +1022,25 @@ export default function JobsPage({ onNav, toast }: Props) {
               if (!deletingAssets) {
                 setDeleteAssetsOpen(false);
                 setDeleteAssetsPassword('');
+                setDeleteAssetsError(null);
               }
             }}
           >
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <div className="modal-head">
-                <h3>Delete job assets</h3>
+                <h3>Delete job assets?</h3>
               </div>
               <div className="modal-body">
-                <p style={{ marginBottom: 12 }}>
-                  Permanently delete{' '}
-                  <strong>
-                    {Array.from(deleteAssetsTargets)
-                      .map((t) =>
-                        t === 'result' ? 'the result image' : "the person's uploaded photo",
-                      )
-                      .join(' and ')}
-                  </strong>{' '}
-                  for this job. Cannot be undone. The job record and its configuration are not
-                  affected.
+                <p style={{ marginBottom: 8 }}>You're about to permanently delete:</p>
+                <ul style={{ margin: '0 0 12px', paddingLeft: 20 }}>
+                  {Array.from(deleteAssetsTargets).map((t) => (
+                    <li key={t} style={{ fontSize: 13 }}>
+                      {t === 'result' ? 'Result image' : "Person's uploaded photo"}
+                    </li>
+                  ))}
+                </ul>
+                <p style={{ marginBottom: 12, fontSize: 13, color: 'var(--muted)' }}>
+                  This cannot be undone. The job record and its configuration are not affected.
                 </p>
                 <label
                   style={{ display: 'block', fontSize: 13, marginBottom: 6, color: 'var(--muted)' }}
@@ -950,11 +1051,19 @@ export default function JobsPage({ onNav, toast }: Props) {
                   className="input"
                   type="password"
                   value={deleteAssetsPassword}
-                  onChange={(e) => setDeleteAssetsPassword(e.target.value)}
+                  onChange={(e) => {
+                    setDeleteAssetsPassword(e.target.value);
+                    if (deleteAssetsError) setDeleteAssetsError(null);
+                  }}
                   placeholder="Password"
                   style={{ width: '100%' }}
                   autoFocus
                 />
+                {deleteAssetsError && (
+                  <p style={{ color: 'var(--danger-ink)', fontSize: 12, marginTop: 6 }}>
+                    {deleteAssetsError}
+                  </p>
+                )}
               </div>
               <div className="modal-foot">
                 <button
@@ -963,6 +1072,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                   onClick={() => {
                     setDeleteAssetsOpen(false);
                     setDeleteAssetsPassword('');
+                    setDeleteAssetsError(null);
                   }}
                 >
                   Cancel
@@ -972,7 +1082,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                   disabled={deletingAssets || !deleteAssetsPassword}
                   onClick={() => void handleDeleteAssets()}
                 >
-                  <Icon.Trash /> {deletingAssets ? 'Deleting…' : 'Yes, delete'}
+                  <Icon.Trash /> {deletingAssets ? 'Deleting…' : 'Delete assets'}
                 </button>
               </div>
             </div>
