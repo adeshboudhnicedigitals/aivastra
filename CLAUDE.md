@@ -375,6 +375,20 @@ tags, so placeholder attributes are present and CSS must set the real size.
 authoritative; the metafield is a cache, and a failed mirror surfaces as
 `synced: false`.
 
+**Product routing (baskets) is not one default template for every product.**
+Baskets are `shopify_funnel_templates`, each pointing at a `workflow_templates`
+row. `shopify_funnel_rules` routes products to a basket by condition
+(product type / vendor / tags / collections); `store_id NULL` means the rule is
+an Aivastra-authored **global** rule, a non-null `store_id` means it's the
+merchant's own. Per-store suppression of a global rule lives in
+`shopify_store_disabled_funnel_rules`. Precedence — manual per-product pin →
+the store's own rules → global rules → the default basket — lives in **exactly
+one place**, `apps/api/src/modules/shopify/funnel-resolution.ts`
+(`resolveBasketFrom`); every caller (try-on creation, the merchant product
+list, the Routing page counts) goes through it rather than re-deriving the
+rule. The resolved basket's `workflowTemplateId` is still pinned into
+`job_inputs.params` at enqueue, same as every other job-creation path.
+
 ---
 
 ## Staging
