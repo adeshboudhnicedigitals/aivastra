@@ -1,4 +1,5 @@
 import { schema } from '@aivastra/db';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { upsertShopifyStore } from '../../src/modules/shopify/auth.routes.js';
 import { buildTestApp, type TestApp } from '../helpers/api.js';
@@ -277,5 +278,27 @@ describe('shopify merchant funnel rules routes', () => {
     });
     expect(res.json().countsOmitted).toBe(false);
     expect(res.json().counts[defaultBasketId]).toBeGreaterThan(0);
+    // The unmatched product falls through to the active default basket, so
+    // nothing is actually unrouted yet.
+    expect(res.json().unrouted).toBe(0);
+  });
+
+  it('counts a product with no resolvable basket as unrouted, not silently dropped', async () => {
+    // Deactivating the default removes the unmatched product's only fallback.
+    // This is the last test in the file, so it's safe to leave the fixture
+    // in this state.
+    await app.db
+      .update(schema.shopifyFunnelTemplates)
+      .set({ isActive: false })
+      .where(eq(schema.shopifyFunnelTemplates.id, defaultBasketId));
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/funnel-rules',
+      headers: authA,
+    });
+    expect(res.json().countsOmitted).toBe(false);
+    expect(res.json().counts[defaultBasketId]).toBeUndefined();
+    expect(res.json().unrouted).toBe(1);
   });
 });
