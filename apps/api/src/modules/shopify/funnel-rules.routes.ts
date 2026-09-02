@@ -108,6 +108,11 @@ export async function shopifyFunnelRulesRoutes(app: FastifyInstance) {
     const globals = rows.filter((r) => r.storeId === null);
 
     const counts: Record<string, number> = {};
+    // Products that resolve to nothing at all — no pin, no matching rule, no
+    // active default — are exactly the ones a try-on request refuses for
+    // before any credit deduct. Merchants have no other way to see this
+    // number: it never appears mid-catalog on the paginated product list.
+    let unrouted = 0;
     const countsOmitted = total > COUNTS_PRODUCT_CAP;
     if (!countsOmitted) {
       const ruleSet = await loadRuleSet(app, store.id);
@@ -128,7 +133,11 @@ export async function shopifyFunnelRulesRoutes(app: FastifyInstance) {
         );
       for (const p of products) {
         const resolved = resolveBasketFrom(ruleSet, p as BasketMatchTarget);
-        if (resolved) counts[resolved.basketId] = (counts[resolved.basketId] ?? 0) + 1;
+        if (resolved) {
+          counts[resolved.basketId] = (counts[resolved.basketId] ?? 0) + 1;
+        } else {
+          unrouted++;
+        }
       }
     }
 
@@ -148,6 +157,9 @@ export async function shopifyFunnelRulesRoutes(app: FastifyInstance) {
       })),
       counts,
       countsOmitted,
+      // null (not 0) when countsOmitted, matching counts' own omitted state —
+      // a bare 0 would misreport "fully routed" for a catalog never scanned.
+      unrouted: countsOmitted ? null : unrouted,
     };
   });
 
