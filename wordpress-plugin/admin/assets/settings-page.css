@@ -43,10 +43,16 @@
     #f96657 99.67%
   );
   --aivastra-catalogue-dark: #141414;
-  /* 1500px matches the max-width apps/catalogues-web's own /pricing grid uses
-     — widened from 1180px so the Plans & Credits cards get room to breathe
-     instead of being squeezed to fit 4-across in a narrower column. */
-  max-width: 1500px;
+  /* Was briefly widened to 1500px (matching apps/catalogues-web's own
+     /pricing grid) to give the Plans & Credits tiles more room. That value
+     applies to every tab through this shared wrapper, not just Plans &
+     Credits, and 1500px overflows/stretches badly on an actual laptop
+     viewport (1366/1440) for every other tab's much narrower content — a
+     plain two-field Connection form has no business being 1500px wide.
+     Reverted to 1180px, the previous width this class already used safely;
+     .aivastra-plans-grid's own breakpoints (below) still adapt the tile
+     count independently of this value. */
+  max-width: 1180px;
   /* WordPress core's .wrap sets a small fixed left margin, which leaves this
      fixed-width block hugging the left edge on any screen wider than ~760px
      instead of sitting in the middle of the admin content area. Overriding
@@ -545,23 +551,32 @@
   border-radius: var(--aivastra-radius-control);
   border: 1px solid transparent;
   cursor: pointer;
+  /* Applied to <a> as well as <button> (e.g. "Email us", the onboarding
+     links) — without this, WP admin's default link styling underlines the
+     label and it reads as a stray link instead of a button. */
+  text-decoration: none;
   transition:
     background 0.15s ease,
     border-color 0.15s ease,
     color 0.15s ease;
 }
 
+/* Solid black, not the brand gradient — the gradient is reserved for the
+   Plans & Credits (pricing) page, where it matches the consumer /pricing
+   page's own branding. Every other primary action on this settings screen
+   (Test connection, Save appearance, Save category mapping) reads as a plain
+   admin-tool action, not a marketing CTA. */
 .aivastra-btn-primary {
-  background: var(--aivastra-gradient);
+  background: var(--aivastra-catalogue-dark);
   color: #fff;
   align-self: flex-start;
   transition:
-    filter 0.15s ease,
+    background 0.15s ease,
     transform 0.1s ease;
 }
 
 .aivastra-btn-primary:hover {
-  filter: brightness(1.08) saturate(1.1);
+  background: #2a2a2a;
   color: #fff;
 }
 
@@ -578,6 +593,19 @@
 .aivastra-btn-secondary:hover {
   background: var(--aivastra-surface-muted);
   color: var(--aivastra-text-main);
+}
+
+/* Text-style, no visible border — the lighter of two unequal paths (see
+   .aivastra-onboarding-links), never a first choice on its own. */
+.aivastra-btn-ghost {
+  background: transparent;
+  color: var(--aivastra-accent);
+  border-color: transparent;
+}
+
+.aivastra-btn-ghost:hover {
+  background: var(--aivastra-accent-soft);
+  color: var(--aivastra-accent);
 }
 
 .aivastra-btn-block {
@@ -669,6 +697,30 @@
   color: var(--aivastra-text-muted);
   font-size: 13.5px;
   margin: 0 0 24px;
+}
+
+/* Points a fresh marketplace install (no account yet) or a merchant who's
+   forgotten where keys live at the web app. Shown above the connect form in
+   both places it renders — first-time connect and "Update connection keys". */
+.aivastra-onboarding-banner {
+  background: var(--aivastra-accent-soft);
+  border: 1px solid var(--aivastra-accent-border);
+  border-radius: var(--aivastra-radius-control);
+  padding: 12px 14px;
+  margin-bottom: 20px;
+}
+
+.aivastra-onboarding-banner-text {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--aivastra-text-main);
+}
+
+.aivastra-onboarding-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .aivastra-step {

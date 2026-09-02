@@ -300,7 +300,9 @@ export async function buildServer(env: Env) {
     },
     // The spec is public, so it must describe ONLY the developer surface. Every
     // route without the 'dev' tag is hidden — admin/auth/merchant routes must never
-    // appear here.
+    // appear here, and neither must the 'wp-internal'-tagged routes in
+    // modules/dev/routes.ts that exist solely to back the WordPress plugin's own
+    // UI (balance/plans/payments/widget-event/analytics), not the public API.
     transform: ({ schema: s, url }) => {
       const out = jsonSchemaTransform({ schema: s, url });
       if (!s?.tags?.includes('dev')) out.schema = { ...out.schema, hide: true };

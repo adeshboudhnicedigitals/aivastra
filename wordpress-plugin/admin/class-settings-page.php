@@ -143,8 +143,8 @@ class Aivastra_Settings_Page
     public static function register_menu(): void
     {
         add_options_page(
-            'Aivastra Try-On',
-            'Aivastra Try-On',
+            'Ai Vastra Try-On',
+            'Ai Vastra Try-On',
             'manage_woocommerce',
             'aivastra-tryon',
             [self::class, 'render']
@@ -412,8 +412,8 @@ class Aivastra_Settings_Page
         if (!$connected) {
             ?>
             <div class="aivastra-card aivastra-connect-card">
-              <h2 class="aivastra-connect-heading"><?php echo self::heading_icon('link'); ?>Connect your Aivastra account</h2>
-              <p class="aivastra-connect-description">Paste two keys from your Aivastra dashboard to enable virtual try-on on your storefront.</p>
+              <h2 class="aivastra-connect-heading"><?php echo self::heading_icon('link'); ?>Connect your Ai Vastra account</h2>
+              <p class="aivastra-connect-description">Paste two keys from your Ai Vastra dashboard to enable virtual try-on on your storefront.</p>
               <?php self::render_connect_form(); ?>
             </div>
             <?php
@@ -489,7 +489,7 @@ class Aivastra_Settings_Page
           <div class="aivastra-page-header">
             <h1 class="aivastra-logo-row">
               <img src="<?php echo esc_url(AIVASTRA_TRYON_URL . 'admin/assets/images/logo.svg'); ?>" alt="" class="aivastra-logo-mark">
-              <img src="<?php echo esc_url(AIVASTRA_TRYON_URL . 'admin/assets/images/logo-text.svg'); ?>" alt="Aivastra Try-On" class="aivastra-logo-text">
+              <img src="<?php echo esc_url(AIVASTRA_TRYON_URL . 'admin/assets/images/logo-text.svg'); ?>" alt="Ai Vastra Try-On" class="aivastra-logo-text">
             </h1>
             <p class="aivastra-page-subtitle">Manage the connection powering your storefront's virtual try-on button.</p>
           </div>
@@ -638,10 +638,23 @@ class Aivastra_Settings_Page
         <?php
     }
 
-    /** Shared by the not-connected default view and the "Update connection keys" reveal. */
+    /**
+     * Shared by the not-connected default view and the "Update connection keys"
+     * reveal. The banner above the form points a fresh marketplace install
+     * (no aivastra account yet) or an existing merchant who's forgotten where
+     * keys live at the web app — the plugin never mints an account or a key
+     * itself (docs/wordpress-plugin-design.md §4.1).
+     */
     private static function render_connect_form(): void
     {
         ?>
+        <div class="aivastra-onboarding-banner">
+          <p class="aivastra-onboarding-banner-text">Don&rsquo;t have your keys yet? Get set up in your Ai Vastra account:</p>
+          <div class="aivastra-onboarding-links">
+            <a href="<?php echo esc_url(self::API_BASE . '/register?src=wordpress_plugin'); ?>" target="_blank" rel="noopener noreferrer" class="aivastra-btn aivastra-btn-primary">Create a free account &rarr;</a>
+            <a href="<?php echo esc_url(self::API_BASE . '/developers'); ?>" target="_blank" rel="noopener noreferrer" class="aivastra-btn aivastra-btn-ghost">Already have an account? Get your API keys &rarr;</a>
+          </div>
+        </div>
         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="aivastra-form aivastra-connect-form">
           <input type="hidden" name="action" value="aivastra_tryon_connect">
           <?php wp_nonce_field('aivastra_tryon_connect'); ?>
@@ -649,7 +662,7 @@ class Aivastra_Settings_Page
             <span class="aivastra-step-number">1</span>
             <div class="aivastra-step-body">
               <label for="aivastra_full_key">Full API key</label>
-              <p class="aivastra-step-hint">From your aivastra account → API Keys. Verified against your account and stored securely (encrypted) so you can buy credits below without re-entering it.</p>
+              <p class="aivastra-step-hint">Verified against your account and stored securely (encrypted) so you can buy credits below without re-entering it.</p>
               <input type="password" id="aivastra_full_key" name="aivastra_full_key" class="aivastra-input" autocomplete="off" placeholder="sk_live_&hellip;">
             </div>
           </div>
@@ -858,13 +871,13 @@ class Aivastra_Settings_Page
         <div class="aivastra-card aivastra-category-card">
           <h2 class="aivastra-card-heading"><?php echo self::heading_icon('tag'); ?>Try-on category mapping</h2>
           <?php if (!$result['ok']): ?>
-            <p class="aivastra-empty-state">Could not load your aivastra categories right now — try reloading this page.</p>
+            <p class="aivastra-empty-state">Could not load your Ai Vastra categories right now — try reloading this page.</p>
           <?php elseif (empty($result['categories'])): ?>
-            <p class="aivastra-empty-state">No active try-on categories are configured on your aivastra account yet. Every product will use the <code>general</code> category until one exists.</p>
+            <p class="aivastra-empty-state">No active try-on categories are configured on your Ai Vastra account yet. Every product will use the <code>general</code> category until one exists.</p>
           <?php elseif (empty($productCategories)): ?>
             <p class="aivastra-empty-state">No WooCommerce product categories found — every product uses the <code>general</code> try-on category.</p>
           <?php else: ?>
-            <p class="aivastra-card-description">Pick which aivastra try-on workflow applies to each WooCommerce product category. A category left as "Default" falls back to <code>general</code>.</p>
+            <p class="aivastra-card-description">Pick which Ai Vastra try-on workflow applies to each WooCommerce product category. A category left as "Default" falls back to <code>general</code>.</p>
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="aivastra-form">
               <input type="hidden" name="action" value="aivastra_tryon_save_category_map">
               <?php wp_nonce_field('aivastra_tryon_save_category_map'); ?>
