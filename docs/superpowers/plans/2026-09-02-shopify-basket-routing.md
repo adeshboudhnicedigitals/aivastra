@@ -1889,7 +1889,7 @@ The rule editor modal edits `conditions[]` as rows of a `field` `Select`, an `op
 - [ ] **Step 3: Typecheck and lint**
 
 ```bash
-pnpm --filter @aivastra/shopify typecheck
+pnpm --filter @aivastra/shopify-admin typecheck
 pnpm lint
 ```
 Expected: exit 0, no new warnings in `apps/shopify`.
@@ -1897,7 +1897,7 @@ Expected: exit 0, no new warnings in `apps/shopify`.
 - [ ] **Step 4: Verify in the browser**
 
 ```bash
-pnpm --filter @aivastra/shopify dev
+pnpm --filter @aivastra/shopify-admin dev
 ```
 Outside the Shopify admin iframe, `window.shopify` is undefined and `App.tsx` supplies the dev `<Navigation>` — so the Routing entry is reachable at `/routing` locally. Confirm: rules list, add a rule, toggle a global rule off and back on, and the counts card.
 
@@ -1938,14 +1938,14 @@ When `item.basket` is `null`, render "Unavailable" rather than an empty cell: nu
 - [ ] **Step 2: Typecheck and lint**
 
 ```bash
-pnpm --filter @aivastra/shopify typecheck
+pnpm --filter @aivastra/shopify-admin typecheck
 pnpm lint
 ```
 Expected: exit 0.
 
 - [ ] **Step 3: Verify in the browser**
 
-With `pnpm --filter @aivastra/shopify dev` running, open Manage → Individual Products. Confirm the badge reads `Rule` for a rule-matched product, changing the select flips it to `Pinned`, and "Reset to automatic" returns it to `Rule`.
+With `pnpm --filter @aivastra/shopify-admin dev` running, open Manage → Individual Products. Confirm the badge reads `Rule` for a rule-matched product, changing the select flips it to `Pinned`, and "Reset to automatic" returns it to `Rule`.
 
 - [ ] **Step 4: Commit**
 
