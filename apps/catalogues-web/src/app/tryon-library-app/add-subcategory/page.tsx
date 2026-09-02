@@ -112,6 +112,14 @@ function AddSubcategoryScreenInner() {
               fullWidth
               height={48}
               placeholder="Select garment type…"
+              // This screen is a forced-light surface (see LIGHT theme comment) —
+              // PremiumSelect's default colors are dark-mode-reactive and render
+              // near-white text on this always-light field without these overrides.
+              textColor={LIGHT.text}
+              mutedColor={LIGHT.mid}
+              popupBackground={LIGHT.card}
+              popupBorder={LIGHT.border2}
+              hoverBackground={LIGHT.field}
             />
           </div>
         </div>

@@ -152,13 +152,13 @@ async function serializeSubcategory(
       mannequinTwoInputWorkflowTemplateId:
         schema.garmentSubcategories.mannequinTwoInputWorkflowTemplateId,
       twoInputTryonWorkflowTemplateId: schema.garmentSubcategories.twoInputTryonWorkflowTemplateId,
-      instructionImageKey: schema.garmentSubcategories.instructionImageKey,
+      tryonLibraryInstructionImageKey: schema.garmentSubcategories.tryonLibraryInstructionImageKey,
     })
     .from(schema.garmentSubcategories)
     .where(eq(schema.garmentSubcategories.id, row.garmentSubcategoryId));
-  const instructionImageUrl = garmentType?.instructionImageKey
+  const instructionImageUrl = garmentType?.tryonLibraryInstructionImageKey
     ? await app.storage
-        .presignGet(garmentType.instructionImageKey, 3600)
+        .presignGet(garmentType.tryonLibraryInstructionImageKey, 3600)
         .then((result) => result.url)
         .catch(() => null)
     : null;

@@ -31,6 +31,8 @@ export const keys = {
   modelPoseBgComfy: (id: string) => `models/poses/${id}.bgcomfy.jpg`,
   subcategoryThumb: (id: string) => `models/subcategories/${id}.thumb.jpg`,
   subcategoryInstruction: (id: string) => `models/subcategories/${id}.instr.jpg`,
+  subcategoryTryonLibraryInstruction: (id: string) =>
+    `models/subcategories/${id}.tryon-library-instr.jpg`,
   catalogueTemplateThumb: (id: string) => `models/catalogue-templates/${id}.thumb.jpg`,
   subcategoryTemplate: (id: string) => `models/templates/${id}.jpg`,
   subcategoryTemplateThumb: (id: string) => `models/templates/${id}.thumb.jpg`,

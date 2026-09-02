@@ -6,6 +6,7 @@ import {
   PatchGarmentTypeBody,
   PresignGarmentTypeBody,
   PresignGarmentTypeInstructionBody,
+  PresignGarmentTypeTryonLibraryInstructionBody,
 } from '@aivastra/types';
 import { and, asc, eq, gt, gte, ilike, inArray, isNull, lt, lte, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
@@ -31,6 +32,9 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
           ...r,
           instructionImageUrl: r.instructionImageKey
             ? (await app.storage.presignGet(r.instructionImageKey, 3600)).url
+            : null,
+          tryonLibraryInstructionImageUrl: r.tryonLibraryInstructionImageKey
+            ? (await app.storage.presignGet(r.tryonLibraryInstructionImageKey, 3600)).url
             : null,
           thumbnailUrl: r.thumbnailKey
             ? (await app.storage.presignGet(r.thumbnailKey, 3600)).url
@@ -67,6 +71,20 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
       const instructionKey = keys.subcategoryInstruction(newId);
       const { url } = await app.storage.presignPut(instructionKey, 'image/jpeg', 10_000_000, 300);
       return { uploadUrl: url, instructionImageKey: instructionKey };
+    },
+  );
+
+  app.post(
+    '/admin/assets/garment-types/tryon-library-instruction/presign',
+    {
+      preHandler: RW,
+      schema: { body: PresignGarmentTypeTryonLibraryInstructionBody },
+    },
+    async (_req) => {
+      const newId = randomUUID();
+      const instructionKey = keys.subcategoryTryonLibraryInstruction(newId);
+      const { url } = await app.storage.presignPut(instructionKey, 'image/jpeg', 10_000_000, 300);
+      return { uploadUrl: url, tryonLibraryInstructionImageKey: instructionKey };
     },
   );
 
@@ -201,6 +219,19 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
           .where(eq(schema.garmentSubcategories.id, id));
         if (current?.instructionImageKey) {
           await app.storage.deleteObject(current.instructionImageKey).catch(() => {});
+        }
+      }
+
+      if ('tryonLibraryInstructionImageKey' in body) {
+        const [current] = await app.db
+          .select({
+            tryonLibraryInstructionImageKey:
+              schema.garmentSubcategories.tryonLibraryInstructionImageKey,
+          })
+          .from(schema.garmentSubcategories)
+          .where(eq(schema.garmentSubcategories.id, id));
+        if (current?.tryonLibraryInstructionImageKey) {
+          await app.storage.deleteObject(current.tryonLibraryInstructionImageKey).catch(() => {});
         }
       }
 
