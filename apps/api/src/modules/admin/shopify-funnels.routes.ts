@@ -1,5 +1,5 @@
 import { type DB, schema } from '@aivastra/db';
-import { asc, count, eq } from 'drizzle-orm';
+import { asc, count, countDistinct, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -182,12 +182,23 @@ export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
         );
       }
 
+      // shopify_funnel_rules cascades on funnel_template_id (schema/shopify.ts:280),
+      // so deleting a basket silently deletes every store's rules for it. State
+      // what will be lost before the cascade.
+      const [ruleImpact] = await app.db
+        .select({
+          rules: count(),
+          stores: countDistinct(schema.shopifyFunnelRules.storeId),
+        })
+        .from(schema.shopifyFunnelRules)
+        .where(eq(schema.shopifyFunnelRules.funnelTemplateId, id));
+
       const [deleted] = await app.db
         .delete(schema.shopifyFunnelTemplates)
         .where(eq(schema.shopifyFunnelTemplates.id, id))
         .returning({ id: schema.shopifyFunnelTemplates.id });
       if (!deleted) throw new AppError('NOT_FOUND', 404, 'funnel template not found');
-      return { ok: true };
+      return { ok: true, rulesAffected: ruleImpact.rules, storesAffected: ruleImpact.stores };
     },
   );
 }
