@@ -13,6 +13,7 @@ import {
   XIcon,
 } from '@/components/icons';
 import { GradBtn } from '@/components/ui/grad-btn';
+import { ApiError } from '@/lib/errors';
 import { catalogAppApi as api } from '../../../catalog-app-api';
 import { deleteProduct, presignAndUpload } from '../../../catalog-app-helpers';
 import { ScreenHeader } from '../../../components/ScreenHeader';
@@ -65,6 +66,11 @@ function BulkUploadScreenInner() {
   const searchParams = useSearchParams();
 
   const getErrorMessage = useSessionExpiryMessage();
+  // The server intentionally collapses any unhandled 5xx to a terse, non-actionable
+  // "internal error" string so it never leaks internals — surface the caller's own
+  // fallback instead of that raw string for this screen's batched save/enqueue calls.
+  const friendlyErrorMessage = (err: unknown, fallback: string): string =>
+    err instanceof ApiError && err.status >= 500 ? fallback : getErrorMessage(err, fallback);
   const [items, setItems] = useState<QueueItem[]>([]);
   const [showDetails, setShowDetails] = useState(false);
   const [showInfoBanner, setShowInfoBanner] = useState(true);
@@ -172,7 +178,7 @@ function BulkUploadScreenInner() {
                   ...p,
                   status: 'failed',
                   hasError: true,
-                  errorMessage: getErrorMessage(err, 'Upload failed'),
+                  errorMessage: friendlyErrorMessage(err, 'Upload failed'),
                 }
               : p,
           ),
@@ -209,7 +215,7 @@ function BulkUploadScreenInner() {
                 ...p,
                 status: 'failed',
                 hasError: true,
-                errorMessage: getErrorMessage(err, 'Failed to enqueue'),
+                errorMessage: friendlyErrorMessage(err, 'Failed to enqueue'),
               }
             : p,
         ),
@@ -339,7 +345,7 @@ function BulkUploadScreenInner() {
       qc.invalidateQueries({ queryKey: ['merchant-catalog-subcategories'] });
       goBackToProducts();
     } catch (err) {
-      setSaveError(getErrorMessage(err, 'Failed to save some items. Please try again.'));
+      setSaveError(friendlyErrorMessage(err, 'Failed to save some items. Please try again.'));
     } finally {
       setIsSaving(false);
     }
