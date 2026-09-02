@@ -53,7 +53,7 @@ describe('regenerate job (source=regenerate) — single-image edit, result uploa
     await setWorkerStatus(redis, WORKER_ID, 'IDLE');
   });
 
-  async function seedRegenerateJob(promptOverride?: string) {
+  async function seedRegenerateJob(promptOverride?: string, instructionOverride?: string) {
     const [user] = await env.db
       .insert(schema.users)
       .values({ email: `regen-${randomUUID()}@test.com`, passwordHash: 'x', tier: 'free' })
@@ -106,6 +106,7 @@ describe('regenerate job (source=regenerate) — single-image edit, result uploa
         sourceImageKey,
         workflowTemplateId: template.id,
         ...(promptOverride ? { promptOverride } : {}),
+        ...(instructionOverride ? { instructionOverride } : {}),
       },
     });
 
@@ -146,6 +147,26 @@ describe('regenerate job (source=regenerate) — single-image edit, result uploa
       new GetObjectCommand({ Bucket: env.r2Bucket, Key: `outputs/${jobId}/result.webp` }),
     );
     expect(obj.ContentType).toBe('image/webp');
+  });
+
+  it('patches both prompt and instruction on the same reason-prompt node', async () => {
+    const { jobId, userId } = await seedRegenerateJob('remove extra footwear', 'keep model shoes');
+    const log = createLogger('test');
+
+    await processJob(
+      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      jobId,
+      userId,
+      'jobs:normal',
+      `${Date.now()}-0`,
+    );
+
+    const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+    expect(job?.status).toBe('COMPLETED');
+
+    const submitted = comfy.lastPrompt();
+    expect(submitted?.prompt[PROMPT_NODE_ID]?.inputs?.prompt).toBe('remove extra footwear');
+    expect(submitted?.prompt[PROMPT_NODE_ID]?.inputs?.instruction).toBe('keep model shoes');
   });
 
   it('fails with REGEN_NODES_NOT_CONFIGURED when the template has no person/output node', async () => {

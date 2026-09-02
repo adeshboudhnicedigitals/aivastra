@@ -23,6 +23,7 @@ export async function modelsRoutes(app: FastifyInstance) {
           sortOrder: schema.garmentSubcategories.sortOrder,
           thumbnailKey: schema.garmentSubcategories.thumbnailKey,
           instructionImageKey: schema.garmentSubcategories.instructionImageKey,
+          tutorialVideoUrl: schema.garmentSubcategories.tutorialVideoUrl,
           requiresLowerUpload: schema.garmentSubcategories.requiresLowerUpload,
           upperUploadLabel: schema.garmentSubcategories.upperUploadLabel,
           lowerUploadLabel: schema.garmentSubcategories.lowerUploadLabel,
