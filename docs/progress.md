@@ -153,6 +153,12 @@ manual pins and per-store suppression of Aivastra-authored global rules.
   (referenced elsewhere in `CLAUDE.md` as the place for tracking findings like
   this) is gitignored and does not exist in this checkout, so this finding
   could not be filed there — it lives only in this progress.md entry for now.
+  **RESOLVED 2026-09-02, checked against production:** query returned exactly
+  one distinct `funnel_template_id`, pinned on 13 `shopify_product_garments`
+  rows — `31f89f46-f6d4-4234-944e-f2ab835f82be`, which is the `default`/"Default"
+  basket (`is_active: true`). Since unpinned products already fall through to
+  the default basket, these 13 rows resolve to the exact same basket with or
+  without the pin. No reconciliation needed — deploy is safe as-is.
 
 **Open Questions**
 - **Per-store default basket** — deliberately deferred (see the plan's "Deferred"
