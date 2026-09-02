@@ -741,6 +741,9 @@ export const PatchGarmentTypeBody = z.object({
   defaultShoeCatalogId: z.string().uuid().nullable().optional(),
   tryonCategoryId: z.string().uuid().nullable().optional(),
   instructionImageKey: z.string().nullable().optional(),
+  // Any youtu.be/watch/embed form — extractYoutubeId (catalogues-web) derives the
+  // video ID for embedding, so no stricter shape is enforced here.
+  tutorialVideoUrl: z.string().trim().max(500).url().nullable().optional(),
   defaultPoseId: z.string().uuid().nullable().optional(),
   requiresMannequinStep: z.boolean().optional(),
   mannequinWorkflowTemplateId: z.string().uuid().nullable().optional(),
