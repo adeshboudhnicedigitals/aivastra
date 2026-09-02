@@ -1,4 +1,4 @@
-import type { FunnelRuleCondition } from '@aivastra/db';
+import type { schema } from '@aivastra/db';
 
 export type BasketSource = 'manual' | 'rule' | 'default';
 
@@ -15,7 +15,7 @@ export interface BasketRule {
   ruleId: string;
   basketId: string;
   priority: number;
-  conditions: FunnelRuleCondition[];
+  conditions: schema.FunnelRuleCondition[];
 }
 
 export interface BasketInfo {
@@ -47,7 +47,7 @@ const norm = (value: string): string => value.trim().toLowerCase();
 
 function matchesText(
   value: string | null,
-  operator: FunnelRuleCondition['operator'],
+  operator: schema.FunnelRuleCondition['operator'],
   needle: string,
 ): boolean {
   if (!value) return false;
@@ -57,7 +57,7 @@ function matchesText(
 
 function matchesList(
   values: string[] | null,
-  operator: FunnelRuleCondition['operator'],
+  operator: schema.FunnelRuleCondition['operator'],
   needle: string,
 ): boolean {
   if (!values?.length) return false;
@@ -70,7 +70,7 @@ function matchesList(
  * `Saree` would be this feature's largest single source of support tickets.
  */
 export function matchesCondition(
-  condition: FunnelRuleCondition,
+  condition: schema.FunnelRuleCondition,
   target: BasketMatchTarget,
 ): boolean {
   const needle = norm(condition.value);
