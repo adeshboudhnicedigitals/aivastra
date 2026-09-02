@@ -137,7 +137,10 @@ export async function devRoutes(app: FastifyInstance) {
       preHandler: app.requireApiKey,
       config: rateLimitConfig,
       schema: {
-        tags: ['dev'],
+        // wp-internal, not 'dev': the WordPress plugin's own "Refresh balance"
+        // button, not part of the public build-your-own-integration surface —
+        // see server.ts's swagger transform, which hides anything not tagged 'dev'.
+        tags: ['wp-internal'],
         summary: 'Get the current credit balance',
         response: {
           200: DevBalanceResponse,
@@ -171,7 +174,8 @@ export async function devRoutes(app: FastifyInstance) {
       preHandler: app.requireApiKey,
       config: rateLimitConfig,
       schema: {
-        tags: ['dev'],
+        // wp-internal: powers the WordPress plugin's "Plans & Credits" card only.
+        tags: ['wp-internal'],
         summary: 'List purchasable merchant credit plans',
         response: { 200: DevPlansResponse, 401: DevErrorResponse, 429: DevErrorResponse },
       },
@@ -216,7 +220,9 @@ export async function devRoutes(app: FastifyInstance) {
       preHandler: [app.requireApiKey, app.requireDevScope('full')],
       config: rateLimitConfig,
       schema: {
-        tags: ['dev'],
+        // wp-internal: the WordPress plugin's own credit-purchase flow, not part
+        // of the public dev API surface.
+        tags: ['wp-internal'],
         summary: 'Create a Razorpay order for a merchant credit plan',
         body: DevPaymentOrderBody,
         response: {
@@ -292,7 +298,8 @@ export async function devRoutes(app: FastifyInstance) {
       preHandler: app.requireApiKey,
       config: rateLimitConfig,
       schema: {
-        tags: ['dev'],
+        // wp-internal: pairs with POST /v1/dev/payments/orders above.
+        tags: ['wp-internal'],
         summary: 'Verify a Razorpay payment and grant credits',
         body: DevPaymentVerifyBody,
         response: {
@@ -782,7 +789,9 @@ export async function devRoutes(app: FastifyInstance) {
       preHandler: app.requireApiKey,
       config: rateLimitConfig,
       schema: {
-        tags: ['dev'],
+        // wp-internal: feeds the WordPress plugin Analytics card only (see
+        // description below) — not part of the public dev API surface.
+        tags: ['wp-internal'],
         summary: 'Record an advisory widget analytics event',
         description:
           'ADVISORY ONLY: client-reported and forgeable by anyone who can open ' +
@@ -824,7 +833,9 @@ export async function devRoutes(app: FastifyInstance) {
       preHandler: [app.requireApiKey, app.requireDevScope('full')],
       config: rateLimitConfig,
       schema: {
-        tags: ['dev'],
+        // wp-internal: rendered server-side by the WordPress plugin's settings
+        // page only — not part of the public dev API surface.
+        tags: ['wp-internal'],
         summary: 'Get widget analytics for the last 30 days',
         description:
           '`cards.tryOns` and `daily` are real (drawn from the jobs table, which a ' +
