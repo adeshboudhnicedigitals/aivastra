@@ -1083,7 +1083,7 @@ Create `apps/api/src/modules/shopify/funnel-rules.routes.ts`:
 
 ```ts
 import { schema } from '@aivastra/db';
-import { and, asc, count, eq, isNull, ne } from 'drizzle-orm';
+import { and, asc, count, eq, isNull, ne, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -1334,7 +1334,7 @@ export async function shopifyFunnelRulesRoutes(app: FastifyInstance) {
 }
 ```
 
-Note the `drizzle-orm` import list at the top of the file must include `or`, and drop `ne` if unused.
+The file's `drizzle-orm` import line must be `import { and, asc, count, eq, isNull, ne, or } from 'drizzle-orm';` — `ne` is still used (the two `status !== 'deleted'` filters below) and `or` is newly needed for the query above.
 
 Register in `apps/api/src/server.ts`, beside the other shopify modules:
 
@@ -1581,7 +1581,19 @@ EOF
 - Test: `apps/api/test/integration/shopify-admin-funnel-rules.test.ts`
 
 **Interfaces:**
-- Consumes: `requirePermission` from `../admin/guard.js`, `recordAudit`.
+- Consumes: `requirePermission` from `./guard.js` (same directory), `recordAudit` from `./audit.js` — real signature confirmed by reading `apps/api/src/modules/admin/audit.ts`:
+  ```ts
+  export interface RecordAuditParams {
+    actor: { userId: string; role: string };
+    action: string;
+    resourceType: string;
+    resourceId?: string;
+    before?: unknown;
+    after?: unknown;
+    request?: FastifyRequest;
+  }
+  export async function recordAudit(tx: DbTransaction, params: RecordAuditParams): Promise<void>
+  ```
 - Produces: `export async function adminShopifyFunnelRulesRoutes(app: FastifyInstance)`, registering `GET/POST/PATCH/DELETE /admin/shopify/funnel-rules[/:id]`. `GET` items carry `disabledByStoreCount: number`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1646,17 +1658,19 @@ Create `apps/api/src/modules/admin/shopify-funnel-rules.routes.ts`. Mirror the m
       // rule insert rolls back with it. A global rule re-routes every store's
       // catalog, so it is exactly the kind of write the audit trail is for.
       await recordAudit(tx, {
-        actorAdminUserId: req.adminUserId,
+        // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+        actor: { userId: req.userId, role: req.adminRole! },
         action: 'shopify_funnel_rule.create',
-        targetType: 'shopify_funnel_rule',
-        targetId: row.id,
-        metadata: { funnelTemplateId: row.funnelTemplateId, conditions: row.conditions, priority: row.priority },
+        resourceType: 'shopify_funnel_rule',
+        resourceId: row.id,
+        after: { funnelTemplateId: row.funnelTemplateId, conditions: row.conditions, priority: row.priority },
+        request: req,
       });
       return row;
     });
 ```
 
-> Read `recordAudit`'s actual signature in `apps/api/src/modules/admin/` and match it — the field names above follow the `audit_logs` schema but the helper's parameter shape is authoritative.
+Apply the same shape (`action: 'shopify_funnel_rule.update'` / `'.delete'`, `before`/`after` as appropriate) to the PATCH and DELETE handlers — follow the pattern at `apps/api/src/modules/admin/catalog.routes.ts:192-199` rather than inventing a new one.
 
 The `GET` handler joins the suppression count:
 
