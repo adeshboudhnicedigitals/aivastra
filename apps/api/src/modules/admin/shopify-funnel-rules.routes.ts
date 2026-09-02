@@ -77,6 +77,23 @@ export async function adminShopifyFunnelRulesRoutes(app: FastifyInstance) {
     { preHandler: RW, schema: { body: CreateRuleBody } },
     async (req) => {
       const body = req.body as z.infer<typeof CreateRuleBody>;
+
+      // Mirrors the merchant route (modules/shopify/funnel-rules.routes.ts)
+      // — without this, a bad or already-deleted funnelTemplateId hits the FK
+      // constraint on insert and surfaces as an uncaught 500 instead of a
+      // clean 404 for what's really a routine input mistake.
+      const [basket] = await app.db
+        .select({ id: schema.shopifyFunnelTemplates.id })
+        .from(schema.shopifyFunnelTemplates)
+        .where(
+          and(
+            eq(schema.shopifyFunnelTemplates.id, body.funnelTemplateId),
+            eq(schema.shopifyFunnelTemplates.isActive, true),
+          ),
+        )
+        .limit(1);
+      if (!basket) throw new AppError('NOT_FOUND', 404, 'basket not found');
+
       try {
         return await app.db.transaction(async (tx) => {
           const [row] = await tx

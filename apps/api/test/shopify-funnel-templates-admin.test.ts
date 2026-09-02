@@ -179,3 +179,71 @@ describe('admin shopify funnel templates CRUD', () => {
     expect(res.json().hasDefault).toBe(true);
   });
 });
+
+describe('admin shopify funnel template delete-impact response', () => {
+  async function createBasket(slug: string) {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/shopify/funnel-templates',
+      headers: adminHeaders,
+      payload: { slug, label: slug, workflowTemplateId, sortOrder: 0 },
+    });
+    expect(res.statusCode).toBe(200);
+    return res.json().id as string;
+  }
+
+  it('reports hasGlobalRule: true when the basket has a global rule', async () => {
+    const basketId = await createBasket('delete-impact-global');
+    await app.db.insert(schema.shopifyFunnelRules).values({
+      storeId: null,
+      funnelTemplateId: basketId,
+      conditions: [{ field: 'tags', operator: 'contains', value: 'x' }],
+      priority: 0,
+    });
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/admin/shopify/funnel-templates/${basketId}`,
+      headers: adminHeaders,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      ok: true,
+      rulesAffected: 1,
+      storesAffected: 0,
+      hasGlobalRule: true,
+    });
+  });
+
+  it('reports hasGlobalRule: false when the basket has only store-scoped rules', async () => {
+    const basketId = await createBasket('delete-impact-store-scoped');
+    const [store] = await app.db
+      .insert(schema.shopifyStores)
+      .values({
+        shopDomain: `delete-impact-${Date.now()}.myshopify.com`,
+        shopifyShopId: Date.now(),
+        accessToken: 'enc',
+        scope: 'read_products',
+      })
+      .returning();
+    await app.db.insert(schema.shopifyFunnelRules).values({
+      storeId: store.id,
+      funnelTemplateId: basketId,
+      conditions: [{ field: 'tags', operator: 'contains', value: 'x' }],
+      priority: 0,
+    });
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/admin/shopify/funnel-templates/${basketId}`,
+      headers: adminHeaders,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      ok: true,
+      rulesAffected: 1,
+      storesAffected: 1,
+      hasGlobalRule: false,
+    });
+  });
+});

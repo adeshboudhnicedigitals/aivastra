@@ -1,5 +1,5 @@
 import { type DB, schema } from '@aivastra/db';
-import { asc, count, countDistinct, eq } from 'drizzle-orm';
+import { asc, count, countDistinct, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -188,7 +188,15 @@ export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
       const [ruleImpact] = await app.db
         .select({
           rules: count(),
+          // countDistinct(storeId) skips NULL by Postgres COUNT(DISTINCT ...)
+          // semantics, so it's correct for store-scoped rules but silent about
+          // a global rule (storeId IS NULL), which affects every store that
+          // hasn't suppressed it — not a number this banner should attempt to
+          // compute (that needs the same per-store-suppression join as the
+          // GET disabledByStoreCount query, and is more precision than a
+          // warning banner needs). Surface it as a flag instead.
           stores: countDistinct(schema.shopifyFunnelRules.storeId),
+          hasGlobalRule: sql<boolean>`coalesce(bool_or(${schema.shopifyFunnelRules.storeId} is null), false)`,
         })
         .from(schema.shopifyFunnelRules)
         .where(eq(schema.shopifyFunnelRules.funnelTemplateId, id));
@@ -198,7 +206,12 @@ export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
         .where(eq(schema.shopifyFunnelTemplates.id, id))
         .returning({ id: schema.shopifyFunnelTemplates.id });
       if (!deleted) throw new AppError('NOT_FOUND', 404, 'funnel template not found');
-      return { ok: true, rulesAffected: ruleImpact.rules, storesAffected: ruleImpact.stores };
+      return {
+        ok: true,
+        rulesAffected: ruleImpact.rules,
+        storesAffected: ruleImpact.stores,
+        hasGlobalRule: ruleImpact.hasGlobalRule,
+      };
     },
   );
 }

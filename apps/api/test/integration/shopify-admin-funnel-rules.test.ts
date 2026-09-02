@@ -159,6 +159,23 @@ describe('admin shopify global funnel rules routes', () => {
     expect(res.statusCode).toBe(409);
   });
 
+  it('404s for a nonexistent basket and inserts nothing', async () => {
+    const before = await app.db.select().from(schema.shopifyFunnelRules);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/shopify/funnel-rules',
+      headers: adminAuth,
+      payload: {
+        funnelTemplateId: '00000000-0000-0000-0000-000000000000',
+        conditions: [{ field: 'tags', operator: 'contains', value: 'x' }],
+        priority: 0,
+      },
+    });
+    expect(res.statusCode).toBe(404);
+    const after = await app.db.select().from(schema.shopifyFunnelRules);
+    expect(after.length).toBe(before.length);
+  });
+
   it('reports how many stores have disabled each rule', async () => {
     const res = await app.inject({
       method: 'GET',
