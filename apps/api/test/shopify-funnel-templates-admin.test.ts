@@ -215,6 +215,65 @@ describe('admin shopify funnel template delete-impact response', () => {
     });
   });
 
+  it('previews the delete impact without deleting anything', async () => {
+    const basketId = await createBasket('delete-impact-preview');
+    const [store] = await app.db
+      .insert(schema.shopifyStores)
+      .values({
+        shopDomain: `delete-impact-preview-${Date.now()}.myshopify.com`,
+        shopifyShopId: Date.now(),
+        accessToken: 'enc',
+        scope: 'read_products',
+      })
+      .returning();
+    await app.db.insert(schema.shopifyFunnelRules).values([
+      {
+        storeId: null,
+        funnelTemplateId: basketId,
+        conditions: [{ field: 'tags', operator: 'contains', value: 'x' }],
+        priority: 0,
+      },
+      {
+        storeId: store.id,
+        funnelTemplateId: basketId,
+        conditions: [{ field: 'tags', operator: 'contains', value: 'y' }],
+        priority: 0,
+      },
+    ]);
+
+    const preview = await app.inject({
+      method: 'GET',
+      url: `/admin/shopify/funnel-templates/${basketId}/delete-impact`,
+      headers: adminHeaders,
+    });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.json()).toMatchObject({
+      rulesAffected: 2,
+      storesAffected: 1,
+      hasGlobalRule: true,
+    });
+
+    // The preview must not have deleted anything.
+    const [stillThere] = await app.db
+      .select()
+      .from(schema.shopifyFunnelTemplates)
+      .where(eq(schema.shopifyFunnelTemplates.id, basketId));
+    expect(stillThere).toBeDefined();
+
+    const del = await app.inject({
+      method: 'DELETE',
+      url: `/admin/shopify/funnel-templates/${basketId}`,
+      headers: adminHeaders,
+    });
+    expect(del.statusCode).toBe(200);
+    // The preview's numbers must match what the actual delete reports.
+    expect(del.json()).toMatchObject({
+      rulesAffected: preview.json().rulesAffected,
+      storesAffected: preview.json().storesAffected,
+      hasGlobalRule: preview.json().hasGlobalRule,
+    });
+  });
+
   it('reports hasGlobalRule: false when the basket has only store-scoped rules', async () => {
     const basketId = await createBasket('delete-impact-store-scoped');
     const [store] = await app.db

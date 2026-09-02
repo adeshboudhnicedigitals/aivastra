@@ -37,6 +37,42 @@ const ReassignFunnelTemplateBody = z.object({
   targetId: z.string().uuid(),
 });
 
+interface DeleteImpact {
+  productsInUse: number;
+  rulesAffected: number;
+  storesAffected: number;
+  hasGlobalRule: boolean;
+}
+
+// Shared by the DELETE route and the .../delete-impact preview route so a
+// confirm modal can show the same numbers the delete itself will report —
+// per this repo's rule to state what will be lost before a cascade.
+async function computeDeleteImpact(app: FastifyInstance, id: string): Promise<DeleteImpact> {
+  const [{ value: productsInUse }] = await app.db
+    .select({ value: count() })
+    .from(schema.shopifyProductGarments)
+    .where(eq(schema.shopifyProductGarments.funnelTemplateId, id));
+
+  const [ruleImpact] = await app.db
+    .select({
+      rules: count(),
+      // countDistinct(storeId) skips NULL by Postgres COUNT(DISTINCT ...)
+      // semantics, so it's correct for store-scoped rules but silent about a
+      // global rule (storeId IS NULL) — surfaced separately as hasGlobalRule.
+      stores: countDistinct(schema.shopifyFunnelRules.storeId),
+      hasGlobalRule: sql<boolean>`coalesce(bool_or(${schema.shopifyFunnelRules.storeId} is null), false)`,
+    })
+    .from(schema.shopifyFunnelRules)
+    .where(eq(schema.shopifyFunnelRules.funnelTemplateId, id));
+
+  return {
+    productsInUse,
+    rulesAffected: ruleImpact.rules,
+    storesAffected: ruleImpact.stores,
+    hasGlobalRule: ruleImpact.hasGlobalRule,
+  };
+}
+
 export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
   const RW = requirePermission('shopify_funnels.write');
   const uuidParam = z.object({ id: z.string().uuid() });
@@ -159,47 +195,37 @@ export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
     },
   );
 
+  // Preview-only: runs the same impact query the DELETE route uses, without
+  // deleting anything, so a confirm modal can show real numbers before the
+  // admin commits to an irreversible delete.
+  app.get(
+    '/admin/shopify/funnel-templates/:id/delete-impact',
+    { preHandler: RW, schema: { params: uuidParam } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      return computeDeleteImpact(app, id);
+    },
+  );
+
   app.delete(
     '/admin/shopify/funnel-templates/:id',
     { preHandler: RW, schema: { params: uuidParam } },
     async (req) => {
       const { id } = req.params as { id: string };
+      const impact = await computeDeleteImpact(app, id);
 
       // shopifyProductGarments.funnelTemplateId has no onDelete cascade (unlike
       // shopifyFunnelRules, which cascades per-merchant rule configs) — a bare
       // delete would either 500 on the FK violation or, if it somehow succeeded,
       // silently orphan whichever merchants' products were assigned to this
       // global, admin-owned template. Block with a clear message instead.
-      const [{ value: inUse }] = await app.db
-        .select({ value: count() })
-        .from(schema.shopifyProductGarments)
-        .where(eq(schema.shopifyProductGarments.funnelTemplateId, id));
-      if (inUse > 0) {
+      if (impact.productsInUse > 0) {
         throw new AppError(
           'CONFLICT',
           409,
-          `Cannot delete: ${inUse} product(s) across merchant stores are still assigned to this funnel template. Reassign or deactivate it instead.`,
+          `Cannot delete: ${impact.productsInUse} product(s) across merchant stores are still assigned to this funnel template. Reassign or deactivate it instead.`,
         );
       }
-
-      // shopify_funnel_rules cascades on funnel_template_id (schema/shopify.ts:280),
-      // so deleting a basket silently deletes every store's rules for it. State
-      // what will be lost before the cascade.
-      const [ruleImpact] = await app.db
-        .select({
-          rules: count(),
-          // countDistinct(storeId) skips NULL by Postgres COUNT(DISTINCT ...)
-          // semantics, so it's correct for store-scoped rules but silent about
-          // a global rule (storeId IS NULL), which affects every store that
-          // hasn't suppressed it — not a number this banner should attempt to
-          // compute (that needs the same per-store-suppression join as the
-          // GET disabledByStoreCount query, and is more precision than a
-          // warning banner needs). Surface it as a flag instead.
-          stores: countDistinct(schema.shopifyFunnelRules.storeId),
-          hasGlobalRule: sql<boolean>`coalesce(bool_or(${schema.shopifyFunnelRules.storeId} is null), false)`,
-        })
-        .from(schema.shopifyFunnelRules)
-        .where(eq(schema.shopifyFunnelRules.funnelTemplateId, id));
 
       const [deleted] = await app.db
         .delete(schema.shopifyFunnelTemplates)
@@ -208,9 +234,9 @@ export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
       if (!deleted) throw new AppError('NOT_FOUND', 404, 'funnel template not found');
       return {
         ok: true,
-        rulesAffected: ruleImpact.rules,
-        storesAffected: ruleImpact.stores,
-        hasGlobalRule: ruleImpact.hasGlobalRule,
+        rulesAffected: impact.rulesAffected,
+        storesAffected: impact.storesAffected,
+        hasGlobalRule: impact.hasGlobalRule,
       };
     },
   );
