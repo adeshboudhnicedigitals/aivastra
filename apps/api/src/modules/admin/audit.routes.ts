@@ -22,6 +22,9 @@ const LABEL_TABLE_BY_RESOURCE_TYPE: Record<string, { table: any; labelCol: strin
   garment_type: { table: schema.garmentSubcategories, labelCol: 'label' },
   catalog_item: { table: schema.catalogItems, labelCol: 'label' },
   catalogue_template: { table: schema.catalogueTemplates, labelCol: 'label' },
+  credit_plan: { table: schema.creditPlans, labelCol: 'name' },
+  merchant: { table: schema.merchants, labelCol: 'companyName' },
+  saree_workflow: { table: schema.workflowTemplates, labelCol: 'label' },
 };
 
 async function resolveResourceLabels(
