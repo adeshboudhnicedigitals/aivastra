@@ -368,6 +368,9 @@ export function EditGarmentTypeModal({
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [instructionFile, setInstructionFile] = useState<File | null>(null);
   const [removeInstructionImage, setRemoveInstructionImage] = useState(false);
+  const [tryonLibraryInstructionFile, setTryonLibraryInstructionFile] = useState<File | null>(null);
+  const [removeTryonLibraryInstructionImage, setRemoveTryonLibraryInstructionImage] =
+    useState(false);
   const [tutorialVideoUrl, setTutorialVideoUrl] = useState(garmentType.tutorialVideoUrl ?? '');
   const [saving, setSaving] = useState(false);
   const [categories, setCategories] = useState<CatalogCategory[]>([]);
@@ -386,11 +389,18 @@ export function EditGarmentTypeModal({
     : removeInstructionImage
       ? null
       : (garmentType.instructionImageUrl ?? null);
+  const tryonLibraryInstructionPreview = tryonLibraryInstructionFile
+    ? URL.createObjectURL(tryonLibraryInstructionFile)
+    : removeTryonLibraryInstructionImage
+      ? null
+      : (garmentType.tryonLibraryInstructionImageUrl ?? null);
 
   const dirty =
     !!imageFile ||
     !!instructionFile ||
     removeInstructionImage ||
+    !!tryonLibraryInstructionFile ||
+    removeTryonLibraryInstructionImage ||
     label.trim() !== garmentType.label.trim() ||
     sortOrder !== garmentType.sortOrder ||
     requiresLowerUpload !== garmentType.requiresLowerUpload ||
@@ -439,6 +449,23 @@ export function EditGarmentTypeModal({
         patchBody.instructionImageKey = presign.instructionImageKey;
       } else if (removeInstructionImage) {
         patchBody.instructionImageKey = null;
+      }
+      if (tryonLibraryInstructionFile) {
+        const presign = await apiFetch<{
+          uploadUrl: string;
+          tryonLibraryInstructionImageKey: string;
+        }>('/admin/assets/garment-types/tryon-library-instruction/presign', {
+          method: 'POST',
+          body: JSON.stringify({ contentType: tryonLibraryInstructionFile.type }),
+        });
+        await fetch(presign.uploadUrl, {
+          method: 'PUT',
+          headers: { 'Content-Type': tryonLibraryInstructionFile.type },
+          body: tryonLibraryInstructionFile,
+        });
+        patchBody.tryonLibraryInstructionImageKey = presign.tryonLibraryInstructionImageKey;
+      } else if (removeTryonLibraryInstructionImage) {
+        patchBody.tryonLibraryInstructionImageKey = null;
       }
       if (label.trim() !== garmentType.label.trim()) patchBody.label = label.trim();
       if (publicApiSlug !== (garmentType.publicApiSlug ?? ''))
@@ -808,6 +835,29 @@ export function EditGarmentTypeModal({
                 </span>
               </div>
             </>
+          ),
+        },
+        {
+          title: 'Try-On Instruction Image',
+          children: (
+            <UploadBox
+              label="try-on instruction image"
+              hint="Shown as the reference photo when a merchant adds a product in the Try-On Library app."
+              previewUrl={tryonLibraryInstructionPreview}
+              onPick={(f) => {
+                setTryonLibraryInstructionFile(f);
+                setRemoveTryonLibraryInstructionImage(false);
+              }}
+              onRemove={
+                tryonLibraryInstructionPreview
+                  ? () => {
+                      setTryonLibraryInstructionFile(null);
+                      setRemoveTryonLibraryInstructionImage(true);
+                    }
+                  : undefined
+              }
+              disabled={saving}
+            />
           ),
         },
       ]}

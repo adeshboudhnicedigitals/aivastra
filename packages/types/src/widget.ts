@@ -201,9 +201,10 @@ export const MerchantCatalogSubcategory = z.object({
   // every other garment type only ever uses the flat photo directly for try-on, so
   // that mode is hidden there rather than running an unnecessary generation step.
   requiresMannequinStep: z.boolean(),
-  // Admin-uploaded reference photo (garmentSubcategories.instructionImageKey) showing how to
-  // shoot the garment — the same asset Studio's upload step shows. Null when the admin hasn't
-  // configured one for this garment type.
+  // Admin-uploaded reference photo (garmentSubcategories.tryonLibraryInstructionImageKey)
+  // showing how to shoot the garment for this app specifically — a separate upload from
+  // Studio's do's/don'ts guide (instructionImageKey), since the two flows shoot the
+  // garment differently. Null when the admin hasn't configured one for this garment type.
   instructionImageUrl: z.string().nullable(),
   sortOrder: z.number().int(),
   productCount: z.number().int(),

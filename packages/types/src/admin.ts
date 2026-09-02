@@ -741,6 +741,9 @@ export const PatchGarmentTypeBody = z.object({
   defaultShoeCatalogId: z.string().uuid().nullable().optional(),
   tryonCategoryId: z.string().uuid().nullable().optional(),
   instructionImageKey: z.string().nullable().optional(),
+  // Distinct from instructionImageKey above — see the schema column comment
+  // (packages/db/src/schema/models.ts) for why the two are separate uploads.
+  tryonLibraryInstructionImageKey: z.string().nullable().optional(),
   // Any youtu.be/watch/embed form — extractYoutubeId (catalogues-web) derives the
   // video ID for embedding, so no stricter shape is enforced here.
   tutorialVideoUrl: z.string().trim().max(500).url().nullable().optional(),
@@ -756,6 +759,9 @@ export const PresignGarmentTypeBody = z.object({
   contentType: AssetContentType,
 });
 export const PresignGarmentTypeInstructionBody = z.object({
+  contentType: AssetContentType,
+});
+export const PresignGarmentTypeTryonLibraryInstructionBody = z.object({
   contentType: AssetContentType,
 });
 
