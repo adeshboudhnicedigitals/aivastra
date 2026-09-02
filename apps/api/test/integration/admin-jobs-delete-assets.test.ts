@@ -65,7 +65,7 @@ describe('POST /admin/jobs/:id/delete-assets', () => {
     expect(output?.resultKey).toBe(resultKey);
   });
 
-  it('rejects a non-SUPER_ADMIN caller with 403', async () => {
+  it('rejects a caller without the jobs.delete_assets permission with 403', async () => {
     const job = await seedJob('COMPLETED');
     await seedOutput(job.id);
     const moderatorHeader = await adminAuthHeader(app, 'MODERATOR');
@@ -77,6 +77,29 @@ describe('POST /admin/jobs/:id/delete-assets', () => {
       payload: { password: ADMIN_PASSWORD, targets: ['result'] },
     });
     expect(res.statusCode).toBe(403);
+  });
+
+  it('allows an ADMIN caller (granted jobs.delete_assets by default) and audits their role', async () => {
+    const job = await seedJob('COMPLETED');
+    const { resultKey } = await seedOutput(job.id);
+    const adminHeader = await adminAuthHeader(app, 'ADMIN');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/admin/jobs/${job.id}/delete-assets`,
+      headers: adminHeader,
+      payload: { password: ADMIN_PASSWORD, targets: ['result'] },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true, deleted: ['result'] });
+    await expect(app.storage.headObject(resultKey)).rejects.toThrow();
+
+    const auditRows = await app.db
+      .select()
+      .from(schema.auditLogs)
+      .where(eq(schema.auditLogs.resourceId, job.id));
+    const row = auditRows.find((r) => r.action === 'jobs.delete_assets');
+    expect(row?.actorRole).toBe('ADMIN');
   });
 
   it('rejects a non-terminal job status with 409', async () => {
