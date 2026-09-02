@@ -13,7 +13,7 @@ manual pins and per-store suppression of Aivastra-authored global rules.
 
 **Done**
 - Schema: `shopify_funnel_templates.isDefault` predates this branch (unchanged
-  here); this branch's migration `0188_great_thor_girl.sql` touches only
+  here); this branch's migration `0189_great_thor_girl.sql` touches only
   `shopify_funnel_rules` (nullable `store_id` — NULL means an Aivastra-authored
   global rule; its `mode` column was dropped) and adds the new table
   `shopify_store_disabled_funnel_rules` (per-store suppression of a global rule).
@@ -47,14 +47,19 @@ manual pins and per-store suppression of Aivastra-authored global rules.
   (table names, precedence, where the logic lives) — no prior claim of "one
   default template for every product" existed to replace, so this is a pure
   addition.
-- **Migration index collision resolved before merge into `dev`**: `dev` had
-  independently picked `0185`-`0187` for three unrelated migrations
+- **Migration index collision resolved before merge into `dev` — twice**: `dev`
+  had independently picked `0185`-`0187` for three unrelated migrations
   (`0185_regen_reason_instruction`, `0186_dry_jasper_sitwell`,
   `0187_useful_salo` — none touch `shopify_funnel_*` tables). Per
   `docs/version-control.md`'s "Migration Index Conflicts" rule (server's index
   is canonical, the feature branch yields), this branch's `0185_great_thor_girl`
   was renamed to `0188_great_thor_girl` (SQL file, meta snapshot, and journal
   entry), with the snapshot's `prevId` re-chained onto dev's `0187` snapshot id.
+  Between this branch's push and its merge, another PR (#306,
+  `0188_jobs_delete_assets_permission` — a `permissions`/`role_permissions`
+  INSERT, also unrelated to `shopify_funnel_*`) landed on `dev` and independently
+  claimed `0188` too, so this branch's migration was renamed a second time to
+  `0189_great_thor_girl`, re-chaining `prevId` onto dev's `0188` snapshot id.
 
 **Verification (Task 11 — commands re-run in full, real output)**
 - `pnpm typecheck` — exit 0, all 12 workspace packages clean (`db`, `logger`,
@@ -92,7 +97,7 @@ manual pins and per-store suppression of Aivastra-authored global rules.
   `DATABASE_URL=postgres://tryon:...@127.0.0.1:5432/tryon_dev` — not production)
   returned `1`. Investigated rather than accepted at face value: grepped both
   migration files that touch `shopify_funnel_rules`
-  (`0100_melted_franklin_richards.sql`, `0188_great_thor_girl.sql`) and confirmed
+  (`0100_melted_franklin_richards.sql`, `0189_great_thor_girl.sql`) and confirmed
   neither contains an `INSERT` — both are pure DDL, so the migration path itself
   is inert. The one row present (id `68f3b897-a78f-4c16-83ae-5a3f373ce903`,
   `created_at` 2026-09-02 08:49:20 UTC, pointing at the pre-existing "Default"
