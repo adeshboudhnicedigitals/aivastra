@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { and, count, desc, eq, gte, ilike, inArray, lte } from 'drizzle-orm';
+import { and, count, desc, eq, gte, ilike, inArray, lte, ne } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { requirePermission } from './guard.js';
@@ -109,7 +109,13 @@ export async function adminAuditRoutes(app: FastifyInstance) {
       const { page, pageSize, actorUserId, action, resourceType, resourceId, startDate, endDate } =
         query;
 
-      const conditions = [];
+      const conditions = [
+        // Routine self-service credential sync, not team-facing activity —
+        // excluded from Team Activity by request, though the row itself still
+        // gets written (accountability for who touched an admin's credentials
+        // stays in the DB, just off the default feed).
+        ne(schema.auditLogs.action, 'admin_users.sync_password'),
+      ];
 
       if (actorUserId) conditions.push(eq(schema.auditLogs.actorUserId, actorUserId));
       if (action) conditions.push(ilike(schema.auditLogs.action, `%${action}%`));
