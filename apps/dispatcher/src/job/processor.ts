@@ -1175,6 +1175,8 @@ async function processRegenerateJob(
   const sourceImageKey = params.sourceImageKey as string;
   const workflowTemplateId = params.workflowTemplateId as string;
   const promptOverride = typeof params.promptOverride === 'string' ? params.promptOverride : '';
+  const instructionOverride =
+    typeof params.instructionOverride === 'string' ? params.instructionOverride : '';
 
   if (!workflowTemplateId) {
     await markFailed(cfg, jobId, userId, stream, messageId, 'NO_WORKFLOW', jobLog, startedAt);
@@ -1297,11 +1299,18 @@ async function processRegenerateJob(
       workflow[personNodeId].inputs!.image = sourceFile;
     }
     // Empty/whitespace-only override is skipped so the workflow's own
-    // hardcoded default prompt text runs — same convention applyWorkflowPatch
-    // uses for every other workflow type's positive prompt.
+    // hardcoded default prompt/instruction text runs — same convention
+    // applyWorkflowPatch uses for every other workflow type's positive
+    // prompt. Both fields live on the same node (garmentPhasePromptNode) —
+    // `prompt` and `instruction` are separate inputs on
+    // TextEncodeQwenImageEditPlusPro_lrzjason (see regen.json).
     if (promptOverride.trim() && promptNodeId && workflow[promptNodeId]?.inputs) {
       // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
       workflow[promptNodeId].inputs!.prompt = promptOverride;
+    }
+    if (instructionOverride.trim() && promptNodeId && workflow[promptNodeId]?.inputs) {
+      // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
+      workflow[promptNodeId].inputs!.instruction = instructionOverride;
     }
 
     await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);

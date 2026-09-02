@@ -875,7 +875,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         garmentPhasePromptNode?: string;
         garmentPhasePrompt?: string;
         facePhasePrompt?: string;
-        regenerationReasonPrompts?: { reason: string; prompt: string }[];
+        regenerationReasonPrompts?: { reason: string; prompt: string; instruction?: string }[];
         ksamplerOverrides?: {
           nodeId: string;
           steps?: number;
@@ -1132,12 +1132,17 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         // Trim + drop rows with a blank REASON here rather than trusting the
         // client's array verbatim — an admin backspacing a reason label to
         // empty shouldn't leave a nameless row the picker can't render. A
-        // blank PROMPT is kept deliberately: it means "no override configured
-        // yet" for that reason (regenerate then falls back to the original
-        // prompt) — dropping it would silently erase default reasons an admin
-        // hasn't gotten to yet every time they save an unrelated field.
+        // blank PROMPT/INSTRUCTION is kept deliberately: it means "no
+        // override configured yet" for that reason (regenerate then falls
+        // back to the original prompt/instruction) — dropping it would
+        // silently erase default reasons an admin hasn't gotten to yet every
+        // time they save an unrelated field.
         updateValues.regenerationReasonPrompts = body.regenerationReasonPrompts
-          .map((p) => ({ reason: p.reason.trim(), prompt: p.prompt.trim() }))
+          .map((p) => ({
+            reason: p.reason.trim(),
+            prompt: p.prompt.trim(),
+            instruction: (p.instruction ?? '').trim(),
+          }))
           .filter((p) => p.reason.length > 0);
       }
 

@@ -1,0 +1,1 @@
+ALTER TABLE "garment_subcategories" ADD COLUMN "tutorial_video_url" text;

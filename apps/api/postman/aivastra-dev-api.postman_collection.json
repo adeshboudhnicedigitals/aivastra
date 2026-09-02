@@ -1,11 +1,11 @@
 {
   "item": [
     {
-      "id": "713042c8-4971-498d-9494-4f86eb92b154",
+      "id": "22a7e593-a8ac-4cb2-b946-0e2142f43ae9",
       "name": "v1/dev",
       "item": [
         {
-          "id": "3255d9a4-d965-4c9e-acb2-e7e0cbf8f5c6",
+          "id": "f897c4ec-e05f-402f-a952-d5c0b659cad3",
           "name": "List try-on categories",
           "request": {
             "name": "List try-on categories",
@@ -27,7 +27,7 @@
           },
           "response": [
             {
-              "id": "190aba98-4cb8-46b2-814c-a7c26de8cb76",
+              "id": "00d8d30b-5cb9-4a6c-b414-e10355e3dfcf",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -66,7 +66,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "78c9f1a3-2c00-4cd9-a956-4b8fe88f3547",
+              "id": "adf7e635-b99a-41d4-9309-ca5625d939fc",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -105,7 +105,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "80c866e3-3bd8-4bf5-8c33-314eb79a9197",
+              "id": "9738756a-0865-45be-b413-fabae2b7a288",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -150,7 +150,7 @@
           }
         },
         {
-          "id": "4c0459ac-73db-429a-89e9-396a047b024d",
+          "id": "0d03ae8b-4a70-4aff-8bb7-844f95322e43",
           "name": "Get account info",
           "request": {
             "name": "Get account info",
@@ -172,7 +172,7 @@
           },
           "response": [
             {
-              "id": "4b6c18fe-a3bd-4206-b080-f4ea78ef595c",
+              "id": "6c2cb2aa-63ab-463a-af61-302a33910ddf",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -206,12 +206,12 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"merchantId\": \"40db3b23-0946-33a9-9fdc-9a67b2ed0740\",\n  \"companyName\": \"string\",\n  \"credits\": 4138\n}",
+              "body": "{\n  \"merchantId\": \"9cd7d8b8-6516-ebcf-4af0-b2ddb41cc590\",\n  \"companyName\": \"string\",\n  \"credits\": 9785,\n  \"tryOnsRemaining\": 8908\n}",
               "cookie": [],
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "4a5d6276-6bd8-4441-8d1b-2fd32dfd9eff",
+              "id": "82b7cd42-cb81-4849-8257-dd1d4da99647",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -250,7 +250,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "ba92d9cd-1ad3-45fb-9ab4-3a63460a061c",
+              "id": "ec96d57b-f14c-43ad-98a7-a22176274420",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -289,7 +289,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "21550c5d-a92c-42ed-a3c4-3048a1c32695",
+              "id": "c05db47d-2adc-4aa8-85e9-25fb962edc1c",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -334,7 +334,7 @@
           }
         },
         {
-          "id": "d465ecae-7b9d-4ebb-8627-3042168f0caa",
+          "id": "858a037e-4fd3-4a40-8893-c416cc91f6ba",
           "name": "Create a try-on job",
           "request": {
             "name": "Create a try-on job",
@@ -386,7 +386,7 @@
           },
           "response": [
             {
-              "id": "49a0d603-80e3-4a23-9a74-3391740ef151",
+              "id": "e27edf01-520d-41dd-953a-8e9194c72aea",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -451,12 +451,12 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"jobId\": \"f2152caf-9433-3ea1-8ee9-d667c6856809\",\n  \"status\": \"QUEUED\"\n}",
+              "body": "{\n  \"jobId\": \"58b0a761-6e12-b728-38d1-9a2244033e1e\",\n  \"status\": \"FAILED\",\n  \"personKey\": \"string\"\n}",
               "cookie": [],
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "fa45f1ac-caa9-4c76-948b-7eef68e10ea0",
+              "id": "a8d3e000-0e56-4d93-9a88-e9525961e61d",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -526,7 +526,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "37bf2932-8d8d-457a-8c7c-4d2e4fab52bb",
+              "id": "12a27550-0eae-4b25-896f-fa9b7d7b197b",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -596,7 +596,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "e0eb7ecb-2efb-4893-bafb-020df5ca37ed",
+              "id": "f6a4fe52-6fab-46d3-8042-a541617cb1f2",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -666,7 +666,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "9c4b4002-8f63-4ebc-9235-b89c4edd09c9",
+              "id": "3fed0f75-fca1-49a6-bca6-8cf24d04183b",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -736,7 +736,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "760d3976-6268-4963-b444-7a05c41ea99d",
+              "id": "f9c5a75c-bc66-49c1-960c-f2d2d5e446e9",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -806,7 +806,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "b208fa14-4540-4332-a2ec-183372bef86e",
+              "id": "43a9895e-e35e-4cf3-920f-0473a4f9542a",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -882,7 +882,236 @@
           }
         },
         {
-          "id": "ef067cc7-67f2-49b4-8dd1-fb2b19537071",
+          "id": "79147e0e-3aec-4520-b1ca-990770f82a6f",
+          "name": "Re-sign a previously uploaded person photo for reuse on a new job",
+          "request": {
+            "name": "Re-sign a previously uploaded person photo for reuse on a new job",
+            "description": {},
+            "url": {
+              "path": ["v1", "dev", "photo", "preview"],
+              "host": ["{{baseUrl}}"],
+              "query": [],
+              "variable": []
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "auth": null,
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"personKey\": \"<string>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "id": "0ac88806-97ce-4a2b-bbf7-d6c45ed18bc2",
+              "name": "Default Response",
+              "originalRequest": {
+                "url": {
+                  "path": ["v1", "dev", "photo", "preview"],
+                  "host": ["{{baseUrl}}"],
+                  "query": [],
+                  "variable": []
+                },
+                "header": [
+                  {
+                    "description": {
+                      "content": "Added as a part of security scheme: bearer",
+                      "type": "text/plain"
+                    },
+                    "key": "Authorization",
+                    "value": "Bearer <token>"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "method": "POST",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"personKey\": \"<string>\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"previewUrl\": \"https://PcSbyiaAqQlDKlwjZIHS.diolwRkep,CzBSfA6YYM+V58.HzhldqA6lO-aNiYQEn86nbm\"\n}",
+              "cookie": [],
+              "_postman_previewlanguage": "json"
+            },
+            {
+              "id": "6d75ab5f-f497-49f7-ad37-e1edd0a3ece7",
+              "name": "Default Response",
+              "originalRequest": {
+                "url": {
+                  "path": ["v1", "dev", "photo", "preview"],
+                  "host": ["{{baseUrl}}"],
+                  "query": [],
+                  "variable": []
+                },
+                "header": [
+                  {
+                    "description": {
+                      "content": "Added as a part of security scheme: bearer",
+                      "type": "text/plain"
+                    },
+                    "key": "Authorization",
+                    "value": "Bearer <token>"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "method": "POST",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"personKey\": \"<string>\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Unauthorized",
+              "code": 401,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"error\": {\n    \"code\": \"string\",\n    \"message\": \"string\"\n  }\n}",
+              "cookie": [],
+              "_postman_previewlanguage": "json"
+            },
+            {
+              "id": "122a42c5-3928-4c5f-ae03-87c5f8c60af6",
+              "name": "Default Response",
+              "originalRequest": {
+                "url": {
+                  "path": ["v1", "dev", "photo", "preview"],
+                  "host": ["{{baseUrl}}"],
+                  "query": [],
+                  "variable": []
+                },
+                "header": [
+                  {
+                    "description": {
+                      "content": "Added as a part of security scheme: bearer",
+                      "type": "text/plain"
+                    },
+                    "key": "Authorization",
+                    "value": "Bearer <token>"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "method": "POST",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"personKey\": \"<string>\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"error\": {\n    \"code\": \"string\",\n    \"message\": \"string\"\n  }\n}",
+              "cookie": [],
+              "_postman_previewlanguage": "json"
+            },
+            {
+              "id": "729282dd-c118-43c6-a6b1-d63e303292c1",
+              "name": "Default Response",
+              "originalRequest": {
+                "url": {
+                  "path": ["v1", "dev", "photo", "preview"],
+                  "host": ["{{baseUrl}}"],
+                  "query": [],
+                  "variable": []
+                },
+                "header": [
+                  {
+                    "description": {
+                      "content": "Added as a part of security scheme: bearer",
+                      "type": "text/plain"
+                    },
+                    "key": "Authorization",
+                    "value": "Bearer <token>"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "method": "POST",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"personKey\": \"<string>\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Too Many Requests",
+              "code": 429,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"error\": {\n    \"code\": \"string\",\n    \"message\": \"string\"\n  }\n}",
+              "cookie": [],
+              "_postman_previewlanguage": "json"
+            }
+          ],
+          "event": [],
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          }
+        },
+        {
+          "id": "8f2007b8-7709-4067-be7f-d29ec9bb3d93",
           "name": "Generate a saree-draped mannequin image from a garment cloth photo",
           "request": {
             "name": "Generate a saree-draped mannequin image from a garment cloth photo",
@@ -922,7 +1151,7 @@
           },
           "response": [
             {
-              "id": "8133882f-1601-4804-ae5c-5288b2aa5b14",
+              "id": "f5103a95-259d-4bef-8290-76da50fcf4b1",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -969,12 +1198,12 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"jobId\": \"f2152caf-9433-3ea1-8ee9-d667c6856809\",\n  \"status\": \"QUEUED\"\n}",
+              "body": "{\n  \"jobId\": \"58b0a761-6e12-b728-38d1-9a2244033e1e\",\n  \"status\": \"FAILED\",\n  \"personKey\": \"string\"\n}",
               "cookie": [],
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "cccbfd7b-648f-4316-a036-22d02f39a9e2",
+              "id": "76516c41-6a3a-4292-9fec-bb19ff7f8695",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -1026,7 +1255,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "e3fbafa7-d3b5-4c81-8075-48023be92023",
+              "id": "fcd65d26-f4bd-46bd-a708-67c9eb009880",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -1078,7 +1307,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "c22dcdc0-977e-4a20-8738-ea19be5a46d4",
+              "id": "803d7c8b-d04e-4a98-9bf8-a9795eef05d4",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -1130,7 +1359,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "adaeb154-f214-4c79-ab8b-028558900c08",
+              "id": "25806d54-ce61-4985-aad5-7ccc5daabb46",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -1182,7 +1411,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "c46c9b46-8953-4fad-8a2b-ae4d74d8eb3c",
+              "id": "642ec653-6e48-405a-9074-8ea7f7868c36",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -1234,7 +1463,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "0a063897-7521-4ccd-b89c-4fddfdc7e42f",
+              "id": "4e19b8eb-6898-4b0a-91c7-a02d6473286e",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -1292,7 +1521,7 @@
           }
         },
         {
-          "id": "0b570fb6-f494-40c5-8954-8dfe3f050c18",
+          "id": "25f316af-3c66-4481-b196-b93cb36cd95c",
           "name": "Get try-on job status and result",
           "request": {
             "name": "Get try-on job status and result",
@@ -1322,7 +1551,7 @@
           },
           "response": [
             {
-              "id": "ce17d258-c04a-4dba-b925-69ec9336314e",
+              "id": "f47452ab-73a7-412c-8fac-58b1a6b87243",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -1364,12 +1593,12 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"jobId\": \"0fca776f-d274-073a-ea18-26d3689d8d7d\",\n  \"status\": \"QUEUED\",\n  \"imageUrl\": \"https://EPIlrMAtDA.oxta3EcsZOr\",\n  \"error\": \"string\"\n}",
+              "body": "{\n  \"jobId\": \"260b8bbb-3cf9-ad83-a9ea-af2dda42cfbb\",\n  \"status\": \"QUEUED\",\n  \"imageUrl\": \"https://egCKVb.phzHKVrnf3oDr.WpGY1DY2OGJ-QMwP7nFsUzDJxzyOwl\",\n  \"error\": \"string\"\n}",
               "cookie": [],
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "23f1626b-356f-4f25-b678-74e8d6aa3d17",
+              "id": "93c784b7-7bf8-4809-86a4-7a167b461d69",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -1416,7 +1645,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "2c8bd306-3eda-43b4-9136-ddd954e91c7d",
+              "id": "fde06870-eb38-4d8c-9802-f705c99341c0",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -1463,7 +1692,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "f1b2af1d-9862-4a64-aa8d-55abfcd16f85",
+              "id": "3c874848-e788-435b-92d2-f45dfae2572c",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -1516,11 +1745,11 @@
           }
         },
         {
-          "id": "b9f850a7-96ce-4f3c-ac3b-e2e4f5605fba",
+          "id": "dbba6122-8e9a-480a-a80a-10e7b80481ec",
           "name": "catalog",
           "item": [
             {
-              "id": "43d0abf9-49d9-4913-935f-4ba7b5a90285",
+              "id": "10e77791-2733-4e7e-92c1-7b8050a3333f",
               "name": "List selectable catalog assets",
               "request": {
                 "name": "List selectable catalog assets",
@@ -1557,7 +1786,7 @@
               },
               "response": [
                 {
-                  "id": "627538ff-008f-4b31-9a86-19eedc9e2715",
+                  "id": "fbdfcf67-11c1-4a23-8f17-a557b2693684",
                   "name": "Default Response",
                   "originalRequest": {
                     "url": {
@@ -1600,12 +1829,12 @@
                       "value": "application/json"
                     }
                   ],
-                  "body": "{\n  \"garmentTypes\": [\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\"\n    },\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\"\n    }\n  ],\n  \"faces\": [\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    },\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    }\n  ],\n  \"backgrounds\": [\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    },\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    }\n  ],\n  \"poses\": [\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\",\n      \"hasLower\": false,\n      \"hasShoes\": false\n    },\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\",\n      \"hasLower\": false,\n      \"hasShoes\": true\n    }\n  ],\n  \"lowerItems\": [\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    },\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    }\n  ],\n  \"shoeItems\": [\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    },\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    }\n  ]\n}",
+                  "body": "{\n  \"garmentTypes\": [\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\"\n    },\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\"\n    }\n  ],\n  \"faces\": [\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    },\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    }\n  ],\n  \"backgrounds\": [\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    },\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    }\n  ],\n  \"poses\": [\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\",\n      \"hasLower\": true,\n      \"hasShoes\": true\n    },\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\",\n      \"hasLower\": false,\n      \"hasShoes\": true\n    }\n  ],\n  \"lowerItems\": [\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    },\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    }\n  ],\n  \"shoeItems\": [\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    },\n    {\n      \"slug\": \"string\",\n      \"label\": \"string\",\n      \"thumbnailUrl\": \"string\"\n    }\n  ]\n}",
                   "cookie": [],
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "f79dcf33-1466-4522-8e34-41705de073a4",
+                  "id": "d37a985a-dcfe-4329-9dc7-e4126a805c12",
                   "name": "Default Response",
                   "originalRequest": {
                     "url": {
@@ -1653,7 +1882,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "9fad6a39-0ba7-494d-8639-865ae6269bb7",
+                  "id": "636e17fb-6572-4762-9fb7-9ed1eb89d150",
                   "name": "Default Response",
                   "originalRequest": {
                     "url": {
@@ -1701,7 +1930,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "37834082-6f63-4a9c-9675-deecba8e2fa2",
+                  "id": "aa4dba95-c80e-419c-96d0-a2ccdaf390a3",
                   "name": "Default Response",
                   "originalRequest": {
                     "url": {
@@ -1749,7 +1978,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "5aad61a2-8c22-4f42-910f-ea2d76e8d801",
+                  "id": "3ac088d0-7d6c-4cd7-8915-5f69ac06eb05",
                   "name": "Default Response",
                   "originalRequest": {
                     "url": {
@@ -1803,7 +2032,7 @@
               }
             },
             {
-              "id": "c7d7f310-e061-4092-9fae-9ed995006a75",
+              "id": "51ceed8d-f285-4098-b569-fe9ebc5ce8de",
               "name": "Generate a catalog from admin-curated assets",
               "request": {
                 "name": "Generate a catalog from admin-curated assets",
@@ -1891,7 +2120,7 @@
               },
               "response": [
                 {
-                  "id": "681b393e-001c-4d9b-a7f1-72d0827a93e6",
+                  "id": "698b6dc6-5cd4-48aa-9f46-2c95c21f18d6",
                   "name": "Default Response",
                   "originalRequest": {
                     "url": {
@@ -2010,12 +2239,12 @@
                       "value": "application/json"
                     }
                   ],
-                  "body": "{\n  \"catalogueId\": \"95b73542-eef7-6a43-692d-8d98ee08dd8f\",\n  \"jobs\": [\n    {\n      \"jobId\": \"12a54fbb-a190-786b-64a0-cd52a60763a6\",\n      \"pose\": \"string\",\n      \"background\": \"string\"\n    },\n    {\n      \"jobId\": \"603f2c19-b514-0c5a-f6e4-029a74edd96b\",\n      \"pose\": \"string\",\n      \"background\": \"string\"\n    }\n  ]\n}",
+                  "body": "{\n  \"catalogueId\": \"a5e5cec7-e6cb-b35a-d781-c54c3fbe05fb\",\n  \"jobs\": [\n    {\n      \"jobId\": \"f385ae82-4c3a-423d-62fe-541b5d2dec66\",\n      \"pose\": \"string\",\n      \"background\": \"string\"\n    },\n    {\n      \"jobId\": \"91275983-5e16-de85-cf53-19a1cb69397e\",\n      \"pose\": \"string\",\n      \"background\": \"string\"\n    }\n  ]\n}",
                   "cookie": [],
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "66d3ebde-e239-4480-abe9-b5700c7afb82",
+                  "id": "d18b1c45-51eb-4938-bacc-c277b33d9182",
                   "name": "Default Response",
                   "originalRequest": {
                     "url": {
@@ -2139,7 +2368,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "26fafbdd-c18c-4cf2-8107-a11dd195bc10",
+                  "id": "7de99cbd-3185-4609-a343-e66b3aaeb544",
                   "name": "Default Response",
                   "originalRequest": {
                     "url": {
@@ -2263,7 +2492,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "ca5faa9f-22f4-44f5-8399-7f46a124779a",
+                  "id": "0a066fb8-7454-4891-bcee-7d40d9a533df",
                   "name": "Default Response",
                   "originalRequest": {
                     "url": {
@@ -2387,7 +2616,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "07a1714a-d7af-425a-94a4-2b7bf69d3ba4",
+                  "id": "9f778a83-8cec-44a7-8e81-71dfaa3dec25",
                   "name": "Default Response",
                   "originalRequest": {
                     "url": {
@@ -2511,7 +2740,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "702057e7-59cf-4024-9ab7-7917446422c2",
+                  "id": "b16b8bca-90d9-4049-8c7a-adc55a603361",
                   "name": "Default Response",
                   "originalRequest": {
                     "url": {
@@ -2635,7 +2864,7 @@
                   "_postman_previewlanguage": "json"
                 },
                 {
-                  "id": "e3c9893c-0c5f-4418-aff7-d11dc41092e3",
+                  "id": "5b9d9d1e-0f6a-42e9-843c-dc8a19100c39",
                   "name": "Default Response",
                   "originalRequest": {
                     "url": {
@@ -2768,7 +2997,7 @@
           "event": []
         },
         {
-          "id": "d8c93470-bac3-440b-aeef-431c34a28d8d",
+          "id": "99b42280-ded6-415f-ac2c-2bee87b89d4e",
           "name": "Get status of every job in a catalog",
           "request": {
             "name": "Get status of every job in a catalog",
@@ -2801,7 +3030,7 @@
           },
           "response": [
             {
-              "id": "406418ef-baeb-4858-a0b6-31573300b35c",
+              "id": "6382dce0-8ebc-44fb-abf4-051c855e9e9d",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -2843,12 +3072,12 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"catalogueId\": \"fda91aaa-8f9b-10f9-02f6-c15745eeb5af\",\n  \"jobs\": [\n    {\n      \"jobId\": \"0a0b3c7f-38c4-0a2c-5333-08ac3cb1dc3b\",\n      \"status\": \"QUEUED\",\n      \"imageUrl\": \"https://NZxvNCvSHvUGgIRy.gicF-yn+CdAIxDglXE0FURUVsesT4Dm-MImy-naOs2fSXCi-xJsvj7g8cXDkG\",\n      \"error\": \"string\"\n    },\n    {\n      \"jobId\": \"6557ce11-48eb-0180-2874-c486ab6be1c9\",\n      \"status\": \"RUNNING\",\n      \"imageUrl\": \"https://BLNhG.dswpUHzfq5vpVxKbkvLt2tMP9G\",\n      \"error\": \"string\"\n    }\n  ]\n}",
+              "body": "{\n  \"catalogueId\": \"2edc0c06-d76a-c9e6-0744-dbe94e9e4fed\",\n  \"jobs\": [\n    {\n      \"jobId\": \"1c3eb7e0-ceeb-1304-996d-0546b37d06fd\",\n      \"status\": \"FAILED\",\n      \"imageUrl\": \"http://YYuBcBHVJPjZnFbqRCJAq.vruUtuzpcliGaOB,sMKkCKP.PMOr\",\n      \"error\": \"string\"\n    },\n    {\n      \"jobId\": \"42116aae-609e-3720-d085-7575866f9c5a\",\n      \"status\": \"FAILED\",\n      \"imageUrl\": \"https://kYVYnag.kmsVUZcMQOa,8WjR-nscobVzn0-9Oy5e-RirlX1Axoq6SsRFkvsJxpEz0\",\n      \"error\": \"string\"\n    }\n  ]\n}",
               "cookie": [],
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "32edd0f8-24c5-48e5-a0e6-567bce1c1ccc",
+              "id": "afa861ef-65a4-4c0a-88df-f647c290967b",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -2895,7 +3124,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "0bcf15c2-36f7-4997-a60e-89859e0f0589",
+              "id": "daf2d949-3693-43fc-b0f5-335e8ecbad05",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -2942,7 +3171,7 @@
               "_postman_previewlanguage": "json"
             },
             {
-              "id": "5a11090d-f92f-47dc-9a52-86f228052f9a",
+              "id": "848e20c0-ac8d-4ec1-b20e-f142e83c1b3b",
               "name": "Default Response",
               "originalRequest": {
                 "url": {
@@ -3016,7 +3245,7 @@
     ]
   },
   "info": {
-    "_postman_id": "a07416a2-a91b-4231-80c7-71b941c4771f",
+    "_postman_id": "1dda1633-7f7f-49db-91d9-3094efb1efde",
     "name": "Try-On API",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "description": {

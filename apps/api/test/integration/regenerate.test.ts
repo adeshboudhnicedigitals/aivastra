@@ -41,7 +41,9 @@ describe('regenerate — one dedicated workflow, decoupled from the original job
     return { token: accessToken, userId: user.id };
   }
 
-  async function seedRegenTemplate(reasonPrompts: { reason: string; prompt: string }[] = []) {
+  async function seedRegenTemplate(
+    reasonPrompts: { reason: string; prompt: string; instruction?: string }[] = [],
+  ) {
     const [template] = await app.db
       .insert(schema.workflowTemplates)
       .values({
@@ -229,6 +231,51 @@ describe('regenerate — one dedicated workflow, decoupled from the original job
     expect((newInputs.params as Record<string, unknown>).promptOverride).toBe(
       'fully clothed, modest fit',
     );
+  });
+
+  it('applies the instruction whose reason matches the one the user picked', async () => {
+    await seedRegenTemplate([
+      { reason: 'Nudity', prompt: 'fully clothed, modest fit', instruction: 'keep torso covered' },
+      { reason: 'Draping issue', prompt: 'natural fabric drape', instruction: '' },
+    ]);
+    const { token, userId } = await registerUser('regen-instruction-match@x.com');
+    const { jobId } = await seedCompletedJob(userId);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/jobs/${jobId}/regenerate`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { reason: 'Nudity' },
+    });
+    expect(res.statusCode).toBe(201);
+    const [newInputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, res.json().jobId));
+    expect((newInputs.params as Record<string, unknown>).instructionOverride).toBe(
+      'keep torso covered',
+    );
+  });
+
+  it('omits instructionOverride when the matched reason has a blank configured instruction', async () => {
+    await seedRegenTemplate([
+      { reason: 'Draping issue', prompt: 'natural fabric drape', instruction: '' },
+    ]);
+    const { token, userId } = await registerUser('regen-instruction-blank@x.com');
+    const { jobId } = await seedCompletedJob(userId);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/jobs/${jobId}/regenerate`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { reason: 'Draping issue' },
+    });
+    expect(res.statusCode).toBe(201);
+    const [newInputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, res.json().jobId));
+    expect((newInputs.params as Record<string, unknown>).instructionOverride).toBeUndefined();
   });
 
   it('omits promptOverride when the submitted reason matches none configured (e.g. "Other")', async () => {

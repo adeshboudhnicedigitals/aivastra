@@ -1,6 +1,6 @@
 <?php
 /**
- * Plugin Name: Aivastra Try-On
+ * Plugin Name: Ai Vastra Try-On
  * Description: Adds an AI virtual try-on button to WooCommerce product pages.
  * Version: 0.5.13
  * Requires PHP: 8.1

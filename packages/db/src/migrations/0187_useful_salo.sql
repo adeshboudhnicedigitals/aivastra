@@ -1,0 +1,1 @@
+ALTER TABLE "garment_subcategories" ADD COLUMN "tryon_library_instruction_image_key" text;

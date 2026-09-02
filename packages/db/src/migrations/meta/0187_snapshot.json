@@ -1,6 +1,6 @@
 {
-  "id": "bf48f86e-5d20-4d79-b702-c98cb22c36d0",
-  "prevId": "2d204aca-278f-428f-8955-9b540f092c71",
+  "id": "13bf48e6-c492-4740-8f4e-328887035fbc",
+  "prevId": "10d1c12f-c991-46ca-85a2-2910ccf64e0f",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -4404,6 +4404,18 @@
         },
         "instruction_image_key": {
           "name": "instruction_image_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tryon_library_instruction_image_key": {
+          "name": "tryon_library_instruction_image_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tutorial_video_url": {
+          "name": "tutorial_video_url",
           "type": "text",
           "primaryKey": false,
           "notNull": false

@@ -35,8 +35,9 @@ export function ProductForm({
   // True only for garment types on the mannequin (saree) pipeline — gates whether the
   // Catalogue/Flat Image toggle shows at all. See ProductModal.tsx for the sibling.
   requiresMannequinStep?: boolean;
-  // Admin-uploaded reference photo (garmentSubcategories.instructionImageKey) — the same
-  // asset Studio's upload step shows — illustrating how to shoot the body/pallu photo(s).
+  // Admin-uploaded reference photo (garmentSubcategories.tryonLibraryInstructionImageKey) —
+  // a dedicated upload for this app, distinct from Studio's own instruction image —
+  // illustrating how to shoot the body/pallu photo(s).
   instructionImageUrl?: string | null;
   onSaved: () => void;
   onCancel: () => void;

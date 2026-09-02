@@ -95,6 +95,16 @@ export const CheckIcon = ({ color = C.pink, size = 16 }: { color?: string; size?
 export const XIcon = ({ size = 16, color = 'currentColor' }: { size?: number; color?: string }) => (
   <Icon d="M18 6L6 18M6 6l12 12" size={size} color={color} />
 );
+// Fixed brand colors (red badge, white triangle) — deliberately not `currentColor`,
+// so it doesn't recolor with surrounding text/theme like the rest of this file's icons.
+// viewBox matches the real YouTube mark's ~1.4:1 aspect ratio rather than a square,
+// which is what made the first pass read as an arbitrary rounded rectangle.
+export const YoutubeIcon = ({ size = 18 }: { size?: number }) => (
+  <svg aria-hidden="true" width={size} height={(size * 20) / 28} viewBox="0 0 28 20" fill="none">
+    <rect width="28" height="20" rx="6" fill="#FF0000" />
+    <path d="M11.5 5.8v8.4L19 10 11.5 5.8z" fill="#FFFFFF" />
+  </svg>
+);
 export const DownloadIcon = ({ size = 24 }: { size?: number }) => (
   <svg
     aria-hidden="true"
