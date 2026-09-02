@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
@@ -35,6 +35,16 @@ interface GlobalRule {
   conditions: Condition[];
   priority: number;
   disabledByStoreCount: number;
+}
+
+// Matches GET /admin/shopify/funnel-templates/:id/delete-impact — a preview-only
+// route that runs the same query the DELETE route uses to compute its own response,
+// without deleting anything, so a confirm dialog can show real numbers up front.
+interface DeleteImpact {
+  productsInUse: number;
+  rulesAffected: number;
+  storesAffected: number;
+  hasGlobalRule: boolean;
 }
 
 interface Props {
@@ -89,6 +99,10 @@ function describeConditions(conditions: Condition[]): string {
 // nothing about a global rule (storeId IS NULL), which affects every store that hasn't
 // individually suppressed it. hasGlobalRule carries that signal separately (Task 7's
 // fix round) rather than folding it into a store count that would understate the impact.
+// Fed by GET .../delete-impact (a preview, no deletion) so this reads before the admin
+// confirms, not after — the API computes these same numbers only at delete time, but the
+// preview route runs the identical query without the DELETE, so the numbers are known
+// up front.
 function describeCascade(
   rulesAffected: number,
   storesAffected: number,
@@ -98,7 +112,7 @@ function describeCascade(
   const rulePart = `${rulesAffected} routing rule${rulesAffected === 1 ? '' : 's'}`;
   const storePart =
     storesAffected > 0 ? ` across ${storesAffected} store${storesAffected === 1 ? '' : 's'}` : '';
-  const base = `Also deleted ${rulePart}${storePart}.`;
+  const base = `This deletes ${rulePart}${storePart}.`;
   return hasGlobalRule
     ? `${base} That includes a global rule affecting every store that hasn't switched it off.`
     : base;
@@ -209,6 +223,18 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
 
   const [confirmDelete, setConfirmDelete] = useState<FunnelTemplate | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Preview fetched via GET .../delete-impact the moment "Delete" is clicked, so the
+  // confirm dialog can state real numbers before the irreversible DELETE fires.
+  // deleteImpactBasketId guards against showing a stale preview for a different basket
+  // (e.g. the 409→reassign redirect below reuses this same preview for the same id).
+  const [deleteImpact, setDeleteImpact] = useState<DeleteImpact | null>(null);
+  const [deleteImpactBasketId, setDeleteImpactBasketId] = useState<string | null>(null);
+  const [loadingDeleteImpact, setLoadingDeleteImpact] = useState(false);
+  const [deleteImpactError, setDeleteImpactError] = useState<string | null>(null);
+  // Guards against a slow first fetch resolving after a second, faster delete-impact
+  // fetch (rapid double-click on two different baskets) and clobbering its result.
+  const deleteImpactRequestRef = useRef(0);
 
   const [reassignSource, setReassignSource] = useState<FunnelTemplate | null>(null);
   const [reassignTargetId, setReassignTargetId] = useState('');
@@ -343,30 +369,52 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
     }
   }
 
+  function clearDeleteImpact() {
+    // Bump the request id too, so a still-in-flight preview fetch for the basket
+    // just closed can't land after the fact and repopulate this state.
+    deleteImpactRequestRef.current++;
+    setDeleteImpact(null);
+    setDeleteImpactBasketId(null);
+    setDeleteImpactError(null);
+  }
+
+  async function openConfirmDelete(item: FunnelTemplate) {
+    const requestId = ++deleteImpactRequestRef.current;
+    setConfirmDelete(item);
+    setDeleteImpact(null);
+    setDeleteImpactBasketId(item.id);
+    setDeleteImpactError(null);
+    setLoadingDeleteImpact(true);
+    try {
+      const impact = await apiFetch<DeleteImpact>(
+        `/admin/shopify/funnel-templates/${item.id}/delete-impact`,
+      );
+      if (deleteImpactRequestRef.current !== requestId) return; // superseded — drop it
+      setDeleteImpact(impact);
+    } catch (err) {
+      if (deleteImpactRequestRef.current !== requestId) return;
+      setDeleteImpactError(apiErrorMessage(err, 'Could not check what this delete would affect.'));
+    } finally {
+      if (deleteImpactRequestRef.current === requestId) setLoadingDeleteImpact(false);
+    }
+  }
+
   async function handleDelete() {
     if (!confirmDelete) return;
     setDeleting(true);
     try {
-      // The cascade counts (rulesAffected/storesAffected/hasGlobalRule) are computed by
-      // the API just before it deletes and only reach the client in this response — there
-      // is no preview/dry-run endpoint, so the exact numbers can only be stated after the
-      // delete has already happened, not in the confirm dialog beforehand.
-      const result = await apiFetch<{
-        ok: boolean;
-        rulesAffected: number;
-        storesAffected: number;
-        hasGlobalRule: boolean;
-      }>(`/admin/shopify/funnel-templates/${confirmDelete.id}`, { method: 'DELETE' });
-      toast({
-        title: `${confirmDelete.label} deleted`,
-        body: describeCascade(result.rulesAffected, result.storesAffected, result.hasGlobalRule),
-      });
+      await apiFetch(`/admin/shopify/funnel-templates/${confirmDelete.id}`, { method: 'DELETE' });
+      toast({ title: `${confirmDelete.label} deleted` });
       load();
       setConfirmDelete(null);
+      clearDeleteImpact();
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         // Products are still assigned — offer to move them to another funnel
-        // template first instead of just reporting the block.
+        // template first instead of just reporting the block. Leave deleteImpact
+        // in place: it's the same basket id (deleteImpactBasketId still matches
+        // reassignSource.id below), so the reassign-then-delete modal can reuse
+        // the exact same preview instead of re-fetching it.
         setReassignSource(confirmDelete);
         setReassignTargetId('');
         setReassignThenDelete(true);
@@ -378,6 +426,7 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
           body: apiErrorMessage(err, 'Please try again.'),
         });
         setConfirmDelete(null);
+        clearDeleteImpact();
       }
     } finally {
       setDeleting(false);
@@ -388,6 +437,9 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
     setReassignSource(item);
     setReassignTargetId('');
     setReassignThenDelete(false);
+    // No delete happens on this path — clear any leftover preview from a
+    // different basket's delete attempt so it can't bleed into this modal.
+    clearDeleteImpact();
   }
 
   async function handleReassignAndDelete() {
@@ -399,22 +451,16 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
         { method: 'POST', body: JSON.stringify({ targetId: reassignTargetId }) },
       );
       if (reassignThenDelete) {
-        const result = await apiFetch<{
-          ok: boolean;
-          rulesAffected: number;
-          storesAffected: number;
-          hasGlobalRule: boolean;
-        }>(`/admin/shopify/funnel-templates/${reassignSource.id}`, { method: 'DELETE' });
-        const cascade = describeCascade(
-          result.rulesAffected,
-          result.storesAffected,
-          result.hasGlobalRule,
-        );
+        // The rule/store cascade for this basket was already shown to the admin
+        // before they got here (the delete-impact preview fetched in
+        // openConfirmDelete, carried over unchanged since reassigning products
+        // doesn't touch shopify_funnel_rules) — no need to show it again here.
+        await apiFetch(`/admin/shopify/funnel-templates/${reassignSource.id}`, {
+          method: 'DELETE',
+        });
         toast({
           title: `${reassignSource.label} deleted`,
-          body: [`${reassigned} product(s) moved to the selected funnel template.`, cascade]
-            .filter(Boolean)
-            .join(' '),
+          body: `${reassigned} product(s) moved to the selected funnel template.`,
         });
       } else {
         toast({
@@ -423,6 +469,7 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
         });
       }
       setReassignSource(null);
+      clearDeleteImpact();
       load();
     } catch (err) {
       toast({
@@ -445,6 +492,21 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
   // route the admin into a 409 ("edit it instead").
   const takenBasketIds = new Set(rules.map((r) => r.funnelTemplateId));
   const availableBasketsForNewRule = items.filter((i) => i.isActive && !takenBasketIds.has(i.id));
+
+  // Only trust deleteImpact when it was fetched for the basket currently being acted
+  // on — guards against a stale preview from a previous delete attempt bleeding into
+  // a different basket's confirm dialog.
+  const deleteImpactForCurrentTarget =
+    deleteImpact && deleteImpactBasketId === (confirmDelete?.id ?? reassignSource?.id)
+      ? deleteImpact
+      : null;
+  const deleteImpactCascadeText = deleteImpactForCurrentTarget
+    ? describeCascade(
+        deleteImpactForCurrentTarget.rulesAffected,
+        deleteImpactForCurrentTarget.storesAffected,
+        deleteImpactForCurrentTarget.hasGlobalRule,
+      )
+    : undefined;
 
   function resetRuleForm() {
     setRuleFunnelTemplateId('');
@@ -668,7 +730,7 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
                     <button
                       type="button"
                       className="btn sm ghost"
-                      onClick={() => setConfirmDelete(item)}
+                      onClick={() => openConfirmDelete(item)}
                       title="Delete this funnel template"
                     >
                       <Icon.Trash /> Delete
@@ -892,31 +954,50 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
         <ConfirmModal
           title="Delete funnel template"
           body={
-            <>
-              Are you sure you want to delete "{confirmDelete.label}"? This cannot be undone. Any
-              routing rules tied to this basket — store-specific or global — will be deleted with
-              it.
-              {rules.some((r) => r.funnelTemplateId === confirmDelete.id) && (
-                <>
-                  {' '}
-                  This basket has a global rule, so the deletion will affect every store that hasn't
-                  switched it off.
-                </>
-              )}
-            </>
+            loadingDeleteImpact ? (
+              'Checking what this delete would affect…'
+            ) : deleteImpactError ? (
+              <>
+                Could not check what this delete would affect: {deleteImpactError} Close this and
+                try again.
+              </>
+            ) : (
+              <>
+                Are you sure you want to delete "{confirmDelete.label}"? This cannot be undone.
+                {deleteImpactForCurrentTarget && deleteImpactForCurrentTarget.productsInUse > 0 && (
+                  <>
+                    {' '}
+                    This basket still has {deleteImpactForCurrentTarget.productsInUse} product(s)
+                    assigned — you'll be asked to move them to another basket first.
+                  </>
+                )}
+                {deleteImpactCascadeText && <> {deleteImpactCascadeText}</>}
+              </>
+            )
           }
           what={`slug: ${confirmDelete.slug}`}
           danger
           confirmLabel={deleting ? 'Deleting…' : 'Delete'}
+          confirmDisabled={deleting || loadingDeleteImpact || !!deleteImpactError}
           onConfirm={handleDelete}
-          onClose={() => setConfirmDelete(null)}
+          onClose={() => {
+            setConfirmDelete(null);
+            clearDeleteImpact();
+          }}
         />
       )}
 
       {reassignSource && (
         <div
           className="modal-overlay"
-          onClick={reassigning ? undefined : () => setReassignSource(null)}
+          onClick={
+            reassigning
+              ? undefined
+              : () => {
+                  setReassignSource(null);
+                  clearDeleteImpact();
+                }
+          }
         >
           <div
             className="modal"
@@ -927,7 +1008,10 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
               <h3>{reassignThenDelete ? 'Move products & delete' : 'Move products'}</h3>
               <button
                 className="btn sm ghost"
-                onClick={() => setReassignSource(null)}
+                onClick={() => {
+                  setReassignSource(null);
+                  clearDeleteImpact();
+                }}
                 disabled={reassigning}
                 style={{ marginLeft: 'auto' }}
               >
@@ -944,6 +1028,7 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
                     "{reassignSource.label}" still has products assigned to it. Pick another funnel
                     template to move them to — they'll be reassigned, then "{reassignSource.label}"
                     will be deleted.
+                    {deleteImpactCascadeText && <> {deleteImpactCascadeText}</>}
                   </>
                 ) : (
                   <>
@@ -967,7 +1052,10 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
             <div className="modal-foot">
               <button
                 className="btn ghost"
-                onClick={() => setReassignSource(null)}
+                onClick={() => {
+                  setReassignSource(null);
+                  clearDeleteImpact();
+                }}
                 disabled={reassigning}
               >
                 Cancel
