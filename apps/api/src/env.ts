@@ -95,6 +95,16 @@ const Env = z.object({
   // Unset = open to everyone (dev default). Set in production to restrict the
   // feature to a soft-launch cohort without a code change.
   CATALOG_VIDEO_ALLOWED_EMAILS: z.string().optional(),
+  // Distribution bucket for the local-dev production snapshot
+  // (scripts/local-sync/, docs/local-dev-snapshot-runbook.md) — a separate,
+  // scoped-read-only bucket from the live R2_* one above, never the same
+  // credential. All four optional together: unset in every environment until
+  // the VPS-side one-time bucket setup happens, and GET /admin/prod-snapshot/*
+  // degrades to a clean "not configured" response rather than erroring.
+  DEV_SNAPSHOT_ENDPOINT: optionalUrl(),
+  DEV_SNAPSHOT_BUCKET: z.string().optional(),
+  DEV_SNAPSHOT_ACCESS_KEY_ID: z.string().optional(),
+  DEV_SNAPSHOT_SECRET_ACCESS_KEY: z.string().optional(),
 });
 export type Env = z.infer<typeof Env>;
 export function loadEnv(): Env {
