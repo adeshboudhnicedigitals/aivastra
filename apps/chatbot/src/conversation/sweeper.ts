@@ -53,14 +53,14 @@ export async function runChatSweeper(deps: ChatbotDeps): Promise<void> {
     Date.now() - AGENT_OFFLINE_GRACE_MS,
   );
 
-  const humanConvs = await deps.db
+  const inProgressConvs = await deps.db
     .select({
       id: schema.chatbotConversations.id,
       agentId: schema.chatbotConversations.assignedAgentId,
     })
     .from(schema.chatbotConversations)
-    .where(eq(schema.chatbotConversations.status, 'HUMAN'));
-  for (const conv of humanConvs) {
+    .where(eq(schema.chatbotConversations.status, 'IN_PROGRESS'));
+  for (const conv of inProgressConvs) {
     if (!conv.agentId) continue;
     const score = await deps.redis.zscore('chatbot:agent:presence', conv.agentId);
     if (score && Number(score) > Date.now() - AGENT_OFFLINE_GRACE_MS) continue;
@@ -74,8 +74,8 @@ export async function runChatSweeper(deps: ChatbotDeps): Promise<void> {
       content: 'Your agent got disconnected — reconnecting you…',
     });
     await transition(deps.db, deps.pub, conv.id, {
-      from: 'HUMAN',
-      to: 'PENDING_HUMAN',
+      from: 'IN_PROGRESS',
+      to: 'OPEN',
       type: 'escalate',
       reason: 'agent_drop',
     });
