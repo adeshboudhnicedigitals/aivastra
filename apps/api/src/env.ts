@@ -95,6 +95,24 @@ const Env = z.object({
   // Unset = open to everyone (dev default). Set in production to restrict the
   // feature to a soft-launch cohort without a code change.
   CATALOG_VIDEO_ALLOWED_EMAILS: z.string().optional(),
+  // Ships the storefront tryon widget's real backend error (status/code/message)
+  // instead of the classified shopper-facing copy in friendlyClientErrorMessage
+  // (tryon-widget.js) — for merchant/QA testing only. Threaded to the widget via
+  // the /customer/products/:id/enabled response, the first call it makes on
+  // init. Same literal-'true' pattern as SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS above:
+  // a stray 'false' must not coerce to on and leak raw errors to real shoppers.
+  // Off in production.
+  SHOPIFY_WIDGET_VERBOSE: z.preprocess((v) => v === 'true', z.boolean()).default(false),
+  // Distribution bucket for the local-dev production snapshot
+  // (scripts/local-sync/, docs/local-dev-snapshot-runbook.md) — a separate,
+  // scoped-read-only bucket from the live R2_* one above, never the same
+  // credential. All four optional together: unset in every environment until
+  // the VPS-side one-time bucket setup happens, and GET /admin/prod-snapshot/*
+  // degrades to a clean "not configured" response rather than erroring.
+  DEV_SNAPSHOT_ENDPOINT: optionalUrl(),
+  DEV_SNAPSHOT_BUCKET: z.string().optional(),
+  DEV_SNAPSHOT_ACCESS_KEY_ID: z.string().optional(),
+  DEV_SNAPSHOT_SECRET_ACCESS_KEY: z.string().optional(),
 });
 export type Env = z.infer<typeof Env>;
 export function loadEnv(): Env {

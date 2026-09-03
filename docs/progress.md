@@ -2,6 +2,122 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-03 — Superadmin "Download DB snapshot" button (Settings)
+
+Follow-up to the local-dev production-snapshot sync below. User originally
+asked for a single admin-panel button producing one zip with the full DB +
+~15.6G of assets; research this session showed that's the wrong shape (no
+resumability at that size/timeout risk over one HTTP response, and no
+`pg_dump`/`child_process`/cross-bucket-copy capability exists in the API
+process or its Docker image — adding any would be a first for this
+codebase). Scoped down to: the API surfaces status/download for the DB-dump
+portion only (reusing the exact `db/latest.dump.age` object the CLI flow
+already produces); assets stay exclusively on `mc mirror`. First pass also
+over-built this as a standalone page + sidebar nav item — user correctly
+called that out as unnecessary for one button; folded into Settings instead,
+matching where other superadmin-only tools already live.
+
+**Done**
+- `apps/api/src/modules/admin/prod-snapshot.routes.ts` — `GET
+  /admin/prod-snapshot/status` (reads `db/manifest.json` from the
+  distribution bucket) and `GET /admin/prod-snapshot/download-url`
+  (`presignGet` on `db/latest.dump.age`, audited via `recordAudit` since it
+  hands out a capability URL to the full prod DB dump). Both gated
+  `requireAdmin(['SUPER_ADMIN'])` — deliberately not on the permissions
+  matrix. Degrades to `{configured:false}` when `DEV_SNAPSHOT_*` is unset.
+- `apps/api/src/env.ts` — four new optional `DEV_SNAPSHOT_*` vars.
+  `.env.production.example` gets the matching block (`.env.example` already
+  had it from the CLI-flow work).
+- `apps/admin-web/src/pages/settings/ProdSnapshotTab.tsx` — one button, no
+  status card/explanatory text (cut after user feedback that the first
+  version was overbuilt). Wired as a new Settings tab (`SettingsPage.tsx`),
+  gated on a permission key (`prod_snapshot.download`) that's never actually
+  granted to any role in `role_permissions` — visible only via
+  `hasPermission()`'s `SUPER_ADMIN` short-circuit, matching the backend gate
+  exactly without adding a parallel role-based UI mechanism.
+- `apps/api/test/integration/admin-prod-snapshot.test.ts` — 7 cases, all
+  passing: not-configured, found/not-found for both routes, 403 for a
+  non-`SUPER_ADMIN` role, and an audit row written on a successful
+  `download-url` call.
+- Verified end-to-end against the developer's own already-running local dev
+  API (not a fresh instance — see Failed-Not-Done): created a real local
+  MinIO bucket with a fake manifest + dump, confirmed `/status` and
+  `/download-url` both returned correct data over HTTP, and confirmed the
+  presigned URL actually served the file's real bytes. Cleaned up the test
+  bucket and `.env` additions afterward.
+
+**Failed-Not-Done**
+- Mid-verification, ran `pkill -f vite` to stop a duplicate dev server this
+  session had started (port conflict) — the pattern wasn't scoped to that
+  one process and killed two of the developer's own already-running `vite`
+  instances (ports 5173/5174) as a side effect. Caught and disclosed
+  immediately; developer had to restart those themselves. Lesson: kill by
+  the specific PID from a tool-started background task, never by a
+  name-based pattern that can match a process you didn't start.
+
+## 2026-09-03 — Local dev = production-snapshot sync (laptop-side)
+
+New developers previously had to hand-build admin-curated data (faces,
+backgrounds, poses, garment types, workflow templates, catalog taxonomy)
+through the admin panel to get a working local environment — slow, and it
+never actually matched production, since nothing did this end to end. Design
+was worked out and hardened jointly across two Claude Code sessions (one on
+this laptop clone, one running directly on the production VPS, relayed
+through the user) before implementation.
+
+**Done**
+- `scripts/local-sync/export-prod-snapshot.sh` — operator-run, VPS-side.
+  Same shape as `scripts/staging/sync-from-prod.sh`'s step 1 (`pg_dump` +
+  `mc mirror`, read-only against prod), but packages the result for remote
+  pickup: `--exclude-table-data=payments --exclude-table-data=audit_logs`
+  (schema kept, row data dropped — least debugging value, most compliance
+  weight of any two tables here), `age`-encrypts the dump before upload
+  (relays through the public `/minio/` proxy, unlike `sync-from-prod.sh`
+  which never leaves the VPS's internal network), and mirrors assets into a
+  **new, dedicated** `virtual-tryon-dev-snapshot` bucket rather than a prefix
+  in the live bucket.
+- `scripts/local-sync/check-local-env.sh` (+ `check-local-env.test.sh`,
+  fixture-driven, no Docker/network) — guardrail before any destructive pull,
+  adapted from `check-staging-env.sh` to this repo's actual local setup
+  (one `.env`, not a staging-vs-prod pair to diff).
+- `scripts/local-sync/pull-prod-snapshot.sh` — developer-run, locally.
+  Downloads + decrypts the snapshot, `dropdb`/`createdb`/`pg_restore` against
+  the local `tryon_dev` (hardcoded local container name — structurally can't
+  target a remote host), mirrors assets, applies
+  `scripts/staging/post-restore.sql` unchanged (empties `workers`, marks
+  `shopify_stores.uninstalled_at`), then `pnpm db:migrate`.
+- `scripts/local-sync/age-recipients.txt` (committed, public keys only),
+  `docs/local-dev-snapshot-runbook.md`, `Makefile` (`export-prod-snapshot`,
+  `sync-prod-snapshot`), `.env.example` (`DEV_SNAPSHOT_*` block), CLAUDE.md
+  commands table.
+- Verified in-session (not inferred): every admin-curated object key in
+  `packages/storage/src/keys.ts` is ID-derived (e.g.
+  `modelFace: (id) => \`models/faces/${id}.jpg\``), so `pg_restore` must
+  preserve exact production IDs — it does this natively, no extra logic
+  needed. `refresh_tokens.tokenHash` (`packages/db/src/schema/users.ts:75`)
+  and `api_keys` are hashed, not raw bearer tokens, so no directly-usable
+  live credential rides along even unscrubbed.
+- Tested from this laptop session (no prod/VPS access needed): all three new
+  scripts syntax-checked (`bash -n`); `check-local-env.test.sh` run for real
+  — clean local `.env` passes, non-loopback `DATABASE_URL`/`R2_ENDPOINT`
+  rejected, wrong `POSTGRES_DB`/`R2_BUCKET` rejected, `NODE_ENV=production`
+  rejected.
+
+**Open Questions / Not Done**
+- Not yet run for real: `export-prod-snapshot.sh` needs VPS + prod Docker
+  access this session doesn't have. Distribution bucket + scoped MinIO
+  service account (one-time operator setup, documented in the runbook) don't
+  exist yet either.
+- Unverified: whether `app.aivastra.com`'s `/minio/` Nginx proxy forwards
+  arbitrary bucket paths or is hardcoded to the live bucket — flagged in the
+  runbook as something to check before relying on it, not assumed.
+- No real end-to-end `pull-prod-snapshot.sh` run yet (needs the above to
+  exist first) — local admin panel showing real thumbnails,
+  `pnpm --filter @aivastra/api test:integration` against the restored
+  schema, and a studio job staying `QUEUED` are all still unverified.
+- No cron on the export step yet (manual `make export-prod-snapshot` for v1,
+  deliberately).
+
 ## 2026-09-02 — Shopify basket routing
 
 Implemented the full 11-task plan from

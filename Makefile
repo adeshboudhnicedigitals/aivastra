@@ -1,7 +1,7 @@
 # Aivastra — Makefile shortcuts
 # Requires: pnpm, docker, node >=20
 
-.PHONY: setup sync dev dev-api dev-web dev-dispatcher dev-admin build test typecheck lint docker-up docker-down docker-reset db-generate db-migrate seed-catalog health prod-up prod-down prod-restart prod-bootstrap prod-logs prod-ps shopify-deploy shopify-deploy-dev shopify-deploy-staging shopify-dev shopify-dev-dev
+.PHONY: setup sync dev dev-api dev-web dev-dispatcher dev-admin build test typecheck lint docker-up docker-down docker-reset db-generate db-migrate seed-catalog health prod-up prod-down prod-restart prod-bootstrap prod-logs prod-ps shopify-deploy shopify-deploy-dev shopify-deploy-staging shopify-dev shopify-dev-dev export-prod-snapshot sync-prod-snapshot
 
 setup:
 	cp .env.example .env
@@ -72,6 +72,19 @@ db-migrate:
 
 seed-catalog:
 	pnpm seed:catalog
+
+# Regenerate the production snapshot developers pull from. Operator-run, on
+# the VPS only -- needs docker exec access to aivastra-prod-postgres and the
+# distribution bucket's scoped credentials. See docs/local-dev-snapshot-runbook.md.
+export-prod-snapshot:
+	bash scripts/local-sync/export-prod-snapshot.sh
+
+# Pull the latest production snapshot into your local dev stack. Destructive:
+# drops and recreates the local Postgres database and mirrors MinIO objects.
+# Requires pnpm docker:up first and the DEV_SNAPSHOT_* vars in .env filled in
+# -- see docs/local-dev-snapshot-runbook.md.
+sync-prod-snapshot:
+	bash scripts/local-sync/pull-prod-snapshot.sh
 
 shopify-deploy:
 	cd apps/shopify-extension && npx shopify app deploy --allow-updates

@@ -1,0 +1,17 @@
+# One age public key per developer allowed to decrypt future production
+# snapshots, one per line. Public keys are not sensitive — this file is safe
+# to commit.
+#
+# Onboarding a developer:
+#   1. They run: age-keygen -o ~/.config/age/aivastra-dev.key
+#      (prints "Public key: age1..." — that line is what goes here)
+#   2. They set DEV_SNAPSHOT_AGE_IDENTITY=~/.config/age/aivastra-dev.key in
+#      their .env (see .env.example).
+#   3. Add a line below: "# Jane Doe" then "age1..." on the next line.
+#   4. Ask the operator to re-run `make export-prod-snapshot` — the next
+#      export is encrypted to the new recipient list.
+#
+# Offboarding a developer: delete their two lines. This only stops *future*
+# exports from being readable by them — it does nothing for a snapshot they
+# already downloaded and decrypted. See docs/local-dev-snapshot-runbook.md.
+
