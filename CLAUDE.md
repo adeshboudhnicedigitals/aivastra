@@ -191,6 +191,8 @@ pnpm db:migrate          # apply migrations to DATABASE_URL
 | `pnpm db:generate` / `pnpm db:migrate` | drizzle-kit generate / apply |
 | `pnpm db:seed`, `pnpm seed:model-images`, `pnpm seed:garment-types`, `pnpm seed:contacts` | seed helpers — check `package.json` for the current set |
 | `make shopify-deploy` / `make shopify-deploy-staging` | publish app config + theme extension to Partner Dashboard |
+| `make export-prod-snapshot` | operator, VPS-only — regenerate the encrypted production snapshot developers pull from (`docs/local-dev-snapshot-runbook.md`) |
+| `make sync-prod-snapshot` | developer — pull the latest production snapshot into your local dev stack (destructive; replaces local DB + MinIO bucket) |
 
 `pnpm --filter @aivastra/api test` does **not** run integration tests — a
 "No test files found" result for an integration pattern means you used the wrong
@@ -475,7 +477,7 @@ template determines which inputs that pose supports.
 | `kiosk/` | `/v1/kiosk/*` — device-authed customer-facing tryon |
 | `support/`, `backgrounds/`, `dev/` | contact form; user-uploaded backgrounds; public API-key-authed developer API |
 | `shopify/` | install/token exchange, merchant `/me` + `/settings` + `/shoppers`, catalog generate/publish, widget-config + republish, onboarding (theme-editor deep link), product sync, customer job creation, credit-pack purchase + auto-refill enrolment, GDPR + billing webhooks, `/customer/event`, `/analytics` |
-| `admin/` | full CRUD under `/admin/*` — users, credits, catalog, assets, jobs, workers, config, workflows, merchants, kiosk devices, saree + Shopify settings |
+| `admin/` | full CRUD under `/admin/*` — users, credits, catalog, assets, jobs, workers, config, workflows, merchants, kiosk devices, saree + Shopify settings, prod-snapshot (SUPER_ADMIN-only status/download for the local-dev snapshot's DB dump — `docs/local-dev-snapshot-runbook.md`) |
 
 ### Background loops in the api process
 

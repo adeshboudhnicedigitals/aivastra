@@ -8,6 +8,7 @@ import { Switch } from '../components/Switch';
 import { useAuth } from '../context/AuthContext';
 import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import JobCostsTab from './settings/JobCostsTab';
+import ProdSnapshotTab from './settings/ProdSnapshotTab';
 import PurchasablePlansTab from './settings/PurchasablePlansTab';
 import RolesPermissionsTab from './settings/RolesPermissionsTab';
 import ShopifyCreditsTab from './settings/ShopifyCreditsTab';
@@ -37,7 +38,8 @@ type SettingsSection =
   | 'signup-campaigns'
   | 'roles-permissions'
   | 'system'
-  | 'session';
+  | 'session'
+  | 'prod-snapshot';
 
 // `perm` mirrors the permission each section's own backend routes already
 // require (e.g. GET /admin/credit-plans requires credit_plans.write) — a
@@ -51,6 +53,11 @@ const SETTING_SECTIONS: { k: SettingsSection; label: string; perm?: string }[] =
   { k: 'roles-permissions', label: 'Roles & Permissions', perm: 'admin_users.manage' },
   { k: 'system', label: 'System', perm: 'config.read' },
   { k: 'session', label: 'Session' },
+  // Not a real permission key — never granted to any role in role_permissions,
+  // so hasPermission() only returns true here via its SUPER_ADMIN short-circuit
+  // (AuthContext.tsx). Matches the backend's own gate: prod-snapshot.routes.ts
+  // uses requireAdmin(['SUPER_ADMIN']) directly, not the permissions matrix.
+  { k: 'prod-snapshot', label: 'Prod Snapshot', perm: 'prod_snapshot.download' },
 ];
 
 interface Props {
@@ -812,6 +819,9 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
 
       {/* Roles & Permissions */}
       {section === 'roles-permissions' && <RolesPermissionsTab toast={toast} />}
+
+      {/* Prod Snapshot */}
+      {section === 'prod-snapshot' && <ProdSnapshotTab toast={toast} />}
 
       {/* System */}
       {section === 'system' && (
