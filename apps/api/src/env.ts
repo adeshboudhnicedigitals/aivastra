@@ -95,6 +95,14 @@ const Env = z.object({
   // Unset = open to everyone (dev default). Set in production to restrict the
   // feature to a soft-launch cohort without a code change.
   CATALOG_VIDEO_ALLOWED_EMAILS: z.string().optional(),
+  // Ships the storefront tryon widget's real backend error (status/code/message)
+  // instead of the classified shopper-facing copy in friendlyClientErrorMessage
+  // (tryon-widget.js) — for merchant/QA testing only. Threaded to the widget via
+  // the /customer/products/:id/enabled response, the first call it makes on
+  // init. Same literal-'true' pattern as SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS above:
+  // a stray 'false' must not coerce to on and leak raw errors to real shoppers.
+  // Off in production.
+  SHOPIFY_WIDGET_VERBOSE: z.preprocess((v) => v === 'true', z.boolean()).default(false),
 });
 export type Env = z.infer<typeof Env>;
 export function loadEnv(): Env {

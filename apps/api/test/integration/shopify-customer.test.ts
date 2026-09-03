@@ -524,7 +524,7 @@ describe('shopify customer routes', () => {
         headers: { 'x-widget-key': store.storeKey },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ enabled: true });
+      expect(res.json()).toEqual({ enabled: true, verboseErrors: false });
     });
 
     it('stays disabled under global mode for a product excluded despite it', async () => {
@@ -549,7 +549,7 @@ describe('shopify customer routes', () => {
         headers: { 'x-widget-key': store.storeKey },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ enabled: false });
+      expect(res.json()).toEqual({ enabled: false, verboseErrors: false });
     });
 
     it('is disabled under selective mode for a product with no individual/collection enable', async () => {
@@ -571,7 +571,7 @@ describe('shopify customer routes', () => {
         headers: { 'x-widget-key': store.storeKey },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ enabled: false });
+      expect(res.json()).toEqual({ enabled: false, verboseErrors: false });
     });
 
     it('is enabled under selective mode for an individually enabled product', async () => {
@@ -584,7 +584,7 @@ describe('shopify customer routes', () => {
         headers: { 'x-widget-key': store.storeKey },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ enabled: true });
+      expect(res.json()).toEqual({ enabled: true, verboseErrors: false });
     });
 
     it('rejects a non-numeric product id', async () => {
