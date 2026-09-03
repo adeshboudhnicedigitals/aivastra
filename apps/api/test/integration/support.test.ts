@@ -141,4 +141,38 @@ describe('/v1/support writes a ticket', () => {
       .orderBy(schema.chatbotMessages.createdAt);
     expect(msgs[msgs.length - 1]?.content).toBe('email send should not block this');
   });
+
+  describe('GET /v1/support/attachment', () => {
+    // Deliberately unauthenticated: an <img> tag can't carry a bearer header,
+    // and this codebase forbids auth tokens in the query string (see the route's
+    // own comment). The key itself — a randomUUID()-derived support/ path minted
+    // by POST /v1/support/presign — is the capability. presignGet only signs a
+    // URL; it never checks the object exists, so no real MinIO object is needed
+    // for these assertions.
+    it('redirects with no Authorization header for a support/ key', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/support/attachment?key=support%2Fxyz.jpg',
+      });
+      expect(res.statusCode).toBe(302);
+      expect(res.headers.location).toBeTruthy();
+    });
+
+    it('404s a key outside the support/ prefix, even with no auth', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/support/attachment?key=outputs%2Fsome-job%2Fresult.png',
+      });
+      expect(res.statusCode).toBe(404);
+    });
+
+    it('404s a key outside the support/ prefix even when a valid Authorization header is present', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/support/attachment?key=invoices%2Fsome-payment.pdf',
+        headers: { authorization: `Bearer ${userToken}` },
+      });
+      expect(res.statusCode).toBe(404);
+    });
+  });
 });

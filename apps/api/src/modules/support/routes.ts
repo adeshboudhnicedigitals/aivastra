@@ -4,6 +4,7 @@ import { keys } from '@aivastra/storage';
 import { and, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { AppError } from '../../lib/errors.js';
 import { sendReportReceivedEmail } from '../../lib/mailer.js';
 
 const CONTENT_TYPE_TO_EXT: Record<string, string> = {
@@ -146,16 +147,20 @@ export async function supportRoutes(app: FastifyInstance) {
   );
 
   // GET /v1/support/attachment?key=<attachment key> — redirect to a short-lived presigned GET.
-  // Query param, not a path segment/wildcard: attachment keys contain slashes
-  // (e.g. `support/abc.jpg`), which a wildcard route would have to re-decode.
+  // No auth: an <img> tag can't carry a bearer header, and this codebase forbids putting
+  // auth tokens in query strings. Trust model instead: the key itself (a randomUUID()-derived
+  // support/ path from POST /v1/support/presign) is the capability — unguessable, and scoped
+  // to the support/ prefix only so this can never be used to fetch any other object in the bucket.
   app.get(
     '/v1/support/attachment',
     {
-      preHandler: app.requireUser,
       schema: { querystring: z.object({ key: z.string().min(1) }) },
     },
     async (req, reply) => {
       const { key } = req.query as { key: string };
+      if (!key.startsWith('support/')) {
+        throw new AppError('NOT_FOUND', 404, 'attachment not found');
+      }
       const { url } = await app.storage.presignGet(key, 300);
       return reply.redirect(url);
     },
