@@ -330,9 +330,6 @@ export async function adminChatbotRoutes(app: FastifyInstance) {
       // Release the claim lock, exactly as `end` does. A RESOLVED ticket reopens to
       // OPEN on the user's next message and must be claimable again — the sweeper's
       // agent-drop path only scans IN_PROGRESS, so it can never clean this up.
-      // Release the claim lock, exactly as `end` does. A RESOLVED ticket reopens to
-      // OPEN on the user's next message and must be claimable again — the sweeper's
-      // agent-drop path only scans IN_PROGRESS, so it can never clean this up.
       await app.redis.del(`chatbot:conv:${id}:lock`);
       await systemMessage(id, 'The agent marked this ticket resolved.', app);
       await publishConv(
