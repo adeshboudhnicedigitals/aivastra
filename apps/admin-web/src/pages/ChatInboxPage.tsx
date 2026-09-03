@@ -66,6 +66,10 @@ interface ConvRow {
   id: string;
   userId: string;
   status: string;
+  source: string;
+  category: string | null;
+  priority: string;
+  subject: string | null;
   assignedAgentId: string | null;
   escalationReason: string | null;
   lastMessageAt: string;
@@ -77,31 +81,39 @@ interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
+const PRIORITY_ORDER: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
+const CATEGORY_OPTIONS = ['billing', 'bug', 'order', 'account', 'other'] as const;
+const PRIORITY_OPTIONS = ['low', 'normal', 'high', 'urgent'] as const;
+
 export default function ChatInboxPage({ toast }: Props) {
   const [queue, setQueue] = useState<ConvRow[]>([]);
-  const [botLive, setBotLive] = useState<ConvRow[]>([]);
-  const [myConvs, setMyConvs] = useState<ConvRow[]>([]);
+  const [myTickets, setMyTickets] = useState<ConvRow[]>([]);
   const [onDuty, setOnDuty] = useState(false);
   const [selectedConv, setSelectedConv] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessageT[]>([]);
   const [status, setStatus] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [typing, setTyping] = useState<string | null>(null);
+  // Local edit buffer for the selected ticket's subject/category/priority — seeded from
+  // the row when a conversation is selected, pushed to the server via updateFields.
+  const [fields, setFields] = useState<{ subject: string; category: string; priority: string }>({
+    subject: '',
+    category: '',
+    priority: 'normal',
+  });
   const wsRef = useRef<Awaited<ReturnType<typeof connectAgentWs>> | null>(null);
   const selectedRef = useRef(selectedConv);
   selectedRef.current = selectedConv;
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
-    const [q, b, m, d] = await Promise.all([
-      apiFetch<{ rows: ConvRow[] }>('/admin/chatbot/conversations?status=PENDING_HUMAN'),
-      apiFetch<{ rows: ConvRow[] }>('/admin/chatbot/conversations?status=BOT'),
-      apiFetch<{ rows: ConvRow[] }>('/admin/chatbot/conversations?status=HUMAN'),
+    const [q, m, d] = await Promise.all([
+      apiFetch<{ rows: ConvRow[] }>('/admin/chatbot/conversations?status=OPEN'),
+      apiFetch<{ rows: ConvRow[] }>('/admin/chatbot/conversations?status=IN_PROGRESS'),
       apiFetch<{ on: boolean }>('/admin/chatbot/duty'),
     ]);
     setQueue(q.rows);
-    setBotLive(b.rows);
-    setMyConvs(m.rows);
+    setMyTickets(m.rows);
     setOnDuty(d.on);
   }, []);
 
@@ -140,8 +152,15 @@ export default function ChatInboxPage({ toast }: Props) {
       `/conversations/${id}/messages?limit=100`,
     );
     setMessages(msgs.messages);
-    const conv = [...queue, ...botLive, ...myConvs].find((c) => c.id === id);
-    if (conv) setStatus(conv.status);
+    const conv = [...queue, ...myTickets].find((c) => c.id === id);
+    if (conv) {
+      setStatus(conv.status);
+      setFields({
+        subject: conv.subject ?? '',
+        category: conv.category ?? '',
+        priority: conv.priority,
+      });
+    }
     wsRef.current?.send({ type: 'join', conversationId: id } as WsAgentFrameT);
   }
 
@@ -159,30 +178,49 @@ export default function ChatInboxPage({ toast }: Props) {
     }
   }
 
-  async function takeover(id: string) {
-    try {
-      await apiFetch(`/admin/chatbot/conversations/${id}/takeover`, { method: 'POST' });
-      toast({ title: 'Took over' });
-      void load();
-    } catch (e) {
-      toast({
-        kind: 'error',
-        title: 'Failed to take over',
-        body: apiErrorMessage(e, 'Please try again.'),
-      });
-    }
-  }
-
   async function endConv(id: string) {
     try {
       await apiFetch(`/admin/chatbot/conversations/${id}/end`, { method: 'POST' });
-      toast({ title: 'Ended' });
+      toast({ title: 'Closed' });
       setSelectedConv(null);
       void load();
     } catch (e) {
       toast({
         kind: 'error',
-        title: 'Failed to end conversation',
+        title: 'Failed to close conversation',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    }
+  }
+
+  async function resolveConv(id: string) {
+    try {
+      await apiFetch(`/admin/chatbot/conversations/${id}/resolve`, { method: 'POST' });
+      toast({ title: 'Resolved' });
+      void load();
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to resolve',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    }
+  }
+
+  async function updateFields(
+    id: string,
+    updates: { subject?: string; category?: string; priority?: string },
+  ) {
+    try {
+      await apiFetch(`/admin/chatbot/conversations/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(updates),
+      });
+      void load();
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to update ticket',
         body: apiErrorMessage(e, 'Please try again.'),
       });
     }
@@ -205,7 +243,7 @@ export default function ChatInboxPage({ toast }: Props) {
   }
 
   function sendMsg() {
-    if (!input.trim() || !selectedConv || status !== 'HUMAN') return;
+    if (!input.trim() || !selectedConv || status !== 'IN_PROGRESS') return;
     wsRef.current?.send({
       type: 'message',
       conversationId: selectedConv,
@@ -213,6 +251,12 @@ export default function ChatInboxPage({ toast }: Props) {
     } as WsAgentFrameT);
     setInput('');
   }
+
+  const sortedQueue = [...queue].sort((a, b) => {
+    const p = (PRIORITY_ORDER[a.priority] ?? 2) - (PRIORITY_ORDER[b.priority] ?? 2);
+    if (p !== 0) return p;
+    return new Date(a.lastMessageAt).getTime() - new Date(b.lastMessageAt).getTime();
+  });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0, height: '100%' }}>
@@ -227,7 +271,7 @@ export default function ChatInboxPage({ toast }: Props) {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: '1fr 1fr 1fr',
+          gridTemplateColumns: '1fr 1fr',
           gap: 12,
           marginBottom: selectedConv ? 12 : 0,
         }}
@@ -244,9 +288,9 @@ export default function ChatInboxPage({ toast }: Props) {
           }}
         >
           <h3 style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 600, color: 'var(--muted)' }}>
-            Queue ({queue.length})
+            Queue ({sortedQueue.length})
           </h3>
-          {queue.length === 0 ? (
+          {sortedQueue.length === 0 ? (
             <div
               style={{
                 fontSize: 12,
@@ -258,7 +302,7 @@ export default function ChatInboxPage({ toast }: Props) {
               Empty
             </div>
           ) : (
-            queue.map((c) => (
+            sortedQueue.map((c) => (
               <div
                 key={c.id}
                 onClick={() => selectConv(c.id)}
@@ -271,7 +315,24 @@ export default function ChatInboxPage({ toast }: Props) {
                   fontSize: 13,
                 }}
               >
-                <div style={{ fontWeight: 500 }}>{c.userEmail}</div>
+                <div style={{ fontSize: 12, fontWeight: 600 }}>{c.subject || '(no subject)'}</div>
+                <div style={{ display: 'flex', gap: 4, marginTop: 2 }}>
+                  {c.category && <span className="badge">{c.category}</span>}
+                  <span
+                    className="badge"
+                    style={{
+                      background:
+                        c.priority === 'urgent'
+                          ? '#fee2e2'
+                          : c.priority === 'high'
+                            ? '#fef3c7'
+                            : undefined,
+                    }}
+                  >
+                    {c.priority}
+                  </span>
+                </div>
+                <div style={{ fontWeight: 500, marginTop: 4 }}>{c.userEmail}</div>
                 <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginTop: 4 }}>
                   {c.escalationReason && <span className="badge">{c.escalationReason}</span>}
                 </div>
@@ -290,7 +351,7 @@ export default function ChatInboxPage({ toast }: Props) {
           )}
         </div>
 
-        {/* Bot Live */}
+        {/* My Tickets */}
         <div
           style={{
             background: 'var(--surface)',
@@ -302,9 +363,9 @@ export default function ChatInboxPage({ toast }: Props) {
           }}
         >
           <h3 style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 600, color: 'var(--muted)' }}>
-            Bot Live ({botLive.length})
+            My Tickets ({myTickets.length})
           </h3>
-          {botLive.length === 0 ? (
+          {myTickets.length === 0 ? (
             <div
               style={{
                 fontSize: 12,
@@ -316,7 +377,7 @@ export default function ChatInboxPage({ toast }: Props) {
               Empty
             </div>
           ) : (
-            botLive.map((c) => (
+            myTickets.map((c) => (
               <div
                 key={c.id}
                 onClick={() => selectConv(c.id)}
@@ -329,62 +390,24 @@ export default function ChatInboxPage({ toast }: Props) {
                   fontSize: 13,
                 }}
               >
-                <div style={{ fontWeight: 500 }}>{c.userEmail}</div>
-                <button
-                  className="btn sm ghost"
-                  style={{ marginTop: 4 }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    takeover(c.id);
-                  }}
-                >
-                  Takeover
-                </button>
-              </div>
-            ))
-          )}
-        </div>
-
-        {/* My Conversations */}
-        <div
-          style={{
-            background: 'var(--surface)',
-            border: '1px solid var(--border)',
-            borderRadius: 'var(--r-lg)',
-            padding: 12,
-            maxHeight: 320,
-            overflowY: 'auto',
-          }}
-        >
-          <h3 style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 600, color: 'var(--muted)' }}>
-            My Conversations ({myConvs.length})
-          </h3>
-          {myConvs.length === 0 ? (
-            <div
-              style={{
-                fontSize: 12,
-                color: 'var(--muted-2)',
-                padding: '16px 0',
-                textAlign: 'center',
-              }}
-            >
-              Empty
-            </div>
-          ) : (
-            myConvs.map((c) => (
-              <div
-                key={c.id}
-                onClick={() => selectConv(c.id)}
-                style={{
-                  padding: '8px 10px',
-                  borderRadius: 'var(--r)',
-                  cursor: 'pointer',
-                  background: selectedConv === c.id ? 'var(--accent-soft)' : undefined,
-                  borderBottom: '1px solid var(--border)',
-                  fontSize: 13,
-                }}
-              >
-                <div style={{ fontWeight: 500 }}>{c.userEmail}</div>
+                <div style={{ fontSize: 12, fontWeight: 600 }}>{c.subject || '(no subject)'}</div>
+                <div style={{ display: 'flex', gap: 4, marginTop: 2 }}>
+                  {c.category && <span className="badge">{c.category}</span>}
+                  <span
+                    className="badge"
+                    style={{
+                      background:
+                        c.priority === 'urgent'
+                          ? '#fee2e2'
+                          : c.priority === 'high'
+                            ? '#fef3c7'
+                            : undefined,
+                    }}
+                  >
+                    {c.priority}
+                  </span>
+                </div>
+                <div style={{ fontWeight: 500, marginTop: 4 }}>{c.userEmail}</div>
                 <span className="badge" style={{ marginTop: 4 }}>
                   {c.status}
                 </span>
@@ -414,14 +437,84 @@ export default function ChatInboxPage({ toast }: Props) {
               padding: '10px 16px',
               background: 'var(--surface)',
               borderBottom: '1px solid var(--border)',
+              flexWrap: 'wrap',
+              gap: 8,
             }}
           >
             <span style={{ fontSize: 13, color: 'var(--muted)' }}>
               Status: <strong>{status}</strong>
             </span>
-            <button className="btn sm ghost" onClick={() => endConv(selectedConv)}>
-              End
-            </button>
+            {status === 'IN_PROGRESS' && (
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn sm ghost" onClick={() => resolveConv(selectedConv)}>
+                  Resolve
+                </button>
+                <button className="btn sm ghost" onClick={() => endConv(selectedConv)}>
+                  Close
+                </button>
+              </div>
+            )}
+          </div>
+          <div
+            style={{
+              display: 'flex',
+              gap: 8,
+              alignItems: 'center',
+              padding: '8px 16px',
+              background: 'var(--surface)',
+              borderBottom: '1px solid var(--border)',
+              flexWrap: 'wrap',
+            }}
+          >
+            <input
+              value={fields.subject}
+              onChange={(e) => setFields((f) => ({ ...f, subject: e.target.value }))}
+              onBlur={() => updateFields(selectedConv, { subject: fields.subject })}
+              placeholder="Subject"
+              style={{
+                flex: 1,
+                minWidth: 160,
+                padding: '4px 8px',
+                fontSize: 12,
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--r)',
+                background: 'var(--bg)',
+                color: 'var(--ink)',
+              }}
+            />
+            <select
+              className="select"
+              value={fields.category}
+              onChange={(e) => {
+                const category = e.target.value;
+                setFields((f) => ({ ...f, category }));
+                if (category) updateFields(selectedConv, { category });
+              }}
+              style={{ fontSize: 12, padding: '4px 8px' }}
+            >
+              <option value="">Uncategorized</option>
+              {CATEGORY_OPTIONS.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+            <select
+              className="select"
+              value={fields.priority}
+              onChange={(e) => {
+                const priority = e.target.value;
+                setFields((f) => ({ ...f, priority }));
+                updateFields(selectedConv, { priority });
+              }}
+              style={{ fontSize: 12, padding: '4px 8px' }}
+            >
+              {PRIORITY_OPTIONS.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
           </div>
           <div
             style={{
@@ -452,6 +545,20 @@ export default function ChatInboxPage({ toast }: Props) {
                   {m.role === 'user' ? 'User' : m.role === 'agent' ? 'You' : 'Bot'}
                 </div>
                 <div style={{ lineHeight: 1.5 }}>{renderMessageContent(m.content)}</div>
+                {m.attachmentKey && (
+                  // biome-ignore lint/performance/noImgElement: chatbot attachment preview, not a Next.js app
+                  <img
+                    src={`/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey)}`}
+                    alt="attachment"
+                    style={{ maxWidth: '100%', borderRadius: 6, marginTop: 4, cursor: 'pointer' }}
+                    onClick={() =>
+                      window.open(
+                        `/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey as string)}`,
+                        '_blank',
+                      )
+                    }
+                  />
+                )}
               </div>
             ))}
             {typing && (
@@ -468,7 +575,7 @@ export default function ChatInboxPage({ toast }: Props) {
             )}
             <div ref={messagesEndRef} />
           </div>
-          {status === 'HUMAN' && (
+          {status === 'IN_PROGRESS' && (
             <div
               style={{
                 display: 'flex',
