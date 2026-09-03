@@ -443,8 +443,9 @@ export default function ContactUsPage() {
                 Message Sent Successfully!
               </div>
               <div className="contact-card-subtitle" style={{ maxWidth: 340, marginBottom: 24 }}>
-                Thank you for reaching out. We&apos;ve received your message and will get back to
-                you shortly.
+                Thank you for reaching out. Your message opened a support ticket — an agent will
+                follow up in your chat, or you can continue the conversation any time from the chat
+                icon.
               </div>
               <button
                 type="button"

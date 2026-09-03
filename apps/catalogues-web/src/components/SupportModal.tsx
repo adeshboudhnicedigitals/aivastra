@@ -216,11 +216,9 @@ export function SupportModal({
             }}
           >
             <div style={{ fontSize: 32, marginBottom: 8 }}>✓</div>
-            <div style={{ fontSize: 15, fontWeight: 600, color: C.text }}>
-              Your message has been sent!
-            </div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: C.text }}>Ticket opened!</div>
             <div style={{ fontSize: 13, color: C.mid, marginTop: 4 }}>
-              We&apos;ll get back to you as soon as possible.
+              An agent will respond in your chat — tap the chat icon any time to continue.
             </div>
             <button
               type="button"
