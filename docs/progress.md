@@ -2,6 +2,99 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-03 — Chatbot detached from its LLM agent, HITL turned into a ticket system
+
+Implemented the 15-task plan from `.superpowers/sdd/2026-09-03-chatbot-ticket-system/`
+(spec: `docs/superpowers/specs/2026-09-03-chatbot-detach-agent-ticket-system-design.md`),
+each task TDD'd and reviewed via subagent-driven-development, plus a final whole-branch
+review that found and fixed one critical bug before merge.
+
+**Done**
+- `apps/chatbot` no longer runs an LLM in the answering path. `conversation/orchestrator.ts`'s
+  `handleUserMessage` just appends the user's message and (for a brand-new ticket) publishes
+  a queue update — no router/gen model call, no fallback counting, no auto-escalate heuristic.
+  `agent/bot.ts`, `agent/tools.ts`, `agent/models.ts`, `agent/search.ts` and the pgvector RAG
+  infra (`chatbot_qna`/`chatbot_embeddings`/ingest pipeline/`ChatbotQnaPage`) are **not
+  deleted** — left on disk, unwired, per explicit instruction this session that "hiding" code
+  means removing its call sites, not the files. Same treatment for
+  `conversation/escalation.ts` (the whole file) and two blocks of `conversation/sweeper.ts`
+  (idle-`BOT` sweep, stale-`PENDING_HUMAN` email-fallback sweep) — both reference retired
+  statuses that no ticket will ever have again post-migration, both left untouched. The
+  `ConvStatus`/`ConversationStatus` types (`apps/chatbot/src/conversation/service.ts`,
+  `packages/types/src/chatbot.ts`) are **widened, not narrowed** — they keep the legacy
+  `BOT`/`PENDING_HUMAN`/`HUMAN` values alongside the new ones specifically so this hidden code
+  keeps compiling without being touched.
+- Every user message, from any of three entry points, now becomes or continues one ticket per
+  user (`chatbot_conversations` — table name unchanged, a row is now a "ticket"). Statuses:
+  `OPEN` (queued) → `IN_PROGRESS` (agent claimed) → `RESOLVED`/`CLOSED`. New columns: `source`
+  (`chat_widget`/`contact_us`/`support_modal`), `category`, `priority`, `subject` (auto-derived
+  from the first message), plus `attachmentKey`/`attachmentType` on `chatbot_messages`.
+  Migration `0190_gray_jack_flag.sql` backfills existing rows (`BOT`/`PENDING_HUMAN`→`OPEN`,
+  `HUMAN`→`IN_PROGRESS`) and incidentally repairs a pre-existing, unrelated snapshot-drift bug
+  in `0189_snapshot.json` (two `garment_subcategories` columns from migrations `0186`/`0187`
+  were missing from the snapshot chain — `0190`'s snapshot reflects the full live schema, so
+  future `db:generate` runs stop re-proposing them).
+- **Architecture correction made mid-plan, before any code was written**: the spec originally
+  called for `apps/chatbot` to expose new REST endpoints for the two form-based entry points
+  (Contact Us, Support modal), with a new `StorageProvider` added to `ChatbotDeps`. File-mapping
+  during planning found `apps/api`'s admin routes (`chatbot.routes.ts`: claim/takeover/end)
+  already write directly into `chatbot_conversations`/`chatbot_messages` and publish to the same
+  Redis channels the chatbot service uses — there was no "only `apps/chatbot` touches ticket
+  state" boundary to preserve. `/v1/contact` and `/v1/support` (`apps/api`) were rewritten in
+  place to write tickets directly instead, matching that existing precedent — no new REST
+  surface or storage wiring added to `apps/chatbot`.
+- **`GET /v1/support/attachment`** (new route, `apps/api/src/modules/support/routes.ts`) serves
+  attachment images/PDFs to both frontends. It has **no auth requirement** — deliberately: an
+  `<img src>` tag can't carry a bearer header, and this codebase's own `auth.ts` forbids putting
+  tokens in query strings. Trust model instead: the route only serves keys matching
+  `^support/[0-9a-f-]{36}\.(jpg|png|webp|pdf)$` (a `randomUUID()`-derived, unguessable path) —
+  found and tightened during review after an initial version accepted any key shape, which
+  would have made it an unauthenticated presigned-GET oracle for the entire storage bucket
+  (invoices, job outputs, model assets — not all high-entropy keys).
+- Admin `ChatInboxPage.tsx` (`apps/admin-web`) becomes a two-column ticket queue (Queue/My
+  Tickets, was three-column BOT/PENDING_HUMAN/HUMAN), sortable by priority then age, with
+  subject/category/priority editing and Resolve/Close actions. The admin `takeover` route
+  (`fromStatus: 'BOT'`) is intentionally left registered but permanently unreachable — its
+  only UI caller (the removed "Bot Live" panel) is gone, and no ticket will ever be `'BOT'`
+  again, so it always 409s. Not a bug; hide-don't-delete applied to a route, not just a file.
+- Old fire-and-forget `contact_requests` table gets no new writes; its admin inbox page
+  (`ContactRequestsPage.tsx`) stays, relabeled "Contact Requests (Legacy)" with a banner —
+  existing history isn't dropped.
+- **Final whole-branch review (Opus) caught one Critical, pre-merge bug no per-task scoped
+  review could see**: the `resolve` admin route flipped a ticket to `RESOLVED` but never
+  released its Redis claim lock (`chatbot:conv:{id}:lock`, set with no TTL on claim). Sequence:
+  claim → resolve → user sends a new message (ticket reopens to `OPEN`, agent cleared) → any
+  agent tries to claim it → `SET NX` fails forever → permanent `409`. Combined with the
+  one-active-ticket-per-user constraint, this would have permanently killed that user's entire
+  support channel with no recovery path. Fixed (lock released in `resolve`, 1h TTL added as
+  defense-in-depth) and covered by a regression test reproducing the exact sequence. The same
+  review also caught: the chat bubble never published a queue update for a brand-new ticket
+  (agents wouldn't see it until an unrelated reload); opening the bubble before typing anything
+  created an agent-visible empty ticket that flooded the queue; the reopen-on-`RESOLVED` side
+  effects (audit event, `state_change`/`queue_update` publishes) existed in the canonical
+  `apps/chatbot` version but were missing from both REST-route copies; `subject` was never
+  actually derived anywhere despite being planned; neither REST route had the per-user rate
+  limit the WS path already had; `attachmentType` was never written by any production path, so
+  PDF attachments rendered as broken images; and the chat widget's upload code could silently
+  drop the user's typed message on a failed presign. All fixed in one coordinated pass
+  (`f3887a04..13f5802b`) and independently re-reviewed clean.
+- Deliberately deferred past this branch (ledgered, not forgotten): `PATCH
+  /admin/chatbot/conversations/:id`'s permission scope/audit-logging/assignment-check are policy
+  decisions, not mechanical fixes; `RESOLVED` tickets don't show in the admin queue view (data
+  isn't lost, just not listed there yet); a narrow race in the three duplicated
+  get-or-create-ticket implementations (a conflicting row going `CLOSED` between a failed insert
+  and its re-select) would need a retry loop across three files; nothing auto-closes an
+  abandoned `OPEN` ticket (the spec itself already accepted this as a known gap).
+
+**Open question / worth a look**
+- The get-or-create-active-ticket logic is intentionally duplicated three times
+  (`apps/chatbot/src/conversation/service.ts`, and two call sites in `apps/api` — the second of
+  which now shares `apps/api/src/lib/tickets.ts` for its reopen-side-effects logic specifically,
+  extracted during the final-review fix wave). Matches existing precedent
+  (`apps/api`'s admin routes already reimplement rather than import `apps/chatbot`'s helpers,
+  since they're separate deployed processes) but is worth revisiting if a fourth entry point
+  ever gets added.
+
 ## 2026-09-02 — Shopify basket routing
 
 Implemented the full 11-task plan from
