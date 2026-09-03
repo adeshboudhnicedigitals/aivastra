@@ -80,7 +80,7 @@ describe('report-received acknowledgment email', () => {
       },
     });
 
-    expect(res.statusCode).toBe(204);
+    expect(res.statusCode).toBe(200);
     expect(sendReportReceivedEmail).toHaveBeenCalledTimes(1);
     expect(sendReportReceivedEmail).toHaveBeenCalledWith(
       app.env.RESEND_API_KEY,
