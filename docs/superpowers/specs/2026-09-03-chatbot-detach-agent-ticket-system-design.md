@@ -53,9 +53,8 @@ that one ticket, instead of three disconnected mechanisms.
 ## Constraint: hide, don't delete
 
 Per explicit instruction during this design: code that becomes unused
-(the LLM agent module, the availability-gated email-fallback branch, the
-now-superseded `/v1/contact` and `/v1/support` API routes) is **unwired,
-not deleted**. Files and their contents stay on disk; only the call
+(the LLM agent module, the availability-gated email-fallback branch) is
+**unwired, not deleted**. Files and their contents stay on disk; only the call
 sites/route registrations that invoke them are removed or left dead. The
 one exception is unit tests that assert now-nonexistent behavior (e.g. a
 bot-turn/fallback test) — those get deleted because the behavior itself is
@@ -86,12 +85,19 @@ Three intake surfaces, one ticket:
   bubble today) — posts once, with an optional image attachment; becomes
   or continues the ticket.
 
-All three now call `apps/chatbot` directly with the user's existing bearer
-token — the same pattern `chat-widget.tsx` already uses via
-`NEXT_PUBLIC_CHATBOT_URL` — rather than going through `apps/api`.
-`apps/chatbot` keeps sole ownership of ticket state and its Redis
-channels, the same "one process owns this system" boundary the dispatcher
-holds for ComfyUI.
+The chat bubble keeps talking to `apps/chatbot` directly over WS, as
+today. Contact Us and the Support modal keep posting to `apps/api`
+(`/v1/contact`, `/v1/support`) rather than moving to `apps/chatbot` — this
+was revised during planning once file-mapping showed `apps/api`'s admin
+chatbot routes (`chatbot.routes.ts`: claim/takeover/end) already write
+directly into `chatbot_conversations`/`chatbot_messages` and publish to
+the same Redis channels the chatbot service uses. There is no "only
+`apps/chatbot` touches ticket state" boundary in the actual codebase to
+preserve, so `/v1/contact` and `/v1/support` are repurposed to write
+directly into the ticket tables and publish over Redis, mirroring
+`adminChatbotRoutes`' `publishConv`/`publishQueue`/`systemMessage`
+helpers, instead of adding a new REST surface and a `StorageProvider` to
+`apps/chatbot` that would duplicate what `apps/api` already has.
 
 ## Data model
 
@@ -138,11 +144,11 @@ the normal `db:migrate` step — never ad hoc, never against prod.
 
 ### `contact_requests`
 
-No new writes — both routes that fed it (`/v1/contact`, `/v1/support`)
-are unwired (not deleted; see "hide, don't delete" above). The table and
-its existing rows stay untouched; the admin contact-requests inbox page
-stays but is relabeled as legacy/history — no destructive drop of
-existing support history.
+No new writes — `/v1/contact` and `/v1/support` are rewritten in place
+(see Backend changes below) to write into the ticket tables instead of
+`contact_requests`. The table and its existing rows stay untouched; the
+admin contact-requests inbox page stays but is relabeled as
+legacy/history — no destructive drop of existing support history.
 
 ## Backend changes
 
@@ -163,39 +169,47 @@ existing support history.
   acknowledgment email (`sendReportReceivedEmail`) can still fire on
   ticket creation so the user isn't left wondering — small, cheap addition,
   independent of agent availability.
-- New REST endpoints, authenticated via the existing `verifyBearer`:
-  - `POST /tickets/message` — body `{ content, attachmentKey? }`. Mirrors
-    what the WS `message` frame does today: get-or-create the user's
-    active ticket, append the message, publish. Used by Contact Us and
-    the Support modal.
-  - `POST /tickets/presign` — presigned PUT for an attachment. Requires
-    adding a `StorageProvider` to `ChatbotDeps` (new — the chatbot service
-    has no storage access today; `apps/api`'s `/v1/support/presign` is the
-    reference implementation).
-  - Both need the same rate-limit guard the WS `message` frame already
-    applies (10 messages / 30s per user), so a form can't bypass it.
 - `ws/gateway.ts` — the user-side `message` frame gains an optional
   `attachmentKey`; `appendMessage` passes it through into the new message
   columns.
 
 ### `apps/api`
 
-- `/v1/contact` (`modules/jobs/routes.ts`) and `/v1/support` +
-  `/v1/support/presign` (`modules/support/routes.ts`) — unwired, not
-  deleted. Contact Us and the Support modal call `apps/chatbot`'s new
-  endpoints directly instead, the same way `chat-widget.tsx` already talks
-  to `NEXT_PUBLIC_CHATBOT_URL`.
+- `/v1/support/presign` (`modules/support/routes.ts`) — unchanged; still
+  returns a presigned PUT via `keys.supportAttachment`.
+- `/v1/support` (`modules/support/routes.ts`) — body stays
+  `{ message, attachmentKey? }`. Instead of inserting into
+  `contact_requests`, it now does what `adminChatbotRoutes`' helpers do:
+  get-or-create the user's active ticket (same query
+  `getOrCreateActiveConversation` in `apps/chatbot` runs, reimplemented
+  here against the shared `@aivastra/db` schema — new ticket starts
+  `OPEN`, `source: 'support_modal'`), insert the message with its
+  `attachmentKey`/`attachmentType`, bump `lastMessageAt`, publish
+  `{ type: 'message', message }` on `chatbot:conv:{id}` and, if newly
+  created, `{ type: 'queue_update' }` on `chatbot:queue`.
+- `/v1/contact` (`modules/jobs/routes.ts`) — same treatment, `source:
+  'contact_us'`, no attachment.
+- Both routes need the same per-user rate-limit guard the WS `message`
+  frame already applies (10 messages / 30s), so a form can't bypass it.
+- The old `contact_requests` insert in each route is removed (not just
+  unwired) since the route itself is being rewritten in place, not
+  replaced by a new one — the "hide, don't delete" constraint applies to
+  code that becomes *unreferenced*, not to a route body being rewritten
+  to do the equivalent job differently. `contact_requests` the table and
+  its historical rows are untouched either way.
 
 ## Frontend changes
 
 ### `apps/catalogues-web`
 
-- `contact-us/page.tsx` — posts to `apps/chatbot`'s `POST /tickets/message`
-  instead of `/v1/contact`. Success state can reflect "an agent will
-  respond in your chat" instead of a generic "message sent" confirmation.
-- `SupportModal.tsx` — presigns via `POST /tickets/presign` and submits via
-  `POST /tickets/message` with `attachmentKey`, instead of `/v1/support` +
-  `/v1/support/presign`.
+- `contact-us/page.tsx` — keeps posting to `/v1/contact` (URL unchanged);
+  only the response/success copy changes to reflect "an agent will
+  respond in your chat" instead of a generic "message sent" confirmation,
+  since the backend now opens/continues a real ticket instead of a
+  fire-and-forget row.
+- `SupportModal.tsx` — keeps its existing `/v1/support/presign` +
+  `/v1/support` calls (URLs unchanged); only the post-submit copy changes
+  the same way.
 - `chat-widget.tsx` — gains attachment support: file picker, presign +
   upload before sending a `message` WS frame with `attachmentKey`; render
   image attachments inline. Reuses `SupportModal`'s existing upload
