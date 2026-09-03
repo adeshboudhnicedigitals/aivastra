@@ -144,4 +144,20 @@ export async function supportRoutes(app: FastifyInstance) {
       return { ticketId: convId };
     },
   );
+
+  // GET /v1/support/attachment?key=<attachment key> — redirect to a short-lived presigned GET.
+  // Query param, not a path segment/wildcard: attachment keys contain slashes
+  // (e.g. `support/abc.jpg`), which a wildcard route would have to re-decode.
+  app.get(
+    '/v1/support/attachment',
+    {
+      preHandler: app.requireUser,
+      schema: { querystring: z.object({ key: z.string().min(1) }) },
+    },
+    async (req, reply) => {
+      const { key } = req.query as { key: string };
+      const { url } = await app.storage.presignGet(key, 300);
+      return reply.redirect(url);
+    },
+  );
 }

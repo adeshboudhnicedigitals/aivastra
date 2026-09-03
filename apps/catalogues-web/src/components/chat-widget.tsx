@@ -1,5 +1,5 @@
 'use client';
-import type { ChatMessageT, WsServerFrameT } from '@aivastra/types';
+import type { ChatMessageT, ConversationStatusT, WsServerFrameT } from '@aivastra/types';
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { getToken } from '../lib/api';
 import { BREAKPOINTS } from '../lib/breakpoints';
@@ -67,10 +67,12 @@ function renderMessageContent(content: string) {
 
 export function ChatWidget() {
   const [open, setOpen] = useState(false);
-  const [status, setStatus] = useState<'BOT' | 'PENDING_HUMAN' | 'HUMAN' | 'CLOSED'>('BOT');
+  const [status, setStatus] = useState<ConversationStatusT>('OPEN');
   const [messages, setMessages] = useState<ChatMessageT[]>([]);
   const [typing, setTyping] = useState<string | null>(null);
   const [input, setInput] = useState('');
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const convRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -121,19 +123,42 @@ export function ChatWidget() {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages.length]);
 
-  function send() {
+  async function send() {
     const content = input.trim();
-    if (!content || !wsRef.current || status === 'CLOSED') return;
-    wsRef.current.send(JSON.stringify({ type: 'message', content }));
+    if ((!content && !pendingFile) || !wsRef.current || status === 'CLOSED') return;
+    let attachmentKey: string | undefined;
+    if (pendingFile) {
+      setUploading(true);
+      try {
+        const token = getToken();
+        const presignRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/v1/support/presign`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ contentType: pendingFile.type }),
+        });
+        const { uploadUrl, attachmentKey: key } = (await presignRes.json()) as {
+          uploadUrl: string;
+          attachmentKey: string;
+        };
+        await fetch(uploadUrl, {
+          method: 'PUT',
+          body: pendingFile,
+          headers: { 'Content-Type': pendingFile.type },
+        });
+        attachmentKey = key;
+      } finally {
+        setUploading(false);
+        setPendingFile(null);
+      }
+    }
+    wsRef.current.send(
+      JSON.stringify({ type: 'message', content: content || '(image)', attachmentKey }),
+    );
     setInput('');
   }
 
-  function talkToHuman() {
-    wsRef.current?.send(JSON.stringify({ type: 'escalate' }));
-  }
-
   function reset() {
-    setStatus('BOT');
+    setStatus('OPEN');
     setMessages([]);
     wsRef.current?.close();
     wsRef.current = null;
@@ -231,9 +256,9 @@ export function ChatWidget() {
           >
             <strong>Support</strong>
             <div style={{ fontSize: '12px', opacity: 0.9 }}>
-              {status === 'BOT' && 'AI Assistant'}
-              {status === 'PENDING_HUMAN' && 'Connecting you to a human…'}
-              {status === 'HUMAN' && 'Live agent'}
+              {status === 'OPEN' && 'Waiting for an agent…'}
+              {status === 'IN_PROGRESS' && 'Live agent'}
+              {status === 'RESOLVED' && 'Marked resolved — send a message to reopen'}
               {status === 'CLOSED' && 'Conversation ended'}
             </div>
           </div>
@@ -269,6 +294,13 @@ export function ChatWidget() {
                 }}
               >
                 {renderMessageContent(m.content)}
+                {m.attachmentKey && (
+                  <img
+                    src={`${process.env.NEXT_PUBLIC_API_URL}/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey)}`}
+                    alt="attachment"
+                    style={{ maxWidth: '100%', borderRadius: 8, marginTop: 4 }}
+                  />
+                )}
               </div>
             ))}
             {typing && (
@@ -301,20 +333,28 @@ export function ChatWidget() {
                   fontSize: '14px',
                 }}
               />
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={(e) => setPendingFile(e.target.files?.[0] ?? null)}
+                style={{ fontSize: '11px' }}
+              />
               <button
                 type="button"
                 onClick={send}
+                disabled={uploading}
                 style={{
                   padding: '8px 16px',
                   borderRadius: '20px',
                   border: 'none',
                   background: 'linear-gradient(135deg, #ec4899, #8b5cf6)',
                   color: '#fff',
-                  cursor: 'pointer',
+                  cursor: uploading ? 'default' : 'pointer',
                   fontSize: '14px',
+                  opacity: uploading ? 0.7 : 1,
                 }}
               >
-                Send
+                {uploading ? '…' : 'Send'}
               </button>
             </div>
           ) : (
@@ -333,27 +373,6 @@ export function ChatWidget() {
                 }}
               >
                 Start new chat
-              </button>
-            </div>
-          )}
-
-          {status === 'BOT' && (
-            <div
-              style={{ padding: '8px 12px', textAlign: 'center', borderTop: '1px solid #f0f0f0' }}
-            >
-              <button
-                type="button"
-                onClick={talkToHuman}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#8b5cf6',
-                  cursor: 'pointer',
-                  fontSize: '13px',
-                  textDecoration: 'underline',
-                }}
-              >
-                Talk to a human
               </button>
             </div>
           )}
