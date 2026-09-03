@@ -131,6 +131,13 @@ bash scripts/local-sync/export-prod-snapshot.sh
 Manual for v1 — no cron yet. Re-run whenever the snapshot drifts too far to
 be useful, same disposable-environment philosophy as staging.
 
+No `DEV_SNAPSHOT_*` env vars need to be exported for this step — the script
+reads MinIO root credentials straight out of `.env.production` for both the
+live-bucket read and the distribution-bucket write. `DEV_SNAPSHOT_ACCESS_KEY_ID`/
+`SECRET_ACCESS_KEY` are scoped read-only and would fail with `Access Denied` if
+used here — they're for developers pulling *from* the bucket (§4), never for
+the operator writing *to* it.
+
 Once `DEV_SNAPSHOT_*` is set in `.env.production` (see `.env.production.example`),
 a superadmin can also grab the DB dump portion via the admin panel — Settings
 → Prod Snapshot → "Download DB snapshot" — instead of `mc`/`scp`. It's the
