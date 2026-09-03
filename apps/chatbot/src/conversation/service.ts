@@ -3,7 +3,17 @@ import { chatbotMessagesTotal } from '@aivastra/observability';
 import type { ChatMessageT } from '@aivastra/types';
 import type { Redis } from 'ioredis';
 
-export type ConvStatus = 'BOT' | 'PENDING_HUMAN' | 'HUMAN' | 'CLOSED';
+export type ConvStatus =
+  | 'OPEN'
+  | 'IN_PROGRESS'
+  | 'RESOLVED'
+  | 'CLOSED'
+  // legacy — never produced by current code; kept so escalation.ts and the
+  // retired branches of sweeper.ts keep compiling without being touched.
+  | 'BOT'
+  | 'PENDING_HUMAN'
+  | 'HUMAN';
+
 export interface Conversation {
   id: string;
   userId: string;
@@ -20,7 +30,11 @@ export async function publishConv(pub: Redis, convId: string, frame: object): Pr
   await pub.publish(convChannel(convId), JSON.stringify(frame));
 }
 
-export async function getOrCreateActiveConversation(db: DB, userId: string): Promise<Conversation> {
+export async function getOrCreateActiveConversation(
+  db: DB,
+  userId: string,
+  source: string = 'chat_widget',
+): Promise<Conversation> {
   const [existing] = await db
     .select()
     .from(schema.chatbotConversations)
@@ -33,7 +47,7 @@ export async function getOrCreateActiveConversation(db: DB, userId: string): Pro
   if (existing) return existing as Conversation;
   const [created] = await db
     .insert(schema.chatbotConversations)
-    .values({ userId })
+    .values({ userId, source })
     .onConflictDoNothing()
     .returning();
   if (created) return created as Conversation;
@@ -56,6 +70,8 @@ function toWire(row: typeof schema.chatbotMessages.$inferSelect): ChatMessageT {
     role: row.role as ChatMessageT['role'],
     senderId: row.senderId,
     content: row.content,
+    attachmentKey: row.attachmentKey,
+    attachmentType: row.attachmentType,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -69,6 +85,8 @@ export async function appendMessage(
     senderId?: string | null;
     content: string;
     meta?: { toolCalls?: string[]; qnaIds?: string[] } | null;
+    attachmentKey?: string | null;
+    attachmentType?: string | null;
   },
 ): Promise<ChatMessageT> {
   const [row] = await db
@@ -79,6 +97,8 @@ export async function appendMessage(
       senderId: msg.senderId ?? null,
       content: msg.content,
       meta: msg.meta ?? null,
+      attachmentKey: msg.attachmentKey ?? null,
+      attachmentType: msg.attachmentType ?? null,
     })
     .returning();
   if (!row) throw new Error('appendMessage: insert returned no row');
@@ -90,6 +110,33 @@ export async function appendMessage(
   const wire = toWire(row);
   await publishConv(pub, convId, { type: 'message', message: wire });
   return wire;
+}
+
+export async function reopenIfResolved(db: DB, pub: Redis, convId: string): Promise<void> {
+  const [row] = await db
+    .update(schema.chatbotConversations)
+    .set({ status: 'OPEN', assignedAgentId: null })
+    .where(
+      and(
+        eq(schema.chatbotConversations.id, convId),
+        eq(schema.chatbotConversations.status, 'RESOLVED'),
+      ),
+    )
+    .returning();
+  if (!row) return;
+  await db.insert(schema.chatbotEvents).values({
+    conversationId: convId,
+    type: 'reopen',
+    fromStatus: 'RESOLVED',
+    toStatus: 'OPEN',
+  });
+  await publishConv(pub, convId, {
+    type: 'state_change',
+    conversationId: convId,
+    status: 'OPEN',
+    reason: null,
+  });
+  await pub.publish('chatbot:queue', JSON.stringify({ type: 'queue_update' }));
 }
 
 export async function transition(
