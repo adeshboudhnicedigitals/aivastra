@@ -92,6 +92,7 @@ export function SupportModal({
     setErrMsg('');
     try {
       let attachmentKey: string | undefined;
+      let attachmentType: string | undefined;
 
       if (file) {
         const { uploadUrl, attachmentKey: key } = await api.post<{
@@ -104,11 +105,16 @@ export function SupportModal({
           headers: { 'Content-Type': file.type },
         });
         attachmentKey = key;
+        // This modal is the one surface that lets a user pick a PDF, so without the
+        // mime type both message renderers would fall back to <img> and show a
+        // broken image icon.
+        attachmentType = file.type;
       }
 
       await api.post('/v1/support', {
         message: message.trim(),
         attachmentKey,
+        attachmentType,
       });
 
       setStage('done');
