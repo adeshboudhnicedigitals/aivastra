@@ -1,5 +1,10 @@
 import type { ChatbotDeps } from '../server.js';
-import { appendMessage, getOrCreateActiveConversation, reopenIfResolved } from './service.js';
+import {
+  appendMessage,
+  getOrCreateActiveConversation,
+  reopenIfResolved,
+  setSubjectFromFirstMessage,
+} from './service.js';
 
 export class Orchestrator {
   private inflight = new Map<string, AbortController>();
@@ -23,15 +28,20 @@ export class Orchestrator {
     userId: string,
     content: string,
     attachmentKey?: string,
+    attachmentType?: string,
   ): Promise<void> {
     const { deps } = this;
     await this.enqueue(convId, async () => {
       await reopenIfResolved(deps.db, deps.pub, convId);
+      // The ticket exists before any message does (it's created at WS connect), so
+      // the subject can only be derived here, on the first user message to land.
+      await setSubjectFromFirstMessage(deps.db, convId, content);
       await appendMessage(deps.db, deps.pub, convId, {
         role: 'user',
         senderId: userId,
         content,
         attachmentKey: attachmentKey ?? null,
+        attachmentType: attachmentType ?? null,
       });
     });
   }

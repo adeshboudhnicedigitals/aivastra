@@ -34,6 +34,7 @@ export const WsClientFrame = z.discriminatedUnion('type', [
     type: z.literal('message'),
     content: z.string().min(1).max(2000),
     attachmentKey: z.string().optional(),
+    attachmentType: z.string().optional(),
   }),
   z.object({ type: z.literal('typing') }),
   z.object({ type: z.literal('escalate') }),

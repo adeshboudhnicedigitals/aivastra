@@ -1,4 +1,4 @@
-import { and, type DB, eq, inArray, schema, sql } from '@aivastra/db';
+import { and, type DB, eq, inArray, isNull, schema, sql } from '@aivastra/db';
 import { chatbotMessagesTotal } from '@aivastra/observability';
 import type { ChatMessageT } from '@aivastra/types';
 import type { Redis } from 'ioredis';
@@ -30,11 +30,16 @@ export async function publishConv(pub: Redis, convId: string, frame: object): Pr
   await pub.publish(convChannel(convId), JSON.stringify(frame));
 }
 
+/**
+ * `created` reports whether this call inserted the ticket rather than resuming one.
+ * The WS connect handler needs it: a ticket opened purely from the chat bubble is
+ * otherwise invisible to agents until some unrelated event refreshes their queue.
+ */
 export async function getOrCreateActiveConversation(
   db: DB,
   userId: string,
   source: string = 'chat_widget',
-): Promise<Conversation> {
+): Promise<Conversation & { created: boolean }> {
   const [existing] = await db
     .select()
     .from(schema.chatbotConversations)
@@ -44,13 +49,13 @@ export async function getOrCreateActiveConversation(
         sql`${schema.chatbotConversations.status} <> 'CLOSED'`,
       ),
     );
-  if (existing) return existing as Conversation;
+  if (existing) return { ...(existing as Conversation), created: false };
   const [created] = await db
     .insert(schema.chatbotConversations)
     .values({ userId, source })
     .onConflictDoNothing()
     .returning();
-  if (created) return created as Conversation;
+  if (created) return { ...(created as Conversation), created: true };
   const [winner] = await db
     .select()
     .from(schema.chatbotConversations)
@@ -60,7 +65,30 @@ export async function getOrCreateActiveConversation(
         sql`${schema.chatbotConversations.status} <> 'CLOSED'`,
       ),
     );
-  return winner as Conversation;
+  return { ...(winner as Conversation), created: false };
+}
+
+/** Max length of a subject auto-derived from a ticket's first user message. */
+export const SUBJECT_MAX_LEN = 80;
+
+/**
+ * Derive the ticket's subject from its first user message. The `subject IS NULL`
+ * guard is what makes this safe to call on every message without a read-then-write
+ * race — later messages simply match no rows.
+ */
+export async function setSubjectFromFirstMessage(
+  db: DB,
+  convId: string,
+  content: string,
+): Promise<void> {
+  const subject = content.trim().slice(0, SUBJECT_MAX_LEN);
+  if (!subject) return;
+  await db
+    .update(schema.chatbotConversations)
+    .set({ subject })
+    .where(
+      and(eq(schema.chatbotConversations.id, convId), isNull(schema.chatbotConversations.subject)),
+    );
 }
 
 function toWire(row: typeof schema.chatbotMessages.$inferSelect): ChatMessageT {

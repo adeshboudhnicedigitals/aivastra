@@ -77,6 +77,13 @@ export function setupGateway(app: FastifyInstance, orchestrator: Orchestrator) {
 
     if (principal.role === 'user') {
       const conv = await getOrCreateActiveConversation(deps.db, principal.userId);
+      // A ticket opened from the chat bubble reaches the agent queue only through
+      // this publish — /v1/support and /v1/contact each do the same for their own
+      // brand-new tickets. Without it the ticket sits unseen until some unrelated
+      // event happens to refresh an agent's queue.
+      if (conv.created) {
+        await deps.pub.publish('chatbot:queue', JSON.stringify({ type: 'queue_update' }));
+      }
       subscribe(conv.id, socket, ctx);
       socket.send(JSON.stringify({ type: 'ready', conversationId: conv.id, status: conv.status }));
       socket.on('message', (buf) => {
@@ -104,6 +111,7 @@ export function setupGateway(app: FastifyInstance, orchestrator: Orchestrator) {
               principal.userId,
               f.content,
               f.attachmentKey,
+              f.attachmentType,
             );
           } else if (f.type === 'typing')
             await deps.pub.publish(

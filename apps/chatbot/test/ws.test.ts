@@ -1,4 +1,5 @@
 import { schema } from '@aivastra/db';
+import { Redis } from 'ioredis';
 import { SignJWT } from 'jose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
@@ -88,6 +89,45 @@ describe('ws gateway', () => {
     ws.close();
   });
 
+  it('publishes queue_update when a first-time user connects and a ticket is created', async () => {
+    const [fresh] = await t.deps.db
+      .insert(schema.users)
+      .values({
+        email: `ws-queue-${crypto.randomUUID()}@test.dev`,
+        passwordHash: 'x',
+        emailVerified: true,
+      })
+      .returning();
+    const token = await userToken(fresh.id);
+
+    const listener = new Redis(c.redisUrl, { maxRetriesPerRequest: null });
+    const gotQueueUpdate = new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('timeout waiting for queue_update')), 10_000);
+      listener.on('message', (_channel, raw) => {
+        clearTimeout(timer);
+        resolve(raw);
+      });
+    });
+    await listener.subscribe('chatbot:queue');
+
+    const { ticket } = (await (
+      await fetch(`${t.baseUrl}/ws-ticket`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}` },
+      })
+    ).json()) as { ticket: string };
+    const ws = new WebSocket(`${t.baseUrl.replace('http', 'ws')}/ws?ticket=${ticket}`);
+    await new Promise<void>((resolve, reject) => {
+      ws.on('open', resolve);
+      ws.on('close', (code) => reject(new Error(`closed ${code}`)));
+    });
+
+    const raw = await gotQueueUpdate;
+    expect(JSON.parse(raw)).toEqual({ type: 'queue_update' });
+    ws.close();
+    await listener.quit();
+  });
+
   it('sent message carries an attachmentKey through to the persisted message', async () => {
     const token = await userToken(userId);
     const { ticket } = (await (
@@ -104,10 +144,46 @@ describe('ws gateway', () => {
     await nextFrame(ws, 'ready');
     const userMsg = nextFrame(ws, 'message');
     ws.send(
-      JSON.stringify({ type: 'message', content: 'see this', attachmentKey: 'support/a.jpg' }),
+      JSON.stringify({
+        type: 'message',
+        content: 'see this',
+        attachmentKey: 'support/a.jpg',
+        attachmentType: 'image/jpeg',
+      }),
     );
     const got = await userMsg;
     expect((got.message as { attachmentKey: string | null }).attachmentKey).toBe('support/a.jpg');
+    expect((got.message as { attachmentType: string | null }).attachmentType).toBe('image/jpeg');
+    ws.close();
+  });
+
+  it('carries a non-image attachmentType through unchanged', async () => {
+    const token = await userToken(userId);
+    const { ticket } = (await (
+      await fetch(`${t.baseUrl}/ws-ticket`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}` },
+      })
+    ).json()) as { ticket: string };
+    const ws = new WebSocket(`${t.baseUrl.replace('http', 'ws')}/ws?ticket=${ticket}`);
+    await new Promise<void>((resolve, reject) => {
+      ws.on('open', resolve);
+      ws.on('close', (code) => reject(new Error(`closed ${code}`)));
+    });
+    await nextFrame(ws, 'ready');
+    const userMsg = nextFrame(ws, 'message');
+    ws.send(
+      JSON.stringify({
+        type: 'message',
+        content: 'invoice attached',
+        attachmentKey: 'support/b.pdf',
+        attachmentType: 'application/pdf',
+      }),
+    );
+    const got = await userMsg;
+    expect((got.message as { attachmentType: string | null }).attachmentType).toBe(
+      'application/pdf',
+    );
     ws.close();
   });
 
