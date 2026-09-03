@@ -3,6 +3,7 @@ import type { ChatMessageT, ConversationStatusT, WsServerFrameT } from '@aivastr
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { getToken } from '../lib/api';
 import { BREAKPOINTS } from '../lib/breakpoints';
+import { C, M } from './tokens';
 
 const CHATBOT_URL = process.env.NEXT_PUBLIC_CHATBOT_URL || 'http://localhost:4200';
 
@@ -65,6 +66,38 @@ function renderMessageContent(content: string) {
   return blocks;
 }
 
+// Renders an attachment image, falling back to a plain link if the fetch fails
+// (expired/deleted object, network blip) instead of the browser's broken-image icon.
+function AttachmentImage({ src, href, isUser }: { src: string; href: string; isUser: boolean }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{
+          display: 'inline-block',
+          marginTop: 4,
+          fontSize: '13px',
+          textDecoration: 'underline',
+          color: isUser ? '#fff' : C.pink,
+        }}
+      >
+        Attachment failed to load — view original
+      </a>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt="attachment"
+      onError={() => setFailed(true)}
+      style={{ maxWidth: '100%', borderRadius: 8, marginTop: 4 }}
+    />
+  );
+}
+
 export function ChatWidget() {
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<ConversationStatusT>('OPEN');
@@ -77,6 +110,7 @@ export function ChatWidget() {
   const wsRef = useRef<WebSocket | null>(null);
   const convRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const connect = useCallback(async () => {
     const token = getToken();
@@ -222,9 +256,11 @@ export function ChatWidget() {
               right: 24px;
               width: 360px;
               max-width: calc(100vw - 32px);
-              max-height: 520px;
+              height: 640px;
+              max-height: calc(100vh - 140px);
               border-radius: 12px;
-              background: #fff;
+              background: var(--c-card);
+              color: var(--c-text);
               box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
               display: flex;
               flex-direction: column;
@@ -245,7 +281,7 @@ export function ChatWidget() {
                 right: 16px !important;
                 width: calc(100vw - 32px) !important;
                 max-height: calc(100vh - 90px) !important;
-                height: 440px;
+                height: 560px;
               }
             }
           `,
@@ -276,12 +312,12 @@ export function ChatWidget() {
           <div
             style={{
               padding: '16px',
-              borderBottom: '1px solid #f0f0f0',
+              borderBottom: `1px solid ${C.border}`,
               background: 'linear-gradient(135deg, #ec4899, #8b5cf6)',
               color: '#fff',
             }}
           >
-            <strong>Support</strong>
+            <strong>Aivastra Support</strong>
             <div style={{ fontSize: '12px', opacity: 0.9 }}>
               {status === 'OPEN' && 'Waiting for an agent…'}
               {status === 'IN_PROGRESS' && 'Live agent'}
@@ -300,7 +336,6 @@ export function ChatWidget() {
               flexDirection: 'column',
               gap: '8px',
               minHeight: '200px',
-              maxHeight: '300px',
             }}
           >
             {messages.map((m) => (
@@ -314,8 +349,8 @@ export function ChatWidget() {
                   fontSize: '14px',
                   lineHeight: 1.4,
                   background:
-                    m.role === 'user' ? '#ec4899' : m.role === 'system' ? 'transparent' : '#f5f5f5',
-                  color: m.role === 'user' ? '#fff' : m.role === 'system' ? '#999' : '#333',
+                    m.role === 'user' ? '#ec4899' : m.role === 'system' ? 'transparent' : C.lighter,
+                  color: m.role === 'user' ? '#fff' : m.role === 'system' ? C.mid : C.text,
                   fontStyle: m.role === 'system' ? 'italic' : 'normal',
                   textAlign: m.role === 'system' ? 'center' : 'left',
                 }}
@@ -327,10 +362,10 @@ export function ChatWidget() {
                     attachmentType was populated have none; those were images. */}
                 {m.attachmentKey &&
                   (!m.attachmentType || m.attachmentType.startsWith('image/') ? (
-                    <img
+                    <AttachmentImage
                       src={`${process.env.NEXT_PUBLIC_API_URL}/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey)}`}
-                      alt="attachment"
-                      style={{ maxWidth: '100%', borderRadius: 8, marginTop: 4 }}
+                      href={`${process.env.NEXT_PUBLIC_API_URL}/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey)}`}
+                      isUser={m.role === 'user'}
                     />
                   ) : (
                     <a
@@ -342,7 +377,7 @@ export function ChatWidget() {
                         marginTop: 4,
                         fontSize: '13px',
                         textDecoration: 'underline',
-                        color: m.role === 'user' ? '#fff' : '#521D9C',
+                        color: m.role === 'user' ? '#fff' : C.pink,
                       }}
                     >
                       View attachment
@@ -351,7 +386,7 @@ export function ChatWidget() {
               </div>
             ))}
             {typing && (
-              <em style={{ fontSize: '12px', color: '#999', alignSelf: 'flex-start' }}>
+              <em style={{ fontSize: '12px', color: C.mid, alignSelf: 'flex-start' }}>
                 {typing === 'bot' ? 'Assistant is typing…' : 'Agent is typing…'}
               </em>
             )}
@@ -362,9 +397,9 @@ export function ChatWidget() {
               style={{
                 padding: '6px 12px',
                 fontSize: '12px',
-                color: '#b91c1c',
-                background: '#fef2f2',
-                borderTop: '1px solid #fee2e2',
+                color: M.danger,
+                background: M.dangerTint,
+                borderTop: `1px solid ${C.border}`,
               }}
             >
               {error}
@@ -375,51 +410,141 @@ export function ChatWidget() {
             <div
               style={{
                 padding: '12px',
-                borderTop: '1px solid #f0f0f0',
+                borderTop: `1px solid ${C.border}`,
                 display: 'flex',
-                gap: '8px',
+                flexDirection: 'column',
+                gap: '6px',
               }}
             >
-              <input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && send()}
-                placeholder="Type a message…"
-                style={{
-                  flex: 1,
-                  padding: '8px 12px',
-                  borderRadius: '20px',
-                  border: '1px solid #e0e0e0',
-                  outline: 'none',
-                  fontSize: '14px',
-                }}
-              />
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                onChange={(e) => setPendingFile(e.target.files?.[0] ?? null)}
-                style={{ fontSize: '11px' }}
-              />
-              <button
-                type="button"
-                onClick={send}
-                disabled={uploading}
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: '20px',
-                  border: 'none',
-                  background: 'linear-gradient(135deg, #ec4899, #8b5cf6)',
-                  color: '#fff',
-                  cursor: uploading ? 'default' : 'pointer',
-                  fontSize: '14px',
-                  opacity: uploading ? 0.7 : 1,
-                }}
-              >
-                {uploading ? '…' : 'Send'}
-              </button>
+              {pendingFile && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontSize: '12px',
+                    color: C.pink,
+                  }}
+                >
+                  <span
+                    style={{
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      maxWidth: '220px',
+                    }}
+                  >
+                    {pendingFile.name}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPendingFile(null)}
+                    style={{
+                      border: 'none',
+                      background: 'none',
+                      cursor: 'pointer',
+                      color: C.mid,
+                      fontSize: '14px',
+                      lineHeight: 1,
+                    }}
+                    aria-label="Remove attachment"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    accept="image/jpeg,image/png,image/webp,application/pdf"
+                    onChange={(e) => setPendingFile(e.target.files?.[0] ?? null)}
+                    style={{ display: 'none' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    aria-label="Attach file"
+                    style={{
+                      position: 'absolute',
+                      left: '6px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      border: 'none',
+                      background: 'none',
+                      cursor: 'pointer',
+                      padding: '4px',
+                    }}
+                  >
+                    <svg
+                      aria-hidden="true"
+                      xmlns="http://www.w3.org/2000/svg"
+                      height="20px"
+                      viewBox="0 -960 960 960"
+                      width="20px"
+                      fill="#8b5cf6"
+                    >
+                      <path d="M720-330q0 104-73 177T470-80q-104 0-177-73t-73-177v-370q0-75 52.5-127.5T400-880q75 0 127.5 52.5T580-700v350q0 46-32 78t-78 32q-46 0-78-32t-32-78v-370h80v370q0 13 8.5 21.5T470-320q13 0 21.5-8.5T500-350v-350q-1-42-29.5-71T400-800q-42 0-71 29t-29 71v370q-1 71 49 120.5T470-160q70 0 119-49.5T640-330v-390h80v390Z" />
+                    </svg>
+                  </button>
+                  <input
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && send()}
+                    placeholder="Type a message…"
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px 8px 34px',
+                      borderRadius: '20px',
+                      border: `1px solid ${C.border}`,
+                      outline: 'none',
+                      fontSize: '14px',
+                      boxSizing: 'border-box',
+                      background: C.field,
+                      color: C.text,
+                    }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={send}
+                  disabled={uploading}
+                  aria-label="Send"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '36px',
+                    height: '36px',
+                    borderRadius: '50%',
+                    border: 'none',
+                    background: 'linear-gradient(135deg, #ec4899, #8b5cf6)',
+                    cursor: uploading ? 'default' : 'pointer',
+                    opacity: uploading ? 0.7 : 1,
+                    flexShrink: 0,
+                  }}
+                >
+                  <svg
+                    aria-hidden="true"
+                    xmlns="http://www.w3.org/2000/svg"
+                    height="20px"
+                    viewBox="0 -960 960 960"
+                    width="20px"
+                    fill="#e3e3e3"
+                  >
+                    <path d="M120-160v-640l760 320-760 320Zm80-120 474-200-474-200v140l240 60-240 60v140Zm0 0v-400 400Z" />
+                  </svg>
+                </button>
+              </div>
             </div>
           ) : (
-            <div style={{ padding: '12px', borderTop: '1px solid #f0f0f0', textAlign: 'center' }}>
+            <div
+              style={{ padding: '12px', borderTop: `1px solid ${C.border}`, textAlign: 'center' }}
+            >
               <button
                 type="button"
                 onClick={reset}
