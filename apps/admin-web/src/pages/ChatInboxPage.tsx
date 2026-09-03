@@ -545,20 +545,40 @@ export default function ChatInboxPage({ toast }: Props) {
                   {m.role === 'user' ? 'User' : m.role === 'agent' ? 'You' : 'Bot'}
                 </div>
                 <div style={{ lineHeight: 1.5 }}>{renderMessageContent(m.content)}</div>
-                {m.attachmentKey && (
-                  // biome-ignore lint/performance/noImgElement: chatbot attachment preview, not a Next.js app
-                  <img
-                    src={`/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey)}`}
-                    alt="attachment"
-                    style={{ maxWidth: '100%', borderRadius: 6, marginTop: 4, cursor: 'pointer' }}
-                    onClick={() =>
-                      window.open(
-                        `/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey as string)}`,
-                        '_blank',
-                      )
-                    }
-                  />
-                )}
+                {/* A shopper can attach a PDF (SupportModal and the presign route both
+                    accept one), so only images get an <img> — anything else would show
+                    the agent a broken image icon. Rows written before attachmentType
+                    was populated have none; those were images. */}
+                {m.attachmentKey &&
+                  (!m.attachmentType || m.attachmentType.startsWith('image/') ? (
+                    // biome-ignore lint/performance/noImgElement: chatbot attachment preview, not a Next.js app
+                    <img
+                      src={`/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey)}`}
+                      alt="attachment"
+                      style={{ maxWidth: '100%', borderRadius: 6, marginTop: 4, cursor: 'pointer' }}
+                      onClick={() =>
+                        window.open(
+                          `/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey as string)}`,
+                          '_blank',
+                        )
+                      }
+                    />
+                  ) : (
+                    <a
+                      href={`/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: 'inline-block',
+                        marginTop: 4,
+                        fontSize: 12,
+                        color: 'var(--accent)',
+                        textDecoration: 'underline',
+                      }}
+                    >
+                      View attachment
+                    </a>
+                  ))}
               </div>
             ))}
             {typing && (

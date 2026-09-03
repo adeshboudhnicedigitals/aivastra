@@ -73,6 +73,7 @@ export function ChatWidget() {
   const [input, setInput] = useState('');
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const convRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -127,6 +128,8 @@ export function ChatWidget() {
     const content = input.trim();
     if ((!content && !pendingFile) || !wsRef.current || status === 'CLOSED') return;
     let attachmentKey: string | undefined;
+    let attachmentType: string | undefined;
+    setError(null);
     if (pendingFile) {
       setUploading(true);
       try {
@@ -136,23 +139,46 @@ export function ChatWidget() {
           headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
           body: JSON.stringify({ contentType: pendingFile.type }),
         });
+        // Without this, a rejected content-type would be destructured into
+        // uploadUrl: undefined and blow up downstream as fetch(undefined, …).
+        if (!presignRes.ok) throw new Error(`presign failed (${presignRes.status})`);
         const { uploadUrl, attachmentKey: key } = (await presignRes.json()) as {
           uploadUrl: string;
           attachmentKey: string;
         };
-        await fetch(uploadUrl, {
+        const put = await fetch(uploadUrl, {
           method: 'PUT',
           body: pendingFile,
           headers: { 'Content-Type': pendingFile.type },
         });
+        if (!put.ok) throw new Error(`upload failed (${put.status})`);
         attachmentKey = key;
+        attachmentType = pendingFile.type;
+      } catch {
+        // A failed attachment must not swallow the user's typed message: without a
+        // catch here the rejection escaped an async onClick handler, so nothing was
+        // shown and the ws.send below never ran.
+        attachmentKey = undefined;
+        attachmentType = undefined;
+        setError(
+          content
+            ? 'Attachment upload failed — sending your message without it.'
+            : 'Attachment upload failed. Please try again.',
+        );
       } finally {
         setUploading(false);
         setPendingFile(null);
       }
     }
+    // Nothing left to send if the attachment was the whole message and it failed.
+    if (!content && !attachmentKey) return;
     wsRef.current.send(
-      JSON.stringify({ type: 'message', content: content || '(image)', attachmentKey }),
+      JSON.stringify({
+        type: 'message',
+        content: content || '(attachment)',
+        attachmentKey,
+        attachmentType,
+      }),
     );
     setInput('');
   }
@@ -160,6 +186,7 @@ export function ChatWidget() {
   function reset() {
     setStatus('OPEN');
     setMessages([]);
+    setError(null);
     wsRef.current?.close();
     wsRef.current = null;
     convRef.current = null;
@@ -294,13 +321,33 @@ export function ChatWidget() {
                 }}
               >
                 {renderMessageContent(m.content)}
-                {m.attachmentKey && (
-                  <img
-                    src={`${process.env.NEXT_PUBLIC_API_URL}/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey)}`}
-                    alt="attachment"
-                    style={{ maxWidth: '100%', borderRadius: 8, marginTop: 4 }}
-                  />
-                )}
+                {/* A PDF is a legitimate attachment here (SupportModal and the presign
+                    route both accept one), so only images get an <img> — anything else
+                    would render as a broken image icon. Rows written before
+                    attachmentType was populated have none; those were images. */}
+                {m.attachmentKey &&
+                  (!m.attachmentType || m.attachmentType.startsWith('image/') ? (
+                    <img
+                      src={`${process.env.NEXT_PUBLIC_API_URL}/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey)}`}
+                      alt="attachment"
+                      style={{ maxWidth: '100%', borderRadius: 8, marginTop: 4 }}
+                    />
+                  ) : (
+                    <a
+                      href={`${process.env.NEXT_PUBLIC_API_URL}/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: 'inline-block',
+                        marginTop: 4,
+                        fontSize: '13px',
+                        textDecoration: 'underline',
+                        color: m.role === 'user' ? '#fff' : '#521D9C',
+                      }}
+                    >
+                      View attachment
+                    </a>
+                  ))}
               </div>
             ))}
             {typing && (
@@ -309,6 +356,20 @@ export function ChatWidget() {
               </em>
             )}
           </div>
+
+          {error && (
+            <div
+              style={{
+                padding: '6px 12px',
+                fontSize: '12px',
+                color: '#b91c1c',
+                background: '#fef2f2',
+                borderTop: '1px solid #fee2e2',
+              }}
+            >
+              {error}
+            </div>
+          )}
 
           {status !== 'CLOSED' ? (
             <div
