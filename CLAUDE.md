@@ -140,7 +140,10 @@ explicitly reactivates it.
 ```
 apps/api               Fastify REST API — auth, credits, catalog, jobs, admin
 apps/dispatcher        Redis Stream consumer — the only process that talks to GPU workers
-apps/chatbot           Fastify + WS support chatbot — LangGraph, HITL, pgvector RAG
+apps/chatbot           Fastify + WS support-ticket system — no LLM in the answering path (agent/*
+                       kept on disk but unwired), every message becomes/continues a human-agent
+                       ticket. pgvector RAG (chatbot_qna/chatbot_embeddings/ingest) still present,
+                       currently unused — kept for possible future agent-assist reuse
 apps/catalogues-web    Next.js 15 — user-facing UI (pkg name @aivastra/web)
 apps/admin-web         Vite + React SPA — internal admin panel (pkg name @aivastra/admin)
 apps/shopify           Vite + React + Polaris — embedded Shopify admin SPA
