@@ -15,3 +15,6 @@
 # exports from being readable by them — it does nothing for a snapshot they
 # already downloaded and decrypted. See docs/local-dev-snapshot-runbook.md.
 
+# adeshboudh.nicedigitals@gmail.com
+age1v3dmgw7edtkr2n5lz3p2j095ylq7xl9za972dapcrlea8msdnd2sjtqs8k
+
