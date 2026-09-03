@@ -37,8 +37,13 @@ RECIPIENT_COUNT="$(grep -Ev '^\s*#|^\s*$' "$RECIPIENTS_FILE" | wc -l | tr -d ' '
 [ "$RECIPIENT_COUNT" -gt 0 ] || { echo "no age recipients in $RECIPIENTS_FILE — add at least one developer's public key first (see docs/local-dev-snapshot-runbook.md)" >&2; exit 1; }
 
 DIST_BUCKET="${DEV_SNAPSHOT_BUCKET:-virtual-tryon-dev-snapshot}"
-DIST_ACCESS_KEY="${DEV_SNAPSHOT_ACCESS_KEY_ID:?set DEV_SNAPSHOT_ACCESS_KEY_ID to the scoped distribution-bucket credential}"
-DIST_SECRET_KEY="${DEV_SNAPSHOT_SECRET_ACCESS_KEY:?set DEV_SNAPSHOT_SECRET_ACCESS_KEY to the scoped distribution-bucket credential}"
+# Deliberately NOT using DEV_SNAPSHOT_ACCESS_KEY_ID/SECRET_ACCESS_KEY here — that
+# credential is scoped read-only (s3:GetObject/s3:ListBucket) for developers
+# pulling from the bucket, and this step writes to it (mc mb/mirror/cp), which
+# a read-only policy correctly rejects with Access Denied. The operator running
+# this script already holds MinIO root (PROD_MINIO_USER/PROD_MINIO_PASS, read
+# below) for the live-bucket read, so the same credential is reused for the
+# distribution-bucket write below — same trust boundary, same MinIO instance.
 
 umask 077
 DUMP="$(mktemp /tmp/aivastra-snapshot-XXXXXX.dump)"
@@ -94,7 +99,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
 else
   docker run --rm --network host --entrypoint /bin/sh minio/mc:latest -c "
     mc alias set prodm http://127.0.0.1:9000 '$PROD_MINIO_USER' '$PROD_MINIO_PASS' &&
-    mc alias set distm http://127.0.0.1:9000 '$DIST_ACCESS_KEY' '$DIST_SECRET_KEY' &&
+    mc alias set distm http://127.0.0.1:9000 '$PROD_MINIO_USER' '$PROD_MINIO_PASS' &&
     mc mb --ignore-existing distm/$DIST_BUCKET &&
     mc mirror --overwrite $MIRROR_EXCLUDES \
       prodm/$PROD_BUCKET distm/$DIST_BUCKET
@@ -118,7 +123,7 @@ else
     -v "$ENC:/tmp/latest.dump.age:ro" \
     -v "$MANIFEST:/tmp/manifest.json:ro" \
     --entrypoint /bin/sh minio/mc:latest -c "
-    mc alias set distm http://127.0.0.1:9000 '$DIST_ACCESS_KEY' '$DIST_SECRET_KEY' &&
+    mc alias set distm http://127.0.0.1:9000 '$PROD_MINIO_USER' '$PROD_MINIO_PASS' &&
     mc cp /tmp/latest.dump.age distm/$DIST_BUCKET/db/latest.dump.age &&
     mc cp /tmp/manifest.json distm/$DIST_BUCKET/db/manifest.json
   "
