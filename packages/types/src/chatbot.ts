@@ -1,6 +1,17 @@
 import { z } from 'zod';
 
-export const ConversationStatus = z.enum(['BOT', 'PENDING_HUMAN', 'HUMAN', 'CLOSED']);
+export const ConversationStatus = z.enum([
+  'OPEN',
+  'IN_PROGRESS',
+  'RESOLVED',
+  'CLOSED',
+  // legacy values — never produced by current code, kept so already-hidden
+  // dead code in apps/chatbot (conversation/escalation.ts, retired branches
+  // of conversation/sweeper.ts) keeps compiling without being touched.
+  'BOT',
+  'PENDING_HUMAN',
+  'HUMAN',
+]);
 export type ConversationStatusT = z.infer<typeof ConversationStatus>;
 
 export const ChatRole = z.enum(['user', 'bot', 'agent', 'system']);
@@ -11,13 +22,19 @@ export const ChatMessage = z.object({
   role: ChatRole,
   senderId: z.string().uuid().nullable(),
   content: z.string(),
+  attachmentKey: z.string().nullable(),
+  attachmentType: z.string().nullable(),
   createdAt: z.string(), // ISO
 });
 export type ChatMessageT = z.infer<typeof ChatMessage>;
 
 // frames a USER socket may send
 export const WsClientFrame = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('message'), content: z.string().min(1).max(2000) }),
+  z.object({
+    type: z.literal('message'),
+    content: z.string().min(1).max(2000),
+    attachmentKey: z.string().optional(),
+  }),
   z.object({ type: z.literal('typing') }),
   z.object({ type: z.literal('escalate') }),
 ]);
