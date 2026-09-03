@@ -1,10 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
-import { eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { sendReportReceivedEmail } from '../../lib/mailer.js';
 
 const CONTENT_TYPE_TO_EXT: Record<string, string> = {
   'image/jpeg': 'jpg',
@@ -35,7 +34,7 @@ export async function supportRoutes(app: FastifyInstance) {
     },
   );
 
-  // POST /v1/support — submit a support ticket (authenticated)
+  // POST /v1/support — submit to (or continue) the caller's active ticket
   app.post(
     '/v1/support',
     {
@@ -50,43 +49,84 @@ export async function supportRoutes(app: FastifyInstance) {
     async (req) => {
       const { message, attachmentKey } = req.body as { message: string; attachmentKey?: string };
 
-      const [user] = await app.db
-        .select({
-          name: schema.users.displayName,
-          email: schema.users.email,
-          phone: schema.users.phone,
-        })
-        .from(schema.users)
-        .where(eq(schema.users.id, req.userId))
-        .limit(1);
-
-      const name = user?.name ?? user?.email?.split('@')[0] ?? 'App User';
-      const email = user?.email ?? '';
-      const phone = user?.phone ?? '';
-
-      const [row] = await app.db
-        .insert(schema.contactRequests)
-        .values({
-          userId: req.userId,
-          name,
-          email,
-          phone,
-          message,
-          attachmentKey: attachmentKey ?? null,
-          source: 'app-support',
-          status: 'new',
-        })
-        .returning({ id: schema.contactRequests.id });
-
-      if (email) {
-        try {
-          await sendReportReceivedEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, email);
-        } catch (err) {
-          app.log.error({ err }, 'Failed to send report-received acknowledgment email');
+      const [existing] = await app.db
+        .select()
+        .from(schema.chatbotConversations)
+        .where(
+          and(
+            eq(schema.chatbotConversations.userId, req.userId),
+            sql`${schema.chatbotConversations.status} <> 'CLOSED'`,
+          ),
+        );
+      let convId: string;
+      let isNew = false;
+      if (existing) {
+        convId = existing.id;
+        if (existing.status === 'RESOLVED') {
+          await app.db
+            .update(schema.chatbotConversations)
+            .set({ status: 'OPEN', assignedAgentId: null })
+            .where(eq(schema.chatbotConversations.id, convId));
+        }
+      } else {
+        const [created] = await app.db
+          .insert(schema.chatbotConversations)
+          .values({ userId: req.userId, source: 'support_modal' })
+          .onConflictDoNothing()
+          .returning();
+        if (created) {
+          convId = created.id;
+          isNew = true;
+        } else {
+          const [winner] = await app.db
+            .select()
+            .from(schema.chatbotConversations)
+            .where(
+              and(
+                eq(schema.chatbotConversations.userId, req.userId),
+                sql`${schema.chatbotConversations.status} <> 'CLOSED'`,
+              ),
+            );
+          convId = winner.id;
         }
       }
 
-      return { id: row?.id ?? '' };
+      const [msgRow] = await app.db
+        .insert(schema.chatbotMessages)
+        .values({
+          conversationId: convId,
+          role: 'user',
+          senderId: req.userId,
+          content: message,
+          attachmentKey: attachmentKey ?? null,
+        })
+        .returning();
+      await app.db
+        .update(schema.chatbotConversations)
+        .set({ lastMessageAt: new Date() })
+        .where(eq(schema.chatbotConversations.id, convId));
+
+      await app.redis.publish(
+        `chatbot:conv:${convId}`,
+        JSON.stringify({
+          type: 'message',
+          message: {
+            id: msgRow.id,
+            conversationId: convId,
+            role: 'user',
+            senderId: req.userId,
+            content: message,
+            attachmentKey: msgRow.attachmentKey,
+            attachmentType: msgRow.attachmentType,
+            createdAt: msgRow.createdAt.toISOString(),
+          },
+        }),
+      );
+      if (isNew) {
+        await app.redis.publish('chatbot:queue', JSON.stringify({ type: 'queue_update' }));
+      }
+
+      return { ticketId: convId };
     },
   );
 }

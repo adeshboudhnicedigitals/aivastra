@@ -1,0 +1,123 @@
+import { schema } from '@aivastra/db';
+import { eq } from 'drizzle-orm';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { hashPassword } from '../../src/modules/auth/service.js';
+import { buildTestApp, type TestApp } from '../helpers/api';
+import { type Containers, startContainers } from '../helpers/containers';
+
+describe('/v1/support writes a ticket', () => {
+  let c: Containers;
+  let app: TestApp;
+  let userToken: string;
+
+  beforeAll(async () => {
+    c = await startContainers();
+    app = await buildTestApp(c);
+    const passwordHash = await hashPassword('password123');
+    await app.db
+      .insert(schema.users)
+      .values({ email: 'support-user@x.com', passwordHash, emailVerified: true });
+    const login = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      remoteAddress: '192.0.2.10',
+      payload: { email: 'support-user@x.com', password: 'password123' },
+    });
+    userToken = login.json().accessToken;
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await c?.stop();
+  });
+
+  it('creates an OPEN ticket with source support_modal on first submit', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/support',
+      headers: { authorization: `Bearer ${userToken}` },
+      payload: { message: 'My order looks wrong' },
+    });
+    expect(res.statusCode).toBe(200);
+    const { ticketId } = res.json() as { ticketId: string };
+    const [conv] = await app.db
+      .select()
+      .from(schema.chatbotConversations)
+      .where(eq(schema.chatbotConversations.id, ticketId));
+    expect(conv?.status).toBe('OPEN');
+    expect(conv?.source).toBe('support_modal');
+    const msgs = await app.db
+      .select()
+      .from(schema.chatbotMessages)
+      .where(eq(schema.chatbotMessages.conversationId, ticketId));
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]?.content).toBe('My order looks wrong');
+  });
+
+  it('a second submit appends to the same active ticket', async () => {
+    const first = await app.inject({
+      method: 'POST',
+      url: '/v1/support',
+      headers: { authorization: `Bearer ${userToken}` },
+      payload: { message: 'first message' },
+    });
+    const { ticketId } = first.json() as { ticketId: string };
+
+    const second = await app.inject({
+      method: 'POST',
+      url: '/v1/support',
+      headers: { authorization: `Bearer ${userToken}` },
+      payload: { message: 'second message' },
+    });
+    expect((second.json() as { ticketId: string }).ticketId).toBe(ticketId);
+
+    const msgs = await app.db
+      .select()
+      .from(schema.chatbotMessages)
+      .where(eq(schema.chatbotMessages.conversationId, ticketId));
+    expect(msgs.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('passes attachmentKey through to the stored message', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/support',
+      headers: { authorization: `Bearer ${userToken}` },
+      payload: { message: 'see photo', attachmentKey: 'support/xyz.jpg' },
+    });
+    const { ticketId } = res.json() as { ticketId: string };
+    const msgs = await app.db
+      .select()
+      .from(schema.chatbotMessages)
+      .where(eq(schema.chatbotMessages.conversationId, ticketId))
+      .orderBy(schema.chatbotMessages.createdAt);
+    expect(msgs[msgs.length - 1]?.attachmentKey).toBe('support/xyz.jpg');
+  });
+
+  it('a message to a RESOLVED ticket reopens it to OPEN and clears the agent', async () => {
+    const first = await app.inject({
+      method: 'POST',
+      url: '/v1/support',
+      headers: { authorization: `Bearer ${userToken}` },
+      payload: { message: 'first' },
+    });
+    const { ticketId } = first.json() as { ticketId: string };
+    await app.db
+      .update(schema.chatbotConversations)
+      .set({ status: 'RESOLVED', assignedAgentId: null })
+      .where(eq(schema.chatbotConversations.id, ticketId));
+
+    await app.inject({
+      method: 'POST',
+      url: '/v1/support',
+      headers: { authorization: `Bearer ${userToken}` },
+      payload: { message: 'reopening this' },
+    });
+
+    const [conv] = await app.db
+      .select()
+      .from(schema.chatbotConversations)
+      .where(eq(schema.chatbotConversations.id, ticketId));
+    expect(conv?.status).toBe('OPEN');
+  });
+});
