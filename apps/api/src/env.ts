@@ -106,10 +106,12 @@ const Env = z.object({
   // Distribution bucket for the local-dev production snapshot
   // (scripts/local-sync/, docs/local-dev-snapshot-runbook.md) — a separate,
   // scoped-read-only bucket from the live R2_* one above, never the same
-  // credential. All four optional together: unset in every environment until
-  // the VPS-side one-time bucket setup happens, and GET /admin/prod-snapshot/*
+  // credential, but the SAME MinIO instance/endpoint — so connection and
+  // presign-signing config (R2_ENDPOINT/R2_SIGN_ENDPOINT/R2_PUBLIC_PRESIGN_BASE)
+  // is reused rather than duplicated here; only the bucket + credential differ.
+  // All three optional together: unset in every environment until the
+  // VPS-side one-time bucket setup happens, and GET /admin/prod-snapshot/*
   // degrades to a clean "not configured" response rather than erroring.
-  DEV_SNAPSHOT_ENDPOINT: optionalUrl(),
   DEV_SNAPSHOT_BUCKET: z.string().optional(),
   DEV_SNAPSHOT_ACCESS_KEY_ID: z.string().optional(),
   DEV_SNAPSHOT_SECRET_ACCESS_KEY: z.string().optional(),

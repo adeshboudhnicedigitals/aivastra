@@ -19,31 +19,41 @@ interface SnapshotManifest {
  * lazily per-request rather than decorated on app: DEV_SNAPSHOT_* is
  * optional (unset until the VPS-side one-time bucket setup happens), so
  * there's no safe value to construct a provider with at boot.
+ *
+ * Deliberately reuses R2_ENDPOINT/R2_SIGN_ENDPOINT/R2_PUBLIC_PRESIGN_BASE/
+ * R2_FORCE_PATH_STYLE from the live bucket's config rather than a parallel
+ * DEV_SNAPSHOT_ENDPOINT — the distribution bucket lives on the exact same
+ * MinIO instance, so these values are already correct for it. This is not
+ * optional: `getObject`/`headObject` below are genuine internal
+ * server-to-server calls (never cross the public proxy, so R2_ENDPOINT's
+ * internal Docker address is correct), but `presignGet`'s *result* is
+ * handed to a browser, which must reach it over app.aivastra.com/minio/ — a
+ * path-stripping reverse proxy. Signing and fetching a presigned URL through
+ * one MUST use different base URLs (sign against the public host with no
+ * /minio prefix, since that's the path MinIO validates against after Nginx
+ * strips it; fetch through /minio so Nginx knows to route there at all) or
+ * every request 403s with SignatureDoesNotMatch — confirmed by hand against
+ * the real distribution bucket on 2026-09-03. A single conflated `endpoint`
+ * (what the first version of this function used) breaks presigning; it
+ * happens to work for direct calls only because those never touch the proxy.
  */
 function distributionProvider(app: FastifyInstance): StorageProvider | null {
-  const {
-    DEV_SNAPSHOT_ENDPOINT,
-    DEV_SNAPSHOT_BUCKET,
-    DEV_SNAPSHOT_ACCESS_KEY_ID,
-    DEV_SNAPSHOT_SECRET_ACCESS_KEY,
-  } = app.env;
-  if (
-    !DEV_SNAPSHOT_ENDPOINT ||
-    !DEV_SNAPSHOT_BUCKET ||
-    !DEV_SNAPSHOT_ACCESS_KEY_ID ||
-    !DEV_SNAPSHOT_SECRET_ACCESS_KEY
-  ) {
+  const { DEV_SNAPSHOT_BUCKET, DEV_SNAPSHOT_ACCESS_KEY_ID, DEV_SNAPSHOT_SECRET_ACCESS_KEY } =
+    app.env;
+  if (!DEV_SNAPSHOT_BUCKET || !DEV_SNAPSHOT_ACCESS_KEY_ID || !DEV_SNAPSHOT_SECRET_ACCESS_KEY) {
     return null;
   }
   return createR2Provider({
-    endpoint: DEV_SNAPSHOT_ENDPOINT,
+    endpoint: app.env.R2_ENDPOINT,
+    signEndpoint: app.env.R2_SIGN_ENDPOINT,
+    presignBaseUrl: app.env.R2_PUBLIC_PRESIGN_BASE,
     accessKeyId: DEV_SNAPSHOT_ACCESS_KEY_ID,
     secretAccessKey: DEV_SNAPSHOT_SECRET_ACCESS_KEY,
     bucket: DEV_SNAPSHOT_BUCKET,
     // Never called (publicUrl() isn't used by either route below) — placeholder
     // to satisfy R2Config's required field.
-    publicUrl: `${DEV_SNAPSHOT_ENDPOINT}/${DEV_SNAPSHOT_BUCKET}`,
-    forcePathStyle: true,
+    publicUrl: `${app.env.R2_PUBLIC_PRESIGN_BASE ?? app.env.R2_ENDPOINT}/${DEV_SNAPSHOT_BUCKET}`,
+    forcePathStyle: app.env.R2_FORCE_PATH_STYLE,
   });
 }
 
