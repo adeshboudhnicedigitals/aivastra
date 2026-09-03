@@ -1,6 +1,6 @@
 import { schema } from '@aivastra/db';
 import { QnaUpsert } from '@aivastra/types';
-import { and, desc, eq, ilike, or, sql } from 'drizzle-orm';
+import { and, desc, eq, exists, ilike, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -39,6 +39,10 @@ async function systemMessage(convId: string, content: string, app: FastifyInstan
         role: 'system',
         senderId: null,
         content,
+        // System messages never carry an attachment, but ChatMessage's schema
+        // requires both fields — publish the full shape, not a partial one.
+        attachmentKey: null,
+        attachmentType: null,
         createdAt: row.createdAt.toISOString(),
       },
     },
@@ -147,7 +151,25 @@ export async function adminChatbotRoutes(app: FastifyInstance) {
     const { status = 'all', limit = '50', offset = '0' } = req.query as Record<string, string>;
     const lim = Math.min(Number(limit) || 50, 200);
     const off = Number(offset) || 0;
-    const where = status !== 'all' ? eq(schema.chatbotConversations.status, status) : undefined;
+    // A ticket is created when the user's socket connects, before they type anything,
+    // so merely opening the chat bubble would otherwise park an empty OPEN ticket in
+    // the agent queue forever (the one-active-ticket index means they can't get a
+    // fresh one either). Only surface tickets that actually carry a user message.
+    const hasUserMessage = exists(
+      app.db
+        .select()
+        .from(schema.chatbotMessages)
+        .where(
+          and(
+            eq(schema.chatbotMessages.conversationId, schema.chatbotConversations.id),
+            eq(schema.chatbotMessages.role, 'user'),
+          ),
+        ),
+    );
+    const where =
+      status !== 'all'
+        ? and(eq(schema.chatbotConversations.status, status), hasUserMessage)
+        : hasUserMessage;
     const [rows, [countRow]] = await Promise.all([
       app.db
         .select({
@@ -178,7 +200,12 @@ export async function adminChatbotRoutes(app: FastifyInstance) {
     userId: string,
   ) {
     const agentId = await adminRowId(userId, app);
-    const got = await app.redis.set(`chatbot:conv:${convId}:lock`, agentId, 'NX');
+    // TTL is a self-healing safety net, not the correctness guard: a claim that
+    // leaks its lock (a route forgetting to del it on a terminal transition) would
+    // otherwise brick the ticket forever, since a reopened ticket can never be
+    // claimed again while the key survives. The conditional UPDATE ... WHERE
+    // status = fromStatus below is what actually serializes two racing claims.
+    const got = await app.redis.set(`chatbot:conv:${convId}:lock`, agentId, 'EX', 3600, 'NX');
     if (!got) throw new AppError('ALREADY_CLAIMED', 409, 'conversation already claimed');
     const [row] = await app.db
       .update(schema.chatbotConversations)
@@ -300,6 +327,13 @@ export async function adminChatbotRoutes(app: FastifyInstance) {
         fromStatus: 'IN_PROGRESS',
         toStatus: 'RESOLVED',
       });
+      // Release the claim lock, exactly as `end` does. A RESOLVED ticket reopens to
+      // OPEN on the user's next message and must be claimable again — the sweeper's
+      // agent-drop path only scans IN_PROGRESS, so it can never clean this up.
+      // Release the claim lock, exactly as `end` does. A RESOLVED ticket reopens to
+      // OPEN on the user's next message and must be claimable again — the sweeper's
+      // agent-drop path only scans IN_PROGRESS, so it can never clean this up.
+      await app.redis.del(`chatbot:conv:${id}:lock`);
       await systemMessage(id, 'The agent marked this ticket resolved.', app);
       await publishConv(
         id,
@@ -316,11 +350,17 @@ export async function adminChatbotRoutes(app: FastifyInstance) {
       preHandler: LIVE,
       schema: {
         params: z.object({ id: z.string().uuid() }),
-        body: z.object({
-          subject: z.string().max(200).optional(),
-          category: z.enum(['billing', 'bug', 'order', 'account', 'other']).optional(),
-          priority: z.enum(['low', 'normal', 'high', 'urgent']).optional(),
-        }),
+        // An empty body would reach drizzle's .set({}) and blow up as a raw 500 —
+        // refuse it at the schema so the caller gets a clean 400 instead.
+        body: z
+          .object({
+            subject: z.string().max(200).optional(),
+            category: z.enum(['billing', 'bug', 'order', 'account', 'other']).optional(),
+            priority: z.enum(['low', 'normal', 'high', 'urgent']).optional(),
+          })
+          .refine((body) => Object.keys(body).length > 0, {
+            message: 'at least one field required',
+          }),
       },
     },
     async (req) => {

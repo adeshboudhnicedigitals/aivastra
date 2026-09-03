@@ -153,6 +153,92 @@ describe('admin chatbot hitl', () => {
     expect(row?.priority).toBe('high');
   });
 
+  it('PATCH with an empty body is a 400, not a 500', async () => {
+    const { conv } = await seedConv('OPEN');
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/admin/chatbot/conversations/${conv.id}`,
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: {},
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('a resolved-then-reopened ticket can be claimed again', async () => {
+    // Regression: `resolve` used to leave chatbot:conv:{id}:lock set (no TTL), so
+    // once the user's next message reopened the ticket to OPEN, every subsequent
+    // claim hit SET ... NX and 409'd forever — with the one-active-ticket index,
+    // that killed the user's support channel permanently.
+    const { conv } = await seedConv('OPEN');
+    const claimed = await app.inject({
+      method: 'POST',
+      url: `/admin/chatbot/conversations/${conv.id}/claim`,
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    expect(claimed.statusCode).toBe(200);
+
+    const resolved = await app.inject({
+      method: 'POST',
+      url: `/admin/chatbot/conversations/${conv.id}/resolve`,
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    expect(resolved.statusCode).toBe(200);
+
+    // Simulate the user sending a new message: reopenIfResolved / both REST routes
+    // flip the row back to OPEN and clear the assignment.
+    await app.db
+      .update(schema.chatbotConversations)
+      .set({ status: 'OPEN', assignedAgentId: null })
+      .where(eq(schema.chatbotConversations.id, conv.id));
+
+    const reclaimed = await app.inject({
+      method: 'POST',
+      url: `/admin/chatbot/conversations/${conv.id}/claim`,
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    expect(reclaimed.statusCode).toBe(200);
+    expect(reclaimed.json().status).toBe('IN_PROGRESS');
+  });
+
+  describe('GET /admin/chatbot/conversations', () => {
+    it('hides a ticket with no user message and shows one that has one', async () => {
+      const { conv: empty } = await seedConv('OPEN');
+      const { conv: withMsg } = await seedConv('OPEN');
+      await app.db.insert(schema.chatbotMessages).values({
+        conversationId: withMsg.id,
+        role: 'user',
+        content: 'I need help',
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/admin/chatbot/conversations?status=OPEN&limit=200',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(res.statusCode).toBe(200);
+      const ids = (res.json().rows as Array<{ id: string }>).map((r) => r.id);
+      expect(ids).toContain(withMsg.id);
+      expect(ids).not.toContain(empty.id);
+    });
+
+    it('does not count a system-message-only ticket as having user activity', async () => {
+      const { conv } = await seedConv('OPEN');
+      await app.db.insert(schema.chatbotMessages).values({
+        conversationId: conv.id,
+        role: 'system',
+        content: 'A support agent has joined the conversation.',
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/admin/chatbot/conversations?status=OPEN&limit=200',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      const ids = (res.json().rows as Array<{ id: string }>).map((r) => r.id);
+      expect(ids).not.toContain(conv.id);
+    });
+  });
+
   it('duty toggle round-trips', async () => {
     const on = await app.inject({
       method: 'GET',
