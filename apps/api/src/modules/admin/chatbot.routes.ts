@@ -183,7 +183,7 @@ export async function adminChatbotRoutes(app: FastifyInstance) {
     const [row] = await app.db
       .update(schema.chatbotConversations)
       .set({
-        status: 'HUMAN',
+        status: 'IN_PROGRESS',
         assignedAgentId: agentId,
         ...(type === 'takeover' ? { escalationReason: 'agent_join' } : {}),
       })
@@ -203,7 +203,7 @@ export async function adminChatbotRoutes(app: FastifyInstance) {
       type,
       actorId: agentId,
       fromStatus,
-      toStatus: 'HUMAN',
+      toStatus: 'IN_PROGRESS',
       reason: type === 'takeover' ? 'agent_join' : null,
     });
     await publishConv(convId, { type: 'terminate' }, app);
@@ -212,7 +212,7 @@ export async function adminChatbotRoutes(app: FastifyInstance) {
       {
         type: 'state_change',
         conversationId: convId,
-        status: 'HUMAN',
+        status: 'IN_PROGRESS',
         reason: type === 'takeover' ? 'agent_join' : null,
       },
       app,
@@ -225,7 +225,7 @@ export async function adminChatbotRoutes(app: FastifyInstance) {
   app.post(
     '/admin/chatbot/conversations/:id/claim',
     { preHandler: LIVE, schema: { params: z.object({ id: z.string().uuid() }) } },
-    async (req) => assign((req.params as { id: string }).id, 'PENDING_HUMAN', 'claim', req.userId),
+    async (req) => assign((req.params as { id: string }).id, 'OPEN', 'claim', req.userId),
   );
 
   app.post(
@@ -246,17 +246,17 @@ export async function adminChatbotRoutes(app: FastifyInstance) {
         .where(
           and(
             eq(schema.chatbotConversations.id, id),
-            eq(schema.chatbotConversations.status, 'HUMAN'),
+            eq(schema.chatbotConversations.status, 'IN_PROGRESS'),
             eq(schema.chatbotConversations.assignedAgentId, agentId),
           ),
         )
         .returning();
-      if (!row) throw new AppError('BAD_STATE', 409, 'not your active HUMAN conversation');
+      if (!row) throw new AppError('BAD_STATE', 409, 'not your active IN_PROGRESS conversation');
       await app.db.insert(schema.chatbotEvents).values({
         conversationId: id,
         type: 'close',
         actorId: agentId,
-        fromStatus: 'HUMAN',
+        fromStatus: 'IN_PROGRESS',
         toStatus: 'CLOSED',
       });
       await app.redis.del(`chatbot:conv:${id}:lock`);
@@ -271,6 +271,67 @@ export async function adminChatbotRoutes(app: FastifyInstance) {
         },
         app,
       );
+      return row;
+    },
+  );
+
+  app.post(
+    '/admin/chatbot/conversations/:id/resolve',
+    { preHandler: LIVE, schema: { params: z.object({ id: z.string().uuid() }) } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const agentId = await adminRowId(req.userId, app);
+      const [row] = await app.db
+        .update(schema.chatbotConversations)
+        .set({ status: 'RESOLVED' })
+        .where(
+          and(
+            eq(schema.chatbotConversations.id, id),
+            eq(schema.chatbotConversations.status, 'IN_PROGRESS'),
+            eq(schema.chatbotConversations.assignedAgentId, agentId),
+          ),
+        )
+        .returning();
+      if (!row) throw new AppError('BAD_STATE', 409, 'not your active IN_PROGRESS conversation');
+      await app.db.insert(schema.chatbotEvents).values({
+        conversationId: id,
+        type: 'resolve',
+        actorId: agentId,
+        fromStatus: 'IN_PROGRESS',
+        toStatus: 'RESOLVED',
+      });
+      await systemMessage(id, 'The agent marked this ticket resolved.', app);
+      await publishConv(
+        id,
+        { type: 'state_change', conversationId: id, status: 'RESOLVED', reason: null },
+        app,
+      );
+      return row;
+    },
+  );
+
+  app.patch(
+    '/admin/chatbot/conversations/:id',
+    {
+      preHandler: LIVE,
+      schema: {
+        params: z.object({ id: z.string().uuid() }),
+        body: z.object({
+          subject: z.string().max(200).optional(),
+          category: z.enum(['billing', 'bug', 'order', 'account', 'other']).optional(),
+          priority: z.enum(['low', 'normal', 'high', 'urgent']).optional(),
+        }),
+      },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const body = req.body as { subject?: string; category?: string; priority?: string };
+      const [row] = await app.db
+        .update(schema.chatbotConversations)
+        .set(body)
+        .where(eq(schema.chatbotConversations.id, id))
+        .returning();
+      if (!row) throw new AppError('NOT_FOUND', 404, 'conversation not found');
       return row;
     },
   );

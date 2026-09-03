@@ -1,4 +1,5 @@
 import { schema } from '@aivastra/db';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { hashPassword } from '../../src/modules/auth/service.js';
 import { buildTestApp, type TestApp } from '../helpers/api';
@@ -8,6 +9,7 @@ describe('admin chatbot hitl', () => {
   let c: Containers;
   let app: TestApp;
   let adminToken: string;
+  let adminUserId: string;
 
   beforeAll(async () => {
     c = await startContainers();
@@ -17,9 +19,11 @@ describe('admin chatbot hitl', () => {
       .insert(schema.users)
       .values({ email: 'hitl-admin@x.com', passwordHash, emailVerified: true })
       .returning();
-    await app.db
+    const [admin] = await app.db
       .insert(schema.adminUsers)
-      .values({ userId: user.id, role: 'SUPER_ADMIN', passwordHash });
+      .values({ userId: user.id, role: 'SUPER_ADMIN', passwordHash })
+      .returning();
+    adminUserId = admin.id;
     const res = await app.inject({
       method: 'POST',
       url: '/admin/auth/login',
@@ -36,7 +40,11 @@ describe('admin chatbot hitl', () => {
   async function seedConv(status: string) {
     const [u] = await app.db
       .insert(schema.users)
-      .values({ email: `hitl-user-${Date.now()}@x.com`, passwordHash: '', emailVerified: true })
+      .values({
+        email: `hitl-user-${Date.now()}-${Math.random()}@x.com`,
+        passwordHash: '',
+        emailVerified: true,
+      })
       .returning();
     const [conv] = await app.db
       .insert(schema.chatbotConversations)
@@ -45,19 +53,20 @@ describe('admin chatbot hitl', () => {
     return { user: u, conv };
   }
 
-  it('claim sets PENDING_HUMAN→HUMAN', async () => {
-    const { conv } = await seedConv('PENDING_HUMAN');
+  it('claim sets OPEN→IN_PROGRESS', async () => {
+    const { conv } = await seedConv('OPEN');
     const res = await app.inject({
       method: 'POST',
       url: `/admin/chatbot/conversations/${conv.id}/claim`,
       headers: { authorization: `Bearer ${adminToken}` },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().status).toBe('HUMAN');
+    expect(res.json().status).toBe('IN_PROGRESS');
+    expect(res.json().assignedAgentId).toBe(adminUserId);
   });
 
   it('second claim 409', async () => {
-    const { conv } = await seedConv('PENDING_HUMAN');
+    const { conv } = await seedConv('OPEN');
     await app.inject({
       method: 'POST',
       url: `/admin/chatbot/conversations/${conv.id}/claim`,
@@ -71,8 +80,34 @@ describe('admin chatbot hitl', () => {
     expect(res2.statusCode).toBe(409);
   });
 
-  it('end sets HUMAN→CLOSED (assigned agent only)', async () => {
-    const { conv } = await seedConv('PENDING_HUMAN');
+  it('resolve sets IN_PROGRESS→RESOLVED for the assigned agent', async () => {
+    const { conv } = await seedConv('OPEN');
+    await app.inject({
+      method: 'POST',
+      url: `/admin/chatbot/conversations/${conv.id}/claim`,
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: `/admin/chatbot/conversations/${conv.id}/resolve`,
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().status).toBe('RESOLVED');
+  });
+
+  it('resolve fails for an unassigned agent', async () => {
+    const { conv } = await seedConv('IN_PROGRESS');
+    const res = await app.inject({
+      method: 'POST',
+      url: `/admin/chatbot/conversations/${conv.id}/resolve`,
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    expect(res.statusCode).toBe(409);
+  });
+
+  it('end sets IN_PROGRESS→CLOSED (assigned agent only)', async () => {
+    const { conv } = await seedConv('OPEN');
     const claimed = await app.inject({
       method: 'POST',
       url: `/admin/chatbot/conversations/${conv.id}/claim`,
@@ -91,13 +126,31 @@ describe('admin chatbot hitl', () => {
   });
 
   it('end fails for unassigned agent', async () => {
-    const { conv } = await seedConv('HUMAN');
+    const { conv } = await seedConv('IN_PROGRESS');
     const res = await app.inject({
       method: 'POST',
       url: `/admin/chatbot/conversations/${conv.id}/end`,
       headers: { authorization: `Bearer ${adminToken}` },
     });
     expect(res.statusCode).toBe(409);
+  });
+
+  it('PATCH updates subject/category/priority', async () => {
+    const { conv } = await seedConv('OPEN');
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/admin/chatbot/conversations/${conv.id}`,
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: { subject: 'Refund question', category: 'billing', priority: 'high' },
+    });
+    expect(res.statusCode).toBe(200);
+    const [row] = await app.db
+      .select()
+      .from(schema.chatbotConversations)
+      .where(eq(schema.chatbotConversations.id, conv.id));
+    expect(row?.subject).toBe('Refund question');
+    expect(row?.category).toBe('billing');
+    expect(row?.priority).toBe('high');
   });
 
   it('duty toggle round-trips', async () => {
