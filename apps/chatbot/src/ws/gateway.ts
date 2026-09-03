@@ -99,14 +99,17 @@ export function setupGateway(app: FastifyInstance, orchestrator: Orchestrator) {
               );
               return;
             }
-            await orchestrator.handleUserMessage(conv.id, principal.userId, f.content);
+            await orchestrator.handleUserMessage(
+              conv.id,
+              principal.userId,
+              f.content,
+              f.attachmentKey,
+            );
           } else if (f.type === 'typing')
             await deps.pub.publish(
               `chatbot:conv:${conv.id}`,
               JSON.stringify({ type: 'typing', conversationId: conv.id, role: 'user' }),
             );
-          else if (f.type === 'escalate')
-            await orchestrator.handleUserEscalate(conv.id, principal.userId);
         })().catch((err) => app.log.error({ err }, 'user frame failed'));
       });
       return;
@@ -138,7 +141,7 @@ export function setupGateway(app: FastifyInstance, orchestrator: Orchestrator) {
             .where(
               and(
                 eq(schema.chatbotConversations.id, f.conversationId),
-                eq(schema.chatbotConversations.status, 'HUMAN'),
+                eq(schema.chatbotConversations.status, 'IN_PROGRESS'),
                 eq(schema.chatbotConversations.assignedAgentId, adminUserId),
               ),
             );

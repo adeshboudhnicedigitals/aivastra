@@ -1,6 +1,4 @@
 import { schema } from '@aivastra/db';
-import { AIMessage } from '@langchain/core/messages';
-import { FakeStreamingChatModel } from '@langchain/core/utils/testing';
 import { SignJWT } from 'jose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
@@ -38,10 +36,7 @@ describe('ws gateway', () => {
 
   beforeAll(async () => {
     c = await startContainers();
-    t = await buildTestApp(c, {
-      makeGenModel: () =>
-        new FakeStreamingChatModel({ responses: [new AIMessage('Hello from bot')] }),
-    });
+    t = await buildTestApp(c);
     const [u] = await t.deps.db
       .insert(schema.users)
       .values({ email: 'ws@test.dev', passwordHash: 'x', emailVerified: true })
@@ -67,7 +62,7 @@ describe('ws gateway', () => {
     expect(noTicket).toBeNull();
   });
 
-  it('user connects, sends message, bot replies', async () => {
+  it('user connects, ready frame reports OPEN, sent message echoes back with no bot reply', async () => {
     const token = await userToken(userId);
     const { ticket } = (await (
       await fetch(`${t.baseUrl}/ws-ticket`, {
@@ -83,17 +78,36 @@ describe('ws gateway', () => {
       ws.on('close', (code) => reject(new Error(`closed ${code}`)));
     });
     const ready = await nextFrame(ws, 'ready');
-    expect(ready.status).toBe('BOT');
+    expect(ready.status).toBe('OPEN');
 
-    const botMsg = new Promise<Record<string, unknown>>((resolve) => {
-      ws.on('message', (buf) => {
-        const f = JSON.parse(buf.toString());
-        if (f.type === 'message' && (f.message as { role: string }).role === 'bot') resolve(f);
-      });
-    });
+    const userMsg = nextFrame(ws, 'message');
     ws.send(JSON.stringify({ type: 'message', content: 'hi there' }));
-    const got = await botMsg;
-    expect((got.message as { content: string }).content).toBe('Hello from bot');
+    const got = await userMsg;
+    expect((got.message as { role: string; content: string }).role).toBe('user');
+    expect((got.message as { content: string }).content).toBe('hi there');
+    ws.close();
+  });
+
+  it('sent message carries an attachmentKey through to the persisted message', async () => {
+    const token = await userToken(userId);
+    const { ticket } = (await (
+      await fetch(`${t.baseUrl}/ws-ticket`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}` },
+      })
+    ).json()) as { ticket: string };
+    const ws = new WebSocket(`${t.baseUrl.replace('http', 'ws')}/ws?ticket=${ticket}`);
+    await new Promise<void>((resolve, reject) => {
+      ws.on('open', resolve);
+      ws.on('close', (code) => reject(new Error(`closed ${code}`)));
+    });
+    await nextFrame(ws, 'ready');
+    const userMsg = nextFrame(ws, 'message');
+    ws.send(
+      JSON.stringify({ type: 'message', content: 'see this', attachmentKey: 'support/a.jpg' }),
+    );
+    const got = await userMsg;
+    expect((got.message as { attachmentKey: string | null }).attachmentKey).toBe('support/a.jpg');
     ws.close();
   });
 
