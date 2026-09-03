@@ -120,4 +120,25 @@ describe('/v1/support writes a ticket', () => {
       .where(eq(schema.chatbotConversations.id, ticketId));
     expect(conv?.status).toBe('OPEN');
   });
+
+  it('still returns 200 and stores the message even when the acknowledgment email send fails', async () => {
+    // The test harness has no real Resend credentials configured, so
+    // sendReportReceivedEmail is expected to throw here — this asserts that
+    // failure is swallowed (try/catch around the send) and never fails the
+    // request, matching the original contact_requests-era handler's behavior.
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/support',
+      headers: { authorization: `Bearer ${userToken}` },
+      payload: { message: 'email send should not block this' },
+    });
+    expect(res.statusCode).toBe(200);
+    const { ticketId } = res.json() as { ticketId: string };
+    const msgs = await app.db
+      .select()
+      .from(schema.chatbotMessages)
+      .where(eq(schema.chatbotMessages.conversationId, ticketId))
+      .orderBy(schema.chatbotMessages.createdAt);
+    expect(msgs[msgs.length - 1]?.content).toBe('email send should not block this');
+  });
 });
