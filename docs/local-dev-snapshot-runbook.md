@@ -37,26 +37,36 @@ setup" pattern in `docs/staging-runbook.md`).
 
 **Distribution bucket + scoped credential:**
 
+`mc admin policy create` needs a real file path for the policy document, not
+stdin — write it to a temp file first, mount it into the container, then
+clean up:
+
 ```bash
-docker run --rm --network host --entrypoint /bin/sh minio/mc:latest -c "
-  mc alias set prodm http://127.0.0.1:9000 '<MINIO_ROOT_USER>' '<MINIO_ROOT_PASSWORD>' &&
-  mc mb --ignore-existing prodm/virtual-tryon-dev-snapshot &&
-  mc admin user add prodm dev-snapshot-reader '<generate a strong password>' &&
-  mc admin policy create prodm dev-snapshot-readonly - <<'POLICY'
+cat > /tmp/dev-snapshot-readonly-policy.json <<'EOF'
 {
-  \"Version\": \"2012-10-17\",
-  \"Statement\": [{
-    \"Effect\": \"Allow\",
-    \"Action\": [\"s3:GetObject\", \"s3:ListBucket\"],
-    \"Resource\": [
-      \"arn:aws:s3:::virtual-tryon-dev-snapshot\",
-      \"arn:aws:s3:::virtual-tryon-dev-snapshot/*\"
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": ["s3:GetObject", "s3:ListBucket"],
+    "Resource": [
+      "arn:aws:s3:::virtual-tryon-dev-snapshot",
+      "arn:aws:s3:::virtual-tryon-dev-snapshot/*"
     ]
   }]
 }
-POLICY
+EOF
+
+docker run --rm --network host \
+  -v /tmp/dev-snapshot-readonly-policy.json:/tmp/policy.json:ro \
+  --entrypoint /bin/sh minio/mc:latest -c "
+  mc alias set prodm http://127.0.0.1:9000 '<MINIO_ROOT_USER>' '<MINIO_ROOT_PASSWORD>' &&
+  mc mb --ignore-existing prodm/virtual-tryon-dev-snapshot &&
+  mc admin user add prodm dev-snapshot-reader '<generate a strong password>' &&
+  mc admin policy create prodm dev-snapshot-readonly /tmp/policy.json &&
   mc admin policy attach prodm dev-snapshot-readonly --user dev-snapshot-reader
 "
+
+rm /tmp/dev-snapshot-readonly-policy.json
 ```
 
 Hand out the resulting access key / secret to developers out-of-band
@@ -64,17 +74,24 @@ Hand out the resulting access key / secret to developers out-of-band
 `DEV_SNAPSHOT_SECRET_ACCESS_KEY` — **never commit these, never reuse the live
 `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`.**
 
-**Verify the `/minio/` proxy forwards arbitrary bucket paths** before relying
-on it — don't assume. The existing Nginx rule was proven for the live
-bucket only:
+**The `/minio/` proxy forwarding arbitrary bucket paths was verified against
+the real bucket on 2026-09-03** — a plain `curl -sI` returns MinIO's own
+`AccessDenied` (via `x-minio-error-code`), not a generic Nginx 404, and an
+authenticated request signed correctly (see below) returns `NoSuchKey`
+rather than an auth or routing error. Routing itself is not the problem.
 
-```bash
-curl -sI https://app.aivastra.com/minio/virtual-tryon-dev-snapshot/ | head -5
-```
-
-If this 403s or 404s in a way that suggests the proxy is hardcoded to one
-bucket, the distribution bucket needs its own `location` block — see the
-vhost examples in `docs/staging-runbook.md` §6 for the pattern.
+**What *is* broken:** any tool that signs a request using the same URL it
+sends it to (`mc`, `aws-cli`, and a plain, non-split `S3Client`) fails with
+`SignatureDoesNotMatch` through this proxy — Nginx strips `/minio` before
+MinIO validates the signature, so the client's signed path never matches
+what MinIO receives. `apps/api/src/modules/admin/prod-snapshot.routes.ts`
+works around this for the admin-panel download button by signing against
+`R2_SIGN_ENDPOINT` (the public host, no `/minio`) and only inserting
+`/minio` into the URL string *after* signing, via `R2_PUBLIC_PRESIGN_BASE` —
+this is why the button reuses those existing live-bucket values instead of
+a separate `DEV_SNAPSHOT_ENDPOINT`. `mc` has no equivalent mechanism, which
+is why `pull-prod-snapshot.sh`'s `mc`-based steps are currently broken — see
+§4 below.
 
 **`age` prerequisite** (also needed by every developer):
 
@@ -123,6 +140,16 @@ it. This doesn't replace the export step above, and it never touches the
 ~15.6G of assets — those still only move via `mc mirror`/`pull-prod-snapshot.sh`.
 
 ## 4. Pulling the snapshot (developer, laptop)
+
+**Not yet working** — `scripts/local-sync/pull-prod-snapshot.sh`'s `mc`-based
+steps (both downloading `db/latest.dump.age` and mirroring assets) fail
+against the public distribution bucket. See the warning comment at the top
+of that script for the full explanation; short version: `mc alias set`
+outright refuses a URL with a path component (`app.aivastra.com/minio`),
+and even a client that tolerated the URL would still fail to sign correctly
+through this proxy the way §1 describes. Needs a bespoke script (presigning
+each list/get individually, same `signEndpoint`/`presignBaseUrl` split the
+admin-panel button uses) in place of `mc` — not written yet.
 
 ```bash
 pnpm docker:up                        # local Postgres/Redis/MinIO must be running

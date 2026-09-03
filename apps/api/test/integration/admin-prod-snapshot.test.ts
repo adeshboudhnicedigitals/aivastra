@@ -61,7 +61,10 @@ describe('GET /admin/prod-snapshot/* — DEV_SNAPSHOT_* configured', () => {
   beforeAll(async () => {
     c = await startContainers();
     app = await buildTestApp(c, {
-      DEV_SNAPSHOT_ENDPOINT: c.r2Endpoint,
+      // No DEV_SNAPSHOT_ENDPOINT override — distributionProvider() reuses
+      // R2_ENDPOINT/R2_SIGN_ENDPOINT/R2_PUBLIC_PRESIGN_BASE (already set to
+      // c.r2Endpoint by buildTestApp's defaults, with no sign-endpoint split
+      // needed locally since there's no reverse proxy in the test harness).
       DEV_SNAPSHOT_BUCKET: c.r2Bucket,
       DEV_SNAPSHOT_ACCESS_KEY_ID: c.r2Key,
       DEV_SNAPSHOT_SECRET_ACCESS_KEY: c.r2Secret,

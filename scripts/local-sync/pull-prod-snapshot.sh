@@ -4,6 +4,26 @@
 # Run by a developer, locally. See docs/local-dev-snapshot-runbook.md for
 # one-time setup (age keypair, DEV_SNAPSHOT_* credentials).
 #
+# KNOWN BROKEN as of 2026-09-03 — every `mc alias set distm '$DIST_ENDPOINT'`
+# call below fails. `mc` refuses any endpoint URL with a path component
+# ("Invalid URL ... without resource component"), and DEV_SNAPSHOT_ENDPOINT
+# is the public app.aivastra.com/minio proxy path, so this fails immediately
+# at the very first mc call (downloading the dump), before ever reaching the
+# asset-mirror step. Even if mc's URL validation were bypassed, the deeper
+# problem is a SigV4 signing mismatch: mc would sign against the same
+# conflated path it sends the request to, but Nginx strips /minio before
+# MinIO validates the signature, so every request 403s with
+# SignatureDoesNotMatch (confirmed against the real distribution bucket).
+# apps/api/src/modules/admin/prod-snapshot.routes.ts works around this for
+# the single admin-panel download by splitting signEndpoint (no /minio, used
+# for signing) from presignBaseUrl (with /minio, used only for the final
+# fetch) — but mc has no equivalent mechanism, and neither does a bulk
+# multi-object mirror the way this script needs. Fixing this needs a bespoke
+# script (e.g. Node + @aws-sdk/client-s3 + @aws-sdk/s3-request-presigner)
+# that presigns each list/get individually using that same split, in place
+# of every mc call below. Not yet written — do not run this script for real
+# until it is.
+#
 # Usage: scripts/local-sync/pull-prod-snapshot.sh
 set -euo pipefail
 
