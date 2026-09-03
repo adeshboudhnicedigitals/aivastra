@@ -31,6 +31,31 @@ export async function runChatSweeper(deps: ChatbotDeps): Promise<void> {
     });
   }
 
+  const resolvedCutoff = new Date(
+    Date.now() - deps.env.CHATBOT_RESOLVED_CLOSE_TIMEOUT_MIN * 60_000,
+  );
+  const staleResolved = await deps.db
+    .select({ id: schema.chatbotConversations.id })
+    .from(schema.chatbotConversations)
+    .where(
+      and(
+        eq(schema.chatbotConversations.status, 'RESOLVED'),
+        lt(schema.chatbotConversations.lastMessageAt, resolvedCutoff),
+      ),
+    );
+  for (const { id } of staleResolved) {
+    await appendMessage(deps.db, deps.pub, id, {
+      role: 'system',
+      content: 'This ticket was automatically closed after being resolved with no reply.',
+    });
+    await transition(deps.db, deps.pub, id, {
+      from: 'RESOLVED',
+      to: 'CLOSED',
+      type: 'close',
+      reason: 'resolved_timeout',
+    });
+  }
+
   const stalePending = await deps.db
     .select({
       id: schema.chatbotConversations.id,

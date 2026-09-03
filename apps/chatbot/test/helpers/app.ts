@@ -28,6 +28,7 @@ export function testEnv(c: Containers, overrides: Partial<Env> = {}): Env {
     CHATBOT_SIMILARITY_THRESHOLD: 0.4,
     CHATBOT_FALLBACK_LIMIT: 2,
     CHATBOT_IDLE_TIMEOUT_MIN: 30,
+    CHATBOT_RESOLVED_CLOSE_TIMEOUT_MIN: 10_080,
     CHATBOT_MAX_TOOL_ITERATIONS: 4,
     CHATBOT_MAX_TURNS: 80,
     ...overrides,

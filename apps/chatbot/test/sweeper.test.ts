@@ -69,4 +69,40 @@ describe('sweeper', () => {
       .where(eq(schema.chatbotConversations.id, conv.id));
     expect(row?.status).toBe('IN_PROGRESS');
   });
+
+  it('closes a RESOLVED ticket once it has been idle past the resolved-close timeout', async () => {
+    const conv = await getOrCreateActiveConversation(t.deps.db, userId);
+    const staleCutoff = new Date(
+      Date.now() - (t.deps.env.CHATBOT_RESOLVED_CLOSE_TIMEOUT_MIN + 1) * 60_000,
+    );
+    await t.deps.db
+      .update(schema.chatbotConversations)
+      .set({ status: 'RESOLVED', lastMessageAt: staleCutoff })
+      .where(eq(schema.chatbotConversations.id, conv.id));
+
+    await runChatSweeper(t.deps);
+
+    const [row] = await t.deps.db
+      .select()
+      .from(schema.chatbotConversations)
+      .where(eq(schema.chatbotConversations.id, conv.id));
+    expect(row?.status).toBe('CLOSED');
+    expect(row?.closedAt).not.toBeNull();
+  });
+
+  it('leaves a RESOLVED ticket alone while still inside the resolved-close timeout', async () => {
+    const conv = await getOrCreateActiveConversation(t.deps.db, userId);
+    await t.deps.db
+      .update(schema.chatbotConversations)
+      .set({ status: 'RESOLVED', lastMessageAt: new Date() })
+      .where(eq(schema.chatbotConversations.id, conv.id));
+
+    await runChatSweeper(t.deps);
+
+    const [row] = await t.deps.db
+      .select()
+      .from(schema.chatbotConversations)
+      .where(eq(schema.chatbotConversations.id, conv.id));
+    expect(row?.status).toBe('RESOLVED');
+  });
 });
