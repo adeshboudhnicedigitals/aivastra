@@ -172,6 +172,11 @@ export async function supportRoutes(app: FastifyInstance) {
     '/v1/support/attachment',
     {
       schema: { querystring: z.object({ key: z.string().min(1) }) },
+      // helmet defaults Cross-Origin-Resource-Policy to same-origin app-wide (server.ts) —
+      // without this override the browser blocks the redirect right here, since
+      // catalogues-web (a different port = a different origin) is the one loading it in
+      // an <img> tag. curl doesn't enforce CORP, so this only ever breaks in a real browser.
+      helmet: { crossOriginResourcePolicy: { policy: 'cross-origin' } },
     },
     async (req, reply) => {
       const { key } = req.query as { key: string };
