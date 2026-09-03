@@ -6,6 +6,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { sendReportReceivedEmail } from '../../lib/mailer.js';
+import { reopenResolvedTicket, setSubjectFromFirstMessage } from '../../lib/tickets.js';
 
 const CONTENT_TYPE_TO_EXT: Record<string, string> = {
   'image/jpeg': 'jpg',
@@ -13,6 +14,10 @@ const CONTENT_TYPE_TO_EXT: Record<string, string> = {
   'image/webp': 'webp',
   'application/pdf': 'pdf',
 };
+
+// `support/<uuid>.<ext>` — the only key shape keys.supportAttachment produces, with
+// the extension set CONTENT_TYPE_TO_EXT above allows. Kept in sync with that map.
+const SUPPORT_ATTACHMENT_KEY = /^support\/[0-9a-f-]{36}\.(jpg|png|webp|pdf)$/i;
 
 export async function supportRoutes(app: FastifyInstance) {
   // POST /v1/support/presign — get a presigned URL for an optional attachment
@@ -45,11 +50,24 @@ export async function supportRoutes(app: FastifyInstance) {
         body: z.object({
           message: z.string().min(1).max(3000),
           attachmentKey: z.string().optional(),
+          attachmentType: z.string().max(100).optional(),
         }),
       },
     },
     async (req) => {
-      const { message, attachmentKey } = req.body as { message: string; attachmentKey?: string };
+      const { message, attachmentKey, attachmentType } = req.body as {
+        message: string;
+        attachmentKey?: string;
+        attachmentType?: string;
+      };
+
+      // Same counter and window the chatbot WS `message` frame handler uses
+      // (apps/chatbot/src/ws/gateway.ts) — deliberately the same Redis key, so a
+      // user can't outrun the WS limit by switching to the form.
+      const rlKey = `chatbot:rl:${req.userId}`;
+      const n = await app.redis.incr(rlKey);
+      if (n === 1) await app.redis.expire(rlKey, 30);
+      if (n > 10) throw new AppError('RATE_LIMITED', 429, 'slow down');
 
       const [existing] = await app.db
         .select()
@@ -65,10 +83,7 @@ export async function supportRoutes(app: FastifyInstance) {
       if (existing) {
         convId = existing.id;
         if (existing.status === 'RESOLVED') {
-          await app.db
-            .update(schema.chatbotConversations)
-            .set({ status: 'OPEN', assignedAgentId: null })
-            .where(eq(schema.chatbotConversations.id, convId));
+          await reopenResolvedTicket(app, convId);
         }
       } else {
         const [created] = await app.db
@@ -93,6 +108,7 @@ export async function supportRoutes(app: FastifyInstance) {
         }
       }
 
+      await setSubjectFromFirstMessage(app, convId, message);
       const [msgRow] = await app.db
         .insert(schema.chatbotMessages)
         .values({
@@ -101,6 +117,7 @@ export async function supportRoutes(app: FastifyInstance) {
           senderId: req.userId,
           content: message,
           attachmentKey: attachmentKey ?? null,
+          attachmentType: attachmentType ?? null,
         })
         .returning();
       await app.db
@@ -158,7 +175,10 @@ export async function supportRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const { key } = req.query as { key: string };
-      if (!key.startsWith('support/')) {
+      // Exactly the shape keys.supportAttachment mints — a UUID plus one of the
+      // extensions CONTENT_TYPE_TO_EXT above can produce. A bare prefix check would
+      // have accepted anything under support/, including a traversal-shaped key.
+      if (!SUPPORT_ATTACHMENT_KEY.test(key)) {
         throw new AppError('NOT_FOUND', 404, 'attachment not found');
       }
       const { url } = await app.storage.presignGet(key, 300);

@@ -21,6 +21,7 @@ import { AppError } from '../../lib/errors.js';
 import { withIdempotency } from '../../lib/idempotency.js';
 import { sendReportReceivedEmail } from '../../lib/mailer.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
+import { reopenResolvedTicket, setSubjectFromFirstMessage } from '../../lib/tickets.js';
 import { getSareeSettings } from '../saree/settings.js';
 import {
   createCatalogVideoJob,
@@ -1107,6 +1108,14 @@ export async function jobsRoutes(app: FastifyInstance) {
         message?: string;
       };
 
+      // Same counter and window the chatbot WS `message` frame handler uses
+      // (apps/chatbot/src/ws/gateway.ts) — deliberately the same Redis key, so a
+      // user can't outrun the WS limit by switching to the form.
+      const rlKey = `chatbot:rl:${req.userId}`;
+      const n = await app.redis.incr(rlKey);
+      if (n === 1) await app.redis.expire(rlKey, 30);
+      if (n > 10) throw new AppError('RATE_LIMITED', 429, 'slow down');
+
       const [existing] = await app.db
         .select()
         .from(schema.chatbotConversations)
@@ -1121,10 +1130,7 @@ export async function jobsRoutes(app: FastifyInstance) {
       if (existing) {
         convId = existing.id;
         if (existing.status === 'RESOLVED') {
-          await app.db
-            .update(schema.chatbotConversations)
-            .set({ status: 'OPEN', assignedAgentId: null })
-            .where(eq(schema.chatbotConversations.id, convId));
+          await reopenResolvedTicket(app, convId);
         }
       } else {
         const [created] = await app.db
@@ -1151,6 +1157,7 @@ export async function jobsRoutes(app: FastifyInstance) {
 
       const content =
         body.message?.trim() || `Contact request from ${body.name} (${body.email}, ${body.phone})`;
+      await setSubjectFromFirstMessage(app, convId, content);
       const [msgRow] = await app.db
         .insert(schema.chatbotMessages)
         .values({ conversationId: convId, role: 'user', senderId: req.userId, content })
