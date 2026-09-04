@@ -78,6 +78,28 @@ like the surrounding file. This codebase comments the *why* — especially the
 non-obvious constraint that motivated a line — and that convention is worth
 continuing.
 
+**UI dropdowns.** Never ship a raw, browser-default `<select>` for a new or
+changed dropdown — use a styled, accessible dropdown for the app you're in:
+- `apps/catalogues-web` — use `PremiumSelect`
+  (`src/components/ui/premium-select.tsx`): portal-rendered popup, keyboard
+  nav, theme-reactive via the `C` tokens. Already adopted in 5+ places,
+  including `catalogs/[id]/page.tsx`'s regenerate-reason picker. The one
+  exception is `catalogs/[id]/preview/templates.tsx`'s quantity `<select>` —
+  that file renders pixel-faithful mockups of real marketplace listing pages
+  (`AmazonMobileTemplate` et al.), so its `<select>` is deliberately styled to
+  match Amazon's own chrome, not Aivastra's. Don't "fix" that one.
+- `apps/shopify` — use Polaris's `Select`/`Combobox`, never a raw `<select>`;
+  Polaris *is* this app's design system.
+- `apps/admin-web` — use `SearchableSelect`
+  (`src/components/SearchableSelect.tsx`): input-as-trigger with built-in
+  type-to-filter search, `id`/`label` options, `emptyLabel` for a placeholder
+  option. All 42 raw `<select>`s across the app were migrated to it; there
+  should be none left.
+- `wordpress-plugin` (plain PHP/CSS, no JS framework) — a JS widget library is
+  disproportionate here; style the native `<select>` itself (custom arrow,
+  border, radius, focus ring matching the `--aivastra-*` tokens) rather than
+  leaving it as unstyled browser chrome.
+
 **Report honestly.** If tests fail, show the output. If you skipped a step, say
 so. Don't claim something works because the code looks right; claim it when you
 ran it. Correct a wrong earlier statement plainly and move on.

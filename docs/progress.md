@@ -2,6 +2,69 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-04 — Catalog-video rate-limit incident
+
+Two production accounts hit the global per-IP rate limiter (200/min,
+`apps/api/src/server.ts`) while using the Catalog Video wizard's "existing
+image" picker: `satyamcreations@gmail.com` (429 on upload, self-healed on
+retry) and `durga.niceinteractive@gmail.com` (instant 429 on first upload,
+succeeded after 2-3 retries). Investigated independently by a Claude Code
+session running on the production VPS; findings verified against this repo's
+source before acting on them — every specific code claim checked out.
+
+**Root cause:** `apps/catalogues-web/src/app/(app)/catalog-video/CatalogVideoWizard.tsx`'s
+image picker rendered one `JobThumbnail` per completed job across every
+catalogue the account has ever created, each firing its own
+`GET /v1/jobs/:id/thumbnail` on mount with no batching or limit. A
+long-history account opening this one page could burn through the account's
+entire per-IP budget — including for unrelated routes like
+`/v1/uploads/presign` — before doing anything else.
+
+**Done**
+- `apps/catalogues-web/.../CatalogVideoWizard.tsx` — the picker now paginates
+  instead of rendering every completed job at once: sorted by `createdAt`
+  desc client-side (`CatalogueResponse`'s job type widened to carry
+  `createdAt`), initial render shows the 10 most recent
+  (`IMAGE_OPTIONS_PAGE_SIZE`), and a "Load more" button reveals 10 more per
+  click (`visibleImageCount` state). Older images stay reachable, unlike the
+  first pass's hard 10-image cap.
+- Same file — thumbnail fetches deferred until each tile scrolls into view
+  (`useInView`, `IntersectionObserver` + 200px lookahead), instead of firing
+  for every rendered tile on mount. Implemented as a callback ref (not a
+  `RefObject`) since the hook is shared across `JobThumbnail`'s `<div>`
+  placeholder and `<img>` loaded-state branches, and `RefObject<T>` is
+  invariant in `T`.
+- `apps/api/src/modules/jobs/routes.ts` — `/v1/jobs/:id/thumbnail` given its
+  own rate-limit bucket (`config: { rateLimit: { max: 300, timeWindow: '1
+  minute' } }`) separate from the global 200/min, as defense-in-depth for any
+  other page that legitimately bursts thumbnail requests.
+- `apps/catalogues-web/.../CatalogVideoWizard.tsx` — `sourceTab` no longer
+  strands a brand-new account (zero completed images) on the empty "My
+  Catalogue Images" tab: a one-time effect switches to "Upload New" once
+  `catalogues` has loaded and turns out empty, guarded by a ref so it never
+  overrides a manual tab click afterward.
+- `apps/catalogues-web/src/lib/api.ts` — `tryRefresh()`'s single-flight only
+  deduped concurrent refreshes *within one tab*; production logs showed
+  bursts of 4-8 near-simultaneous `/v1/auth/refresh` calls from accounts with
+  several tabs open, all racing the same single-use refresh token and adding
+  to the same per-IP rate-limit budget the thumbnail burst was exhausting.
+  Now serialized across tabs via `navigator.locks.request('aivastra-auth-refresh', ...)`:
+  only the lock holder calls the network refresh; a tab that was waiting
+  re-checks whether the holder's `BroadcastChannel` message already delivered
+  a fresh token before spending a refresh call of its own. Falls back to the
+  prior per-tab-only behavior when the Web Locks API is unavailable — still
+  correct, just not cross-tab-coordinated. `apps/catalogues-web/src/app/tryon-library-app/catalog-app-api.ts`
+  has its own, simpler per-tab-only `tryRefresh()` for the embedded
+  tryon-library-app — not touched, out of scope for this incident.
+- Verified: `pnpm --filter @aivastra/api typecheck`,
+  `pnpm --filter @aivastra/web typecheck`, and `pnpm --filter @aivastra/web build`
+  all clean; `pnpm --filter @aivastra/web lint` clean on the modified files.
+
+**Not done**
+- Not yet deployed/verified against the two affected accounts' actual usage
+  patterns in production — this was a local code fix + typecheck/lint pass
+  only, no staging or prod verification run this session.
+
 ## 2026-09-03 — Superadmin "Download DB snapshot" button (Settings)
 
 Follow-up to the local-dev production-snapshot sync below. User originally

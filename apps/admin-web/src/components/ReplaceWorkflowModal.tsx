@@ -566,20 +566,20 @@ export function ReplaceWorkflowModal({ workflow, onReplaced, onClose, toast }: P
           <label style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
             Workflow Type <span style={{ color: 'var(--danger)' }}>*</span>
           </label>
-          <select
-            className="input"
+          <SearchableSelect
+            options={[
+              { id: 'regular', label: 'Regular (Pose / Studio / Merchant)' },
+              { id: 'two_stage', label: 'Two-Stage (Person + Garment)' },
+              { id: 'tryon', label: 'Try-On' },
+              { id: 'saree_step1', label: 'Saree Step 1 (Single Input)' },
+              { id: 'saree_step1_two_input', label: 'Saree Step 1 (Two Input: Body & Pallu)' },
+            ]}
             value={workflowType}
-            onChange={(e) => {
-              setWorkflowType(e.target.value as WorkflowOption['workflowType']);
+            onChange={(v) => {
+              setWorkflowType(v as WorkflowOption['workflowType']);
               if (jsonFile) void handleFileSelect(jsonFile);
             }}
-          >
-            <option value="regular">Regular (Pose / Studio / Merchant)</option>
-            <option value="two_stage">Two-Stage (Person + Garment)</option>
-            <option value="tryon">Try-On</option>
-            <option value="saree_step1">Saree Step 1 (Single Input)</option>
-            <option value="saree_step1_two_input">Saree Step 1 (Two Input: Body & Pallu)</option>
-          </select>
+          />
         </div>
 
         {/* Node Configuration */}
