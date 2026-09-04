@@ -893,6 +893,15 @@ export async function jobsRoutes(app: FastifyInstance) {
     {
       preHandler: app.requireUser,
       schema: { params: z.object({ id: z.string().uuid() }) },
+      // Its own, higher bucket rather than sharing the global 200/min (server.ts) —
+      // this endpoint is fetched once per thumbnail rendered (the catalog-video
+      // wizard's image picker, the catalogue detail page's per-job grid), so a
+      // page with many images legitimately bursts far more requests than typical
+      // API traffic. A long-history account opening such a page could otherwise
+      // exhaust the whole per-IP budget — including for unrelated routes like
+      // /v1/uploads/presign — before the user does anything. See docs/progress.md,
+      // "catalog-video rate-limit incident".
+      config: { rateLimit: { max: 300, timeWindow: '1 minute' } },
     },
     async (req) => {
       const { id } = req.params as { id: string };
