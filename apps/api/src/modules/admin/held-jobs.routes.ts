@@ -2,6 +2,7 @@ import { schema } from '@aivastra/db';
 import { AdminHeldJobsReleaseResponse, AdminHeldJobsResponse } from '@aivastra/types';
 import { and, count, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
 
 /**
@@ -120,6 +121,24 @@ export async function adminHeldJobsRoutes(app: FastifyInstance) {
         .where(eq(schema.jobs.status, 'HELD'));
 
       req.log.info({ released, remaining }, 'released held bulk-flat jobs');
+
+      // One summary row for the whole batch, not one per job — the release
+      // loop above is deliberately not one Postgres transaction (each job is
+      // claimed independently so two admins releasing at once can't double
+      // enqueue), so there's no single mutation transaction to hang a
+      // per-job audit write off. This still records who triggered the batch.
+      if (released > 0) {
+        await app.db.transaction(async (tx) => {
+          await recordAudit(tx, {
+            actor: { userId: req.userId, role: req.adminRole! },
+            action: 'held_jobs.release',
+            resourceType: 'job',
+            after: { released, remaining, hasMore },
+            request: req,
+          });
+        });
+      }
+
       return { released, remaining };
     },
   );

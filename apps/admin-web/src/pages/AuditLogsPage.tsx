@@ -99,7 +99,7 @@ function humanizeActionFallback(action: string): string {
 }
 
 function snapshotLabel(snapshot: Record<string, unknown> | null): string | undefined {
-  const label = snapshot?.label ?? snapshot?.title;
+  const label = snapshot?.label ?? snapshot?.title ?? snapshot?.name ?? snapshot?.companyName;
   return typeof label === 'string' && label.length > 0 ? label : undefined;
 }
 
@@ -231,6 +231,36 @@ function describeAction(log: AuditLogItem): string {
       return 'Permanently deleted an asset';
     case 'asset.bulk_import':
       return 'Bulk-imported assets from a ZIP';
+    case 'config.update':
+      return 'Updated system configuration';
+    case 'config.app_video_update':
+      return 'Updated the app intro video';
+    case 'credit_plan.create':
+      return `Added credit plan "${who}"`;
+    case 'credit_plan.update':
+      return `Updated credit plan "${who}"`;
+    case 'credit_plan.delete':
+      return `Deleted credit plan "${who}"`;
+    case 'merchant.create':
+      return `Added merchant "${who}"`;
+    case 'merchant.update':
+      return `Updated merchant "${who}"`;
+    case 'merchant.credit_grant':
+      return amount !== undefined
+        ? `Granted ${amount} credits to merchant "${who}"`
+        : `Granted credits to merchant "${who}"`;
+    case 'saree_workflow.create':
+      return `Added saree workflow "${who}"`;
+    case 'saree_workflow.delete':
+      return `Deleted saree workflow "${who}"`;
+    case 'saree_settings.update':
+      return 'Updated saree settings';
+    case 'held_jobs.release': {
+      const released = typeof after.released === 'number' ? after.released : undefined;
+      return released !== undefined
+        ? `Released ${released} held bulk-flat job(s)`
+        : 'Released held bulk-flat jobs';
+    }
     default:
       return `${humanizeActionFallback(log.action)} — ${who}`;
   }
@@ -349,6 +379,18 @@ const ACTION_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'asset.restore', label: 'Asset restored' },
   { value: 'asset.permanent_delete', label: 'Asset permanently deleted' },
   { value: 'asset.bulk_import', label: 'Assets bulk-imported' },
+  { value: 'config.update', label: 'System config updated' },
+  { value: 'config.app_video_update', label: 'App intro video updated' },
+  { value: 'credit_plan.create', label: 'Credit plan added' },
+  { value: 'credit_plan.update', label: 'Credit plan updated' },
+  { value: 'credit_plan.delete', label: 'Credit plan deleted' },
+  { value: 'merchant.create', label: 'Merchant added' },
+  { value: 'merchant.update', label: 'Merchant updated' },
+  { value: 'merchant.credit_grant', label: 'Merchant credits granted' },
+  { value: 'saree_workflow.create', label: 'Saree workflow added' },
+  { value: 'saree_workflow.delete', label: 'Saree workflow deleted' },
+  { value: 'saree_settings.update', label: 'Saree settings updated' },
+  { value: 'held_jobs.release', label: 'Held jobs released' },
 ];
 
 const RESOURCE_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
@@ -368,6 +410,11 @@ const RESOURCE_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'catalog_category', label: 'Catalog categories' },
   { value: 'catalogue_template', label: 'Catalogue templates' },
   { value: 'asset', label: 'Assets (general)' },
+  { value: 'system_config', label: 'System config' },
+  { value: 'credit_plan', label: 'Credit plans' },
+  { value: 'merchant', label: 'Merchants' },
+  { value: 'saree_workflow', label: 'Saree workflows' },
+  { value: 'saree_settings', label: 'Saree settings' },
 ];
 
 export default function AuditLogsPage({ toast }: Props) {
@@ -479,8 +526,8 @@ export default function AuditLogsPage({ toast }: Props) {
         <div>
           <h1>Team Activity</h1>
           <p className="lede">
-            {loading ? 'Loading…' : `${total.toLocaleString()} logged events`} — permanent audit
-            trail of administrative actions and permission changes.
+            {loading ? 'Loading…' : `${total.toLocaleString()} logged events`} — a record of actions
+            made through the admin panel. Direct database access is not captured here.
           </p>
         </div>
         <div className="head-tools">
@@ -840,7 +887,11 @@ export default function AuditLogsPage({ toast }: Props) {
                       )}
                     </td>
                     <td style={{ textAlign: 'right' }}>
-                      {log.before || log.after ? (
+                      {log.before ||
+                      log.after ||
+                      log.ipAddress ||
+                      log.userAgent ||
+                      log.requestId ? (
                         <button
                           type="button"
                           className="btn sm ghost"
@@ -1056,6 +1107,26 @@ export default function AuditLogsPage({ toast }: Props) {
                         </ul>
                       </div>
                     )}
+
+                    {(log.ipAddress || log.userAgent || log.requestId) && (
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 2,
+                          marginTop: 4,
+                          fontSize: 11,
+                          color: 'var(--muted)',
+                          fontFamily: 'var(--mono)',
+                        }}
+                      >
+                        {log.ipAddress && <span>IP: {log.ipAddress}</span>}
+                        {log.requestId && <span>Request: {log.requestId}</span>}
+                        {log.userAgent && (
+                          <span style={{ wordBreak: 'break-all' }}>Agent: {log.userAgent}</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1092,47 +1163,69 @@ export default function AuditLogsPage({ toast }: Props) {
               const item = logs.find((l) => l.id === expandedLogId);
               if (!item) return null;
               const diff = computeDiff(item.before, item.after);
-              if (diff.length === 0) {
-                return (
-                  <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: 0 }}>
-                    Nothing else to show for this event.
-                  </p>
-                );
-              }
+              const hasMetadata = item.ipAddress || item.userAgent || item.requestId;
               return (
-                <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                  {diff.map((row) => {
-                    const style = DIFF_ROW_STYLE[row.status];
-                    return (
-                      <li
-                        key={row.key}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'flex-start',
-                          gap: 8,
-                          padding: '6px 10px',
-                          marginBottom: 4,
-                          background: style.bg,
-                          borderRadius: 4,
-                          fontSize: 12.5,
-                        }}
-                      >
-                        <span
-                          style={{
-                            display: 'inline-block',
-                            width: 7,
-                            height: 7,
-                            borderRadius: '50%',
-                            background: style.ink,
-                            marginTop: 5,
-                            flexShrink: 0,
-                          }}
-                        />
-                        <span style={{ color: style.ink }}>{describeFieldChange(row)}</span>
-                      </li>
-                    );
-                  })}
-                </ul>
+                <>
+                  {diff.length === 0 ? (
+                    <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: 0 }}>
+                      Nothing else to show for this event.
+                    </p>
+                  ) : (
+                    <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 12px' }}>
+                      {diff.map((row) => {
+                        const style = DIFF_ROW_STYLE[row.status];
+                        return (
+                          <li
+                            key={row.key}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'flex-start',
+                              gap: 8,
+                              padding: '6px 10px',
+                              marginBottom: 4,
+                              background: style.bg,
+                              borderRadius: 4,
+                              fontSize: 12.5,
+                            }}
+                          >
+                            <span
+                              style={{
+                                display: 'inline-block',
+                                width: 7,
+                                height: 7,
+                                borderRadius: '50%',
+                                background: style.ink,
+                                marginTop: 5,
+                                flexShrink: 0,
+                              }}
+                            />
+                            <span style={{ color: style.ink }}>{describeFieldChange(row)}</span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                  {hasMetadata && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: '4px 16px',
+                        paddingTop: diff.length > 0 ? 8 : 0,
+                        borderTop: diff.length > 0 ? '1px solid var(--border)' : 'none',
+                        fontSize: 11.5,
+                        color: 'var(--muted)',
+                        fontFamily: 'var(--mono)',
+                      }}
+                    >
+                      {item.ipAddress && <span>IP: {item.ipAddress}</span>}
+                      {item.requestId && <span>Request: {item.requestId}</span>}
+                      {item.userAgent && (
+                        <span style={{ wordBreak: 'break-all' }}>Agent: {item.userAgent}</span>
+                      )}
+                    </div>
+                  )}
+                </>
               );
             })()}
           </div>
