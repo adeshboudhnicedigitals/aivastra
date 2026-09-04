@@ -934,18 +934,18 @@ export function BackgroundsTab() {
             <div className="modal-body">
               <div className="field">
                 <label>Gender</label>
-                <select
-                  className="select"
+                <SearchableSelect
+                  options={[
+                    { id: 'men', label: 'Men' },
+                    { id: 'women', label: 'Women' },
+                    { id: 'girls', label: 'Girls' },
+                    { id: 'boys', label: 'Boys' },
+                  ]}
                   value={bulkGenderSlug}
                   disabled={bulkGenderSaving}
-                  onChange={(e) => setBulkGenderSlug(e.target.value as GenderSlug | '')}
-                >
-                  <option value="">All Gender</option>
-                  <option value="men">Men</option>
-                  <option value="women">Women</option>
-                  <option value="girls">Girls</option>
-                  <option value="boys">Boys</option>
-                </select>
+                  emptyLabel="All Gender"
+                  onChange={(v) => setBulkGenderSlug(v as GenderSlug | '')}
+                />
               </div>
             </div>
             <div className="modal-foot">
@@ -1130,19 +1130,17 @@ export function BackgroundsTab() {
           </div>
           <div className="field">
             <label>Gender</label>
-            <select
-              className="select"
+            <SearchableSelect
+              options={[
+                { id: 'men', label: 'Men' },
+                { id: 'women', label: 'Women' },
+                { id: 'girls', label: 'Girls' },
+                { id: 'boys', label: 'Boys' },
+              ]}
               value={catForm.genderSlug}
-              onChange={(e) =>
-                setCatForm((f) => ({ ...f, genderSlug: e.target.value as GenderSlug | '' }))
-              }
-            >
-              <option value="">All Gender</option>
-              <option value="men">Men</option>
-              <option value="women">Women</option>
-              <option value="girls">Girls</option>
-              <option value="boys">Boys</option>
-            </select>
+              emptyLabel="All Gender"
+              onChange={(v) => setCatForm((f) => ({ ...f, genderSlug: v as GenderSlug | '' }))}
+            />
           </div>
           <div className="field">
             <label>Sort order</label>
