@@ -58,6 +58,7 @@ export function SupportModal({
   const [file, setFile] = useState<File | null>(null);
   const [stage, setStage] = useState<Stage>('idle');
   const [errMsg, setErrMsg] = useState('');
+  const [attachmentFailed, setAttachmentFailed] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const canSubmit = message.trim().length > 0 && stage === 'idle';
@@ -90,27 +91,44 @@ export function SupportModal({
     if (!message.trim()) return;
     setStage('submitting');
     setErrMsg('');
-    try {
-      let attachmentKey: string | undefined;
+    setAttachmentFailed(false);
+    let attachmentKey: string | undefined;
+    let attachmentType: string | undefined;
+    let failedAttachment = false;
 
-      if (file) {
+    if (file) {
+      try {
         const { uploadUrl, attachmentKey: key } = await api.post<{
           uploadUrl: string;
           attachmentKey: string;
         }>('/v1/support/presign', { contentType: file.type });
-        await fetch(uploadUrl, {
+        const put = await fetch(uploadUrl, {
           method: 'PUT',
           body: file,
           headers: { 'Content-Type': file.type },
         });
+        // A rejected/failed PUT doesn't throw — fetch only rejects on a network
+        // error — so without this check a failed upload would still submit the
+        // ticket pointing at an object that was never actually stored.
+        if (!put.ok) throw new Error(`upload failed (${put.status})`);
         attachmentKey = key;
+        // This modal is the one surface that lets a user pick a PDF, so without the
+        // mime type both message renderers would fall back to <img> and show a
+        // broken image icon.
+        attachmentType = file.type;
+      } catch {
+        failedAttachment = true;
       }
+    }
 
+    try {
       await api.post('/v1/support', {
         message: message.trim(),
         attachmentKey,
+        attachmentType,
       });
 
+      setAttachmentFailed(failedAttachment);
       setStage('done');
     } catch (e) {
       setErrMsg((e as Error).message || 'Failed to submit ticket');
@@ -216,12 +234,15 @@ export function SupportModal({
             }}
           >
             <div style={{ fontSize: 32, marginBottom: 8 }}>✓</div>
-            <div style={{ fontSize: 15, fontWeight: 600, color: C.text }}>
-              Your message has been sent!
-            </div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: C.text }}>Ticket opened!</div>
             <div style={{ fontSize: 13, color: C.mid, marginTop: 4 }}>
-              We&apos;ll get back to you as soon as possible.
+              An agent will respond in your chat — tap the chat icon any time to continue.
             </div>
+            {attachmentFailed && (
+              <div style={{ fontSize: 12, color: '#DC2626', marginTop: 8 }}>
+                Your attachment failed to upload — the ticket was sent without it.
+              </div>
+            )}
             <button
               type="button"
               onClick={onClose}

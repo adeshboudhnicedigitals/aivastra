@@ -1,6 +1,6 @@
 import { schema } from '@aivastra/db';
 import { QnaUpsert } from '@aivastra/types';
-import { and, desc, eq, ilike, or, sql } from 'drizzle-orm';
+import { and, desc, eq, exists, ilike, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -39,6 +39,10 @@ async function systemMessage(convId: string, content: string, app: FastifyInstan
         role: 'system',
         senderId: null,
         content,
+        // System messages never carry an attachment, but ChatMessage's schema
+        // requires both fields — publish the full shape, not a partial one.
+        attachmentKey: null,
+        attachmentType: null,
         createdAt: row.createdAt.toISOString(),
       },
     },
@@ -147,7 +151,25 @@ export async function adminChatbotRoutes(app: FastifyInstance) {
     const { status = 'all', limit = '50', offset = '0' } = req.query as Record<string, string>;
     const lim = Math.min(Number(limit) || 50, 200);
     const off = Number(offset) || 0;
-    const where = status !== 'all' ? eq(schema.chatbotConversations.status, status) : undefined;
+    // A ticket is created when the user's socket connects, before they type anything,
+    // so merely opening the chat bubble would otherwise park an empty OPEN ticket in
+    // the agent queue forever (the one-active-ticket index means they can't get a
+    // fresh one either). Only surface tickets that actually carry a user message.
+    const hasUserMessage = exists(
+      app.db
+        .select()
+        .from(schema.chatbotMessages)
+        .where(
+          and(
+            eq(schema.chatbotMessages.conversationId, schema.chatbotConversations.id),
+            eq(schema.chatbotMessages.role, 'user'),
+          ),
+        ),
+    );
+    const where =
+      status !== 'all'
+        ? and(eq(schema.chatbotConversations.status, status), hasUserMessage)
+        : hasUserMessage;
     const [rows, [countRow]] = await Promise.all([
       app.db
         .select({
@@ -178,12 +200,17 @@ export async function adminChatbotRoutes(app: FastifyInstance) {
     userId: string,
   ) {
     const agentId = await adminRowId(userId, app);
-    const got = await app.redis.set(`chatbot:conv:${convId}:lock`, agentId, 'NX');
+    // TTL is a self-healing safety net, not the correctness guard: a claim that
+    // leaks its lock (a route forgetting to del it on a terminal transition) would
+    // otherwise brick the ticket forever, since a reopened ticket can never be
+    // claimed again while the key survives. The conditional UPDATE ... WHERE
+    // status = fromStatus below is what actually serializes two racing claims.
+    const got = await app.redis.set(`chatbot:conv:${convId}:lock`, agentId, 'EX', 3600, 'NX');
     if (!got) throw new AppError('ALREADY_CLAIMED', 409, 'conversation already claimed');
     const [row] = await app.db
       .update(schema.chatbotConversations)
       .set({
-        status: 'HUMAN',
+        status: 'IN_PROGRESS',
         assignedAgentId: agentId,
         ...(type === 'takeover' ? { escalationReason: 'agent_join' } : {}),
       })
@@ -203,7 +230,7 @@ export async function adminChatbotRoutes(app: FastifyInstance) {
       type,
       actorId: agentId,
       fromStatus,
-      toStatus: 'HUMAN',
+      toStatus: 'IN_PROGRESS',
       reason: type === 'takeover' ? 'agent_join' : null,
     });
     await publishConv(convId, { type: 'terminate' }, app);
@@ -212,7 +239,7 @@ export async function adminChatbotRoutes(app: FastifyInstance) {
       {
         type: 'state_change',
         conversationId: convId,
-        status: 'HUMAN',
+        status: 'IN_PROGRESS',
         reason: type === 'takeover' ? 'agent_join' : null,
       },
       app,
@@ -225,7 +252,7 @@ export async function adminChatbotRoutes(app: FastifyInstance) {
   app.post(
     '/admin/chatbot/conversations/:id/claim',
     { preHandler: LIVE, schema: { params: z.object({ id: z.string().uuid() }) } },
-    async (req) => assign((req.params as { id: string }).id, 'PENDING_HUMAN', 'claim', req.userId),
+    async (req) => assign((req.params as { id: string }).id, 'OPEN', 'claim', req.userId),
   );
 
   app.post(
@@ -246,17 +273,17 @@ export async function adminChatbotRoutes(app: FastifyInstance) {
         .where(
           and(
             eq(schema.chatbotConversations.id, id),
-            eq(schema.chatbotConversations.status, 'HUMAN'),
+            eq(schema.chatbotConversations.status, 'IN_PROGRESS'),
             eq(schema.chatbotConversations.assignedAgentId, agentId),
           ),
         )
         .returning();
-      if (!row) throw new AppError('BAD_STATE', 409, 'not your active HUMAN conversation');
+      if (!row) throw new AppError('BAD_STATE', 409, 'not your active IN_PROGRESS conversation');
       await app.db.insert(schema.chatbotEvents).values({
         conversationId: id,
         type: 'close',
         actorId: agentId,
-        fromStatus: 'HUMAN',
+        fromStatus: 'IN_PROGRESS',
         toStatus: 'CLOSED',
       });
       await app.redis.del(`chatbot:conv:${id}:lock`);
@@ -271,6 +298,77 @@ export async function adminChatbotRoutes(app: FastifyInstance) {
         },
         app,
       );
+      return row;
+    },
+  );
+
+  app.post(
+    '/admin/chatbot/conversations/:id/resolve',
+    { preHandler: LIVE, schema: { params: z.object({ id: z.string().uuid() }) } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const agentId = await adminRowId(req.userId, app);
+      const [row] = await app.db
+        .update(schema.chatbotConversations)
+        .set({ status: 'RESOLVED' })
+        .where(
+          and(
+            eq(schema.chatbotConversations.id, id),
+            eq(schema.chatbotConversations.status, 'IN_PROGRESS'),
+            eq(schema.chatbotConversations.assignedAgentId, agentId),
+          ),
+        )
+        .returning();
+      if (!row) throw new AppError('BAD_STATE', 409, 'not your active IN_PROGRESS conversation');
+      await app.db.insert(schema.chatbotEvents).values({
+        conversationId: id,
+        type: 'resolve',
+        actorId: agentId,
+        fromStatus: 'IN_PROGRESS',
+        toStatus: 'RESOLVED',
+      });
+      // Release the claim lock, exactly as `end` does. A RESOLVED ticket reopens to
+      // OPEN on the user's next message and must be claimable again — the sweeper's
+      // agent-drop path only scans IN_PROGRESS, so it can never clean this up.
+      await app.redis.del(`chatbot:conv:${id}:lock`);
+      await systemMessage(id, 'The agent marked this ticket resolved.', app);
+      await publishConv(
+        id,
+        { type: 'state_change', conversationId: id, status: 'RESOLVED', reason: null },
+        app,
+      );
+      return row;
+    },
+  );
+
+  app.patch(
+    '/admin/chatbot/conversations/:id',
+    {
+      preHandler: LIVE,
+      schema: {
+        params: z.object({ id: z.string().uuid() }),
+        // An empty body would reach drizzle's .set({}) and blow up as a raw 500 —
+        // refuse it at the schema so the caller gets a clean 400 instead.
+        body: z
+          .object({
+            subject: z.string().max(200).optional(),
+            category: z.enum(['billing', 'bug', 'order', 'account', 'other']).optional(),
+            priority: z.enum(['low', 'normal', 'high', 'urgent']).optional(),
+          })
+          .refine((body) => Object.keys(body).length > 0, {
+            message: 'at least one field required',
+          }),
+      },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const body = req.body as { subject?: string; category?: string; priority?: string };
+      const [row] = await app.db
+        .update(schema.chatbotConversations)
+        .set(body)
+        .where(eq(schema.chatbotConversations.id, id))
+        .returning();
+      if (!row) throw new AppError('NOT_FOUND', 404, 'conversation not found');
       return row;
     },
   );

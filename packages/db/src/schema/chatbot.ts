@@ -55,7 +55,11 @@ export const chatbotConversations = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    status: text('status').notNull().default('BOT'),
+    status: text('status').notNull().default('OPEN'),
+    source: text('source').notNull().default('chat_widget'),
+    category: text('category'),
+    priority: text('priority').notNull().default('normal'),
+    subject: text('subject'),
     assignedAgentId: uuid('assigned_agent_id').references(() => adminUsers.id, {
       onDelete: 'set null',
     }),
@@ -82,6 +86,8 @@ export const chatbotMessages = pgTable(
     role: text('role').notNull(),
     senderId: uuid('sender_id'),
     content: text('content').notNull(),
+    attachmentKey: text('attachment_key'),
+    attachmentType: text('attachment_type'),
     meta: jsonb('meta').$type<{ toolCalls?: string[]; qnaIds?: string[] }>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },

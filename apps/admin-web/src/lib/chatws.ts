@@ -6,6 +6,8 @@ export interface ChatMessageT {
   role: string;
   senderId: string | null;
   content: string;
+  attachmentKey: string | null;
+  attachmentType: string | null;
   createdAt: string;
 }
 

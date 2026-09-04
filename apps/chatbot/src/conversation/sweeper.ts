@@ -31,6 +31,31 @@ export async function runChatSweeper(deps: ChatbotDeps): Promise<void> {
     });
   }
 
+  const resolvedCutoff = new Date(
+    Date.now() - deps.env.CHATBOT_RESOLVED_CLOSE_TIMEOUT_MIN * 60_000,
+  );
+  const staleResolved = await deps.db
+    .select({ id: schema.chatbotConversations.id })
+    .from(schema.chatbotConversations)
+    .where(
+      and(
+        eq(schema.chatbotConversations.status, 'RESOLVED'),
+        lt(schema.chatbotConversations.lastMessageAt, resolvedCutoff),
+      ),
+    );
+  for (const { id } of staleResolved) {
+    await appendMessage(deps.db, deps.pub, id, {
+      role: 'system',
+      content: 'This ticket was automatically closed after being resolved with no reply.',
+    });
+    await transition(deps.db, deps.pub, id, {
+      from: 'RESOLVED',
+      to: 'CLOSED',
+      type: 'close',
+      reason: 'resolved_timeout',
+    });
+  }
+
   const stalePending = await deps.db
     .select({
       id: schema.chatbotConversations.id,
@@ -53,14 +78,14 @@ export async function runChatSweeper(deps: ChatbotDeps): Promise<void> {
     Date.now() - AGENT_OFFLINE_GRACE_MS,
   );
 
-  const humanConvs = await deps.db
+  const inProgressConvs = await deps.db
     .select({
       id: schema.chatbotConversations.id,
       agentId: schema.chatbotConversations.assignedAgentId,
     })
     .from(schema.chatbotConversations)
-    .where(eq(schema.chatbotConversations.status, 'HUMAN'));
-  for (const conv of humanConvs) {
+    .where(eq(schema.chatbotConversations.status, 'IN_PROGRESS'));
+  for (const conv of inProgressConvs) {
     if (!conv.agentId) continue;
     const score = await deps.redis.zscore('chatbot:agent:presence', conv.agentId);
     if (score && Number(score) > Date.now() - AGENT_OFFLINE_GRACE_MS) continue;
@@ -74,8 +99,8 @@ export async function runChatSweeper(deps: ChatbotDeps): Promise<void> {
       content: 'Your agent got disconnected — reconnecting you…',
     });
     await transition(deps.db, deps.pub, conv.id, {
-      from: 'HUMAN',
-      to: 'PENDING_HUMAN',
+      from: 'IN_PROGRESS',
+      to: 'OPEN',
       type: 'escalate',
       reason: 'agent_drop',
     });

@@ -77,6 +77,13 @@ export function setupGateway(app: FastifyInstance, orchestrator: Orchestrator) {
 
     if (principal.role === 'user') {
       const conv = await getOrCreateActiveConversation(deps.db, principal.userId);
+      // A ticket opened from the chat bubble reaches the agent queue only through
+      // this publish — /v1/support and /v1/contact each do the same for their own
+      // brand-new tickets. Without it the ticket sits unseen until some unrelated
+      // event happens to refresh an agent's queue.
+      if (conv.created) {
+        await deps.pub.publish('chatbot:queue', JSON.stringify({ type: 'queue_update' }));
+      }
       subscribe(conv.id, socket, ctx);
       socket.send(JSON.stringify({ type: 'ready', conversationId: conv.id, status: conv.status }));
       socket.on('message', (buf) => {
@@ -99,14 +106,18 @@ export function setupGateway(app: FastifyInstance, orchestrator: Orchestrator) {
               );
               return;
             }
-            await orchestrator.handleUserMessage(conv.id, principal.userId, f.content);
+            await orchestrator.handleUserMessage(
+              conv.id,
+              principal.userId,
+              f.content,
+              f.attachmentKey,
+              f.attachmentType,
+            );
           } else if (f.type === 'typing')
             await deps.pub.publish(
               `chatbot:conv:${conv.id}`,
               JSON.stringify({ type: 'typing', conversationId: conv.id, role: 'user' }),
             );
-          else if (f.type === 'escalate')
-            await orchestrator.handleUserEscalate(conv.id, principal.userId);
         })().catch((err) => app.log.error({ err }, 'user frame failed'));
       });
       return;
@@ -138,7 +149,7 @@ export function setupGateway(app: FastifyInstance, orchestrator: Orchestrator) {
             .where(
               and(
                 eq(schema.chatbotConversations.id, f.conversationId),
-                eq(schema.chatbotConversations.status, 'HUMAN'),
+                eq(schema.chatbotConversations.status, 'IN_PROGRESS'),
                 eq(schema.chatbotConversations.assignedAgentId, adminUserId),
               ),
             );

@@ -172,7 +172,7 @@ const groups: NavGroup[] = [
       },
       {
         k: 'contacts',
-        label: 'Contacts',
+        label: 'Contact Requests (Legacy)',
         icon: Icon.Bell,
         perm: 'contact.read',
       },
