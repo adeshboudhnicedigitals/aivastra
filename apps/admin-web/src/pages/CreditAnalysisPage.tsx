@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
 import { Icon } from '../components/Icons';
 import { Pager } from '../components/Pager';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 
 type DayRange = '7' | '30' | '90' | 'all';
@@ -314,21 +315,18 @@ export default function CreditAnalysisPage({ toast }: Props) {
             <div className="card">
               <div className="card-head">
                 <h3>Recent ledger entries</h3>
-                <select
-                  className="select"
+                <SearchableSelect
+                  options={(Object.keys(SOURCE_LABELS) as SourceFilter[]).map((s) => ({
+                    id: s,
+                    label: SOURCE_LABELS[s],
+                  }))}
                   value={source}
-                  onChange={(e) => {
-                    setSource(e.target.value as SourceFilter);
+                  onChange={(v) => {
+                    setSource(v as SourceFilter);
                     setPage(0);
                   }}
-                  style={{ marginLeft: 'auto', fontSize: 12, padding: '4px 8px' }}
-                >
-                  {(Object.keys(SOURCE_LABELS) as SourceFilter[]).map((s) => (
-                    <option key={s} value={s}>
-                      {SOURCE_LABELS[s]}
-                    </option>
-                  ))}
-                </select>
+                  style={{ marginLeft: 'auto', fontSize: 12 }}
+                />
               </div>
               <div className="card-body" style={{ padding: 0 }}>
                 {detail.ledger.length ? (
@@ -436,20 +434,17 @@ export default function CreditAnalysisPage({ toast }: Props) {
             </button>
           ))}
         </div>
-        <select
-          className="select"
+        <SearchableSelect
+          options={(Object.keys(SOURCE_LABELS) as SourceFilter[]).map((s) => ({
+            id: s,
+            label: SOURCE_LABELS[s],
+          }))}
           value={source}
-          onChange={(e) => {
-            setSource(e.target.value as SourceFilter);
+          onChange={(v) => {
+            setSource(v as SourceFilter);
             setPage(0);
           }}
-        >
-          {(Object.keys(SOURCE_LABELS) as SourceFilter[]).map((s) => (
-            <option key={s} value={s}>
-              {SOURCE_LABELS[s]}
-            </option>
-          ))}
-        </select>
+        />
       </div>
 
       {/* Mobile Navigation Accordion Bar */}
@@ -551,21 +546,18 @@ export default function CreditAnalysisPage({ toast }: Props) {
                   <span className="sub" style={{ fontSize: 12, color: 'var(--muted)' }}>
                     Source Filter:
                   </span>
-                  <select
-                    className="select"
+                  <SearchableSelect
+                    options={(Object.keys(SOURCE_LABELS) as SourceFilter[]).map((s) => ({
+                      id: s,
+                      label: SOURCE_LABELS[s],
+                    }))}
                     value={source}
-                    onChange={(e) => {
-                      setSource(e.target.value as SourceFilter);
+                    onChange={(v) => {
+                      setSource(v as SourceFilter);
                       setPage(0);
                     }}
-                    style={{ width: '100%', padding: '8px 12px', borderRadius: 6, fontSize: 13 }}
-                  >
-                    {(Object.keys(SOURCE_LABELS) as SourceFilter[]).map((s) => (
-                      <option key={s} value={s}>
-                        {SOURCE_LABELS[s]}
-                      </option>
-                    ))}
-                  </select>
+                    style={{ width: '100%', fontSize: 13 }}
+                  />
                 </div>
               </div>
             </>

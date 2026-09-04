@@ -78,6 +78,28 @@ like the surrounding file. This codebase comments the *why* — especially the
 non-obvious constraint that motivated a line — and that convention is worth
 continuing.
 
+**UI dropdowns.** Never ship a raw, browser-default `<select>` for a new or
+changed dropdown — use a styled, accessible dropdown for the app you're in:
+- `apps/catalogues-web` — use `PremiumSelect`
+  (`src/components/ui/premium-select.tsx`): portal-rendered popup, keyboard
+  nav, theme-reactive via the `C` tokens. Already adopted in 5+ places,
+  including `catalogs/[id]/page.tsx`'s regenerate-reason picker. The one
+  exception is `catalogs/[id]/preview/templates.tsx`'s quantity `<select>` —
+  that file renders pixel-faithful mockups of real marketplace listing pages
+  (`AmazonMobileTemplate` et al.), so its `<select>` is deliberately styled to
+  match Amazon's own chrome, not Aivastra's. Don't "fix" that one.
+- `apps/shopify` — use Polaris's `Select`/`Combobox`, never a raw `<select>`;
+  Polaris *is* this app's design system.
+- `apps/admin-web` — use `SearchableSelect`
+  (`src/components/SearchableSelect.tsx`): input-as-trigger with built-in
+  type-to-filter search, `id`/`label` options, `emptyLabel` for a placeholder
+  option. All 42 raw `<select>`s across the app were migrated to it; there
+  should be none left.
+- `wordpress-plugin` (plain PHP/CSS, no JS framework) — a JS widget library is
+  disproportionate here; style the native `<select>` itself (custom arrow,
+  border, radius, focus ring matching the `--aivastra-*` tokens) rather than
+  leaving it as unstyled browser chrome.
+
 **Report honestly.** If tests fail, show the output. If you skipped a step, say
 so. Don't claim something works because the code looks right; claim it when you
 ran it. Correct a wrong earlier statement plainly and move on.
@@ -194,6 +216,8 @@ pnpm db:migrate          # apply migrations to DATABASE_URL
 | `pnpm db:generate` / `pnpm db:migrate` | drizzle-kit generate / apply |
 | `pnpm db:seed`, `pnpm seed:model-images`, `pnpm seed:garment-types`, `pnpm seed:contacts` | seed helpers — check `package.json` for the current set |
 | `make shopify-deploy` / `make shopify-deploy-staging` | publish app config + theme extension to Partner Dashboard |
+| `make export-prod-snapshot` | operator, VPS-only — regenerate the encrypted production snapshot developers pull from (`docs/local-dev-snapshot-runbook.md`) |
+| `make sync-prod-snapshot` | developer — pull the latest production snapshot into your local dev stack (destructive; replaces local DB + MinIO bucket) |
 
 `pnpm --filter @aivastra/api test` does **not** run integration tests — a
 "No test files found" result for an integration pattern means you used the wrong
@@ -478,7 +502,7 @@ template determines which inputs that pose supports.
 | `kiosk/` | `/v1/kiosk/*` — device-authed customer-facing tryon |
 | `support/`, `backgrounds/`, `dev/` | contact form; user-uploaded backgrounds; public API-key-authed developer API |
 | `shopify/` | install/token exchange, merchant `/me` + `/settings` + `/shoppers`, catalog generate/publish, widget-config + republish, onboarding (theme-editor deep link), product sync, customer job creation, credit-pack purchase + auto-refill enrolment, GDPR + billing webhooks, `/customer/event`, `/analytics` |
-| `admin/` | full CRUD under `/admin/*` — users, credits, catalog, assets, jobs, workers, config, workflows, merchants, kiosk devices, saree + Shopify settings |
+| `admin/` | full CRUD under `/admin/*` — users, credits, catalog, assets, jobs, workers, config, workflows, merchants, kiosk devices, saree + Shopify settings, prod-snapshot (SUPER_ADMIN-only status/download for the local-dev snapshot's DB dump — `docs/local-dev-snapshot-runbook.md`) |
 
 ### Background loops in the api process
 

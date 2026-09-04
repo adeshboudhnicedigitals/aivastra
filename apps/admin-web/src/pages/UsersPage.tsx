@@ -885,23 +885,22 @@ export default function UsersPage({ onNav, toast }: Props) {
               </button>
             )}
             {isSuperAdmin && u.adminRole !== 'SUPER_ADMIN' && (u.isAdmin || u.hasPassword) && (
-              <select
-                className="input"
+              <SearchableSelect
+                options={[
+                  { id: 'NONE', label: 'Not admin' },
+                  { id: 'ADMIN', label: 'Admin' },
+                  { id: 'MODERATOR', label: 'Moderator' },
+                  { id: 'SUPPORT', label: 'Support' },
+                ]}
                 value={u.isAdmin ? (u.adminRole ?? 'ADMIN') : 'NONE'}
                 disabled={adminActioning}
-                onChange={(e) => {
-                  const next = e.target.value;
+                onChange={(next) => {
                   if (next === 'NONE') void revokeAdminRole(u);
                   else void assignAdminRole(u, next);
                 }}
-                title="Admin role"
+                ariaLabel="Admin role"
                 style={{ width: 'auto', height: 36 }}
-              >
-                <option value="NONE">Not admin</option>
-                <option value="ADMIN">Admin</option>
-                <option value="MODERATOR">Moderator</option>
-                <option value="SUPPORT">Support</option>
-              </select>
+              />
             )}
             {!u.isAdmin && (
               <button className="btn danger" onClick={() => setConfirmSuspend(u.id)}>
@@ -1893,23 +1892,19 @@ export default function UsersPage({ onNav, toast }: Props) {
                   >
                     Plan
                   </span>
-                  <select
-                    className="filter-select"
+                  <SearchableSelect
+                    options={[
+                      { id: PAID_PLAN_FILTER, label: 'Any paid plan' },
+                      ...tierOptions.map((slug) => ({ id: slug, label: slug })),
+                    ]}
                     value={planFilter}
-                    onChange={(e) => {
-                      setPlanFilter(e.target.value);
+                    onChange={(v) => {
+                      setPlanFilter(v);
                       setPage(0);
                     }}
+                    emptyLabel="All plans"
                     style={{ width: '100%', height: 32, fontSize: 12.5 }}
-                  >
-                    <option value="">All plans</option>
-                    <option value={PAID_PLAN_FILTER}>Any paid plan</option>
-                    {tierOptions.map((slug) => (
-                      <option key={slug} value={slug} style={{ textTransform: 'capitalize' }}>
-                        {slug}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </div>
 
                 <div style={{ borderTop: '1px solid var(--border)' }} />
@@ -1979,15 +1974,15 @@ export default function UsersPage({ onNav, toast }: Props) {
                     >
                       Export Data
                     </span>
-                    <select
-                      className="filter-select"
+                    <SearchableSelect
+                      options={[
+                        { id: 'desc', label: 'Newest first' },
+                        { id: 'asc', label: 'Oldest first' },
+                      ]}
                       value={exportSortDir}
-                      onChange={(e) => setExportSortDir(e.target.value as 'asc' | 'desc')}
-                      style={{ height: 24, fontSize: 11, padding: '0 20px 0 6px' }}
-                    >
-                      <option value="desc">Newest first</option>
-                      <option value="asc">Oldest first</option>
-                    </select>
+                      onChange={(v) => setExportSortDir(v as 'asc' | 'desc')}
+                      style={{ height: 24, fontSize: 11 }}
+                    />
                   </div>
                   <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
                     <button

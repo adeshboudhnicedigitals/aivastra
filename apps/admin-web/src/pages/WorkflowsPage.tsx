@@ -347,27 +347,19 @@ export default function WorkflowsPage({ toast }: Props) {
                   onChange={(e) => setQuery(e.target.value)}
                 />
               </div>
-              <select
+              <SearchableSelect
+                options={[
+                  { id: 'regular', label: 'Catalogue workflows' },
+                  { id: 'tryon', label: 'Tryon' },
+                  { id: 'saree_step1', label: 'Saree Step 1' },
+                  { id: 'saree_step1_two_input', label: 'Saree Step 1 (2-input)' },
+                  { id: 'regeneration', label: 'Regeneration' },
+                ]}
                 value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value)}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: 6,
-                  border: '1px solid var(--border)',
-                  background: 'var(--surface)',
-                  color: 'var(--ink)',
-                  fontSize: 13,
-                  cursor: 'pointer',
-                  outline: 'none',
-                }}
-              >
-                <option value="">All Types</option>
-                <option value="regular">Catalogue workflows</option>
-                <option value="tryon">Tryon</option>
-                <option value="saree_step1">Saree Step 1</option>
-                <option value="saree_step1_two_input">Saree Step 1 (2-input)</option>
-                <option value="regeneration">Regeneration</option>
-              </select>
+                emptyLabel="All Types"
+                onChange={setTypeFilter}
+                style={{ minWidth: 180 }}
+              />
             </>
           )}
           <button className="btn primary" onClick={() => setShowUpload(true)}>

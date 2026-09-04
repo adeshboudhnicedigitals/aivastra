@@ -2,7 +2,7 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronLeft, Upload, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { C, grad } from '@/components/tokens';
 import { GradBtn } from '@/components/ui/grad-btn';
@@ -15,6 +15,13 @@ interface CatalogueImageOption {
   catalogueId: string;
 }
 
+// Page size for the "existing images" picker — both the initial render and
+// each "Load more" click reveal this many additional images. Keeping this
+// small (rather than rendering every job up front) is what bounds the
+// thumbnail-fetch burst; see the useInView/JobThumbnail comments below for
+// why bounding the burst matters.
+const IMAGE_OPTIONS_PAGE_SIZE = 10;
+
 interface SampleVideoOption {
   id: string;
   title: string;
@@ -24,7 +31,7 @@ interface SampleVideoOption {
 
 type CatalogueResponse = Array<{
   catalogueId: string;
-  jobs: Array<{ id: string; status: string }>;
+  jobs: Array<{ id: string; status: string; createdAt: string }>;
 }>;
 
 // The two ways a video can be sourced: an existing completed AI Vastra job
@@ -34,26 +41,95 @@ type ImageSource =
   | { kind: 'existing'; jobId: string }
   | { kind: 'upload'; r2Key: string; previewUrl: string };
 
+/**
+ * Fires `onEnter` once when the ref'd element first enters the viewport
+ * (plus a 200px lookahead margin), then disconnects — used below to defer a
+ * thumbnail's network request until its tile is actually about to be seen,
+ * rather than firing every tile's request the instant the grid mounts.
+ */
+function useInView<T extends Element>(): [(node: T | null) => void, boolean] {
+  const [inView, setInView] = useState(false);
+  const observerRef = useRef<IntersectionObserver | null>(null);
+
+  // A callback ref rather than a RefObject — this same ref is attached to a
+  // <div> in one render branch and an <img> in the other (JobThumbnail
+  // below), and a RefObject<T> is invariant in T so TS rejects sharing one
+  // across two different element types. A callback ref's parameter position
+  // is contravariant, so `(node: Element | null) => void` is assignable to
+  // both `Ref<HTMLDivElement>` and `Ref<HTMLImageElement>`.
+  const setRef = useCallback(
+    (node: T | null) => {
+      observerRef.current?.disconnect();
+      observerRef.current = null;
+      if (!node || inView) return;
+      const observer = new IntersectionObserver(
+        (entries) => {
+          if (entries.some((entry) => entry.isIntersecting)) {
+            setInView(true);
+            observer.disconnect();
+          }
+        },
+        { rootMargin: '200px' },
+      );
+      observer.observe(node);
+      observerRef.current = observer;
+    },
+    [inView],
+  );
+
+  useEffect(() => () => observerRef.current?.disconnect(), []);
+
+  return [setRef, inView];
+}
+
 // `/v1/catalogues` only carries one cover thumbnail per catalogue (correct for
 // the catalogue grid, which shows one card per catalogue) — a catalogue with
 // several completed pose jobs has no per-job thumbnail there. Fetch each job's
 // own thumbnail directly, same as the catalogue detail page's ImageCard, so
 // every option in this picker shows its own generated image instead of all
 // jobs from one catalogue displaying that catalogue's single cover photo.
+//
+// The fetch itself is deferred until the tile scrolls into view (useInView)
+// rather than firing on mount — one request per rendered tile, unbatched, was
+// what turned a long-history account opening this grid into a burst that blew
+// through the API's per-IP rate limit before the user touched anything (see
+// docs/progress.md, "catalog-video rate-limit incident"). Paired with the
+// RECENT_IMAGE_OPTIONS_LIMIT cap above, not a replacement for it — the cap
+// bounds the total possible burst size, this bounds how much of it fires at once.
 function JobThumbnail({ jobId, alt }: { jobId: string; alt: string }): React.ReactElement {
-  const { data } = useQuery<{ url: string }>({
+  const [ref, inView] = useInView<Element>();
+  const { data, isFetched } = useQuery<{ url: string }>({
     queryKey: ['job-thumb', jobId],
     queryFn: () => api.get(`/v1/jobs/${jobId}/thumbnail`),
     staleTime: 55 * 60 * 1000,
+    enabled: inView,
   });
 
   if (!data?.url) {
-    return <span style={{ color: C.mid, fontSize: 12 }}>Image unavailable</span>;
+    return (
+      <div
+        ref={ref}
+        style={{
+          width: '100%',
+          height: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        {isFetched && <span style={{ color: C.mid, fontSize: 12 }}>Image unavailable</span>}
+      </div>
+    );
   }
   return (
     // eslint-disable-next-line @next/next/no-img-element
     // biome-ignore lint/performance/noImgElement: presigned R2 URL
-    <img src={data.url} alt={alt} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+    <img
+      ref={ref}
+      src={data.url}
+      alt={alt}
+      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+    />
   );
 }
 
@@ -347,6 +423,7 @@ export function CatalogVideoWizard({
   const qc = useQueryClient();
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [sourceTab, setSourceTab] = useState<'existing' | 'upload'>('existing');
+  const [visibleImageCount, setVisibleImageCount] = useState(IMAGE_OPTIONS_PAGE_SIZE);
   const [source, setSource] = useState<ImageSource | null>(null);
   const [sampleVideoId, setSampleVideoId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -355,6 +432,7 @@ export function CatalogVideoWizard({
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const uploadAbortRef = useRef<AbortController | null>(null);
+  const autoSelectedTabRef = useRef(false);
 
   // Revoke the previous upload's blob URL whenever `source` changes away from
   // it (a new upload, switching to an existing-image selection, or unmount) —
@@ -390,14 +468,41 @@ export function CatalogVideoWizard({
   const insufficientCredits =
     typeof creditCost === 'number' && typeof balance === 'number' && balance < creditCost;
 
-  const imageOptions: CatalogueImageOption[] = (catalogues ?? []).flatMap((catalogue) =>
-    catalogue.jobs
-      .filter((job) => job.status === 'COMPLETED')
-      .map((job) => ({
-        jobId: job.id,
-        catalogueId: catalogue.catalogueId,
-      })),
-  );
+  // Sorted newest-first so the initial page (and each "Load more" page) is
+  // always the next-most-recent batch. Rendering is paginated via
+  // visibleImageCount rather than putting every job in the DOM up front —
+  // an unbounded gallery fires one thumbnail request per job as it scrolls
+  // into view (JobThumbnail below), and for a long-history account even
+  // that lazy-loaded burst could exceed the API's per-IP rate limit if the
+  // whole history were reachable at once (see docs/progress.md,
+  // "catalog-video rate-limit incident"). Paging bounds how much of the
+  // account's history is ever mounted, regardless of how many jobs it has.
+  const allImageOptions: CatalogueImageOption[] = (catalogues ?? [])
+    .flatMap((catalogue) =>
+      catalogue.jobs
+        .filter((job) => job.status === 'COMPLETED')
+        .map((job) => ({
+          jobId: job.id,
+          catalogueId: catalogue.catalogueId,
+          createdAt: job.createdAt,
+        })),
+    )
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .map(({ jobId, catalogueId }) => ({ jobId, catalogueId }));
+  const imageOptions = allImageOptions.slice(0, visibleImageCount);
+  const hasMoreImages = visibleImageCount < allImageOptions.length;
+
+  // `sourceTab` defaults to 'existing', which is right for most accounts but
+  // strands a brand-new one (zero completed catalogue images) on an empty
+  // "no images available" grid instead of the "Upload New" tab it actually
+  // needs. Switch once, only when the account turns out to have nothing to
+  // pick from — guarded by the ref so this never overrides a manual tab
+  // click later (e.g. after the user's first upload completes a job).
+  useEffect(() => {
+    if (autoSelectedTabRef.current || cataloguesLoading) return;
+    autoSelectedTabRef.current = true;
+    if (allImageOptions.length === 0) setSourceTab('upload');
+  }, [cataloguesLoading, allImageOptions.length]);
   const selectedSample = sampleVideos?.items.find((option) => option.id === sampleVideoId);
 
   async function handleUpload(file: File) {
@@ -633,7 +738,7 @@ export function CatalogVideoWizard({
                 {sourceTab === 'existing' ? (
                   <>
                     <p style={{ margin: '0 0 16px', color: C.mid, fontSize: 13 }}>
-                      Choose a completed catalogue image.
+                      Choose from your catalogue images, or upload a different one.
                     </p>
                     {cataloguesLoading ? (
                       <p style={{ color: C.mid, fontSize: 13 }}>Loading images...</p>
@@ -686,6 +791,28 @@ export function CatalogVideoWizard({
                           );
                         })}
                       </div>
+                    )}
+                    {hasMoreImages && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setVisibleImageCount((count) => count + IMAGE_OPTIONS_PAGE_SIZE)
+                        }
+                        style={{
+                          display: 'block',
+                          margin: '16px auto 0',
+                          padding: '8px 20px',
+                          borderRadius: 999,
+                          border: `1px solid ${C.border}`,
+                          background: 'transparent',
+                          color: C.mid,
+                          fontSize: 13,
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Load more
+                      </button>
                     )}
                   </>
                 ) : (
