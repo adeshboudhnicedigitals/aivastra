@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Icon } from '../components/Icons';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 
 interface AuditLogItem {
@@ -508,40 +509,28 @@ export default function AuditLogsPage({ toast }: Props) {
       <div className="filter-card" style={{ marginBottom: 16 }}>
         <div className="filter-row">
           {/* Action Filter */}
-          <select
+          <SearchableSelect
+            options={ACTION_OPTIONS.map((opt) => ({ id: opt.value, label: opt.label }))}
             value={actionFilter}
-            onChange={(e) => {
-              setActionFilter(e.target.value);
+            onChange={(v) => {
+              setActionFilter(v);
               setPage(1);
             }}
-            className="filter-select"
-            title="Filter by Activity"
-          >
-            <option value="">All activity</option>
-            {ACTION_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+            emptyLabel="All activity"
+            ariaLabel="Filter by Activity"
+          />
 
           {/* Category Filter */}
-          <select
+          <SearchableSelect
+            options={RESOURCE_TYPE_OPTIONS.map((opt) => ({ id: opt.value, label: opt.label }))}
             value={resourceTypeFilter}
-            onChange={(e) => {
-              setResourceTypeFilter(e.target.value);
+            onChange={(v) => {
+              setResourceTypeFilter(v);
               setPage(1);
             }}
-            className="filter-select"
-            title="Filter by Category"
-          >
-            <option value="">All categories</option>
-            {RESOURCE_TYPE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+            emptyLabel="All categories"
+            ariaLabel="Filter by Category"
+          />
 
           {/* Date Range Picker */}
           <div className="filter-date-group">

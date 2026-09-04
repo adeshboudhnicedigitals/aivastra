@@ -5,6 +5,7 @@ import { makeThumbnail } from '../lib/thumbnail';
 import type { Continent, GenderSlug, ModelFace } from '../types';
 import { EditDrawer } from './EditDrawer';
 import { Icon } from './Icons';
+import { SearchableSelect } from './SearchableSelect';
 
 const ADD_NEW = '__add_new__';
 
@@ -316,17 +317,17 @@ export function AddFaceModal({ knownContinents, onDone, onClose, toast }: Props)
       <div className="field-row">
         <div className="field">
           <label>Gender</label>
-          <select
-            className="select"
+          <SearchableSelect
+            options={[
+              { id: 'men', label: 'Men' },
+              { id: 'women', label: 'Women' },
+              { id: 'boys', label: 'Boys' },
+              { id: 'girls', label: 'Girls' },
+            ]}
             value={gender}
             disabled={busy}
-            onChange={(e) => setGender(e.target.value as GenderSlug)}
-          >
-            <option value="men">Men</option>
-            <option value="women">Women</option>
-            <option value="boys">Boys</option>
-            <option value="girls">Girls</option>
-          </select>
+            onChange={(v) => setGender(v as GenderSlug)}
+          />
         </div>
         <div className="field">
           <label>Sort order</label>
@@ -365,26 +366,22 @@ export function AddFaceModal({ knownContinents, onDone, onClose, toast }: Props)
             </button>
           </div>
         ) : (
-          <select
-            className="select"
+          <SearchableSelect
+            options={[
+              ...knownContinents.map((c) => ({ id: c.value, label: c.label })),
+              { id: ADD_NEW, label: '+ Add new continent…' },
+            ]}
             value={continent}
             disabled={busy}
-            onChange={(e) => {
-              if (e.target.value === ADD_NEW) {
+            emptyLabel='Unassigned (shown as "Global" in studio)'
+            onChange={(v) => {
+              if (v === ADD_NEW) {
                 setAddingContinent(true);
                 return;
               }
-              setContinent(e.target.value as Continent | '');
+              setContinent(v as Continent | '');
             }}
-          >
-            <option value="">Unassigned (shown as "Global" in studio)</option>
-            {knownContinents.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
-            <option value={ADD_NEW}>+ Add new continent…</option>
-          </select>
+          />
         )}
       </div>
 

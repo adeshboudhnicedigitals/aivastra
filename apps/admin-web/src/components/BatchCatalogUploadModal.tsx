@@ -4,6 +4,7 @@ import { makeThumbnail } from '../lib/thumbnail';
 import type { CatalogItem } from '../types';
 import { EditDrawer } from './EditDrawer';
 import { Icon } from './Icons';
+import { SearchableSelect } from './SearchableSelect';
 
 interface PresignResult {
   uploadUrl: string;
@@ -168,17 +169,17 @@ export function BatchCatalogUploadModal({
                 {lockedGenderSlug}
               </span>
             ) : (
-              <select
-                className="select"
+              <SearchableSelect
+                options={[
+                  { id: 'men', label: 'Men' },
+                  { id: 'women', label: 'Women' },
+                  { id: 'boys', label: 'Boys' },
+                  { id: 'girls', label: 'Girls' },
+                ]}
                 value={genderSlug}
                 disabled={busy}
-                onChange={(e) => setGenderSlug(e.target.value)}
-              >
-                <option value="men">Men</option>
-                <option value="women">Women</option>
-                <option value="boys">Boys</option>
-                <option value="girls">Girls</option>
-              </select>
+                onChange={setGenderSlug}
+              />
             )}
           </div>
           <div className="field">

@@ -600,17 +600,11 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                 <div className="setting-lbl">Default page size</div>
                 <div className="setting-desc">Items per page in tables.</div>
               </div>
-              <select
-                className="select"
-                value={pageSize}
-                onChange={(e) => setPageSize(Number(e.target.value))}
-              >
-                {PAGE_SIZES.map((s) => (
-                  <option key={s} value={s}>
-                    {s} items
-                  </option>
-                ))}
-              </select>
+              <SearchableSelect
+                options={PAGE_SIZES.map((s) => ({ id: String(s), label: `${s} items` }))}
+                value={String(pageSize)}
+                onChange={(v) => setPageSize(Number(v))}
+              />
             </div>
 
             <div className="setting-actions">
@@ -1320,17 +1314,17 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                     <div className="setting-lbl" style={{ marginBottom: 4 }}>
                       Aspect ratio
                     </div>
-                    <select
-                      className="select"
+                    <SearchableSelect
+                      options={[
+                        { id: '1:1', label: '1:1' },
+                        { id: '2:3', label: '2:3' },
+                        { id: '3:4', label: '3:4' },
+                        { id: '4:5', label: '4:5' },
+                      ]}
                       value={merchantCatalogAspectRatio}
                       disabled={sysSaving}
-                      onChange={(e) => setMerchantCatalogAspectRatio(e.target.value)}
-                    >
-                      <option value="1:1">1:1</option>
-                      <option value="2:3">2:3</option>
-                      <option value="3:4">3:4</option>
-                      <option value="4:5">4:5</option>
-                    </select>
+                      onChange={(v) => setMerchantCatalogAspectRatio(v)}
+                    />
                   </div>
                 </div>
 
