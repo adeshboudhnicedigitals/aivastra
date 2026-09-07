@@ -11,6 +11,21 @@ export const BulkGrantBody = z.object({
   reason: z.string().min(1).max(200),
 });
 export const DeductCreditsBody = GrantCreditsBody;
+export const GrantUnlimitedPlanBody = z
+  .object({
+    startAt: z.string().datetime(),
+    endAt: z.string().datetime(),
+    note: z.string().max(500).optional(),
+    // Negotiated, per-user price — no fixed SKU, so this is set on every
+    // grant/renewal rather than looked up from a plan. 0 is a valid price
+    // (e.g. a promotional grant).
+    pricePaise: z.number().int().nonnegative().max(100_000_000).default(0),
+    queueStream: z.enum(['priority', 'normal', 'low']).default('normal'),
+  })
+  .refine((v) => new Date(v.endAt) > new Date(v.startAt), {
+    message: 'endAt must be after startAt',
+    path: ['endAt'],
+  });
 export const UpdateUserBody = z.object({
   tier: z.string().min(1).max(64).optional(),
   maxActiveDevices: z.number().int().min(1).max(50).optional(),

@@ -714,11 +714,17 @@ export default function StudioPage(): React.ReactElement {
     }
   }, [qc, showToast]);
 
-  const { data: creditsData } = useQuery<{ balance: number }>({
+  const { data: creditsData } = useQuery<{
+    balance: number;
+    unlimitedPlan?: { status: 'active' | 'expiring_soon' | 'expired' | 'revoked' | 'none' } | null;
+  }>({
     queryKey: ['credits'],
     queryFn: () => api.get('/v1/credits'),
   });
   const userCredits = creditsData?.balance ?? 0;
+  const isUnlimitedPlan =
+    creditsData?.unlimitedPlan?.status === 'active' ||
+    creditsData?.unlimitedPlan?.status === 'expiring_soon';
 
   const { data: garmentTypes } = useQuery<{ items: GarmentType[] }>({
     queryKey: ['garmentTypes', gender],
@@ -2070,6 +2076,7 @@ export default function StudioPage(): React.ReactElement {
                 resolution ? RESOLUTION_COSTS[resolution] : (resolutionConfig.HD?.creditCost ?? 25)
               }
               balance={userCredits}
+              unlimited={isUnlimitedPlan}
               onDirtyChange={setBatchDirty}
             />
           ) : (
@@ -4610,11 +4617,14 @@ export default function StudioPage(): React.ReactElement {
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
-                      {creditCost} credits required
+                      {isUnlimitedPlan ? 'Monthly plan' : `${creditCost} credits required`}
                     </span>
                     <span style={{ fontSize: 12, color: C.mid }}>
-                      You have {userCredits} credits (
-                      {creditCost > 0 ? Math.floor(userCredits / creditCost) : 0} generations)
+                      {isUnlimitedPlan
+                        ? 'Unlimited generations'
+                        : `You have ${userCredits} credits (${
+                            creditCost > 0 ? Math.floor(userCredits / creditCost) : 0
+                          } generations)`}
                     </span>
                   </div>
                 </div>
