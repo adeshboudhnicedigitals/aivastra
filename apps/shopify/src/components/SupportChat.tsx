@@ -8,9 +8,12 @@ const STATUS_COPY: Record<ConversationStatusT, string> = {
   IN_PROGRESS: 'Live agent',
   RESOLVED: 'Marked resolved — send a message to reopen',
   CLOSED: 'Conversation ended',
-  BOT: '',
-  PENDING_HUMAN: '',
-  HUMAN: '',
+  // Legacy statuses — never actually produced (see ConversationStatus's own
+  // comment in packages/types/src/chatbot.ts) — but map to a neutral fallback
+  // rather than a blank status line in case one somehow arrives.
+  BOT: 'Connected',
+  PENDING_HUMAN: 'Connected',
+  HUMAN: 'Connected',
 };
 
 function MessageRow({ message }: { message: ChatMessageT }) {
@@ -53,8 +56,10 @@ export function SupportChat({ open, onClose }: { open: boolean; onClose: () => v
 
   function handleSend() {
     if (!input.trim()) return;
-    send(input);
-    setInput('');
+    // Only clear the box when the message actually went out — send() no-ops
+    // (no socket, closed status, or the socket still connecting) and clearing
+    // unconditionally would silently vanish what the merchant typed.
+    if (send(input)) setInput('');
   }
 
   return (
@@ -97,6 +102,13 @@ export function SupportChat({ open, onClose }: { open: boolean; onClose: () => v
                   value={input}
                   onChange={setInput}
                   placeholder="Type a message…"
+                  maxLength={2000}
+                  // NOTE (Minor #3, final review): Enter-to-send was
+                  // specified as an onKeyDown handler on this TextField, but
+                  // the installed Polaris version (13.9.5) does not forward
+                  // onKeyDown — TextFieldProps has no such prop and tsc
+                  // rejects it (TS2322). Not implemented; see the final
+                  // review fix report for the confirming typecheck output.
                 />
               </div>
               <Button onClick={handleSend} variant="primary">

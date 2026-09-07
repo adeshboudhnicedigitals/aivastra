@@ -14,7 +14,7 @@ export interface UseSupportChatResult {
   typing: 'agent' | 'bot' | null;
   error: string | null;
   connecting: boolean;
-  send: (content: string) => void;
+  send: (content: string) => boolean;
   reset: () => void;
 }
 
@@ -82,10 +82,18 @@ export function useSupportChat(active: boolean): UseSupportChatResult {
         } else if (f.type === 'typing' && f.role !== 'user') {
           setTyping(f.role);
           setTimeout(() => setTyping(null), 4000);
+        } else if (f.type === 'error') {
+          // The gateway emits this for rate-limiting (RATE_LIMITED) and
+          // oversized messages (BAD_FRAME) — without surfacing it, both look
+          // identical to nothing happening at all.
+          setError(f.message);
         }
       };
       ws.onclose = () => {
         wsRef.current = null;
+      };
+      ws.onerror = () => {
+        setError("Couldn't connect to support. Please try again.");
       };
       wsRef.current = ws;
     } catch {
@@ -101,13 +109,27 @@ export function useSupportChat(active: boolean): UseSupportChatResult {
       wsRef.current.close();
       wsRef.current = null;
     }
+    // Closes the socket on unmount/navigate-away too — without this, leaving
+    // the modal mounted while routing elsewhere leaks an open connection.
+    return () => {
+      wsRef.current?.close();
+      wsRef.current = null;
+    };
   }, [active, connect]);
 
   const send = useCallback(
-    (content: string) => {
+    (content: string): boolean => {
       const trimmed = content.trim();
-      if (!trimmed || !wsRef.current || status === 'CLOSED') return;
+      if (
+        !trimmed ||
+        !wsRef.current ||
+        wsRef.current.readyState !== WebSocket.OPEN ||
+        status === 'CLOSED'
+      ) {
+        return false;
+      }
       wsRef.current.send(JSON.stringify({ type: 'message', content: trimmed }));
+      return true;
     },
     [status],
   );

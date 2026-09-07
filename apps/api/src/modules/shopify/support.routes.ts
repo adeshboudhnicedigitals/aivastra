@@ -15,40 +15,78 @@ type Store = typeof schema.shopifyStores.$inferSelect;
 async function getOrCreateSupportUser(app: FastifyInstance, store: Store): Promise<string> {
   if (store.supportUserId) return store.supportUserId;
 
+  // The shop domain, not the store's opaque id, so an agent recognizes the
+  // merchant at a glance from ChatInboxPage's existing userEmail column —
+  // this is the only signal that distinguishes a Shopify-admin ticket, since
+  // the shared WS gateway (apps/chatbot/src/ws/gateway.ts) always creates
+  // tickets with source: 'chat_widget' regardless of caller and cannot be
+  // told otherwise without changing apps/chatbot. It also has to be
+  // deterministic (not random) so the orphan-adoption lookup below can find
+  // it again.
+  const email = `shopify-support+${store.shopDomain}@internal.aivastra.com`;
+
   return app.db.transaction(async (tx) => {
-    // Re-check inside the transaction: a concurrent first-open (two tabs) can
-    // race this function. A duplicate synthetic user in that rare case is
-    // harmless and cleanup-able — not worth a locking scheme.
+    // Lock the store row: a concurrent first-open (two tabs) racing this
+    // function is not "harmless" — users.email is UNIQUE, so the loser's
+    // INSERT below would hit the constraint and throw (Postgres 23505),
+    // surfacing as an unhandled 500 to the merchant. Locking the row here
+    // serializes the two transactions so the second one's re-check sees the
+    // first one's committed supportUserId instead of racing the insert.
     const [existing] = await tx
       .select({ supportUserId: schema.shopifyStores.supportUserId })
       .from(schema.shopifyStores)
-      .where(eq(schema.shopifyStores.id, store.id));
+      .where(eq(schema.shopifyStores.id, store.id))
+      .for('update');
     if (existing?.supportUserId) return existing.supportUserId;
 
-    const [user] = await tx
-      .insert(schema.users)
-      .values({
-        // The shop domain, not the store's opaque id, so an agent recognizes
-        // the merchant at a glance from ChatInboxPage's existing userEmail
-        // column — this is the only signal that distinguishes a
-        // Shopify-admin ticket, since the shared WS gateway
-        // (apps/chatbot/src/ws/gateway.ts) always creates tickets with
-        // source: 'chat_widget' regardless of caller and cannot be told
-        // otherwise without changing apps/chatbot.
-        email: `shopify-support+${store.shopDomain}@internal.aivastra.com`,
-        passwordHash: null,
-        displayName: `Shopify support (${store.shopDomain})`,
-        companyName: null,
-        emailVerified: true,
-        tier: 'free',
-      })
-      .returning();
-    await tx.insert(schema.userCredits).values({ userId: user.id, balance: 0 });
+    // A row with this exact email can already exist as an orphan: the admin
+    // hard-delete-store route (admin/shopify-stores.routes.ts) removes the
+    // shopify_stores row but has no cascade onto the synthetic user it
+    // created (supportUserId is ON DELETE SET NULL on the store side only,
+    // never a store->user cascade), so a reinstalled store comes back with
+    // supportUserId NULL while `users` still holds this deterministic email.
+    // Adopt that row instead of inserting a duplicate — otherwise the insert
+    // below throws on users.email's UNIQUE constraint every time, forever,
+    // for that store.
+    const [orphan] = await tx
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(eq(schema.users.email, email));
+
+    let userId: string;
+    if (orphan) {
+      userId = orphan.id;
+    } else {
+      const [user] = await tx
+        .insert(schema.users)
+        .values({
+          email,
+          passwordHash: null,
+          displayName: `Shopify support (${store.shopDomain})`,
+          companyName: null,
+          emailVerified: true,
+          tier: 'free',
+        })
+        .returning();
+      userId = user.id;
+      await tx.insert(schema.userCredits).values({
+        userId: user.id,
+        balance: 0,
+        // A synthetic user with no real mailbox must never enter the
+        // low-credit-alert email loop: startUserLowCreditAlertScheduler
+        // selects on `lowCreditAlertSentAt IS NULL` + balance below
+        // threshold, and this address (shopify-support+<domain>@internal...)
+        // bounces every time, which is a sender-reputation risk shared with
+        // real transactional email. Pre-stamping this suppresses it for good.
+        lowCreditAlertSentAt: new Date(),
+      });
+    }
+
     await tx
       .update(schema.shopifyStores)
-      .set({ supportUserId: user.id })
+      .set({ supportUserId: userId })
       .where(eq(schema.shopifyStores.id, store.id));
-    return user.id;
+    return userId;
   });
 }
 

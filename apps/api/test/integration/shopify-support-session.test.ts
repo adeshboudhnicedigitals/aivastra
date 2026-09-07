@@ -102,4 +102,50 @@ describe('POST /v1/shopify/support/session', () => {
     const res = await app.inject({ method: 'POST', url: '/v1/shopify/support/session' });
     expect(res.statusCode).toBe(401);
   });
+
+  it('adopts the orphaned support user after a hard-delete-and-reinstall instead of erroring', async () => {
+    // First open — creates support user A.
+    const first = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/support/session',
+      headers: auth,
+    });
+    expect(first.statusCode).toBe(200);
+    const secret = new TextEncoder().encode(app.env.JWT_SECRET);
+    const firstSub = (await jwtVerify((first.json() as { token: string }).token, secret)).payload
+      .sub;
+
+    // Simulate what the admin hard-delete-store route's blank-slate
+    // reinstall produces: the shopify_stores row survives (a fresh insert on
+    // reinstall) but support_user_id comes back NULL, while the orphaned
+    // `users` row from before still holds the deterministic support email.
+    await app.db
+      .update(schema.shopifyStores)
+      .set({ supportUserId: null })
+      .where(eq(schema.shopifyStores.shopDomain, shopDomain));
+
+    // Second open after "reinstall" — must adopt the orphan, not throw on
+    // users.email's UNIQUE constraint and not mint a second user.
+    const second = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/support/session',
+      headers: auth,
+    });
+    expect(second.statusCode).toBe(200);
+    const secondSub = (await jwtVerify((second.json() as { token: string }).token, secret)).payload
+      .sub;
+    expect(secondSub).toBe(firstSub);
+
+    const [store] = await app.db
+      .select()
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.shopDomain, shopDomain));
+    expect(store.supportUserId).toBe(firstSub);
+
+    const usersWithEmail = await app.db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(eq(schema.users.email, `shopify-support+${shopDomain}@internal.aivastra.com`));
+    expect(usersWithEmail).toHaveLength(1);
+  });
 });

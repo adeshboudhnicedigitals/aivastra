@@ -15,11 +15,22 @@ CREATE TABLE IF NOT EXISTS "shopify_store_disabled_funnel_rules" (
 -- Harmless on a dev DB that had already recorded this file's hash as applied
 -- (from before the drift was noticed), but fatal (`column already exists`) on
 -- any fresh database, which is exactly what every integration test's
--- `startContainers()` creates. Removed here: the four chatbot_conversations/
--- messages ADD COLUMNs (already in 0190) and the two garment_subcategories ADD
--- COLUMNs (already in 0186/0187). Left in place: the SET DEFAULT (harmless to
--- repeat) and everything genuinely new to this migration (the funnel-rules
--- table/constraints/index below).
+-- `startContainers()` creates. Removed here: the six chatbot_conversations/
+-- messages ADD COLUMNs (source/category/priority/subject on conversations,
+-- attachment_key/attachment_type on messages — all already in 0190) and the
+-- two garment_subcategories ADD COLUMNs (already in 0186/0187).
+--
+-- Corrected 2026-09-07 by final branch review: everything left below is ALSO
+-- not new — the funnel-rules table/constraints/index are verbatim duplicates
+-- of 0189_great_thor_girl.sql (same table, same constraint names, same index),
+-- and the SET DEFAULT is a harmless repeat of 0190. So this file is a complete
+-- no-op at the SQL level in every environment; there is nothing genuinely new
+-- in it. It's kept anyway — deleting it would also require hand-editing
+-- drizzle's journal and losing the audit trail of what drizzle-kit originally
+-- proposed here — and the actual fix for the drift is the corrected
+-- meta/0195_snapshot.json generated alongside this file, which is what makes
+-- later `db:generate` runs diff against accurate state instead of re-proposing
+-- these same statements again.
 ALTER TABLE "chatbot_conversations" ALTER COLUMN "status" SET DEFAULT 'OPEN';--> statement-breakpoint
 ALTER TABLE "shopify_funnel_rules" ALTER COLUMN "store_id" DROP NOT NULL;--> statement-breakpoint
 DO $$ BEGIN
