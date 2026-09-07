@@ -251,7 +251,7 @@ export async function resolveTryonPlan(
   const requestedDims =
     customW && customH
       ? { width: customW, height: customH }
-      : (ASPECT_DIMENSIONS[body.aspectRatio] ?? { width: 2048, height: 2048 });
+      : (ASPECT_DIMENSIONS[body.aspectRatio] ?? { width: 2560, height: 2560 });
   // Platform-wide resolution ceiling — admin-configured, not per-workflow (see
   // getMaxOutputPx). Only downscale, and only the long edge exceeding it; the
   // dispatcher patches the workflow with whatever dims land in job_inputs.params,
