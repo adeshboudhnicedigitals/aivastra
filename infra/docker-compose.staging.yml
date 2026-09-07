@@ -176,6 +176,10 @@ services:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
         NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-}
         NEXT_PUBLIC_CHATBOT_URL: ${NEXT_PUBLIC_CHATBOT_URL}
+        # Staging-only: the chat widget is otherwise gated to NODE_ENV==='development'
+        # (apps/catalogues-web/src/components/app-shell.tsx). Hardcoded here rather than
+        # sourced from .env so production stays unaffected without any config to forget.
+        NEXT_PUBLIC_CHATBOT_ENABLED: "true"
     container_name: aivastra-staging-web
     restart: unless-stopped
     environment:
