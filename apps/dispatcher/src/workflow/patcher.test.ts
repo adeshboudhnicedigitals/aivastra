@@ -480,7 +480,9 @@ describe('dual-size groups', () => {
     // technical ceiling — see the comment above), so this is a genuine downscale rather than
     // the old table's coincidental identity (its 2048 output height equaled latentMaxPx exactly).
     expect(wf['max-width']?.inputs.value).toBe(
-      Math.round(2048 * ((ASPECT_DIMENSIONS['2:3']?.width ?? 0) / (ASPECT_DIMENSIONS['2:3']?.height ?? 1))),
+      Math.round(
+        2048 * ((ASPECT_DIMENSIONS['2:3']?.width ?? 0) / (ASPECT_DIMENSIONS['2:3']?.height ?? 1)),
+      ),
     );
     expect(wf['max-height']?.inputs.value).toBe(2048);
     // Output group: the literal selected dimensions, not derived via resizeToMax
