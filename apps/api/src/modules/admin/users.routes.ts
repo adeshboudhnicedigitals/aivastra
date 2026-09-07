@@ -24,6 +24,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { hashPassword } from '../auth/service.js';
+import { deriveDisplayStatus } from '../credits/unlimited-plan.js';
 import { disconnect as disconnectGoogleDrive } from '../google-drive/token.js';
 import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
@@ -129,24 +130,66 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           isMerchant: isNotNull(schema.merchants.id),
           signupSource: schema.merchants.signupSource,
           demoData: schema.merchants.demoData,
+          unlimitedPlanId: schema.unlimitedPlans.id,
+          unlimitedPlanStartAt: schema.unlimitedPlans.startAt,
+          unlimitedPlanEndAt: schema.unlimitedPlans.endAt,
+          unlimitedPlanStatus: schema.unlimitedPlans.status,
+          unlimitedPlanNote: schema.unlimitedPlans.note,
+          unlimitedPlanPricePaise: schema.unlimitedPlans.pricePaise,
+          unlimitedPlanQueueStream: schema.unlimitedPlans.queueStream,
         })
         .from(schema.users)
         .leftJoin(schema.userCredits, eq(schema.userCredits.userId, schema.users.id))
         .leftJoin(schema.jobs, eq(schema.jobs.userId, schema.users.id))
         .leftJoin(schema.adminUsers, eq(schema.adminUsers.userId, schema.users.id))
         .leftJoin(schema.merchants, eq(schema.merchants.userId, schema.users.id))
+        .leftJoin(
+          schema.unlimitedPlans,
+          and(
+            eq(schema.unlimitedPlans.userId, schema.users.id),
+            eq(schema.unlimitedPlans.status, 'active'),
+          ),
+        )
         .where(where)
         .groupBy(
           schema.users.id,
           schema.userCredits.balance,
           schema.adminUsers.id,
           schema.merchants.id,
+          schema.unlimitedPlans.id,
         )
         .orderBy(desc(schema.users.createdAt))
         .limit(pageSize)
         .offset((page - 1) * pageSize);
 
-      return { page, pageSize, total, items: rows };
+      const items = rows.map(
+        ({
+          unlimitedPlanId,
+          unlimitedPlanStartAt,
+          unlimitedPlanEndAt,
+          unlimitedPlanStatus,
+          unlimitedPlanNote,
+          unlimitedPlanPricePaise,
+          unlimitedPlanQueueStream,
+          ...rest
+        }) => ({
+          ...rest,
+          unlimitedPlan: deriveDisplayStatus(
+            unlimitedPlanId
+              ? ({
+                  startAt: unlimitedPlanStartAt,
+                  endAt: unlimitedPlanEndAt,
+                  status: unlimitedPlanStatus,
+                  note: unlimitedPlanNote,
+                  pricePaise: unlimitedPlanPricePaise,
+                  queueStream: unlimitedPlanQueueStream,
+                } as (typeof schema.unlimitedPlans)['$inferSelect'])
+              : null,
+          ),
+        }),
+      );
+
+      return { page, pageSize, total, items };
     },
   );
 
@@ -255,6 +298,23 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         .select()
         .from(schema.userCredits)
         .where(eq(schema.userCredits.userId, id));
+      const [unlimitedPlan] = await app.db
+        .select()
+        .from(schema.unlimitedPlans)
+        .where(
+          and(eq(schema.unlimitedPlans.userId, id), eq(schema.unlimitedPlans.status, 'active')),
+        );
+      const unlimitedPlanCharges = await app.db
+        .select({
+          id: schema.unlimitedPlanCharges.id,
+          pricePaise: schema.unlimitedPlanCharges.pricePaise,
+          chargeType: schema.unlimitedPlanCharges.chargeType,
+          chargedAt: schema.unlimitedPlanCharges.chargedAt,
+        })
+        .from(schema.unlimitedPlanCharges)
+        .where(eq(schema.unlimitedPlanCharges.userId, id))
+        .orderBy(desc(schema.unlimitedPlanCharges.chargedAt))
+        .limit(20);
       const [merchantRow] = await app.db
         .select({
           id: schema.merchants.id,
@@ -290,6 +350,10 @@ export async function adminUsersRoutes(app: FastifyInstance) {
       return {
         ...user,
         balance: credits?.balance ?? 0,
+        unlimitedPlan: {
+          ...deriveDisplayStatus(unlimitedPlan ?? null),
+          charges: unlimitedPlanCharges,
+        },
         totalJobs: jobsCount?.total ?? 0,
         recentJobs: jobs,
         merchant: merchantRow

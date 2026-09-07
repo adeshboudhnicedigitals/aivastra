@@ -55,6 +55,9 @@ function userLabel(u: {
 function userContact(u: { email: string | null; username: string | null }) {
   return u.email ?? (u.username ? `@${u.username}` : '\u2014');
 }
+function hasActiveUnlimitedPlan(u: Pick<User, 'unlimitedPlan'>) {
+  return u.unlimitedPlan?.status === 'active' || u.unlimitedPlan?.status === 'expiring_soon';
+}
 
 interface JobPreviewInputImages {
   person?: string;
@@ -132,6 +135,15 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [selectedMaxDevices, setSelectedMaxDevices] = useState('1');
   const [deviceLimitSaving, setDeviceLimitSaving] = useState(false);
   const [editingAccountField, setEditingAccountField] = useState<'plan' | 'devices' | null>(null);
+  const [unlimitedPlanForm, setUnlimitedPlanForm] = useState<{
+    startAt: string;
+    endAt: string;
+    note: string;
+    priceRupees: string;
+    queueStream: 'priority' | 'normal' | 'low';
+  } | null>(null);
+  const [savingUnlimitedPlan, setSavingUnlimitedPlan] = useState(false);
+  const [revokingUnlimitedPlan, setRevokingUnlimitedPlan] = useState(false);
   const [showGrantMerchant, setShowGrantMerchant] = useState(false);
   const [grantMerchantForm, setGrantMerchantForm] = useState(EMPTY_GRANT_MERCHANT_FORM);
   const [grantingMerchant, setGrantingMerchant] = useState(false);
@@ -383,6 +395,91 @@ export default function UsersPage({ onNav, toast }: Props) {
     setGrantMode('grant');
     setGrantAmount('');
     setGrantReason('');
+  };
+
+  const openUnlimitedPlanEditor = () => {
+    if (!detail) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const plan = detail.unlimitedPlan;
+    const hasActive =
+      plan && plan.status !== 'none' && plan.status !== 'revoked' && plan.status !== 'expired';
+    setUnlimitedPlanForm({
+      startAt: hasActive && plan?.startAt ? plan.startAt.slice(0, 10) : today,
+      endAt:
+        hasActive && plan?.endAt
+          ? plan.endAt.slice(0, 10)
+          : new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10),
+      note: (hasActive && plan?.note) || '',
+      priceRupees: hasActive && plan?.pricePaise != null ? String(plan.pricePaise / 100) : '',
+      queueStream: (hasActive && plan?.queueStream) || 'normal',
+    });
+  };
+
+  const closeUnlimitedPlanEditor = () => setUnlimitedPlanForm(null);
+
+  const handleGrantUnlimitedPlan = async () => {
+    if (!detail || !unlimitedPlanForm) return;
+    setSavingUnlimitedPlan(true);
+    try {
+      const updated = await apiFetch<NonNullable<User['unlimitedPlan']>>(
+        `/admin/users/${detail.id}/unlimited-plan`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            startAt: new Date(unlimitedPlanForm.startAt).toISOString(),
+            endAt: new Date(unlimitedPlanForm.endAt).toISOString(),
+            note: unlimitedPlanForm.note.trim() || undefined,
+            pricePaise: Math.round((parseFloat(unlimitedPlanForm.priceRupees) || 0) * 100),
+            queueStream: unlimitedPlanForm.queueStream,
+          }),
+        },
+      );
+      setDetail((prev) => (prev ? { ...prev, unlimitedPlan: updated } : null));
+      setUsers((prev) =>
+        prev.map((u) => (u.id === detail.id ? { ...u, unlimitedPlan: updated } : u)),
+      );
+      toast({ title: 'Unlimited plan saved' });
+      closeUnlimitedPlanEditor();
+    } catch (err) {
+      toast({
+        kind: 'error',
+        title: 'Failed to save unlimited plan',
+        body: apiErrorMessage(err, 'Please try again.'),
+      });
+    } finally {
+      setSavingUnlimitedPlan(false);
+    }
+  };
+
+  const handleRevokeUnlimitedPlan = async () => {
+    if (!detail) return;
+    setRevokingUnlimitedPlan(true);
+    try {
+      await apiFetch(`/admin/users/${detail.id}/unlimited-plan/revoke`, { method: 'POST' });
+      const cleared = {
+        status: 'none' as const,
+        startAt: null,
+        endAt: null,
+        daysRemaining: null,
+        note: null,
+        pricePaise: null,
+        queueStream: null,
+      };
+      setDetail((prev) => (prev ? { ...prev, unlimitedPlan: cleared } : null));
+      setUsers((prev) =>
+        prev.map((u) => (u.id === detail.id ? { ...u, unlimitedPlan: cleared } : u)),
+      );
+      toast({ title: 'Unlimited plan revoked' });
+      closeUnlimitedPlanEditor();
+    } catch (err) {
+      toast({
+        kind: 'error',
+        title: 'Failed to revoke unlimited plan',
+        body: apiErrorMessage(err, 'Please try again.'),
+      });
+    } finally {
+      setRevokingUnlimitedPlan(false);
+    }
   };
 
   const openPlanEditor = () => {
@@ -933,13 +1030,74 @@ export default function UsersPage({ onNav, toast }: Props) {
                   Change plan <Icon.Chevron />
                 </div>
               </button>
-              <button className="stat" onClick={openAdjustCredits} title="Adjust credits">
+              {u.unlimitedPlan &&
+              (u.unlimitedPlan.status === 'active' ||
+                u.unlimitedPlan.status === 'expiring_soon') ? (
+                <button
+                  className="stat"
+                  onClick={openUnlimitedPlanEditor}
+                  title="Manage unlimited plan"
+                >
+                  <div className="lbl">
+                    <Icon.Coin /> Credit balance
+                  </div>
+                  <div className="val">
+                    Unlimited{' '}
+                    <span
+                      className={`badge ${u.unlimitedPlan.status === 'expiring_soon' ? 'warn' : 'success'} dot`}
+                    >
+                      {u.unlimitedPlan.daysRemaining} day
+                      {u.unlimitedPlan.daysRemaining === 1 ? '' : 's'} left
+                    </span>
+                  </div>
+                  <div className="delta">
+                    Manage unlimited plan <Icon.Chevron />
+                  </div>
+                </button>
+              ) : (
+                <button className="stat" onClick={openAdjustCredits} title="Adjust credits">
+                  <div className="lbl">
+                    <Icon.Coin /> Credit balance
+                  </div>
+                  <div className="val">{u.balance.toLocaleString()}</div>
+                  <div className="delta">
+                    Adjust credits <Icon.Chevron />
+                  </div>
+                </button>
+              )}
+              <button
+                className="stat"
+                onClick={openUnlimitedPlanEditor}
+                title="Grant or manage an unlimited plan"
+              >
                 <div className="lbl">
-                  <Icon.Coin /> Credit balance
+                  <Icon.Credit /> Unlimited plan
                 </div>
-                <div className="val">{u.balance.toLocaleString()}</div>
+                <div className="val">
+                  {u.unlimitedPlan && u.unlimitedPlan.status !== 'none' ? (
+                    <span
+                      className={`badge dot ${
+                        u.unlimitedPlan.status === 'active'
+                          ? 'success'
+                          : u.unlimitedPlan.status === 'expiring_soon'
+                            ? 'warn'
+                            : 'danger'
+                      }`}
+                    >
+                      {u.unlimitedPlan.status === 'active' && 'Active'}
+                      {u.unlimitedPlan.status === 'expiring_soon' && 'Expiring soon'}
+                      {u.unlimitedPlan.status === 'expired' && 'Expired'}
+                      {u.unlimitedPlan.status === 'revoked' && 'Revoked'}
+                    </span>
+                  ) : (
+                    'None'
+                  )}
+                </div>
                 <div className="delta">
-                  Adjust credits <Icon.Chevron />
+                  {u.unlimitedPlan && u.unlimitedPlan.status !== 'none'
+                    ? 'Manage'
+                    : 'Grant unlimited plan'}{' '}
+                  <Icon.Chevron />
                 </div>
               </button>
               <button
@@ -1560,6 +1718,158 @@ export default function UsersPage({ onNav, toast }: Props) {
                   rows={3}
                 />
               </div>
+            </div>
+          </EditDrawer>
+        )}
+
+        {unlimitedPlanForm && (
+          <EditDrawer
+            onClose={closeUnlimitedPlanEditor}
+            title={`Unlimited plan — ${userLabel(u)}`}
+            width="min(480px, calc(100vw - 40px))"
+            saving={savingUnlimitedPlan}
+            onSave={handleGrantUnlimitedPlan}
+            saveLabel={
+              savingUnlimitedPlan
+                ? 'Saving…'
+                : u.unlimitedPlan && u.unlimitedPlan.status !== 'none'
+                  ? 'Save changes'
+                  : 'Grant unlimited plan'
+            }
+            saveDisabled={
+              savingUnlimitedPlan ||
+              !unlimitedPlanForm.startAt ||
+              !unlimitedPlanForm.endAt ||
+              unlimitedPlanForm.endAt <= unlimitedPlanForm.startAt
+            }
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <p className="hint">
+                No credit balance is used for this plan — the user's job spend bypasses their credit
+                balance entirely for the dates below.
+              </p>
+              <div className="field">
+                <label>Start date</label>
+                <input
+                  className="input"
+                  type="date"
+                  value={unlimitedPlanForm.startAt}
+                  onChange={(e) =>
+                    setUnlimitedPlanForm((f) => (f ? { ...f, startAt: e.target.value } : f))
+                  }
+                />
+              </div>
+              <div className="field">
+                <label>End date</label>
+                <input
+                  className="input"
+                  type="date"
+                  value={unlimitedPlanForm.endAt}
+                  onChange={(e) =>
+                    setUnlimitedPlanForm((f) => (f ? { ...f, endAt: e.target.value } : f))
+                  }
+                />
+              </div>
+              <div style={{ display: 'flex', gap: 14 }}>
+                <div className="field" style={{ flex: 1 }}>
+                  <label>Price (₹)</label>
+                  <div style={{ position: 'relative' }}>
+                    <span
+                      style={{
+                        position: 'absolute',
+                        left: 12,
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        fontSize: 14,
+                        color: 'var(--muted)',
+                        pointerEvents: 'none',
+                      }}
+                    >
+                      ₹
+                    </span>
+                    <input
+                      className="input"
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={unlimitedPlanForm.priceRupees}
+                      placeholder="e.g. 5000"
+                      style={{ paddingLeft: 26 }}
+                      onChange={(e) =>
+                        setUnlimitedPlanForm((f) => (f ? { ...f, priceRupees: e.target.value } : f))
+                      }
+                    />
+                  </div>
+                  <p className="hint">
+                    Negotiated price for this user — charged again on every renewal. Not billed
+                    automatically; no GST invoice is generated.
+                  </p>
+                </div>
+                <div className="field" style={{ flex: 1 }}>
+                  <label>Job Queue Priority</label>
+                  <select
+                    className="input"
+                    value={unlimitedPlanForm.queueStream}
+                    onChange={(e) =>
+                      setUnlimitedPlanForm((f) =>
+                        f
+                          ? { ...f, queueStream: e.target.value as 'priority' | 'normal' | 'low' }
+                          : f,
+                      )
+                    }
+                  >
+                    <option value="priority">1st — Priority (jobs processed first)</option>
+                    <option value="normal">2nd — Normal</option>
+                    <option value="low">3rd — Low (processed last)</option>
+                  </select>
+                </div>
+              </div>
+              <div className="field">
+                <label>Note</label>
+                <textarea
+                  className="input"
+                  value={unlimitedPlanForm.note}
+                  onChange={(e) =>
+                    setUnlimitedPlanForm((f) => (f ? { ...f, note: e.target.value } : f))
+                  }
+                  placeholder="e.g. negotiated bargain deal, invoiced offline"
+                  rows={3}
+                />
+              </div>
+              {u.unlimitedPlan &&
+                (u.unlimitedPlan.status === 'active' ||
+                  u.unlimitedPlan.status === 'expiring_soon') && (
+                  <button
+                    type="button"
+                    className="btn danger"
+                    disabled={revokingUnlimitedPlan}
+                    onClick={handleRevokeUnlimitedPlan}
+                  >
+                    {revokingUnlimitedPlan ? 'Revoking…' : 'Revoke unlimited plan'}
+                  </button>
+                )}
+              {u.unlimitedPlan?.charges && u.unlimitedPlan.charges.length > 0 && (
+                <div className="field">
+                  <label>Charge history</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {u.unlimitedPlan.charges.map((c) => (
+                      <div
+                        key={c.id}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          fontSize: 12,
+                          color: 'var(--muted)',
+                        }}
+                      >
+                        <span style={{ textTransform: 'capitalize' }}>{c.chargeType}</span>
+                        <span>₹{(c.pricePaise / 100).toLocaleString('en-IN')}</span>
+                        <span>{new Date(c.chargedAt).toLocaleDateString('en-IN')}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </EditDrawer>
         )}
@@ -2295,9 +2605,17 @@ export default function UsersPage({ onNav, toast }: Props) {
                       )}
                     </td>
                     <td>
-                      <span className="mono" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                        {u.balance.toLocaleString()}
-                      </span>
+                      {hasActiveUnlimitedPlan(u) ? (
+                        <span
+                          className={`badge dot ${u.unlimitedPlan?.status === 'expiring_soon' ? 'warn' : 'success'}`}
+                        >
+                          Unlimited
+                        </span>
+                      ) : (
+                        <span className="mono" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {u.balance.toLocaleString()}
+                        </span>
+                      )}
                     </td>
                     <td>
                       <span className="mono" style={{ fontVariantNumeric: 'tabular-nums' }}>
@@ -2396,7 +2714,11 @@ export default function UsersPage({ onNav, toast }: Props) {
                     >
                       <span style={{ textTransform: 'capitalize' }}>{u.tier}</span>
                       <span>&middot;</span>
-                      <span className="mono">{u.balance.toLocaleString()} credits</span>
+                      {hasActiveUnlimitedPlan(u) ? (
+                        <span className="mono">Unlimited</span>
+                      ) : (
+                        <span className="mono">{u.balance.toLocaleString()} credits</span>
+                      )}
                     </div>
                   </div>
                 </div>

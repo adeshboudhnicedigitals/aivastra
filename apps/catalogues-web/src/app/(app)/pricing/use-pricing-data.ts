@@ -44,6 +44,11 @@ export type PaymentResult =
       totalCredits: number;
     }
   | {
+      kind: 'unlimited_renewal';
+      amountPaid: string; // formatted, e.g. "₹5,000" — exactly the admin-set price, no GST
+      newEndDate: string | null;
+    }
+  | {
       kind: 'error';
       message: string;
       onRetry: () => void;
@@ -256,6 +261,8 @@ export function usePricingData() {
   const searchParams = useSearchParams();
   const [paymentResult, setPaymentResult] = useState<PaymentResult | null>(null);
   const [buying, setBuying] = useState<string | null>(null);
+  const [renewingUnlimitedPlan, setRenewingUnlimitedPlan] = useState(false);
+  const [renewUnlimitedPlanConfirmOpen, setRenewUnlimitedPlanConfirmOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'catalogue' | 'tryon'>('catalogue');
   const [salesModal, setSalesModal] = useState<string | null>(null);
   const [country, setCountry] = useState('IN');
@@ -276,6 +283,13 @@ export function usePricingData() {
   const { data: credits, isLoading: creditsLoading } = useQuery<{
     balance: number;
     firstPurchaseBonusPercent: number | null;
+    unlimitedPlan: {
+      status: 'active' | 'expiring_soon' | 'expired' | 'revoked' | 'none';
+      startAt: string | null;
+      endAt: string | null;
+      daysRemaining: number | null;
+      pricePaise: number | null;
+    };
     recent: { delta: number; reason: string; createdAt: string }[];
   }>({
     queryKey: ['credits'],
@@ -483,6 +497,113 @@ export function usePricingData() {
     }
   }
 
+  // Self-serve renewal for an admin-granted unlimited plan — same GSTIN +
+  // GST-inclusive checkout popup as every other purchasable pack (see buy()
+  // above). The base price is whatever the admin last set on the plan; GST
+  // is added on top server-side, never passed from here.
+  async function renewUnlimitedPlan(gstin?: string) {
+    if (renewingUnlimitedPlan) return;
+    setRenewingUnlimitedPlan(true);
+    try {
+      const ok = await loadRazorpay();
+      if (!ok || !window.Razorpay) {
+        setPaymentResult({
+          kind: 'error',
+          message: 'Could not load payment gateway. Please try again.',
+          onRetry: () => void renewUnlimitedPlan(gstin),
+        });
+        return;
+      }
+
+      const order = await api.post<{
+        orderId: string;
+        amount: number;
+        currency: string;
+        keyId: string;
+        label: string;
+      }>('/v1/unlimited-plan/renew/order', { gstin: gstin || undefined });
+
+      let newEndDate: string | null = null;
+      await new Promise<void>((resolve, reject) => {
+        const RazorpayClass = window.Razorpay as NonNullable<typeof window.Razorpay>;
+        const rzp = new RazorpayClass({
+          key: order.keyId,
+          amount: order.amount,
+          currency: order.currency,
+          order_id: order.orderId,
+          name: 'Ai Vastra',
+          description: order.label,
+          handler: async (response: {
+            razorpay_order_id: string;
+            razorpay_payment_id: string;
+            razorpay_signature: string;
+          }) => {
+            try {
+              const verified = await api.post<{
+                unlimitedPlan: { endAt: string | null };
+              }>('/v1/unlimited-plan/renew/verify', {
+                razorpayOrderId: response.razorpay_order_id,
+                razorpayPaymentId: response.razorpay_payment_id,
+                razorpaySignature: response.razorpay_signature,
+              });
+              newEndDate = verified.unlimitedPlan.endAt
+                ? new Date(verified.unlimitedPlan.endAt).toLocaleDateString('en-IN', {
+                    day: 'numeric',
+                    month: 'long',
+                    year: 'numeric',
+                  })
+                : null;
+              resolve();
+            } catch (err) {
+              reject(err);
+            }
+          },
+          modal: { ondismiss: () => reject(new Error('dismissed')) },
+          theme: { color: C.pink },
+        });
+        rzp.open();
+      });
+
+      qc.invalidateQueries({ queryKey: ['credits'] });
+      setPaymentResult({
+        kind: 'unlimited_renewal',
+        amountPaid: formatPrice(order.amount, country, rates),
+        newEndDate,
+      });
+    } catch (err) {
+      if (err instanceof Error && err.message === 'dismissed') {
+        // user closed modal — no toast
+      } else {
+        setPaymentResult({
+          kind: 'error',
+          message: (err as Error).message ?? 'Payment failed. Please try again.',
+          onRetry: () => void renewUnlimitedPlan(gstin),
+        });
+      }
+    } finally {
+      setRenewingUnlimitedPlan(false);
+    }
+  }
+
+  // Mirrors openGstinModal/closeGstinModal/confirmGstinAndPay for pack
+  // purchases below — same GSTIN + price-breakdown popup, just against the
+  // renewal endpoint instead of /v1/payments/orders.
+  function startRenewUnlimitedPlan() {
+    if (renewingUnlimitedPlan) return;
+    setCheckoutGstin(me?.gstin ?? '');
+    setRenewUnlimitedPlanConfirmOpen(true);
+  }
+
+  function closeRenewUnlimitedPlanConfirm() {
+    if (renewingUnlimitedPlan) return;
+    setRenewUnlimitedPlanConfirmOpen(false);
+  }
+
+  function confirmRenewUnlimitedPlan() {
+    setRenewUnlimitedPlanConfirmOpen(false);
+    void renewUnlimitedPlan(checkoutGstin);
+  }
+
   // Gate before the actual purchase flow: first-time buyers who weren't
   // auto-attributed to a campaign at signup get a chance to manually enter a
   // coupon code before proceeding to Razorpay. Already-attributed users and
@@ -561,27 +682,75 @@ export function usePricingData() {
   const freeTrialGrant =
     credits?.recent?.find((e) => e.reason === 'FREE_TRIAL' && e.delta > 0)?.delta ?? null;
   const isFreeTier = currentTier === 'free';
-  const planName = isFreeTier
-    ? 'Free'
-    : (currentPaidPlan?.name ?? latestPaidForCurrentTier?.planName ?? currentTier);
+
+  // An admin-granted unlimited plan overrides the usual credits-based banner
+  // entirely — no purchasable SKU, no tier change (see CLAUDE.md/the unlimited
+  // plan feature), so it's read straight off /v1/credits rather than `tier`.
+  // Includes 'expired' (not just active/expiring_soon) so a lapsed plan still
+  // shows the unlimited banner — with 0 days left — and the Recharge button,
+  // rather than dropping back to the generic credits banner exactly when
+  // self-serve renewal matters most. Only 'revoked' and 'none' fall back.
+  const unlimitedPlan = credits?.unlimitedPlan ?? null;
+  const isUnlimited =
+    unlimitedPlan?.status === 'active' ||
+    unlimitedPlan?.status === 'expiring_soon' ||
+    unlimitedPlan?.status === 'expired';
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const unlimitedTotalDays =
+    isUnlimited && unlimitedPlan?.startAt && unlimitedPlan?.endAt
+      ? Math.max(
+          1,
+          Math.round(
+            (new Date(unlimitedPlan.endAt).getTime() - new Date(unlimitedPlan.startAt).getTime()) /
+              DAY_MS,
+          ),
+        )
+      : null;
+  const unlimitedDaysLeft = isUnlimited ? (unlimitedPlan?.daysRemaining ?? 0) : null;
+
+  const planName = isUnlimited
+    ? 'Unlimited Plan'
+    : isFreeTier
+      ? 'Free'
+      : (currentPaidPlan?.name ?? latestPaidForCurrentTier?.planName ?? currentTier);
   const planCredits: number | null = isFreeTier
     ? freeTrialGrant
     : paidPayments.length > 0
       ? totalPurchasedCredits
       : (currentPaidPlan?.credits ?? null);
-  const pct =
-    planCredits === null
+  const pct = isUnlimited
+    ? unlimitedTotalDays === null || unlimitedTotalDays === 0
+      ? 100
+      : Math.min(100, Math.round(((unlimitedDaysLeft ?? 0) / unlimitedTotalDays) * 100))
+    : planCredits === null
       ? 100
       : planCredits === 0
         ? 0
         : Math.min(100, Math.round((balance / planCredits) * 100));
-  const activatedDate = latestPaidForCurrentTier?.paidAt
-    ? new Date(latestPaidForCurrentTier.paidAt).toLocaleDateString('en-IN', {
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-      })
-    : null;
+  const activatedDate =
+    isUnlimited && unlimitedPlan?.startAt
+      ? new Date(unlimitedPlan.startAt).toLocaleDateString('en-IN', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        })
+      : latestPaidForCurrentTier?.paidAt
+        ? new Date(latestPaidForCurrentTier.paidAt).toLocaleDateString('en-IN', {
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric',
+          })
+        : null;
+  const usageLabel = isUnlimited ? 'Days Left' : 'Credits Remaining';
+  const usageValue = isUnlimited ? (unlimitedDaysLeft ?? 0) : balance;
+  const usageTotal = isUnlimited ? unlimitedTotalDays : planCredits;
+  const isUnlimitedExpired = unlimitedPlan?.status === 'expired';
+  const footerText = isUnlimitedExpired
+    ? 'Your unlimited plan has expired — recharge to continue generating without a credit balance.'
+    : isUnlimited
+      ? 'Unlimited AI Catalogue Generation and AI Virtual Tryon for the duration of your plan.'
+      : 'Credits are shared across AI Catalogue Generation and AI Virtual Tryon.';
+  const unlimitedRenewalPricePaise = isUnlimited ? (unlimitedPlan?.pricePaise ?? null) : null;
 
   return {
     paymentResult,
@@ -623,6 +792,24 @@ export function usePricingData() {
     setCheckoutGstin,
     closeGstinModal,
     confirmGstinAndPay,
-    banner: { planName, balance, planCredits, pct, activatedDate },
+    renewingUnlimitedPlan,
+    startRenewUnlimitedPlan,
+    renewUnlimitedPlanConfirmOpen,
+    closeRenewUnlimitedPlanConfirm,
+    confirmRenewUnlimitedPlan,
+    unlimitedRenewalPricePaise,
+    banner: {
+      planName,
+      balance,
+      planCredits,
+      pct,
+      activatedDate,
+      isUnlimited,
+      isUnlimitedExpired,
+      usageLabel,
+      usageValue,
+      usageTotal,
+      footerText,
+    },
   };
 }

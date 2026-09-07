@@ -31,8 +31,16 @@ interface MeResponse {
   defaultAspectRatio: string;
   defaultPlatform: string;
 }
+interface UnlimitedPlanStatus {
+  status: 'active' | 'expiring_soon' | 'expired' | 'revoked' | 'none';
+  startAt: string | null;
+  endAt: string | null;
+  daysRemaining: number | null;
+  note: string | null;
+}
 interface CreditsResponse {
   balance: number;
+  unlimitedPlan: UnlimitedPlanStatus;
   recent: { id: string; delta: number; reason: string; createdAt: string }[];
 }
 interface PaymentRow {
@@ -998,36 +1006,99 @@ export default function SettingsPage(): React.ReactElement {
 
         {tab === 'Credit History' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-              {[
-                {
-                  label: 'Total Credits Purchased',
-                  val: purchased.toLocaleString('en-IN'),
-                  color: C.text,
-                },
-                { label: 'Credits Used', val: used.toLocaleString('en-IN'), color: C.pink },
-                {
-                  label: 'Credits Remaining',
-                  val: remaining.toLocaleString('en-IN'),
-                  color: C.mint,
-                },
-              ].map(({ label, val, color }) => (
-                <div
-                  key={label}
-                  style={{
-                    flex: 1,
-                    minWidth: 200,
-                    background: C.white,
-                    border: `1px solid ${C.border}`,
-                    borderRadius: 12,
-                    padding: '18px 20px',
-                  }}
-                >
-                  <div style={{ fontSize: 13, color: C.mid, marginBottom: 6 }}>{label}</div>
-                  <div style={{ fontSize: 26, fontWeight: 700, color }}>{val}</div>
+            {credits?.unlimitedPlan &&
+            (credits.unlimitedPlan.status === 'active' ||
+              credits.unlimitedPlan.status === 'expiring_soon') ? (
+              <div
+                style={{
+                  background: C.white,
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 12,
+                  padding: '18px 20px',
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 24,
+                  alignItems: 'center',
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: 13, color: C.mid, marginBottom: 6 }}>Plan</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 22, fontWeight: 700, color: C.text }}>Unlimited</span>
+                    <span
+                      style={{
+                        padding: '3px 10px',
+                        borderRadius: 20,
+                        fontSize: 12,
+                        fontWeight: 500,
+                        background:
+                          credits.unlimitedPlan.status === 'active'
+                            ? 'rgba(32,158,70,0.1)'
+                            : 'rgba(246,181,83,0.15)',
+                        color: credits.unlimitedPlan.status === 'active' ? C.mint : C.amber,
+                      }}
+                    >
+                      {credits.unlimitedPlan.status === 'active' ? 'Active' : 'Expiring soon'}
+                    </span>
+                  </div>
                 </div>
-              ))}
-            </div>
+                <div>
+                  <div style={{ fontSize: 13, color: C.mid, marginBottom: 6 }}>Start date</div>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: C.text }}>
+                    {credits.unlimitedPlan.startAt ? fmtDate(credits.unlimitedPlan.startAt) : '—'}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, color: C.mid, marginBottom: 6 }}>End date</div>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: C.text }}>
+                    {credits.unlimitedPlan.endAt ? fmtDate(credits.unlimitedPlan.endAt) : '—'}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, color: C.mid, marginBottom: 6 }}>Days left</div>
+                  <div
+                    style={{
+                      fontSize: 15,
+                      fontWeight: 600,
+                      color: credits.unlimitedPlan.status === 'active' ? C.mint : C.amber,
+                    }}
+                  >
+                    {credits.unlimitedPlan.daysRemaining}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                {[
+                  {
+                    label: 'Total Credits Purchased',
+                    val: purchased.toLocaleString('en-IN'),
+                    color: C.text,
+                  },
+                  { label: 'Credits Used', val: used.toLocaleString('en-IN'), color: C.pink },
+                  {
+                    label: 'Credits Remaining',
+                    val: remaining.toLocaleString('en-IN'),
+                    color: C.mint,
+                  },
+                ].map(({ label, val, color }) => (
+                  <div
+                    key={label}
+                    style={{
+                      flex: 1,
+                      minWidth: 200,
+                      background: C.white,
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 12,
+                      padding: '18px 20px',
+                    }}
+                  >
+                    <div style={{ fontSize: 13, color: C.mid, marginBottom: 6 }}>{label}</div>
+                    <div style={{ fontSize: 26, fontWeight: 700, color }}>{val}</div>
+                  </div>
+                ))}
+              </div>
+            )}
             <div
               style={{
                 background: C.white,

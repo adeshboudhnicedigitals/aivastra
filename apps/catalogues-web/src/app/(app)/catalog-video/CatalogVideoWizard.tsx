@@ -457,7 +457,10 @@ export function CatalogVideoWizard({
     enabled: step >= 2,
   });
 
-  const { data: creditsData } = useQuery<{ balance: number }>({
+  const { data: creditsData } = useQuery<{
+    balance: number;
+    unlimitedPlan?: { status: 'active' | 'expiring_soon' | 'expired' | 'revoked' | 'none' } | null;
+  }>({
     queryKey: ['credits'],
     queryFn: () => api.get('/v1/credits'),
     enabled: step >= 2,
@@ -465,8 +468,14 @@ export function CatalogVideoWizard({
 
   const creditCost = sampleVideos?.creditCost;
   const balance = creditsData?.balance;
+  const isUnlimitedPlan =
+    creditsData?.unlimitedPlan?.status === 'active' ||
+    creditsData?.unlimitedPlan?.status === 'expiring_soon';
   const insufficientCredits =
-    typeof creditCost === 'number' && typeof balance === 'number' && balance < creditCost;
+    !isUnlimitedPlan &&
+    typeof creditCost === 'number' &&
+    typeof balance === 'number' &&
+    balance < creditCost;
 
   // Sorted newest-first so the initial page (and each "Load more" page) is
   // always the next-most-recent batch. Rendering is paginated via
@@ -850,9 +859,11 @@ export function CatalogVideoWizard({
                       color: insufficientCredits ? '#D63B4C' : C.mid,
                     }}
                   >
-                    {creditCost} credits required
-                    {typeof balance === 'number' ? ` — you have ${balance} credits` : ''}
-                    {insufficientCredits ? '. Top up to generate a video.' : ''}
+                    {isUnlimitedPlan
+                      ? 'Unlimited plan — no credits required'
+                      : `${creditCost} credits required${
+                          typeof balance === 'number' ? ` — you have ${balance} credits` : ''
+                        }${insufficientCredits ? '. Top up to generate a video.' : ''}`}
                   </p>
                 )}
                 {sampleVideosLoading ? (

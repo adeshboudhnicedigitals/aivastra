@@ -259,6 +259,91 @@ export function PaymentResultModal({
               Continue
             </button>
           </div>
+        ) : result.kind === 'unlimited_renewal' ? (
+          <div>
+            <div
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: '50%',
+                background: 'color-mix(in srgb, #7C3AED 8%, transparent)',
+                color: '#7C3AED',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 22,
+                fontWeight: 700,
+                margin: '4px auto 12px',
+              }}
+            >
+              ✓
+            </div>
+            <div
+              id="payment-result-modal-title"
+              style={{
+                fontSize: 17,
+                fontWeight: 700,
+                color: C.text,
+                textAlign: 'center',
+                marginBottom: 20,
+              }}
+            >
+              Unlimited Plan Recharged
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  fontSize: 13,
+                  color: C.mid,
+                }}
+              >
+                <span>Amount paid</span>
+                <span style={{ color: C.text, fontWeight: 500 }}>{result.amountPaid}</span>
+              </div>
+              {result.newEndDate && (
+                <>
+                  <div style={{ height: 1, background: C.border, margin: '2px 0' }} />
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      fontSize: 14,
+                      fontWeight: 700,
+                      color: C.pink,
+                    }}
+                  >
+                    <span>Plan active until</span>
+                    <span>{result.newEndDate}</span>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                router.push('/tryon');
+                onClose();
+              }}
+              style={{
+                width: '100%',
+                marginTop: 24,
+                padding: '10px 24px',
+                background: grad,
+                border: 'none',
+                borderRadius: 8,
+                fontSize: 13,
+                fontWeight: 600,
+                color: '#fff',
+                cursor: 'pointer',
+              }}
+            >
+              Continue
+            </button>
+          </div>
         ) : (
           <div>
             <div

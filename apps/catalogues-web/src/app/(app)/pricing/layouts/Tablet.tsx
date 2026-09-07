@@ -53,6 +53,12 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
     setCheckoutGstin,
     closeGstinModal,
     confirmGstinAndPay,
+    renewingUnlimitedPlan,
+    startRenewUnlimitedPlan,
+    renewUnlimitedPlanConfirmOpen,
+    closeRenewUnlimitedPlanConfirm,
+    confirmRenewUnlimitedPlan,
+    unlimitedRenewalPricePaise,
     banner,
   } = props;
 
@@ -155,7 +161,16 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
 
       {/* Current Plan Banner */}
       {(() => {
-        const { planName, balance, planCredits, pct, activatedDate } = banner;
+        const {
+          planName,
+          pct,
+          activatedDate,
+          isUnlimited,
+          usageLabel,
+          usageValue,
+          usageTotal,
+          footerText,
+        } = banner;
 
         return (
           <div
@@ -244,19 +259,19 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
                   letterSpacing: '0.3px',
                 }}
               >
-                Credits Remaining
+                {usageLabel}
               </div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 2 }}>
                 <span style={{ fontSize: 40, fontWeight: 800, color: '#ffffff', lineHeight: 1 }}>
-                  {balance.toLocaleString('en-IN')}
+                  {usageValue.toLocaleString('en-IN')}
                 </span>
-                {planCredits !== null && (
+                {usageTotal !== null && (
                   <span style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)', marginLeft: 2 }}>
-                    /{planCredits.toLocaleString('en-IN')}
+                    /{usageTotal.toLocaleString('en-IN')}
                   </span>
                 )}
               </div>
-              {planCredits !== null && (
+              {usageTotal !== null && (
                 <div
                   style={{
                     height: 8,
@@ -277,8 +292,34 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
                 </div>
               )}
               <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', lineHeight: '16px' }}>
-                Credits are shared across AI Catalogue Generation and AI Virtual Tryon.
+                {footerText}
               </div>
+              {isUnlimited && (
+                <button
+                  type="button"
+                  onClick={startRenewUnlimitedPlan}
+                  disabled={renewingUnlimitedPlan}
+                  style={{
+                    marginTop: 4,
+                    padding: '10px 16px',
+                    borderRadius: 8,
+                    border: 'none',
+                    background: C.white,
+                    color: C.pink,
+                    fontFamily: 'inherit',
+                    fontWeight: 700,
+                    fontSize: 13,
+                    cursor: renewingUnlimitedPlan ? 'not-allowed' : 'pointer',
+                    opacity: renewingUnlimitedPlan ? 0.7 : 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                  }}
+                >
+                  {renewingUnlimitedPlan ? 'Processing…' : 'Renew'}
+                </button>
+              )}
             </div>
           </div>
         );
@@ -1056,6 +1097,19 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
           displayTotal={displayTotal}
           onClose={closeGstinModal}
           onPay={confirmGstinAndPay}
+        />
+      )}
+
+      {renewUnlimitedPlanConfirmOpen && (
+        <GstinConfirmModal
+          plan={{ basePaise: unlimitedRenewalPricePaise ?? 0 }}
+          gstin={checkoutGstin}
+          setGstin={setCheckoutGstin}
+          displayBase={displayBase}
+          displayTax={displayTax}
+          displayTotal={displayTotal}
+          onClose={closeRenewUnlimitedPlanConfirm}
+          onPay={confirmRenewUnlimitedPlan}
         />
       )}
     </div>
