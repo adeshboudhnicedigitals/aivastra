@@ -12,6 +12,7 @@ import { shopifyPurchaseRoutes } from './purchase.routes.js';
 import { enqueueSync } from './service.js';
 import { shopifySettingsRoutes } from './settings.routes.js';
 import { shopifyShoppersRoutes } from './shoppers.routes.js';
+import { shopifySupportRoutes } from './support.routes.js';
 import { registerWebhooksDecorator, shopifyWebhookRoutes } from './webhook.routes.js';
 import { shopifyWidgetConfigRoutes } from './widget-config.routes.js';
 
@@ -33,6 +34,7 @@ export async function shopifyRoutes(app: FastifyInstance) {
   await app.register(shopifyAnalyticsRoutes);
   await app.register(shopifyWidgetConfigRoutes);
   await app.register(shopifyShoppersRoutes);
+  await app.register(shopifySupportRoutes);
   await app.register(shopifyActivationRoutes);
   // Plain (non-fp) function: gets its own encapsulated child context, so the
   // raw-body JSON content-type parser registered inside stays scoped to these
