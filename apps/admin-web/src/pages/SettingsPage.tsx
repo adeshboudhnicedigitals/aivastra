@@ -261,7 +261,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
 
-  const [maxOutputPx, setMaxOutputPx] = useState(2048);
+  const [maxOutputPx, setMaxOutputPx] = useState(2560);
   const [maxBatchJobs, setMaxBatchJobs] = useState(200);
   const [maxQueueDepth, setMaxQueueDepth] = useState(50);
   const [sellerGstin, setSellerGstin] = useState('');

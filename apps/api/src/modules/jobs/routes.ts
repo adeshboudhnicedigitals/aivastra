@@ -21,6 +21,7 @@ import { AppError } from '../../lib/errors.js';
 import { withIdempotency } from '../../lib/idempotency.js';
 import { sendReportReceivedEmail } from '../../lib/mailer.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
+import { reopenResolvedTicket, setSubjectFromFirstMessage } from '../../lib/tickets.js';
 import { getSareeSettings } from '../saree/settings.js';
 import {
   createCatalogVideoJob,
@@ -1107,7 +1108,7 @@ export async function jobsRoutes(app: FastifyInstance) {
         }),
       },
     },
-    async (req, reply) => {
+    async (req) => {
       const body = req.body as {
         name: string;
         email: string;
@@ -1115,22 +1116,96 @@ export async function jobsRoutes(app: FastifyInstance) {
         source?: string;
         message?: string;
       };
-      await app.db.insert(schema.contactRequests).values({
-        userId: req.userId,
-        name: body.name,
-        email: body.email,
-        phone: body.phone,
-        source: body.source ?? null,
-        message: body.message ?? null,
-      });
 
+      // Same counter and window the chatbot WS `message` frame handler uses
+      // (apps/chatbot/src/ws/gateway.ts) — deliberately the same Redis key, so a
+      // user can't outrun the WS limit by switching to the form.
+      const rlKey = `chatbot:rl:${req.userId}`;
+      const n = await app.redis.incr(rlKey);
+      if (n === 1) await app.redis.expire(rlKey, 30);
+      if (n > 10) throw new AppError('RATE_LIMITED', 429, 'slow down');
+
+      const [existing] = await app.db
+        .select()
+        .from(schema.chatbotConversations)
+        .where(
+          and(
+            eq(schema.chatbotConversations.userId, req.userId),
+            sql`${schema.chatbotConversations.status} <> 'CLOSED'`,
+          ),
+        );
+      let convId: string;
+      let isNew = false;
+      if (existing) {
+        convId = existing.id;
+        if (existing.status === 'RESOLVED') {
+          await reopenResolvedTicket(app, convId);
+        }
+      } else {
+        const [created] = await app.db
+          .insert(schema.chatbotConversations)
+          .values({ userId: req.userId, source: 'contact_us' })
+          .onConflictDoNothing()
+          .returning();
+        if (created) {
+          convId = created.id;
+          isNew = true;
+        } else {
+          const [winner] = await app.db
+            .select()
+            .from(schema.chatbotConversations)
+            .where(
+              and(
+                eq(schema.chatbotConversations.userId, req.userId),
+                sql`${schema.chatbotConversations.status} <> 'CLOSED'`,
+              ),
+            );
+          convId = winner.id;
+        }
+      }
+
+      const content =
+        body.message?.trim() || `Contact request from ${body.name} (${body.email}, ${body.phone})`;
+      await setSubjectFromFirstMessage(app, convId, content);
+      const [msgRow] = await app.db
+        .insert(schema.chatbotMessages)
+        .values({ conversationId: convId, role: 'user', senderId: req.userId, content })
+        .returning();
+      await app.db
+        .update(schema.chatbotConversations)
+        .set({ lastMessageAt: new Date() })
+        .where(eq(schema.chatbotConversations.id, convId));
+
+      await app.redis.publish(
+        `chatbot:conv:${convId}`,
+        JSON.stringify({
+          type: 'message',
+          message: {
+            id: msgRow.id,
+            conversationId: convId,
+            role: 'user',
+            senderId: req.userId,
+            content,
+            attachmentKey: null,
+            attachmentType: null,
+            createdAt: msgRow.createdAt.toISOString(),
+          },
+        }),
+      );
+      if (isNew) {
+        await app.redis.publish('chatbot:queue', JSON.stringify({ type: 'queue_update' }));
+      }
+
+      // Contact Us collects name/email/phone as free-form fields — this may not
+      // be the account's own email — so the acknowledgment goes to whatever the
+      // caller submitted, same as the original contact_requests-era handler.
       try {
         await sendReportReceivedEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, body.email);
       } catch (err) {
         app.log.error({ err }, 'Failed to send report-received acknowledgment email');
       }
 
-      reply.code(204).send();
+      return { ticketId: convId };
     },
   );
 

@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { loadEnv } from './env.js';
 import { hashPassword } from './modules/auth/service.js';
 import { startUserLowCreditAlertScheduler } from './modules/credits/low-credit-alert-scheduler.js';
+import { startUnlimitedPlanReminderScheduler } from './modules/credits/unlimited-plan-scheduler.js';
 import { startAlertScheduler } from './modules/shopify/alert-scheduler.js';
 import { startAutorefillReconciler } from './modules/shopify/autorefill-reconciler.js';
 import { startCollectionResyncScheduler } from './modules/shopify/collections-resync-scheduler.js';
@@ -33,6 +34,7 @@ startAlertScheduler(app);
 startAutorefillReconciler(app);
 startRedactionRetryScheduler(app);
 startUserLowCreditAlertScheduler(app);
+startUnlimitedPlanReminderScheduler(app);
 
 if (env.ADMIN_BOOTSTRAP_EMAIL && env.ADMIN_BOOTSTRAP_PASSWORD) {
   const [existing] = await app.db

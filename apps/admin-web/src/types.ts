@@ -242,6 +242,21 @@ export interface User {
   signupSource?: 'admin' | 'android_google' | null;
   demoData?: boolean | null;
   balance: number;
+  unlimitedPlan?: {
+    status: 'active' | 'expiring_soon' | 'expired' | 'revoked' | 'none';
+    startAt: string | null;
+    endAt: string | null;
+    daysRemaining: number | null;
+    note: string | null;
+    pricePaise: number | null;
+    queueStream: 'priority' | 'normal' | 'low' | null;
+    charges?: {
+      id: string;
+      pricePaise: number;
+      chargeType: 'initial' | 'renewal';
+      chargedAt: string;
+    }[];
+  } | null;
   totalJobs: number;
   lastJobAt: string | null;
   createdAt: string;

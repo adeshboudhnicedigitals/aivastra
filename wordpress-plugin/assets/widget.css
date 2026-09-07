@@ -23,13 +23,13 @@
 }
 
 /* Force hidden elements to never show */
-/* biome-ignore lint/complexity/noImportantStyles: many step-content elements
-   share equal (0,1,0) specificity with this bare [hidden] catch-all and are
-   declared later in the file, which would otherwise win the cascade and
-   silently un-hide a toggled element. */
 .aivastra-tryon-modal [hidden],
 .aivastra-tryon-modal-content [hidden],
 [hidden] {
+  /* biome-ignore lint/complexity/noImportantStyles: many step-content elements
+     share equal (0,1,0) specificity with this bare [hidden] catch-all and are
+     declared later in the file, which would otherwise win the cascade and
+     silently un-hide a toggled element. */
   display: none !important;
 }
 

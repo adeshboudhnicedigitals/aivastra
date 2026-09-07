@@ -26,6 +26,10 @@ const Env = z.object({
   CHATBOT_SIMILARITY_THRESHOLD: z.coerce.number().default(0.4),
   CHATBOT_FALLBACK_LIMIT: z.coerce.number().default(2),
   CHATBOT_IDLE_TIMEOUT_MIN: z.coerce.number().default(30),
+  // How long a RESOLVED ticket stays reopenable before the sweeper auto-closes it.
+  // Default 7 days (10080 min) — long enough for a genuine follow-up to land on the
+  // same ticket, short enough that RESOLVED tickets don't sit open indefinitely.
+  CHATBOT_RESOLVED_CLOSE_TIMEOUT_MIN: z.coerce.number().default(10_080),
   CHATBOT_MAX_TOOL_ITERATIONS: z.coerce.number().default(4),
   CHATBOT_MAX_TURNS: z.coerce.number().default(80),
 });

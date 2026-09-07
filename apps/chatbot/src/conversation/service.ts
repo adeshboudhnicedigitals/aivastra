@@ -1,9 +1,19 @@
-import { and, type DB, eq, inArray, schema, sql } from '@aivastra/db';
+import { and, type DB, eq, inArray, isNull, schema, sql } from '@aivastra/db';
 import { chatbotMessagesTotal } from '@aivastra/observability';
 import type { ChatMessageT } from '@aivastra/types';
 import type { Redis } from 'ioredis';
 
-export type ConvStatus = 'BOT' | 'PENDING_HUMAN' | 'HUMAN' | 'CLOSED';
+export type ConvStatus =
+  | 'OPEN'
+  | 'IN_PROGRESS'
+  | 'RESOLVED'
+  | 'CLOSED'
+  // legacy — never produced by current code; kept so escalation.ts and the
+  // retired branches of sweeper.ts keep compiling without being touched.
+  | 'BOT'
+  | 'PENDING_HUMAN'
+  | 'HUMAN';
+
 export interface Conversation {
   id: string;
   userId: string;
@@ -20,7 +30,16 @@ export async function publishConv(pub: Redis, convId: string, frame: object): Pr
   await pub.publish(convChannel(convId), JSON.stringify(frame));
 }
 
-export async function getOrCreateActiveConversation(db: DB, userId: string): Promise<Conversation> {
+/**
+ * `created` reports whether this call inserted the ticket rather than resuming one.
+ * The WS connect handler needs it: a ticket opened purely from the chat bubble is
+ * otherwise invisible to agents until some unrelated event refreshes their queue.
+ */
+export async function getOrCreateActiveConversation(
+  db: DB,
+  userId: string,
+  source: string = 'chat_widget',
+): Promise<Conversation & { created: boolean }> {
   const [existing] = await db
     .select()
     .from(schema.chatbotConversations)
@@ -30,13 +49,13 @@ export async function getOrCreateActiveConversation(db: DB, userId: string): Pro
         sql`${schema.chatbotConversations.status} <> 'CLOSED'`,
       ),
     );
-  if (existing) return existing as Conversation;
+  if (existing) return { ...(existing as Conversation), created: false };
   const [created] = await db
     .insert(schema.chatbotConversations)
-    .values({ userId })
+    .values({ userId, source })
     .onConflictDoNothing()
     .returning();
-  if (created) return created as Conversation;
+  if (created) return { ...(created as Conversation), created: true };
   const [winner] = await db
     .select()
     .from(schema.chatbotConversations)
@@ -46,7 +65,30 @@ export async function getOrCreateActiveConversation(db: DB, userId: string): Pro
         sql`${schema.chatbotConversations.status} <> 'CLOSED'`,
       ),
     );
-  return winner as Conversation;
+  return { ...(winner as Conversation), created: false };
+}
+
+/** Max length of a subject auto-derived from a ticket's first user message. */
+export const SUBJECT_MAX_LEN = 80;
+
+/**
+ * Derive the ticket's subject from its first user message. The `subject IS NULL`
+ * guard is what makes this safe to call on every message without a read-then-write
+ * race — later messages simply match no rows.
+ */
+export async function setSubjectFromFirstMessage(
+  db: DB,
+  convId: string,
+  content: string,
+): Promise<void> {
+  const subject = content.trim().slice(0, SUBJECT_MAX_LEN);
+  if (!subject) return;
+  await db
+    .update(schema.chatbotConversations)
+    .set({ subject })
+    .where(
+      and(eq(schema.chatbotConversations.id, convId), isNull(schema.chatbotConversations.subject)),
+    );
 }
 
 function toWire(row: typeof schema.chatbotMessages.$inferSelect): ChatMessageT {
@@ -56,6 +98,8 @@ function toWire(row: typeof schema.chatbotMessages.$inferSelect): ChatMessageT {
     role: row.role as ChatMessageT['role'],
     senderId: row.senderId,
     content: row.content,
+    attachmentKey: row.attachmentKey,
+    attachmentType: row.attachmentType,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -69,6 +113,8 @@ export async function appendMessage(
     senderId?: string | null;
     content: string;
     meta?: { toolCalls?: string[]; qnaIds?: string[] } | null;
+    attachmentKey?: string | null;
+    attachmentType?: string | null;
   },
 ): Promise<ChatMessageT> {
   const [row] = await db
@@ -79,6 +125,8 @@ export async function appendMessage(
       senderId: msg.senderId ?? null,
       content: msg.content,
       meta: msg.meta ?? null,
+      attachmentKey: msg.attachmentKey ?? null,
+      attachmentType: msg.attachmentType ?? null,
     })
     .returning();
   if (!row) throw new Error('appendMessage: insert returned no row');
@@ -90,6 +138,33 @@ export async function appendMessage(
   const wire = toWire(row);
   await publishConv(pub, convId, { type: 'message', message: wire });
   return wire;
+}
+
+export async function reopenIfResolved(db: DB, pub: Redis, convId: string): Promise<void> {
+  const [row] = await db
+    .update(schema.chatbotConversations)
+    .set({ status: 'OPEN', assignedAgentId: null })
+    .where(
+      and(
+        eq(schema.chatbotConversations.id, convId),
+        eq(schema.chatbotConversations.status, 'RESOLVED'),
+      ),
+    )
+    .returning();
+  if (!row) return;
+  await db.insert(schema.chatbotEvents).values({
+    conversationId: convId,
+    type: 'reopen',
+    fromStatus: 'RESOLVED',
+    toStatus: 'OPEN',
+  });
+  await publishConv(pub, convId, {
+    type: 'state_change',
+    conversationId: convId,
+    status: 'OPEN',
+    reason: null,
+  });
+  await pub.publish('chatbot:queue', JSON.stringify({ type: 'queue_update' }));
 }
 
 export async function transition(

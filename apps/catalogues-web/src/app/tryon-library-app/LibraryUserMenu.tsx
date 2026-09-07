@@ -11,6 +11,7 @@ interface MerchantMeResponse {
   displayName: string | null;
   email: string | null;
   balance: number;
+  unlimitedPlan?: { status: 'active' | 'expiring_soon' | 'expired' | 'revoked' | 'none' } | null;
 }
 
 export function LibraryUserMenu({
@@ -32,6 +33,8 @@ export function LibraryUserMenu({
   });
 
   const balance = me?.balance ?? 0;
+  const isUnlimited =
+    me?.unlimitedPlan?.status === 'active' || me?.unlimitedPlan?.status === 'expiring_soon';
   const displayName = me?.displayName ?? me?.email?.split('@')[0] ?? 'User';
   const initials = displayName.slice(0, 2).toUpperCase() || 'U';
 
@@ -60,7 +63,9 @@ export function LibraryUserMenu({
             {/* biome-ignore lint/performance/noImgElement: credit icon, standalone page not using next/image */}
             <img src={`${BASE}/assets/credit.png`} alt="" width={16} height={16} />
           </span>
-          <span style={{ color: C.text, fontSize: 13, fontWeight: 500 }}>{balance} Credits</span>
+          <span style={{ color: C.text, fontSize: 13, fontWeight: 500 }}>
+            {isUnlimited ? 'Monthly' : `${balance} Credits`}
+          </span>
         </div>
       )}
 
