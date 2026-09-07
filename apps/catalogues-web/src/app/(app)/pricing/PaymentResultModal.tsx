@@ -288,7 +288,7 @@ export function PaymentResultModal({
                 marginBottom: 20,
               }}
             >
-              Unlimited Plan Recharged
+              Monthly Plan Recharged
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

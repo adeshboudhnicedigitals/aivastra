@@ -709,7 +709,7 @@ export function usePricingData() {
   const unlimitedDaysLeft = isUnlimited ? (unlimitedPlan?.daysRemaining ?? 0) : null;
 
   const planName = isUnlimited
-    ? 'Unlimited Plan'
+    ? 'Monthly Plan'
     : isFreeTier
       ? 'Free'
       : (currentPaidPlan?.name ?? latestPaidForCurrentTier?.planName ?? currentTier);
@@ -746,7 +746,7 @@ export function usePricingData() {
   const usageTotal = isUnlimited ? unlimitedTotalDays : planCredits;
   const isUnlimitedExpired = unlimitedPlan?.status === 'expired';
   const footerText = isUnlimitedExpired
-    ? 'Your unlimited plan has expired — recharge to continue generating without a credit balance.'
+    ? 'Your monthly plan has expired — recharge to continue generating without a credit balance.'
     : isUnlimited
       ? 'Unlimited AI Catalogue Generation and AI Virtual Tryon for the duration of your plan.'
       : 'Credits are shared across AI Catalogue Generation and AI Virtual Tryon.';

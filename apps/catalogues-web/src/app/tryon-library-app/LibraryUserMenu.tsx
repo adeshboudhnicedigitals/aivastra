@@ -64,7 +64,7 @@ export function LibraryUserMenu({
             <img src={`${BASE}/assets/credit.png`} alt="" width={16} height={16} />
           </span>
           <span style={{ color: C.text, fontSize: 13, fontWeight: 500 }}>
-            {isUnlimited ? 'Unlimited' : `${balance} Credits`}
+            {isUnlimited ? 'Monthly' : `${balance} Credits`}
           </span>
         </div>
       )}

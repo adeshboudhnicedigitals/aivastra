@@ -37,9 +37,9 @@ export async function unlimitedPlanRenewalRoutes(app: FastifyInstance) {
       const normalizedGstin = gstin?.trim().toUpperCase() || null;
 
       const plan = await getLatestUnlimitedPlan(app.db, req.userId);
-      if (!plan) throw new AppError('NOT_FOUND', 404, 'no unlimited plan found for this account');
+      if (!plan) throw new AppError('NOT_FOUND', 404, 'no monthly plan found for this account');
       if (plan.status === 'revoked') {
-        throw new AppError('FORBIDDEN', 403, 'this unlimited plan was revoked — contact support');
+        throw new AppError('FORBIDDEN', 403, 'this monthly plan was revoked — contact support');
       }
       if (plan.pricePaise <= 0) {
         throw new AppError(
@@ -77,7 +77,7 @@ export async function unlimitedPlanRenewalRoutes(app: FastifyInstance) {
         amount: totalPaise,
         currency: 'INR',
         keyId: RAZORPAY_KEY_ID,
-        label: 'Unlimited Plan Renewal',
+        label: 'Monthly Plan Renewal',
       };
     },
   );

@@ -142,7 +142,7 @@ function CreditSummaryBar() {
           </span>
           <div>
             <div style={{ fontSize: 16, fontWeight: 700, color: LIGHT.text, lineHeight: 1.2 }}>
-              {isUnlimitedPlan ? 'Unlimited' : available}
+              {isUnlimitedPlan ? 'Monthly' : available}
             </div>
             <div style={{ fontSize: 11, color: LIGHT.mid }}>Credits Available</div>
           </div>

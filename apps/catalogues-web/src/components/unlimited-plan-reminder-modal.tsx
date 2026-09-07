@@ -60,12 +60,12 @@ export function UnlimitedPlanReminderModal({
   const accent = stage === 'expired' ? C.danger : stage === 'three_day' ? C.danger : C.amber;
   const heading =
     stage === 'expired'
-      ? 'Your unlimited plan has expired'
-      : `Your unlimited plan ends in ${daysRemaining} day${daysRemaining === 1 ? '' : 's'}`;
+      ? 'Your monthly plan has expired'
+      : `Your monthly plan ends in ${daysRemaining} day${daysRemaining === 1 ? '' : 's'}`;
   const body =
     stage === 'expired'
-      ? `Your unlimited plan expired on ${endDateLabel ?? 'the scheduled date'}. Your account is now using your regular credit balance.`
-      : `Your unlimited plan is active until ${endDateLabel ?? 'the scheduled date'}. After that, your account goes back to using your regular credit balance.`;
+      ? `Your monthly plan expired on ${endDateLabel ?? 'the scheduled date'}. Your account is now using your regular credit balance.`
+      : `Your monthly plan is active until ${endDateLabel ?? 'the scheduled date'}. After that, your account goes back to using your regular credit balance.`;
   const ctaLabel = stage === 'expired' ? 'Renew Now' : 'Renew Early';
 
   return (

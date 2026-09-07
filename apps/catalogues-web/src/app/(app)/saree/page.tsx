@@ -479,7 +479,7 @@ export default function SareePage() {
               />
               <span style={{ fontSize: 14, fontWeight: 500, color: C.mid }}>
                 {isUnlimitedPlan ? (
-                  'Unlimited plan'
+                  'Monthly plan'
                 ) : (
                   <>
                     Uses {creditsCost} credits

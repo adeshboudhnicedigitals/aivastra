@@ -860,7 +860,7 @@ export function CatalogVideoWizard({
                     }}
                   >
                     {isUnlimitedPlan
-                      ? 'Unlimited plan — no credits required'
+                      ? 'Monthly plan — no credits required'
                       : `${creditCost} credits required${
                           typeof balance === 'number' ? ` — you have ${balance} credits` : ''
                         }${insufficientCredits ? '. Top up to generate a video.' : ''}`}

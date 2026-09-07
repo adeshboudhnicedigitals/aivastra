@@ -4611,7 +4611,7 @@ export default function StudioPage(): React.ReactElement {
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
-                      {isUnlimitedPlan ? 'Unlimited plan' : `${creditCost} credits required`}
+                      {isUnlimitedPlan ? 'Monthly plan' : `${creditCost} credits required`}
                     </span>
                     <span style={{ fontSize: 12, color: C.mid }}>
                       {isUnlimitedPlan

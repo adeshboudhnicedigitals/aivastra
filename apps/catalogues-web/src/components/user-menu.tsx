@@ -75,7 +75,7 @@ export function UserMenu() {
         </span>
         <span style={{ color: C.text, fontSize: 13, fontWeight: 500 }}>
           {isUnlimited ? (
-            'Unlimited'
+            'Monthly'
           ) : (
             <>
               {balance} <span className="user-menu-credits-word">Credits</span>

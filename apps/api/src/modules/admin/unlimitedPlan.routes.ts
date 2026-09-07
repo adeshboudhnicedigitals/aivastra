@@ -150,7 +150,7 @@ export async function adminUnlimitedPlanRoutes(app: FastifyInstance) {
           )
           .for('update');
         if (!existingActive)
-          throw new AppError('NOT_FOUND', 404, 'user has no active unlimited plan');
+          throw new AppError('NOT_FOUND', 404, 'user has no active monthly plan');
 
         await tx
           .update(schema.unlimitedPlans)

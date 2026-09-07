@@ -1024,7 +1024,7 @@ export default function SettingsPage(): React.ReactElement {
                 <div>
                   <div style={{ fontSize: 13, color: C.mid, marginBottom: 6 }}>Plan</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 22, fontWeight: 700, color: C.text }}>Unlimited</span>
+                    <span style={{ fontSize: 22, fontWeight: 700, color: C.text }}>Monthly</span>
                     <span
                       style={{
                         padding: '3px 10px',

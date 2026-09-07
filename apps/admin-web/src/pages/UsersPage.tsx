@@ -438,12 +438,12 @@ export default function UsersPage({ onNav, toast }: Props) {
       setUsers((prev) =>
         prev.map((u) => (u.id === detail.id ? { ...u, unlimitedPlan: updated } : u)),
       );
-      toast({ title: 'Unlimited plan saved' });
+      toast({ title: 'Monthly plan saved' });
       closeUnlimitedPlanEditor();
     } catch (err) {
       toast({
         kind: 'error',
-        title: 'Failed to save unlimited plan',
+        title: 'Failed to save monthly plan',
         body: apiErrorMessage(err, 'Please try again.'),
       });
     } finally {
@@ -469,12 +469,12 @@ export default function UsersPage({ onNav, toast }: Props) {
       setUsers((prev) =>
         prev.map((u) => (u.id === detail.id ? { ...u, unlimitedPlan: cleared } : u)),
       );
-      toast({ title: 'Unlimited plan revoked' });
+      toast({ title: 'Monthly plan revoked' });
       closeUnlimitedPlanEditor();
     } catch (err) {
       toast({
         kind: 'error',
-        title: 'Failed to revoke unlimited plan',
+        title: 'Failed to revoke monthly plan',
         body: apiErrorMessage(err, 'Please try again.'),
       });
     } finally {
@@ -1036,13 +1036,13 @@ export default function UsersPage({ onNav, toast }: Props) {
                 <button
                   className="stat"
                   onClick={openUnlimitedPlanEditor}
-                  title="Manage unlimited plan"
+                  title="Manage monthly plan"
                 >
                   <div className="lbl">
                     <Icon.Coin /> Credit balance
                   </div>
                   <div className="val">
-                    Unlimited{' '}
+                    Monthly{' '}
                     <span
                       className={`badge ${u.unlimitedPlan.status === 'expiring_soon' ? 'warn' : 'success'} dot`}
                     >
@@ -1051,7 +1051,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                     </span>
                   </div>
                   <div className="delta">
-                    Manage unlimited plan <Icon.Chevron />
+                    Manage monthly plan <Icon.Chevron />
                   </div>
                 </button>
               ) : (
@@ -1068,10 +1068,10 @@ export default function UsersPage({ onNav, toast }: Props) {
               <button
                 className="stat"
                 onClick={openUnlimitedPlanEditor}
-                title="Grant or manage an unlimited plan"
+                title="Grant or manage a monthly plan"
               >
                 <div className="lbl">
-                  <Icon.Credit /> Unlimited plan
+                  <Icon.Credit /> Monthly plan
                 </div>
                 <div className="val">
                   {u.unlimitedPlan && u.unlimitedPlan.status !== 'none' ? (
@@ -1096,7 +1096,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                 <div className="delta">
                   {u.unlimitedPlan && u.unlimitedPlan.status !== 'none'
                     ? 'Manage'
-                    : 'Grant unlimited plan'}{' '}
+                    : 'Grant monthly plan'}{' '}
                   <Icon.Chevron />
                 </div>
               </button>
@@ -1725,7 +1725,7 @@ export default function UsersPage({ onNav, toast }: Props) {
         {unlimitedPlanForm && (
           <EditDrawer
             onClose={closeUnlimitedPlanEditor}
-            title={`Unlimited plan — ${userLabel(u)}`}
+            title={`Monthly plan — ${userLabel(u)}`}
             width="min(480px, calc(100vw - 40px))"
             saving={savingUnlimitedPlan}
             onSave={handleGrantUnlimitedPlan}
@@ -1734,7 +1734,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                 ? 'Saving…'
                 : u.unlimitedPlan && u.unlimitedPlan.status !== 'none'
                   ? 'Save changes'
-                  : 'Grant unlimited plan'
+                  : 'Grant monthly plan'
             }
             saveDisabled={
               savingUnlimitedPlan ||
@@ -1845,7 +1845,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                     disabled={revokingUnlimitedPlan}
                     onClick={handleRevokeUnlimitedPlan}
                   >
-                    {revokingUnlimitedPlan ? 'Revoking…' : 'Revoke unlimited plan'}
+                    {revokingUnlimitedPlan ? 'Revoking…' : 'Revoke monthly plan'}
                   </button>
                 )}
               {u.unlimitedPlan?.charges && u.unlimitedPlan.charges.length > 0 && (
@@ -2609,7 +2609,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                         <span
                           className={`badge dot ${u.unlimitedPlan?.status === 'expiring_soon' ? 'warn' : 'success'}`}
                         >
-                          Unlimited
+                          Monthly
                         </span>
                       ) : (
                         <span className="mono" style={{ fontVariantNumeric: 'tabular-nums' }}>
@@ -2715,7 +2715,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                       <span style={{ textTransform: 'capitalize' }}>{u.tier}</span>
                       <span>&middot;</span>
                       {hasActiveUnlimitedPlan(u) ? (
-                        <span className="mono">Unlimited</span>
+                        <span className="mono">Monthly</span>
                       ) : (
                         <span className="mono">{u.balance.toLocaleString()} credits</span>
                       )}
