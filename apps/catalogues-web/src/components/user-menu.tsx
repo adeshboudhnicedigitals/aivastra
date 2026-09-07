@@ -11,6 +11,7 @@ const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
 interface CreditsResponse {
   balance: number;
+  unlimitedPlan?: { status: 'active' | 'expiring_soon' | 'expired' | 'revoked' | 'none' } | null;
 }
 interface MeResponse {
   email: string;
@@ -35,6 +36,9 @@ export function UserMenu() {
   });
 
   const balance = credits?.balance ?? 0;
+  const isUnlimited =
+    credits?.unlimitedPlan?.status === 'active' ||
+    credits?.unlimitedPlan?.status === 'expiring_soon';
   const email = me?.email ?? '';
   const displayName = me?.displayName ?? email.split('@')[0] ?? 'User';
   const initials = displayName.slice(0, 2).toUpperCase() || 'U';
@@ -70,7 +74,13 @@ export function UserMenu() {
           <img src={`${BASE}/assets/credit.png`} alt="" width={16} height={16} />
         </span>
         <span style={{ color: C.text, fontSize: 13, fontWeight: 500 }}>
-          {balance} <span className="user-menu-credits-word">Credits</span>
+          {isUnlimited ? (
+            'Monthly'
+          ) : (
+            <>
+              {balance} <span className="user-menu-credits-word">Credits</span>
+            </>
+          )}
         </span>
       </Link>
 

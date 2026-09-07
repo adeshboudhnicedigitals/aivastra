@@ -27,6 +27,7 @@ import {
 } from '../../lib/resolution-config.js';
 import { assertGarmentObjectValid, assertOwnsUploadKey } from '../../lib/upload-ownership.js';
 import { atomicDeduct, refundAndMarkFailed } from '../credits/ledger.js';
+import { getActiveUnlimitedPlan } from '../credits/unlimited-plan.js';
 import { getSareeSettings } from '../saree/settings.js';
 import { promptGuard } from './sanitize.js';
 
@@ -113,7 +114,7 @@ export async function resolveQueueRouting(
   app: FastifyInstance,
   userId: string,
 ): Promise<QueueRouting> {
-  const [[planRow], [creditsRow]] = await Promise.all([
+  const [[planRow], [creditsRow], unlimitedPlan] = await Promise.all([
     app.db
       .select({
         queueStream: schema.creditPlans.queueStream,
@@ -126,7 +127,23 @@ export async function resolveQueueRouting(
       .select({ balance: schema.userCredits.balance })
       .from(schema.userCredits)
       .where(eq(schema.userCredits.userId, userId)),
+    getActiveUnlimitedPlan(app.db, userId),
   ]);
+
+  // An active unlimited plan sets its own queue priority, independent of
+  // tier — and unlike the tier-driven path below, is never downgraded for
+  // lack of balance: an unlimited-plan user has no balance to check in the
+  // first place (see atomicDeduct's bypass, apps/api/src/modules/credits/ledger.ts).
+  // Watermark stays tier-derived either way — granting this plan was
+  // deliberately scoped to balance + queue priority only, not watermarking.
+  if (unlimitedPlan) {
+    const queueStream = unlimitedPlan.queueStream;
+    return {
+      queueStream,
+      priority: queueStream === 'priority',
+      watermark: planRow?.watermark ?? false,
+    };
+  }
 
   const rawQueueStream: string = planRow?.queueStream ?? 'normal';
   const hasBalance = (creditsRow?.balance ?? 0) > 0;

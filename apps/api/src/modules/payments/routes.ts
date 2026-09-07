@@ -6,31 +6,14 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { sendPaymentReceiptEmail } from '../../lib/mailer.js';
+import { createRazorpayOrder } from '../../lib/razorpay.js';
+import {
+  applyUnlimitedPlanRenewalPayment,
+  markUnlimitedPlanChargeFailed,
+} from '../credits/unlimited-plan-renewal.js';
 import { issueInvoiceIfNeeded } from './issue-invoice.js';
 
 const GST_RATE = 0.18;
-
-async function createRazorpayOrder(
-  keyId: string,
-  keySecret: string,
-  amountPaise: number,
-  receipt: string,
-): Promise<{ id: string }> {
-  const credentials = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
-  const res = await fetch('https://api.razorpay.com/v1/orders', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Basic ${credentials}`,
-    },
-    body: JSON.stringify({ amount: amountPaise, currency: 'INR', receipt }),
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Razorpay order creation failed: ${body}`);
-  }
-  return res.json() as Promise<{ id: string }>;
-}
 
 // Shared helper — send receipt email non-fatally after a successful credit grant
 async function maybeSendReceipt(
@@ -450,7 +433,22 @@ export async function paymentsRoutes(app: FastifyInstance) {
           .where(eq(schema.payments.razorpayOrderId, razorpayOrderId));
 
         if (!payment) {
-          app.log.error({ razorpayOrderId }, 'razorpay webhook: order not found in DB');
+          // Not a credit-pack order — check whether it's an unlimited-plan
+          // renewal instead. Same webhook endpoint handles both since Razorpay
+          // is only configured with one webhook URL for this account.
+          const renewal = await applyUnlimitedPlanRenewalPayment(
+            app,
+            razorpayOrderId,
+            razorpayPaymentId,
+          );
+          if (renewal.handled) {
+            app.log.info(
+              { razorpayOrderId, razorpayPaymentId, applied: renewal.applied },
+              'razorpay webhook: unlimited-plan renewal handled',
+            );
+          } else {
+            app.log.error({ razorpayOrderId }, 'razorpay webhook: order not found in DB');
+          }
           reply.code(200).send({ ok: true }); // ack regardless to prevent retries
           return;
         }
@@ -513,7 +511,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
           );
         }
       } else if (eventType === 'payment.failed' && razorpayOrderId) {
-        await app.db
+        const updated = await app.db
           .update(schema.payments)
           .set({ status: 'failed' })
           .where(
@@ -521,8 +519,17 @@ export async function paymentsRoutes(app: FastifyInstance) {
               eq(schema.payments.razorpayOrderId, razorpayOrderId),
               eq(schema.payments.status, 'created'),
             ),
+          )
+          .returning({ id: schema.payments.id });
+        if (updated.length > 0) {
+          app.log.info({ razorpayOrderId }, 'razorpay webhook: payment marked failed');
+        } else {
+          await markUnlimitedPlanChargeFailed(app, razorpayOrderId);
+          app.log.info(
+            { razorpayOrderId },
+            'razorpay webhook: unlimited-plan renewal charge marked failed (or not found)',
           );
-        app.log.info({ razorpayOrderId }, 'razorpay webhook: payment marked failed');
+        }
       }
 
       reply.code(200).send({ ok: true });

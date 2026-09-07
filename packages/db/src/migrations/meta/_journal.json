@@ -1338,6 +1338,34 @@
       "when": 1788418946357,
       "tag": "0190_gray_jack_flag",
       "breakpoints": true
+    },
+    {
+      "idx": 191,
+      "version": "7",
+      "when": 1788330137274,
+      "tag": "0191_heavy_triton",
+      "breakpoints": true
+    },
+    {
+      "idx": 192,
+      "version": "7",
+      "when": 1788333696809,
+      "tag": "0192_faithful_carlie_cooper",
+      "breakpoints": true
+    },
+    {
+      "idx": 193,
+      "version": "7",
+      "when": 1788433863234,
+      "tag": "0193_warm_roughhouse",
+      "breakpoints": true
+    },
+    {
+      "idx": 194,
+      "version": "7",
+      "when": 1788436400817,
+      "tag": "0194_milky_annihilus",
+      "breakpoints": true
     }
   ]
 }

@@ -311,10 +311,16 @@ export default function SareePage() {
   const isConfigured = cfg?.isConfigured ?? false;
   const creditsCost = cfg?.creditsCost ?? DEFAULT_CREDITS_COST;
 
-  const { data: credits } = useQuery<{ balance: number }>({
+  const { data: credits } = useQuery<{
+    balance: number;
+    unlimitedPlan?: { status: 'active' | 'expiring_soon' | 'expired' | 'revoked' | 'none' } | null;
+  }>({
     queryKey: ['credits'],
     queryFn: () => api.get('/v1/credits'),
   });
+  const isUnlimitedPlan =
+    credits?.unlimitedPlan?.status === 'active' ||
+    credits?.unlimitedPlan?.status === 'expiring_soon';
 
   useJobStream(
     useCallback(
@@ -472,11 +478,17 @@ export default function SareePage() {
                 style={{ opacity: 0.6 }}
               />
               <span style={{ fontSize: 14, fontWeight: 500, color: C.mid }}>
-                Uses {creditsCost} credits
-                {credits && (
-                  <span style={{ color: C.light, marginLeft: 6 }}>
-                    ({credits.balance} available)
-                  </span>
+                {isUnlimitedPlan ? (
+                  'Monthly plan'
+                ) : (
+                  <>
+                    Uses {creditsCost} credits
+                    {credits && (
+                      <span style={{ color: C.light, marginLeft: 6 }}>
+                        ({credits.balance} available)
+                      </span>
+                    )}
+                  </>
                 )}
               </span>
             </div>

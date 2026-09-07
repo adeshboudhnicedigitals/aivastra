@@ -419,3 +419,64 @@ export async function sendAutorefillCapApproachingEmail(
     html: capApproachingHtml(params),
   });
 }
+
+// Three stages are wired up ('seven_day', 'three_day', 'expired') — adding
+// another one later is one more branch here plus one more rank value in the
+// scheduler, not a redesign.
+export type UnlimitedPlanReminderStage = 'seven_day' | 'three_day' | 'expired';
+
+function unlimitedPlanReminderHtml(p: {
+  stage: UnlimitedPlanReminderStage;
+  endDateLabel: string;
+  daysRemaining: number;
+}): string {
+  const accent =
+    p.stage === 'expired' ? '#7c2d12' : p.stage === 'three_day' ? '#b42318' : '#b26a00';
+  const heading =
+    p.stage === 'expired'
+      ? 'Your monthly plan has expired'
+      : `Your monthly plan ends in ${p.daysRemaining} day${p.daysRemaining === 1 ? '' : 's'}`;
+  const bodyText =
+    p.stage === 'expired'
+      ? `Your AI Vastra monthly plan expired on <strong style="color:#1a1a1a;">${p.endDateLabel}</strong>. Your account is now using your regular credit balance.`
+      : `Your AI Vastra monthly plan is active until <strong style="color:#1a1a1a;">${p.endDateLabel}</strong>. After that, your account goes back to using your regular credit balance.`;
+  const ctaText =
+    p.stage === 'expired'
+      ? 'Reach out to us to renew your plan.'
+      : "Reach out to us if you'd like to extend your plan.";
+
+  return `<!DOCTYPE html>
+<html>
+<body style="font-family:sans-serif;background:#f6f6f6;margin:0;padding:40px 0;">
+  <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;">
+    <div style="background:${accent};padding:20px 32px;">
+      <h1 style="color:#fff;font-size:18px;font-weight:700;margin:0;">${heading}</h1>
+    </div>
+    <div style="padding:32px;">
+      <p style="font-size:14px;color:#555;margin:0 0 16px;">Hi,</p>
+      <p style="font-size:14px;color:#555;margin:0 0 16px;">
+        ${bodyText}
+      </p>
+      <p style="font-size:14px;color:#555;margin:0 0 24px;">${ctaText}</p>
+      <p style="font-size:14px;color:#555;margin:0 0 4px;">📧 <a href="mailto:support@aivastra.com" style="color:#1a1a1a;">support@aivastra.com</a></p>
+      <p style="font-size:14px;color:#555;margin:0 0 24px;">📱 WhatsApp: +91 7729883692</p>
+      <p style="font-size:14px;color:#555;margin:0;">Best regards,<br/>Team AI Vastra</p>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+export async function sendUnlimitedPlanReminderEmail(
+  apiKey: string,
+  from: string,
+  to: string,
+  params: { stage: UnlimitedPlanReminderStage; endDateLabel: string; daysRemaining: number },
+): Promise<void> {
+  const subject =
+    params.stage === 'expired'
+      ? 'Your monthly plan has expired'
+      : `Your monthly plan ends in ${params.daysRemaining} day${params.daysRemaining === 1 ? '' : 's'}`;
+
+  await send(apiKey, { from, to, subject, html: unlimitedPlanReminderHtml(params) });
+}
