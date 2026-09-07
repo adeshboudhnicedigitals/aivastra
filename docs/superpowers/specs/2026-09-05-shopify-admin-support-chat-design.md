@@ -18,7 +18,7 @@ changes to the ticket schema, the chatbot WS gateway, or any existing invariant.
 - A merchant inside the embedded Shopify admin can open a support chat and
   exchange text messages with a human agent.
 - Tickets created this way appear in the existing admin `ChatInboxPage` queue,
-  tagged so agents can tell they came from a Shopify merchant.
+  identifiable as coming from a Shopify merchant, and which store.
 - Zero changes to `apps/chatbot`'s WS auth, the `chatbot_conversations` schema,
   or the one-active-ticket-per-user invariant.
 
@@ -73,12 +73,23 @@ supportUserId: uuid('support_user_id').references(() => users.id, { onDelete: 's
 Nullable, independent of `owner_user_id`. Populated lazily, never by
 `shopify-auth.ts`'s provisioning path.
 
-`source` (`packages/db/src/schema/chatbot.ts:59`, passed through as a plain
-`string` param — e.g. `apps/chatbot/src/conversation/service.ts:41` — not a
-typed literal union anywhere) needs no schema or type change at all: the new
-call site simply passes `'shopify_admin'` as the value. Confirmed non-branching
-everywhere it's currently read (`apps/admin-web/src/pages/ChatInboxPage.tsx`
-only displays `source`, never switches on it).
+**Correction from the original approach:** `source` cannot actually be set to
+`'shopify_admin'` without touching `apps/chatbot`. The WS gateway
+(`apps/chatbot/src/ws/gateway.ts:79`) calls
+`getOrCreateActiveConversation(deps.db, principal.userId)` with no source
+argument for every WS-created ticket, regardless of caller — it always
+defaults to `'chat_widget'` (`conversation/service.ts:41`), and nothing in the
+WS protocol (`WsClientFrame`) carries a per-connection source override. Adding
+one would mean changing `apps/chatbot`, which this design deliberately avoids.
+
+Instead, the identifying signal is the synthetic support user's own `email`
+(`shopify-support+{shopDomain}@internal.aivastra.com` — see API section below)
+— already the exact field `apps/admin-web/src/pages/ChatInboxPage.tsx:335,410`
+surfaces per ticket as `userEmail` (joined in
+`apps/api/src/modules/admin/chatbot.routes.ts:177`). An agent sees
+`shopify-support+acme.myshopify.com@internal.aivastra.com` and immediately
+knows it's a Shopify merchant, and which store — without touching `source`,
+the chatbot schema, or the WS gateway at all.
 
 ## API
 
@@ -90,10 +101,13 @@ POST /v1/shopify/support/session
 
 - Gated by the existing `requireShopifySession` plugin — identical auth
   requirement to every other `apps/shopify` → `apps/api` call.
-- Handler: `getOrCreateSupportUser(tx, storeId)` — inside one transaction,
-  `SELECT` the store's `support_user_id`; if null, `INSERT` a new `users` row
-  (email `shopify-support+{storeId}@internal.aivastra.com`, `passwordHash:
-  null` — the same passwordless shape Google-OAuth accounts already use
+- Handler: `getOrCreateSupportUser(app, store)` — inside one transaction,
+  re-check the store's `support_user_id`; if still null, `INSERT` a new
+  `users` row (email `shopify-support+{shopDomain}@internal.aivastra.com` —
+  the shop domain, not the store's opaque id, so an agent recognizes the
+  merchant at a glance in `ChatInboxPage`'s existing email column;
+  `passwordHash: null` — the same passwordless shape Google-OAuth accounts
+  already use
   (`apps/api/src/modules/auth/google-upsert.ts`) — `emailVerified: true` so no
   downstream code path chokes on an unverified account) and `UPDATE
   shopify_stores.support_user_id`. Idempotent — a second call is a plain read.
@@ -156,13 +170,17 @@ chatbot's verifier checks and other routes reject).
 
 - `apps/api/test/integration/shopify-support-session.test.ts`: creates a
   support user on first call, returns the same user id on a second call
-  (idempotency), 401 without a valid session token, and confirms the returned
-  token successfully mints a chatbot WS ticket end-to-end.
-- `pnpm --filter @aivastra/shopify typecheck` / `build` clean.
+  (idempotency), 401 without a valid session token, and decodes the returned
+  token to confirm it has the exact `{kind: 'access'}`/`sub` shape chatbot's
+  `verifyBearer` accepts — the same shape every real login token already has.
+  The full round trip through chatbot's `/ws-ticket` is not exercised in this
+  suite (`apps/api`'s integration tests only start Postgres/Redis/MinIO, not
+  the chatbot service) — that's covered by manual verification below.
+- `pnpm --filter @aivastra/shopify-admin typecheck` / `build` clean.
 - Manual verification (no automated UI test, matching this repo's existing
   convention of not unit-testing `chat-widget.tsx` itself): open the embedded
   admin locally, send a message via `SupportChat`, confirm it lands in
-  `ChatInboxPage` tagged `shopify_admin`, reply as an agent, confirm the reply
+  `ChatInboxPage` with the synthetic `shopify-support+<domain>` email, reply as an agent, confirm the reply
   arrives back in the SPA over WS.
 
 ## Deferred (ledgered, not forgotten)
