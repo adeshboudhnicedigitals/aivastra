@@ -13,6 +13,7 @@ import {
 import { SupportModal } from '@/components/SupportModal';
 import { C } from '@/components/tokens';
 import { PremiumSelect } from '@/components/ui/premium-select';
+import { ZoomableImage } from '@/components/ZoomableImage';
 import { useGoogleDriveStatus } from '@/hooks/use-google-drive-status';
 import { useJobStream } from '@/hooks/use-job-stream';
 import { api } from '@/lib/api';
@@ -1571,26 +1572,7 @@ export function GenerationPanel({
           >
             <XIcon size={20} />
           </button>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={zoomUrl}
-            alt=""
-            draggable={false}
-            onContextMenu={(e) => e.preventDefault()}
-            style={{
-              maxWidth: '100%',
-              maxHeight: '100%',
-              objectFit: 'contain',
-              borderRadius: 8,
-              transform: zoomVisible ? 'scale(1)' : 'scale(0.95)',
-              opacity: zoomVisible ? 1 : 0,
-              transition: 'transform 300ms ease-out, opacity 300ms ease-out',
-              pointerEvents: 'none',
-              WebkitTouchCallout: 'none',
-              WebkitUserSelect: 'none',
-              userSelect: 'none',
-            }}
-          />
+          <ZoomableImage src={zoomUrl} visible={zoomVisible} variant="scale" />
         </div>
       )}
 
