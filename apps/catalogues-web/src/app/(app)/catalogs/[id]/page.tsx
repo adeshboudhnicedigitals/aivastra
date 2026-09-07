@@ -18,6 +18,7 @@ import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { PremiumSelect } from '@/components/ui/premium-select';
+import { ZoomableImage } from '@/components/ZoomableImage';
 import { useGoogleDriveStatus } from '@/hooks/use-google-drive-status';
 import { useJobStream } from '@/hooks/use-job-stream';
 import { api } from '@/lib/api';
@@ -1206,26 +1207,7 @@ export default function CataloguePage({
           >
             <XIcon size={20} />
           </button>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          {/* biome-ignore lint/performance/noImgElement: presigned R2 URL, Next/Image incompatible */}
-          <img
-            src={zoom.url}
-            alt=""
-            draggable={false}
-            onContextMenu={(e) => e.preventDefault()}
-            style={{
-              maxWidth: '100%',
-              maxHeight: '100%',
-              objectFit: 'contain',
-              borderRadius: 8,
-              transform: zoomVisible ? 'translateX(0)' : 'translateX(100%)',
-              transition: 'transform 300ms ease-out',
-              pointerEvents: 'none',
-              WebkitTouchCallout: 'none',
-              WebkitUserSelect: 'none',
-              userSelect: 'none',
-            }}
-          />
+          <ZoomableImage src={zoom.url} visible={zoomVisible} variant="slide" />
           {REGENERATE_ENABLED && zoom.job.status === 'COMPLETED' && !zoom.job.alreadyDownloaded && (
             <button
               type="button"
