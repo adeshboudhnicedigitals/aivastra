@@ -299,6 +299,47 @@ export function GarmentTypesTab() {
     }
   };
 
+  // Deletes the underlying pose asset itself (soft delete → recycle bin), same
+  // endpoint the Pose Assets tab uses — this is NOT scoped to the current garment
+  // type, since a pose asset is shared across every garment type that maps to it.
+  const deletePoseAsset = async (poseAssetId: string) => {
+    const prevConfigs = poseConfigs;
+    setPoseConfigs((prev) => prev.filter((p) => p.id !== poseAssetId));
+    try {
+      await apiFetch(`/admin/assets/pose-assets/${poseAssetId}`, { method: 'DELETE' });
+      toast({ title: 'Pose moved to recycle bin' });
+    } catch (e) {
+      setPoseConfigs(prevConfigs);
+      toast({
+        kind: 'error',
+        title: 'Failed to delete pose',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    }
+  };
+
+  const deletePoseAssets = async (poseAssetIds: string[]) => {
+    if (poseAssetIds.length === 0) return;
+    const prevConfigs = poseConfigs;
+    setPoseConfigs((prev) => prev.filter((p) => !poseAssetIds.includes(p.id)));
+    try {
+      const res = await apiFetch<{ deleted: number }>('/admin/assets/pose-assets', {
+        method: 'DELETE',
+        body: JSON.stringify({ ids: poseAssetIds }),
+      });
+      toast({
+        title: `${res.deleted} pose${res.deleted !== 1 ? 's' : ''} moved to recycle bin`,
+      });
+    } catch (e) {
+      setPoseConfigs(prevConfigs);
+      toast({
+        kind: 'error',
+        title: 'Bulk delete failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    }
+  };
+
   const doDelete = async () => {
     if (!confirmDelete) return;
     const { id, label } = confirmDelete;
@@ -410,6 +451,8 @@ export function GarmentTypesTab() {
             }
             onSaveDefaultPose={saveDefaultPose}
             savingDefaultPose={savingDefaultPose}
+            onDelete={deletePoseAsset}
+            onBulkDelete={deletePoseAssets}
           />
         </>
       )}
@@ -1851,6 +1894,8 @@ interface PoseConfigsPanelProps {
   onToggleActive: (poseAssetId: string, isActive: boolean) => Promise<void>;
   onSaveDefaultPose: (garmentTypeId: string, poseAssetId: string | null) => Promise<void>;
   savingDefaultPose: boolean;
+  onDelete: (poseAssetId: string) => Promise<void>;
+  onBulkDelete: (poseAssetIds: string[]) => Promise<void>;
 }
 
 function PoseConfigsPanel({
@@ -1863,6 +1908,8 @@ function PoseConfigsPanel({
   onToggleActive,
   onSaveDefaultPose,
   savingDefaultPose,
+  onDelete,
+  onBulkDelete,
 }: PoseConfigsPanelProps) {
   const [editing, setEditing] = useState<PoseGarmentConfig | null>(null);
   const [editWorkflow, setEditWorkflow] = useState('');
@@ -1870,6 +1917,9 @@ function PoseConfigsPanel({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkWorkflow, setBulkWorkflow] = useState('');
   const [bulkSaving, setBulkSaving] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   // '' = all workflows, 'none' = poses with no workflow assigned (override or default), else a workflow id
   const [workflowFilter, setWorkflowFilter] = useState('');
 
@@ -1951,6 +2001,31 @@ function PoseConfigsPanel({
       );
       clearSelection();
       setBulkWorkflow('');
+    } finally {
+      setBulkSaving(false);
+    }
+  };
+
+  const doDeleteSingle = async () => {
+    if (!confirmDeleteId) return;
+    const id = confirmDeleteId;
+    setConfirmDeleteId(null);
+    setDeletingId(id);
+    try {
+      await onDelete(id);
+      setSelectedIds((prev) => prev.filter((x) => x !== id));
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const doBulkDelete = async () => {
+    setConfirmBulkDelete(false);
+    if (selectedIds.length === 0) return;
+    setBulkSaving(true);
+    try {
+      await onBulkDelete(selectedIds);
+      clearSelection();
     } finally {
       setBulkSaving(false);
     }
@@ -2076,6 +2151,13 @@ function PoseConfigsPanel({
                 onClick={() => void applyBulkClearOverride()}
               >
                 {bulkSaving ? 'Clearing…' : 'Clear override'}
+              </button>
+              <button
+                className="btn sm danger"
+                disabled={bulkSaving}
+                onClick={() => setConfirmBulkDelete(true)}
+              >
+                <Icon.Trash /> Delete ({selectedIds.length})
               </button>
               <button className="btn sm ghost" onClick={clearSelection} disabled={bulkSaving}>
                 Clear
@@ -2243,11 +2325,70 @@ function PoseConfigsPanel({
                     <Icon.Edit /> Set workflow
                   </button>
                 </div>
+                <button
+                  className="btn danger"
+                  style={{ width: '100%', marginTop: 4, fontSize: 11, padding: '3px 0' }}
+                  disabled={deletingId === item.id}
+                  onClick={() => setConfirmDeleteId(item.id)}
+                >
+                  <Icon.Trash /> {deletingId === item.id ? 'Deleting…' : 'Move to recycle bin'}
+                </button>
               </div>
             </div>
           );
         })}
       </div>
+
+      {/* Delete single pose confirm */}
+      {confirmDeleteId && (
+        <div className="modal-overlay" onClick={() => setConfirmDeleteId(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Move to recycle bin</h3>
+            </div>
+            <div className="modal-body">
+              <p>
+                Move this pose to the recycle bin? It will disappear from every garment type it's
+                mapped to, not just {sub.label} — you can restore it later.
+              </p>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setConfirmDeleteId(null)}>
+                Cancel
+              </button>
+              <button className="btn danger" onClick={() => void doDeleteSingle()}>
+                <Icon.Trash /> Move to recycle bin
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk delete confirm */}
+      {confirmBulkDelete && (
+        <div className="modal-overlay" onClick={() => setConfirmBulkDelete(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Move {selectedIds.length} poses to recycle bin</h3>
+            </div>
+            <div className="modal-body">
+              <p>
+                Move <strong>{selectedIds.length} selected poses</strong> to the recycle bin? They
+                will disappear from every garment type they're mapped to, not just {sub.label} — you
+                can restore them later.
+              </p>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setConfirmBulkDelete(false)}>
+                Cancel
+              </button>
+              <button className="btn danger" onClick={() => void doBulkDelete()}>
+                <Icon.Trash /> Move to recycle bin ({selectedIds.length})
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Edit override modal */}
       {editing && (

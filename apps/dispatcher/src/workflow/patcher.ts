@@ -246,7 +246,7 @@ export async function patchWorkflow(
   snapshotVersion?: number | null,
 ): Promise<PatchedWorkflow> {
   const tmpl = await loadWorkflow(db, inputs.workflowTemplateId, snapshotVersion);
-  const workflow = JSON.parse(JSON.stringify(tmpl.jsonContent)) as Workflow;
+  const workflow = structuredClone(tmpl.jsonContent) as Workflow;
   const prompt = applyWorkflowPatch(workflow, tmpl, inputs, log);
   return { prompt, resultNodeId: tmpl.resultNodeId };
 }

@@ -59,6 +59,8 @@ const ResultsQuery = z.object({
   // wordpress_tryon, shopify, saree*) — explicitly excluding regenerate jobs, which would
   // otherwise fall into this bucket by default since they don't match '%catalog%' either.
   jobType: z.enum(['all', 'tryon', 'catalog', 'regeneration']).default('all'),
+  gender: z.enum(['all', 'men', 'women', 'boys', 'girls']).default('all'),
+  garmentTypeId: z.string().uuid().optional(),
 });
 const FlagBody = z
   .object({
@@ -178,9 +180,8 @@ export async function resultsRoutes(app: FastifyInstance) {
     '/results/data',
     { preHandler: requireResultsUser, schema: { querystring: ResultsQuery } },
     async (req) => {
-      const { page, pageSize, search, userId, date, status, flag, jobType } = req.query as z.infer<
-        typeof ResultsQuery
-      >;
+      const { page, pageSize, search, userId, date, status, flag, jobType, gender, garmentTypeId } =
+        req.query as z.infer<typeof ResultsQuery>;
       const conditions: (SQL | undefined)[] = [];
 
       if (flag === 'flagged')
@@ -204,6 +205,13 @@ export async function resultsRoutes(app: FastifyInstance) {
       }
 
       if (userId) conditions.push(eq(schema.jobs.userId, userId));
+      // garmentTypeId narrows to one specific type; gender narrows to every type of
+      // that gender — both read off job_inputs.garment_type_id (via the
+      // garmentSubcategories join below), which is null for jobs that predate that
+      // column or never went through a garment-type-scoped path (e.g. legacy widget
+      // jobs), so those are correctly excluded rather than matched by either filter.
+      if (garmentTypeId) conditions.push(eq(schema.jobInputs.garmentTypeId, garmentTypeId));
+      if (gender !== 'all') conditions.push(eq(schema.garmentSubcategories.genderSlug, gender));
       if (search) {
         conditions.push(
           or(ilike(schema.users.email, `%${search}%`), ilike(schema.jobs.id, `%${search}%`)),
@@ -235,6 +243,10 @@ export async function resultsRoutes(app: FastifyInstance) {
           eq(schema.modelBackgrounds.id, schema.jobInputs.backgroundId),
         )
         .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
+        .leftJoin(
+          schema.garmentSubcategories,
+          eq(schema.garmentSubcategories.id, schema.jobInputs.garmentTypeId),
+        )
         .where(where);
 
       const rows = await app.db
@@ -292,6 +304,10 @@ export async function resultsRoutes(app: FastifyInstance) {
         )
         .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
         .leftJoin(schema.workers, eq(schema.workers.id, schema.jobs.workerId))
+        .leftJoin(
+          schema.garmentSubcategories,
+          eq(schema.garmentSubcategories.id, schema.jobInputs.garmentTypeId),
+        )
         .where(where)
         .orderBy(desc(schema.jobs.createdAt))
         .limit(pageSize)
@@ -336,6 +352,25 @@ export async function resultsRoutes(app: FastifyInstance) {
       .from(schema.users)
       .innerJoin(schema.jobs, eq(schema.jobs.userId, schema.users.id))
       .orderBy(schema.users.email);
+    return rows;
+  });
+
+  // Only garment types that actually have at least one job — same "only what's
+  // actually in use" convention as /results/users above — so the filter dropdown
+  // doesn't get cluttered with types an admin created but never generated with.
+  app.get('/results/garment-types', { preHandler: requireResultsUser }, async () => {
+    const rows = await app.db
+      .selectDistinct({
+        id: schema.garmentSubcategories.id,
+        label: schema.garmentSubcategories.label,
+        genderSlug: schema.garmentSubcategories.genderSlug,
+      })
+      .from(schema.garmentSubcategories)
+      .innerJoin(
+        schema.jobInputs,
+        eq(schema.jobInputs.garmentTypeId, schema.garmentSubcategories.id),
+      )
+      .orderBy(schema.garmentSubcategories.genderSlug, schema.garmentSubcategories.label);
     return rows;
   });
 
@@ -970,6 +1005,20 @@ ${commonCss()}
         <option value="regeneration">Regeneration</option>
       </select>
     </div>
+    <div class="filter-group" style="min-width:130px;flex:0">
+      <label>Gender</label>
+      <select class="select" id="filter-gender">
+        <option value="all">All</option>
+        <option value="men">Men</option>
+        <option value="women">Women</option>
+        <option value="boys">Boys</option>
+        <option value="girls">Girls</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>Garment type</label>
+      <select class="select" id="filter-garmenttype"><option value="">All garment types</option></select>
+    </div>
     <div class="filter-group">
       <label>Search</label>
       <input class="search-input" id="filter-search" placeholder="Username, email, job ID…" />
@@ -1115,8 +1164,8 @@ function appJs(): string {
   var FLAG_REASON_LABELS = FLAG_REASONS.reduce(function(acc, r) { acc[r.value] = r.label; return acc; }, {});
 
   var state = {
-    page: 1, pageSize: 25, total: 0, items: [], users: [],
-    filters: { userId: '', date: 'any', search: '', status: 'completed', flag: 'all', jobType: 'all' },
+    page: 1, pageSize: 25, total: 0, items: [], users: [], garmentTypes: [],
+    filters: { userId: '', date: 'any', search: '', status: 'completed', flag: 'all', jobType: 'all', gender: 'all', garmentTypeId: '' },
     loading: false,
   };
 
@@ -1142,6 +1191,18 @@ function appJs(): string {
     }).catch(function(e) { toast('Failed to load users: ' + e.message, 'error'); });
   }
 
+  var GENDER_LABELS = { men: 'Men', women: 'Women', boys: 'Boys', girls: 'Girls' };
+  function loadGarmentTypes() {
+    api('/results/garment-types').then(function(types) {
+      state.garmentTypes = types;
+      var sel = $('filter-garmenttype');
+      sel.innerHTML = '<option value="">All garment types</option>' + types.map(function(t) {
+        var genderLabel = GENDER_LABELS[t.genderSlug] || t.genderSlug;
+        return '<option value="' + esc(t.id) + '">' + esc(genderLabel) + ' — ' + esc(t.label) + '</option>';
+      }).join('');
+    }).catch(function(e) { toast('Failed to load garment types: ' + e.message, 'error'); });
+  }
+
   function loadData() {
     state.loading = true;
     renderSkeleton();
@@ -1154,6 +1215,8 @@ function appJs(): string {
     if (state.filters.status !== 'completed') p.set('status', state.filters.status);
     if (state.filters.flag !== 'all') p.set('flag', state.filters.flag);
     if (state.filters.jobType !== 'all') p.set('jobType', state.filters.jobType);
+    if (state.filters.gender !== 'all') p.set('gender', state.filters.gender);
+    if (state.filters.garmentTypeId) p.set('garmentTypeId', state.filters.garmentTypeId);
     api('/results/data?' + p.toString()).then(function(data) {
       state.items = data.items || [];
       state.total = data.total || 0;
@@ -1418,6 +1481,8 @@ function appJs(): string {
     state.filters.status = $('filter-status').value;
     state.filters.flag = $('filter-flag').value;
     state.filters.jobType = $('filter-jobtype').value;
+    state.filters.gender = $('filter-gender').value;
+    state.filters.garmentTypeId = $('filter-garmenttype').value;
     state.filters.search = $('filter-search').value.trim();
     state.page = 1;
     loadData();
@@ -1428,8 +1493,10 @@ function appJs(): string {
     $('filter-status').value = 'completed';
     $('filter-flag').value = 'all';
     $('filter-jobtype').value = 'all';
+    $('filter-gender').value = 'all';
+    $('filter-garmenttype').value = '';
     $('filter-search').value = '';
-    state.filters = { userId: '', date: 'any', search: '', status: 'completed', flag: 'all', jobType: 'all' };
+    state.filters = { userId: '', date: 'any', search: '', status: 'completed', flag: 'all', jobType: 'all', gender: 'all', garmentTypeId: '' };
     state.page = 1;
     loadData();
   });
@@ -1575,6 +1642,7 @@ function appJs(): string {
 
   // Boot
   loadUsers();
+  loadGarmentTypes();
   loadData();
 })();
 `;

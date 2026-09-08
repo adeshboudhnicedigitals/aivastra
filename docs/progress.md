@@ -2,6 +2,34 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-08 — Dispatcher crash-recovery can push `attempts` past MAX_ATTEMPTS
+
+**Open question / known issue (not yet fixed).**
+
+A read-only staging audit of the most recent 150 jobs found 3 jobs with `attempts = 3`,
+exceeding the coded `MAX_ATTEMPTS = 2` cap (`apps/dispatcher/src/job/processor.ts:37`):
+`d6cd22ca-f15f-4412-b2ab-2a8cfd5ee108`, `8253e2d9-20ed-490c-9c22-9d9983581eab`,
+`caa1cac3-db03-4775-9628-f5c218079266`. All three cluster in one ~90-minute window on
+2026-09-04 (10:21–11:31 UTC): each shows two `COMFY_DISPATCH` events followed by two
+separate `FAILED` job_events — first `DISPATCHER_CRASH`, then (~4-5 min later) a ComfyUI
+`/history` polling timeout — consistent with a dispatcher crash mid-job whose stuck-job/
+XPENDING recovery reprocessed an in-flight message and double-incremented `attempts`.
+
+**Mechanism:** `processor.ts:187-210` treats a reclaimed job still in
+PREPROCESSING/GENERATING/UPLOADING as `DISPATCHER_CRASH` and routes it through
+`handleFailure` (`attempts += 1`). That check has no lock against a second concurrent
+reclaim seeing the same stale status before the first reclaim's `FAILED` write commits —
+a TOCTOU race between the recovery sweep and an in-flight `processJob` call. Checked
+structurally, not just inferred from the data: the code path genuinely has no guard here.
+
+**No billing impact** — refunds stayed idempotent via the `credit_ledger` unique index on
+`(job_id, reason)`; no double-refund occurred in any of the 3 rows.
+
+**Decision:** not chasing a fix now — zero financial impact, one incident window, no
+recurrence observed since. Revisit if it recurs. If fixed, the recovery sweep should
+re-check the job's message/consumer ownership (or use a compare-and-swap on status)
+before calling `handleFailure`, rather than trusting the DB status read alone.
+
 ## 2026-09-08 — Chat widget silently broken on prod: chatbot env vars pointed at unreachable hosts
 
 Enabling the customer-facing chat widget on production (mirroring the earlier staging
