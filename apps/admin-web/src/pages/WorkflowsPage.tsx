@@ -80,6 +80,8 @@ export default function WorkflowsPage({ toast }: Props) {
     regenerationReasonPrompts: [] as { reason: string; prompt: string; instruction: string }[],
     stage1PositivePrompt: '',
     stage1NegativePrompt: '',
+    latentMaxPx: '',
+    outputMaxPx: '',
     ksamplerOverrides: [] as {
       nodeId: string;
       steps: string;
@@ -245,6 +247,16 @@ export default function WorkflowsPage({ toast }: Props) {
       if (editingWf.stage1NegativePromptNode) {
         patch.stage1NegativePrompt = editForm.stage1NegativePrompt.trim();
       }
+      // Only a dual-size-group template (latentSizeNodeIds populated) has these caps —
+      // the node IDs themselves stay server-computed, only the pixel ceilings are editable.
+      if (editingWf.latentSizeNodeIds.length > 0) {
+        const latentMaxPx = Number(editForm.latentMaxPx);
+        if (!Number.isNaN(latentMaxPx)) patch.latentMaxPx = latentMaxPx;
+      }
+      if (editingWf.outputSizeNodeIds.length > 0) {
+        const outputMaxPx = Number(editForm.outputMaxPx);
+        if (!Number.isNaN(outputMaxPx)) patch.outputMaxPx = outputMaxPx;
+      }
       const ksamplerOverrides = editForm.ksamplerOverrides
         .map((o) => {
           const steps = Number(o.steps);
@@ -290,6 +302,14 @@ export default function WorkflowsPage({ toast }: Props) {
                   : {}),
                 ...(editingWf.stage1NegativePromptNode
                   ? { defaultStage1NegativePrompt: editForm.stage1NegativePrompt.trim() }
+                  : {}),
+                ...(editingWf.latentSizeNodeIds.length > 0 &&
+                !Number.isNaN(Number(editForm.latentMaxPx))
+                  ? { latentMaxPx: Number(editForm.latentMaxPx) }
+                  : {}),
+                ...(editingWf.outputSizeNodeIds.length > 0 &&
+                !Number.isNaN(Number(editForm.outputMaxPx))
+                  ? { outputMaxPx: Number(editForm.outputMaxPx) }
                   : {}),
                 ksamplerNodes: w.ksamplerNodes.map((n) => {
                   const form = editForm.ksamplerOverrides.find((o) => o.nodeId === n.nodeId);
@@ -567,6 +587,8 @@ export default function WorkflowsPage({ toast }: Props) {
                                 regenerationReasonPrompts: regenerationReasonPromptsFromWf(wf),
                                 stage1PositivePrompt: wf.defaultStage1PositivePrompt,
                                 stage1NegativePrompt: wf.defaultStage1NegativePrompt,
+                                latentMaxPx: String(wf.latentMaxPx ?? ''),
+                                outputMaxPx: String(wf.outputMaxPx ?? ''),
                                 ksamplerOverrides: ksamplerOverridesFromWf(wf),
                               });
                             }}
@@ -859,6 +881,8 @@ export default function WorkflowsPage({ toast }: Props) {
                               regenerationReasonPrompts: regenerationReasonPromptsFromWf(wf),
                               stage1PositivePrompt: wf.defaultStage1PositivePrompt,
                               stage1NegativePrompt: wf.defaultStage1NegativePrompt,
+                              latentMaxPx: String(wf.latentMaxPx ?? ''),
+                              outputMaxPx: String(wf.outputMaxPx ?? ''),
                               ksamplerOverrides: ksamplerOverridesFromWf(wf),
                             });
                           }}
@@ -1201,6 +1225,10 @@ export default function WorkflowsPage({ toast }: Props) {
             !editForm.slug.trim() ||
             !editForm.garmentPhasePrompt.trim() ||
             (!!editingWf?.stage1PositivePromptNode && !editForm.stage1PositivePrompt.trim()) ||
+            ((editingWf?.latentSizeNodeIds.length ?? 0) > 0 &&
+              (Number.isNaN(Number(editForm.latentMaxPx)) || Number(editForm.latentMaxPx) < 1)) ||
+            ((editingWf?.outputSizeNodeIds.length ?? 0) > 0 &&
+              (Number.isNaN(Number(editForm.outputMaxPx)) || Number(editForm.outputMaxPx) < 1)) ||
             editForm.ksamplerOverrides.some(
               (o) =>
                 Number.isNaN(Number(o.steps)) ||
@@ -1392,6 +1420,32 @@ export default function WorkflowsPage({ toast }: Props) {
                   onChange={(e) =>
                     setEditForm((f) => ({ ...f, stage1NegativePrompt: e.target.value }))
                   }
+                />
+              </div>
+            )}
+            {(editingWf?.latentSizeNodeIds.length ?? 0) > 0 && (
+              <div className="field">
+                <label>Latent max px (diffusion canvas)</label>
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  value={editForm.latentMaxPx}
+                  disabled={editSaving}
+                  onChange={(e) => setEditForm((f) => ({ ...f, latentMaxPx: e.target.value }))}
+                />
+              </div>
+            )}
+            {(editingWf?.outputSizeNodeIds.length ?? 0) > 0 && (
+              <div className="field">
+                <label>Output max px (final resize/pad target)</label>
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  value={editForm.outputMaxPx}
+                  disabled={editSaving}
+                  onChange={(e) => setEditForm((f) => ({ ...f, outputMaxPx: e.target.value }))}
                 />
               </div>
             )}

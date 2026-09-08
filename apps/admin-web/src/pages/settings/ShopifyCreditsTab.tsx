@@ -217,7 +217,7 @@ export default function ShopifyCreditsTab({ toast }: Props) {
                   saving ||
                   !Number.isInteger(shopifyTrialCredits) ||
                   shopifyTrialCredits < 0 ||
-                  shopifyTrialCredits > 1000 ||
+                  shopifyTrialCredits > 99999 ||
                   PACKS.some((pack) =>
                     (['credits', 'autorefillCredits'] as const).some((field) => {
                       const value = packCredits[pack.id][field];

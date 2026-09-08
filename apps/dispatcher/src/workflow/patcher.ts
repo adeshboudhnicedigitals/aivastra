@@ -158,6 +158,18 @@ export function applyWorkflowPatch(
       ? { width: inputs.outputWidth, height: inputs.outputHeight }
       : null;
   const enumDims = inputs.aspectRatio ? (ASPECT_DIMENSIONS[inputs.aspectRatio] ?? null) : null;
+  if (!customDims && enumDims) {
+    // Every current job-creation path snapshots outputWidth/outputHeight before
+    // enqueue, so this fallback firing means an older/unresolved job reached the
+    // dispatcher — it renders at the hardcoded ASPECT_DIMENSIONS default, silently
+    // ignoring any admin override set via PATCH /admin/config aspectDimensions
+    // (the dispatcher has no route to that live config). Logged so a mismatch
+    // between expected and actual output size is traceable, not just mysterious.
+    log?.warn(
+      `patchWorkflow: workflow "${tmpl.slug}" job has no pre-resolved outputWidth/outputHeight — ` +
+        `falling back to hardcoded ASPECT_DIMENSIONS["${inputs.aspectRatio}"], which ignores any admin-configured override`,
+    );
+  }
   const outputDims = customDims ?? enumDims;
 
   // Dual-size-group templates. Latent group (max-width/max-height) is derived from the
@@ -234,7 +246,7 @@ export async function patchWorkflow(
   snapshotVersion?: number | null,
 ): Promise<PatchedWorkflow> {
   const tmpl = await loadWorkflow(db, inputs.workflowTemplateId, snapshotVersion);
-  const workflow = JSON.parse(JSON.stringify(tmpl.jsonContent)) as Workflow;
+  const workflow = structuredClone(tmpl.jsonContent) as Workflow;
   const prompt = applyWorkflowPatch(workflow, tmpl, inputs, log);
   return { prompt, resultNodeId: tmpl.resultNodeId };
 }

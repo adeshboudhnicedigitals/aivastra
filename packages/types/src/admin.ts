@@ -148,6 +148,20 @@ export const SystemConfigBody = z.object({
     )
     .optional(),
   merchantCatalogAspectRatio: z.enum(['1:1', '2:3', '3:4', '4:5']).optional(),
+  // Admin-configurable canonical output pixel dimensions per aspect ratio (resize an
+  // existing ratio's long edge without a code deploy — see mergeAspectDimensions in
+  // apps/api/src/lib/resolution-config.ts). Only these 4 keys are recognized; they
+  // must stay in sync with ASPECT_DIMENSIONS in packages/types/src/jobs.ts, since
+  // that's what a value here overrides.
+  aspectDimensions: z
+    .record(
+      z.enum(['1:1', '2:3', '3:4', '4:5']),
+      z.object({
+        width: z.number().int().min(256).max(4096),
+        height: z.number().int().min(256).max(4096),
+      }),
+    )
+    .optional(),
   tryon: z
     .object({
       creditCost: z.number().int().positive().max(1_000),
