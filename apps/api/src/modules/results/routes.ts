@@ -1195,12 +1195,31 @@ function appJs(): string {
   function loadGarmentTypes() {
     api('/results/garment-types').then(function(types) {
       state.garmentTypes = types;
-      var sel = $('filter-garmenttype');
-      sel.innerHTML = '<option value="">All garment types</option>' + types.map(function(t) {
-        var genderLabel = GENDER_LABELS[t.genderSlug] || t.genderSlug;
-        return '<option value="' + esc(t.id) + '">' + esc(genderLabel) + ' — ' + esc(t.label) + '</option>';
-      }).join('');
+      renderGarmentTypeOptions();
     }).catch(function(e) { toast('Failed to load garment types: ' + e.message, 'error'); });
+  }
+
+  // Narrows the Garment type list to whichever gender is currently picked in the
+  // Gender filter, rather than always showing every gender's types in one flat
+  // list — the prefix ("Women — ") only earns its keep when 'All' genders are in
+  // play; scoped to one gender it's just noise. Runs on load and on every Gender
+  // change (not gated behind Apply) so narrowing feels immediate, and preserves
+  // the current selection across the rebuild when it still belongs to the list.
+  function renderGarmentTypeOptions() {
+    var sel = $('filter-garmenttype');
+    var selectedGender = $('filter-gender').value;
+    var prevValue = sel.value;
+    var types = selectedGender === 'all'
+      ? state.garmentTypes
+      : state.garmentTypes.filter(function(t) { return t.genderSlug === selectedGender; });
+    sel.innerHTML = '<option value="">All garment types</option>' + types.map(function(t) {
+      var label = selectedGender === 'all'
+        ? (GENDER_LABELS[t.genderSlug] || t.genderSlug) + ' — ' + t.label
+        : t.label;
+      return '<option value="' + esc(t.id) + '">' + esc(label) + '</option>';
+    }).join('');
+    if (types.some(function(t) { return t.id === prevValue; })) sel.value = prevValue;
+    else state.filters.garmentTypeId = '';
   }
 
   function loadData() {
@@ -1475,6 +1494,11 @@ function appJs(): string {
   });
 
   // Filters
+  // Re-scope the Garment type list the moment Gender changes, ahead of Apply —
+  // otherwise picking "Women" then opening Garment type still shows Boys/Girls
+  // entries until the next fetch, which is the exact "same garment types for
+  // every gender" complaint this narrowing fixes.
+  $('filter-gender').addEventListener('change', renderGarmentTypeOptions);
   $('btn-apply').addEventListener('click', function() {
     state.filters.userId = $('filter-user').value;
     state.filters.date = $('filter-date').value;
@@ -1495,6 +1519,7 @@ function appJs(): string {
     $('filter-jobtype').value = 'all';
     $('filter-gender').value = 'all';
     $('filter-garmenttype').value = '';
+    renderGarmentTypeOptions();
     $('filter-search').value = '';
     state.filters = { userId: '', date: 'any', search: '', status: 'completed', flag: 'all', jobType: 'all', gender: 'all', garmentTypeId: '' };
     state.page = 1;
