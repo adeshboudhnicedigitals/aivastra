@@ -3,7 +3,6 @@ import { type DB, schema } from '@aivastra/db';
 import { jobsCreatedTotal } from '@aivastra/observability';
 import { keys } from '@aivastra/storage';
 import {
-  ASPECT_DIMENSIONS,
   type CreateCatalogVideoJobRequest,
   type CreateSimpleTryonRequest,
   type CreateTryOnJobRequest,
@@ -20,6 +19,7 @@ import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
 import { assertQueueCapacity } from '../../lib/queue-capacity-config.js';
 import {
+  getAspectDimensions,
   getMaxOutputPx,
   getPixverseCreditCost,
   getResolutionCreditCost,
@@ -195,6 +195,7 @@ export interface TryonPlanCache {
   garmentTypes: Map<string, boolean>;
   maxOutputPx?: number;
   resolutionCosts: Map<string, number>;
+  aspectDimensions: Map<string, { width: number; height: number }>;
 }
 
 export function createTryonPlanCache(): TryonPlanCache {
@@ -205,6 +206,7 @@ export function createTryonPlanCache(): TryonPlanCache {
     catalogItems: new Map(),
     garmentTypes: new Map(),
     resolutionCosts: new Map(),
+    aspectDimensions: new Map(),
   };
 }
 
@@ -258,31 +260,44 @@ export async function resolveTryonPlan(
     thirdGarmentKey,
     shoeCatalogId,
   } = body.inputs;
-  const aspectRatio: string | undefined = body.aspectRatio;
+  const aspectRatio: string = body.aspectRatio;
   const platform: string | undefined = body.platform;
   const resolvedUpperGarmentKey = opts.resolvedUpperGarmentKey ?? undefined;
 
   // S1: compute cost server-side from actual output dims — never trust client's `resolution`.
   const customW = body.params?.outputWidth;
   const customH = body.params?.outputHeight;
-  const requestedDims =
-    customW && customH
-      ? { width: customW, height: customH }
-      : (ASPECT_DIMENSIONS[body.aspectRatio] ?? { width: 2688, height: 2688 });
-  // Platform-wide resolution ceiling — admin-configured, not per-workflow (see
-  // getMaxOutputPx). Only downscale, and only the long edge exceeding it; the
-  // dispatcher patches the workflow with whatever dims land in job_inputs.params,
-  // so this is the single enforcement point.
-  const maxOutputPx =
-    opts.cache?.maxOutputPx ??
-    (await (async () => {
-      const value = await getMaxOutputPx(app);
-      if (opts.cache) opts.cache.maxOutputPx = value;
-      return value;
-    })());
+  const isCustomDims = !!(customW && customH);
+  const requestedDims = isCustomDims
+    ? { width: customW, height: customH }
+    : (opts.cache?.aspectDimensions.get(aspectRatio) ??
+      (await (async () => {
+        const dims = (await getAspectDimensions(app, aspectRatio)) ?? {
+          width: 2688,
+          height: 2688,
+        };
+        opts.cache?.aspectDimensions.set(aspectRatio, dims);
+        return dims;
+      })()));
+  // Platform-wide resolution ceiling — admin-configured (see getMaxOutputPx) —
+  // only applies to a custom user-typed width/height (Studio's "custom" aspect
+  // option). The named-ratio table above is itself admin-curated (Settings →
+  // System → Aspect Ratio Sizes) and is already the intended output size, so
+  // it's never second-guessed here: clamping it would silently shrink exactly
+  // what the admin just configured for that ratio. Only fetched for the custom
+  // path — every named-ratio job would otherwise pay for a config read+parse
+  // whose result is never used (ceiling only ever gates isCustomDims below).
+  const maxOutputPx = isCustomDims
+    ? (opts.cache?.maxOutputPx ??
+      (await (async () => {
+        const value = await getMaxOutputPx(app);
+        if (opts.cache) opts.cache.maxOutputPx = value;
+        return value;
+      })()))
+    : undefined;
   const requestedLongEdge = Math.max(requestedDims.width, requestedDims.height);
   const outputDims =
-    requestedLongEdge > maxOutputPx
+    isCustomDims && maxOutputPx !== undefined && requestedLongEdge > maxOutputPx
       ? requestedDims.width >= requestedDims.height
         ? {
             width: maxOutputPx,
@@ -775,9 +790,9 @@ export async function resolveTryonPlan(
         ...(body.params ?? {}),
         dispatchTemplateVersion: pw?.version ?? null,
         ...(pw?.workflowTemplateId ? { workflowTemplateId: pw.workflowTemplateId } : {}),
-        // Always the clamped, server-computed dims — whether derived from the
-        // aspect-ratio enum or a custom request, this is what the dispatcher
-        // patches the workflow with. Never let a raw pre-maxOutputPx value through.
+        // Always the server-computed dims — the admin-curated aspect-ratio table's
+        // dims as-is, or a custom request clamped to maxOutputPx (see above). This
+        // is what the dispatcher patches the workflow with.
         outputWidth: outputDims.width,
         outputHeight: outputDims.height,
         ...(aspectRatio ? { aspectRatio } : {}),
