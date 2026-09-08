@@ -114,6 +114,11 @@ export interface WorkflowOption {
   shoeNodeId: string | null;
   thirdNodeId: string | null;
   sizeNodeIds: string[];
+  // Dual-size-group templates (build_model_main v2+) — empty arrays mean "use sizeNodeIds above".
+  latentSizeNodeIds: string[];
+  latentMaxPx: number;
+  outputSizeNodeIds: string[];
+  outputMaxPx: number;
   tryonPersonNodeId: string | null;
   tryonGarmentNodeId: string | null;
   tryonGarmentNodeId2: string | null;
