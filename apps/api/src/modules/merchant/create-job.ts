@@ -1,16 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import {
-  ASPECT_DIMENSIONS,
-  JOB_SOURCE,
-  type Resolution,
-  resolutionFromDims,
-} from '@aivastra/types';
+import { JOB_SOURCE, type Resolution, resolutionFromDims } from '@aivastra/types';
 import { aliasedTable, and, eq, ilike } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import {
-  getMaxOutputPx,
+  DEFAULT_ASPECT_DIMENSIONS,
+  getAspectDimensions,
   getResolutionCreditCost,
   getTryonCreditCost,
 } from '../../lib/resolution-config.js';
@@ -239,21 +235,13 @@ export async function createMerchantCatalogJob(
     await assertMerchantUploadKey(app, params.merchantId, params.secondFlatImageKey, 'pallu');
   }
 
-  const requestedDims = ASPECT_DIMENSIONS[aspectRatio] ?? ASPECT_DIMENSIONS['2:3'];
-  const maxOutputPx = await getMaxOutputPx(app);
-  const requestedLongEdge = Math.max(requestedDims.width, requestedDims.height);
+  // No custom-dims path exists here (aspectRatio is always one of the fixed named
+  // ratios — see merchantCatalogAspectRatio in admin config), so unlike
+  // resolveTryonPlan's requestedDims, this is never clamped to maxOutputPx: the
+  // admin-curated aspect-ratio table (Settings → System → Aspect Ratio Sizes) is
+  // already the intended output size for every ratio it covers.
   const outputDims =
-    requestedLongEdge > maxOutputPx
-      ? requestedDims.width >= requestedDims.height
-        ? {
-            width: maxOutputPx,
-            height: Math.round(maxOutputPx * (requestedDims.height / requestedDims.width)),
-          }
-        : {
-            width: Math.round(maxOutputPx * (requestedDims.width / requestedDims.height)),
-            height: maxOutputPx,
-          }
-      : requestedDims;
+    (await getAspectDimensions(app, aspectRatio)) ?? DEFAULT_ASPECT_DIMENSIONS['2:3'];
   const resolution: Resolution = resolutionFromDims(outputDims.width, outputDims.height);
   const cost = await getResolutionCreditCost(app, resolution);
 

@@ -264,6 +264,16 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   const [maxOutputPx, setMaxOutputPx] = useState(2560);
   const [maxBatchJobs, setMaxBatchJobs] = useState(200);
   const [maxQueueDepth, setMaxQueueDepth] = useState(50);
+  // Mirrors DEFAULT_ASPECT_DIMENSIONS in apps/api/src/lib/resolution-config.ts —
+  // only a fallback shown before /admin/config responds; the server is authoritative.
+  const [aspectDimensions, setAspectDimensions] = useState<
+    Record<string, { width: number; height: number }>
+  >({
+    '1:1': { width: 2560, height: 2560 },
+    '2:3': { width: 1707, height: 2560 },
+    '3:4': { width: 1920, height: 2560 },
+    '4:5': { width: 1375, height: 1718 },
+  });
   const [sellerGstin, setSellerGstin] = useState('');
   const [sellerLegalName, setSellerLegalName] = useState('');
   const [sellerAddress, setSellerAddress] = useState('');
@@ -332,11 +342,14 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
       >;
       merchantCatalogAspectRatio?: string;
       uploadLimits?: Record<string, number>;
+      aspectDimensions?: Record<string, { width: number; height: number }>;
     }>('/admin/config')
       .then((cfg) => {
         if (cfg.maxOutputPx) setMaxOutputPx(cfg.maxOutputPx);
         if (cfg.maxBatchJobs) setMaxBatchJobs(cfg.maxBatchJobs);
         if (cfg.maxQueueDepth) setMaxQueueDepth(cfg.maxQueueDepth);
+        if (cfg.aspectDimensions)
+          setAspectDimensions((prev) => ({ ...prev, ...cfg.aspectDimensions }));
         if (cfg.seller) {
           setSellerGstin(cfg.seller.gstin ?? '');
           setSellerLegalName(cfg.seller.legalName ?? '');
@@ -456,6 +469,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
           maxOutputPx,
           maxBatchJobs,
           maxQueueDepth,
+          aspectDimensions,
           seller: {
             gstin: sellerGstin.trim(),
             legalName: sellerLegalName.trim(),
@@ -835,8 +849,10 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                     Max Output Resolution
                   </div>
                   <div className="setting-desc" style={{ marginBottom: 12 }}>
-                    Platform-wide ceiling on the long edge of a generated image, in pixels. Applies
-                    to every job regardless of which workflow produced it.
+                    Ceiling on the long edge of a custom-dimension Studio generation only (the
+                    "custom" aspect option, where the user types their own width/height). Doesn't
+                    apply to the named ratios below — those are already the intended output size,
+                    whatever's set for them there.
                   </div>
                   <div
                     style={{
@@ -861,6 +877,76 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                       onChange={(e) => setMaxOutputPx(Number(e.target.value))}
                     />
                     <span style={{ fontSize: 13, color: 'var(--muted)' }}>px, long edge</span>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 24, marginBottom: 8 }}>
+                  <div className="setting-lbl" style={{ marginBottom: 4 }}>
+                    Aspect Ratio Sizes
+                  </div>
+                  <div className="setting-desc" style={{ marginBottom: 12 }}>
+                    Canonical output pixel dimensions per aspect ratio, applied to every new job
+                    without a code deploy — exactly as set here, not capped by Max Output Resolution
+                    above (that only bounds the Studio custom-dimension option). A long edge over
+                    3000px prices at the 4K tier instead of 2K — the resolution badge next to each
+                    row updates live as you type.
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 460 }}>
+                    {(Object.keys(aspectDimensions) as Array<keyof typeof aspectDimensions>).map(
+                      (ratio) => {
+                        const dims = aspectDimensions[ratio];
+                        const longEdge = Math.max(dims.width, dims.height);
+                        const tier = longEdge > 3000 ? '4K' : longEdge > 1200 ? '2K' : 'HD';
+                        const setDim = (field: 'width' | 'height', value: number) =>
+                          setAspectDimensions((prev) => ({
+                            ...prev,
+                            [ratio]: { ...prev[ratio], [field]: value },
+                          }));
+                        return (
+                          <div
+                            key={ratio}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 12,
+                              padding: '10px 12px',
+                              border: '1px solid var(--border)',
+                              borderRadius: 'var(--r)',
+                              background: 'var(--surface-2)',
+                            }}
+                          >
+                            <span className="setting-lbl" style={{ width: 40 }}>
+                              {ratio}
+                            </span>
+                            <input
+                              className="input"
+                              type="number"
+                              min={256}
+                              max={4096}
+                              style={{ width: 90 }}
+                              value={dims.width}
+                              disabled={sysSaving}
+                              onChange={(e) => setDim('width', Number(e.target.value))}
+                            />
+                            <span style={{ fontSize: 13, color: 'var(--muted)' }}>×</span>
+                            <input
+                              className="input"
+                              type="number"
+                              min={256}
+                              max={4096}
+                              style={{ width: 90 }}
+                              value={dims.height}
+                              disabled={sysSaving}
+                              onChange={(e) => setDim('height', Number(e.target.value))}
+                            />
+                            <span style={{ fontSize: 13, color: 'var(--muted)' }}>px</span>
+                            <span className="badge" style={{ marginLeft: 'auto' }}>
+                              {tier}
+                            </span>
+                          </div>
+                        );
+                      },
+                    )}
                   </div>
                 </div>
 
@@ -1342,7 +1428,16 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                       maxBatchJobs > 2000 ||
                       !Number.isInteger(maxQueueDepth) ||
                       maxQueueDepth < 1 ||
-                      maxQueueDepth > 5000
+                      maxQueueDepth > 5000 ||
+                      Object.values(aspectDimensions).some(
+                        (d) =>
+                          !Number.isInteger(d.width) ||
+                          d.width < 256 ||
+                          d.width > 4096 ||
+                          !Number.isInteger(d.height) ||
+                          d.height < 256 ||
+                          d.height > 4096,
+                      )
                     }
                   >
                     {sysSaving ? 'Saving…' : 'Save'}

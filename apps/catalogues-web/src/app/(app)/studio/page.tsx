@@ -209,9 +209,13 @@ const PLATFORM_LOGOS: Record<string, { src: string; h: number }> = {
   Shopify: { src: `${BASE}/assets/platform-logos/shopify-logo.svg`, h: 20 },
 };
 const ALL_ASPECTS = ['1:1', '2:3', '3:4', '4:5', '9:16', '16:9'];
-// 1:1/2:3/3:4 raised to a 2560 long edge (2026-09-07) to match ASPECT_DIMENSIONS in
-// packages/types/src/jobs.ts — keep these two tables in sync. 4:5 intentionally
-// untouched, not part of that bump.
+// Defaults only — matches ASPECT_DIMENSIONS in packages/types/src/jobs.ts as of the
+// 2560 long-edge bump (2026-09-07; 4:5 untouched, not part of that bump). The admin
+// can override 1:1/2:3/3:4/4:5 at runtime (Settings → System → Aspect Ratio Sizes);
+// this table is only the fallback used before that config loads (see
+// effectiveAspectPx/effectiveAspectDims below) or if it's never been touched. 9:16
+// and 16:9 aren't in ASPECT_DIMENSIONS server-side, so they're always these fixed
+// values regardless of admin config.
 const ASPECT_DIMS: Record<string, string> = {
   '1:1': '2560 × 2560 px',
   '2:3': '1707 × 2560 px',
@@ -493,6 +497,7 @@ export default function StudioPage(): React.ReactElement {
   const { data: resolutionConfigData } = useQuery<{
     resolutions: Record<string, { enabled: boolean; creditCost: number }>;
     maxOutputPx: number;
+    aspectDimensions?: Record<string, { width: number; height: number }>;
   }>({
     queryKey: ['resolution-configs'],
     queryFn: () => api.get('/v1/config/resolutions'),
@@ -506,6 +511,29 @@ export default function StudioPage(): React.ReactElement {
   // Admin-configured platform ceiling (Settings → Max Output Resolution) — falls back
   // to 2560 only until the query resolves, never as a silent permanent cap.
   const maxOutputPx = resolutionConfigData?.maxOutputPx ?? 2560;
+  // Admin-configured per-ratio output dims (Settings → System → Aspect Ratio Sizes)
+  // override the hardcoded ASPECT_PX/ASPECT_DIMS defaults above for the 4 ratios that
+  // are actually in ASPECT_DIMENSIONS server-side (9:16/16:9 aren't, so those two
+  // always fall back to the hardcoded table). Falls back entirely until the query
+  // resolves, same as maxOutputPx above.
+  const effectiveAspectPx: Record<string, { w: number; h: number }> = {
+    ...ASPECT_PX,
+    ...Object.fromEntries(
+      Object.entries(resolutionConfigData?.aspectDimensions ?? {}).map(([ratio, d]) => [
+        ratio,
+        { w: d.width, h: d.height },
+      ]),
+    ),
+  };
+  const effectiveAspectDims: Record<string, string> = {
+    ...ASPECT_DIMS,
+    ...Object.fromEntries(
+      Object.entries(resolutionConfigData?.aspectDimensions ?? {}).map(([ratio, d]) => [
+        ratio,
+        `${d.width} × ${d.height} px`,
+      ]),
+    ),
+  };
 
   // Custom dimension validation — computed at component level so handleSubmit and
   // canGenerate can both reference them without re-deriving inside the render IIFE.
@@ -529,7 +557,7 @@ export default function StudioPage(): React.ReactElement {
         ? { w: customWNum, h: customHNum }
         : null;
     }
-    const d = ASPECT_PX[effectiveAspect];
+    const d = effectiveAspectPx[effectiveAspect];
     return d ?? null;
   })();
   const resolution: 'HD' | '2K' | '4K' | null = outputDims
@@ -4489,7 +4517,7 @@ export default function StudioPage(): React.ReactElement {
                 {/* ── Dimension hint ── */}
                 {aspect !== 'custom' && (
                   <div style={{ marginTop: 8, fontSize: 11, color: C.light }}>
-                    {ASPECT_DIMS[aspect]}
+                    {effectiveAspectDims[aspect]}
                   </div>
                 )}
               </section>
