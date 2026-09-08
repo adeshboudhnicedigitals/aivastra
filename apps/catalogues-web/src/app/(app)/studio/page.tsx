@@ -209,22 +209,21 @@ const PLATFORM_LOGOS: Record<string, { src: string; h: number }> = {
   Shopify: { src: `${BASE}/assets/platform-logos/shopify-logo.svg`, h: 20 },
 };
 const ALL_ASPECTS = ['1:1', '2:3', '3:4', '4:5', '9:16', '16:9'];
-// 1:1/2:3/3:4 raised to a 2560 long edge (2026-09-07) to match ASPECT_DIMENSIONS in
-// packages/types/src/jobs.ts — keep these two tables in sync. 4:5 intentionally
-// untouched, not part of that bump.
+// 1:1/2:3/3:4/4:5 raised to a 2688 long edge (2026-09-08) to match ASPECT_DIMENSIONS in
+// packages/types/src/jobs.ts — keep these two tables in sync.
 const ASPECT_DIMS: Record<string, string> = {
-  '1:1': '2560 × 2560 px',
-  '2:3': '1707 × 2560 px',
-  '3:4': '1920 × 2560 px',
-  '4:5': '1375 × 1718 px',
-  '9:16': '1152 × 2048 px',
-  '16:9': '2048 × 1152 px',
+  '1:1': '2688 × 2688 px',
+  '2:3': '1792 × 2688 px',
+  '3:4': '2016 × 2688 px',
+  '4:5': '2150 × 2688 px',
+  '9:16': '1512 × 2688 px',
+  '16:9': '2688 × 1512 px',
 };
 const ASPECT_PX: Record<string, { w: number; h: number }> = {
-  '1:1': { w: 2560, h: 2560 },
-  '2:3': { w: 1707, h: 2560 },
-  '3:4': { w: 1920, h: 2560 },
-  '4:5': { w: 1375, h: 1718 },
+  '1:1': { w: 2688, h: 2688 },
+  '2:3': { w: 1792, h: 2688 },
+  '3:4': { w: 2016, h: 2688 },
+  '4:5': { w: 2150, h: 2688 },
 };
 // Mirrors the server-authoritative resolutionFromDims in packages/types/src/jobs.ts
 // (>3000 → 4K, >1200 → 2K) — must use the same thresholds or this display badge/estimate

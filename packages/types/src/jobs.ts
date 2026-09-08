@@ -10,15 +10,15 @@ export type Resolution = keyof typeof RESOLUTION_COSTS;
 
 /**
  * Canonical output pixel dimensions per aspect ratio — matches patcher.ts ASPECT_DIMENSIONS.
- * 1:1/2:3/3:4 raised to a 2560 long edge (2026-09-07); 4:5 intentionally left at its
- * original 1718 long edge — not part of that bump. Long edge stays under the 3000px
+ * Raised to a 2688 long edge (2026-09-08), including 4:5, which stayed out of the prior
+ * 2560 bump but is now aligned with the rest. Long edge stays under the 3000px
  * resolutionFromDims threshold below, so these still price at the 2K tier, not 4K.
  */
 export const ASPECT_DIMENSIONS: Record<string, { width: number; height: number }> = {
-  '1:1': { width: 2560, height: 2560 },
-  '2:3': { width: 1707, height: 2560 },
-  '3:4': { width: 1920, height: 2560 },
-  '4:5': { width: 1375, height: 1718 },
+  '1:1': { width: 2688, height: 2688 },
+  '2:3': { width: 1792, height: 2688 },
+  '3:4': { width: 2016, height: 2688 },
+  '4:5': { width: 2150, height: 2688 },
 };
 
 /** Derive the server-authoritative resolution tier from actual output pixel dimensions. */

@@ -475,8 +475,8 @@ describe('dual-size groups', () => {
       }),
       { ...BASE_INPUTS, aspectRatio: '2:3' },
     );
-    // Latent group: resizeToMax(1707, 2560, 2048) — 2:3's ASPECT_DIMENSIONS output (2560
-    // long edge, raised 2026-09-07) now exceeds latentMaxPx (2048, an unchanged per-template
+    // Latent group: resizeToMax(1792, 2688, 2048) — 2:3's ASPECT_DIMENSIONS output (2688
+    // long edge, raised 2026-09-08) now exceeds latentMaxPx (2048, an unchanged per-template
     // technical ceiling — see the comment above), so this is a genuine downscale rather than
     // the old table's coincidental identity (its 2048 output height equaled latentMaxPx exactly).
     expect(wf['max-width']?.inputs.value).toBe(
