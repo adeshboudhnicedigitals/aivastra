@@ -210,25 +210,25 @@ const PLATFORM_LOGOS: Record<string, { src: string; h: number }> = {
 };
 const ALL_ASPECTS = ['1:1', '2:3', '3:4', '4:5', '9:16', '16:9'];
 // Defaults only — matches ASPECT_DIMENSIONS in packages/types/src/jobs.ts as of the
-// 2560 long-edge bump (2026-09-07; 4:5 untouched, not part of that bump). The admin
-// can override 1:1/2:3/3:4/4:5 at runtime (Settings → System → Aspect Ratio Sizes);
-// this table is only the fallback used before that config loads (see
-// effectiveAspectPx/effectiveAspectDims below) or if it's never been touched. 9:16
-// and 16:9 aren't in ASPECT_DIMENSIONS server-side, so they're always these fixed
-// values regardless of admin config.
+// 2688 long-edge bump (2026-09-08, including 4:5). The admin can override
+// 1:1/2:3/3:4/4:5 at runtime (Settings → System → Aspect Ratio Sizes); this table is
+// only the fallback used before that config loads (see effectiveAspectPx/
+// effectiveAspectDims below) or if it's never been touched. 9:16 and 16:9 aren't in
+// ASPECT_DIMENSIONS server-side, so they're always these fixed values regardless of
+// admin config.
 const ASPECT_DIMS: Record<string, string> = {
-  '1:1': '2560 × 2560 px',
-  '2:3': '1707 × 2560 px',
-  '3:4': '1920 × 2560 px',
-  '4:5': '1375 × 1718 px',
-  '9:16': '1152 × 2048 px',
-  '16:9': '2048 × 1152 px',
+  '1:1': '2688 × 2688 px',
+  '2:3': '1792 × 2688 px',
+  '3:4': '2016 × 2688 px',
+  '4:5': '2150 × 2688 px',
+  '9:16': '1512 × 2688 px',
+  '16:9': '2688 × 1512 px',
 };
 const ASPECT_PX: Record<string, { w: number; h: number }> = {
-  '1:1': { w: 2560, h: 2560 },
-  '2:3': { w: 1707, h: 2560 },
-  '3:4': { w: 1920, h: 2560 },
-  '4:5': { w: 1375, h: 1718 },
+  '1:1': { w: 2688, h: 2688 },
+  '2:3': { w: 1792, h: 2688 },
+  '3:4': { w: 2016, h: 2688 },
+  '4:5': { w: 2150, h: 2688 },
 };
 // Mirrors the server-authoritative resolutionFromDims in packages/types/src/jobs.ts
 // (>3000 → 4K, >1200 → 2K) — must use the same thresholds or this display badge/estimate

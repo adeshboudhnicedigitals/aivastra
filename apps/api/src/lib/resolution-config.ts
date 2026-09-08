@@ -20,7 +20,7 @@ export const DEFAULT_RESOLUTION_CONFIG: Record<
   '4K': { enabled: true, creditCost: RESOLUTION_COSTS['4K'] },
 };
 
-export const DEFAULT_MAX_OUTPUT_PX = 2560;
+export const DEFAULT_MAX_OUTPUT_PX = 2688;
 
 // Re-exported under a DEFAULT_ name for symmetry with the other DEFAULT_*_CONFIG
 // constants in this file — the underlying object is unchanged. Only resizes an

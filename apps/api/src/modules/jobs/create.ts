@@ -274,8 +274,8 @@ export async function resolveTryonPlan(
     : (opts.cache?.aspectDimensions.get(aspectRatioKey) ??
       (await (async () => {
         const dims = (await getAspectDimensions(app, aspectRatioKey)) ?? {
-          width: 2560,
-          height: 2560,
+          width: 2688,
+          height: 2688,
         };
         opts.cache?.aspectDimensions.set(aspectRatioKey, dims);
         return dims;
