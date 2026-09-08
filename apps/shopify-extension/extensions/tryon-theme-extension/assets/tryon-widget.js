@@ -144,6 +144,14 @@
     // streaming response isn't verified.
     const PROXY_BASE = '/apps/widget';
 
+    // Set from the enabled-check response below when SHOPIFY_WIDGET_VERBOSE=true
+    // on the API. Merchant/QA testing only — makes friendlyClientErrorMessage
+    // and the hardcoded error branches in createJob show the real backend
+    // status/code/message instead of shopper copy. Stays false (and the widget
+    // shows normal copy) for the entire page view if the enabled-check request
+    // hasn't resolved yet or failed, since it's a fire-and-forget call below.
+    let verboseErrors = false;
+
     // Liquid rendered `root` hidden — reveal it only once we know this product
     // is actually enabled (global mode, individually enabled, or in an
     // enabled collection, and not excluded). Fire-and-forget: nothing else in
@@ -158,6 +166,7 @@
         );
         if (!res.ok) throw new Error(`enabled check failed: ${res.status}`);
         const body = await res.json();
+        verboseErrors = body.verboseErrors === true;
         if (body.enabled) root.hidden = false;
       } catch (err) {
         // Fail open: an unreachable/slow API must not hide try-on storewide.
@@ -279,7 +288,16 @@
     // an admin-configurable value (default 20MB, but not fixed) with no safe
     // number to hardcode here instead — a hardcoded "under 25MB" would just
     // drift out of sync with whatever the store is actually configured for.
+    // Verbose-mode formatter: the unclassified backend error, for a developer
+    // reading the error step rather than a shopper. code/backendMessage are
+    // whatever the AppError/Zod envelope sent (see server.ts's setErrorHandler)
+    // — undefined for a branch that never had a JSON body (e.g. a bare status).
+    function rawErrorMessage(status, code, backendMessage) {
+      return `[${status}${code ? ` ${code}` : ''}] ${backendMessage || '(no message)'}`;
+    }
+
     function friendlyClientErrorMessage(status, code, backendMessage) {
+      if (verboseErrors) return rawErrorMessage(status, code, backendMessage);
       if (code === 'RATE_LIMITED' || code === 'RATE_LIMIT') {
         return 'Lots of people are trying this on right now. Please wait a moment and try again.';
       }
@@ -1245,7 +1263,12 @@
         // first message painted for a frame and was clobbered before any
         // shopper could read it.
         const err = new Error('try-on unavailable');
-        err.userMessage = 'Try-on is temporarily unavailable, please check back later.';
+        if (verboseErrors) {
+          const errBody = await res.json().catch(() => ({}));
+          err.userMessage = rawErrorMessage(402, errBody?.error?.code, errBody?.error?.message);
+        } else {
+          err.userMessage = 'Try-on is temporarily unavailable, please check back later.';
+        }
         throw err;
       }
       if (res.status === 403) {
@@ -1281,8 +1304,9 @@
           // the backend refunds them in the same transaction, so say so
           // rather than the generic "different photo" copy, which is the
           // wrong suggestion for an infra outage.
-          err.userMessage =
-            "We're experiencing high demand right now. You haven't been charged — please try again in a moment.";
+          err.userMessage = verboseErrors
+            ? rawErrorMessage(res.status, code, errBody?.error?.message)
+            : "We're experiencing high demand right now. You haven't been charged — please try again in a moment.";
         } else if (code === 'VALIDATION' && sentEmail) {
           // The address is the only free-text field the shopper contributes,
           // and EMAIL_RE is only a mirror of the server's rule, not the rule
@@ -1291,7 +1315,9 @@
           // fallback for when the modal is shut and there is no field to
           // return them to. Either way it must not be the photo copy.
           err.emailRejected = true;
-          err.userMessage = "That email address wasn't accepted. Please check it and try again.";
+          err.userMessage = verboseErrors
+            ? rawErrorMessage(res.status, code, errBody?.error?.message)
+            : "That email address wasn't accepted. Please check it and try again.";
         } else if (res.status < 500) {
           // Same as uploadPhoto: never show the backend's own AppError/Zod
           // text verbatim, only map its status/code to fixed friendly copy

@@ -114,6 +114,12 @@ export const shopifyStores = pgTable('shopify_stores', {
   // nothing. Refreshed on every provision, since a store's plan can change.
   partnerDevelopment: boolean('partner_development').notNull().default(false),
   ownerUserId: uuid('owner_user_id').references(() => users.id, { onDelete: 'set null' }),
+  // Owns this store's support tickets in the chatbot ticket system — a
+  // platform user created purely to hold that identity, never a real login.
+  // Distinct from ownerUserId (the real merchant account, when one exists,
+  // used for admin reporting) — do not conflate the two. Lazily provisioned
+  // by POST /v1/shopify/support/session on first use.
+  supportUserId: uuid('support_user_id').references(() => users.id, { onDelete: 'set null' }),
   installedAt: timestamp('installed_at', { withTimezone: true }).notNull().defaultNow(),
   uninstalledAt: timestamp('uninstalled_at', { withTimezone: true }),
   settings: jsonb('settings').$type<ShopifyStoreSettings>().notNull().default({}),

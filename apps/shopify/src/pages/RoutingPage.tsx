@@ -281,6 +281,7 @@ export default function RoutingPage() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   // null = closed. 'new' = add-rule modal. A StoreRule = editing that rule.
   const [editorTarget, setEditorTarget] = useState<StoreRule | 'new' | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -352,6 +353,24 @@ export default function RoutingPage() {
     setToastMessage(message);
   }
 
+  // Sync is queued, not synchronous (products.routes.ts enqueues onto
+  // shopify:sync and the consumer processes it separately), so the reload
+  // below reflects whatever's already in Postgres — same caveat as the
+  // Manage page's identical button, not a bug specific to this one.
+  async function syncProducts() {
+    setSyncing(true);
+    setError(null);
+    try {
+      await apiFetch('/v1/shopify/products/sync', { method: 'POST' });
+      setToastMessage('Products synced from Shopify.');
+      await load();
+    } catch (err) {
+      setError(classifyError(err));
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   if (loading) {
     return (
       <Page title="Routing">
@@ -363,7 +382,11 @@ export default function RoutingPage() {
   }
 
   return (
-    <Page title="Routing" subtitle="Choose which try-on style each product uses.">
+    <Page
+      title="Routing"
+      subtitle="Choose which try-on style each product uses."
+      primaryAction={{ content: 'Sync products', onAction: syncProducts, loading: syncing }}
+    >
       <BlockStack gap="400">
         <ErrorBanner error={error} onRetry={load} onDismiss={() => setError(null)} />
 

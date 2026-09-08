@@ -17,6 +17,7 @@ import JobDistributionChart, {
   PHASE_COLORS,
   PHASE_LABELS,
 } from '../components/JobDistributionChart';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 
 type DayRange = 7 | 14 | 30;
@@ -381,15 +382,16 @@ export default function TelemetryPage({ toast }: Props) {
           </p>
         </div>
         <div className="head-tools">
-          <select
-            value={days}
-            onChange={(e) => setDays(Number(e.target.value) as DayRange)}
-            style={{ padding: '8px 12px', borderRadius: 6, fontSize: 13 }}
-          >
-            <option value={7}>Last 7 days</option>
-            <option value={14}>Last 14 days</option>
-            <option value={30}>Last 30 days</option>
-          </select>
+          <SearchableSelect
+            options={[
+              { id: '7', label: 'Last 7 days' },
+              { id: '14', label: 'Last 14 days' },
+              { id: '30', label: 'Last 30 days' },
+            ]}
+            value={String(days)}
+            onChange={(v) => setDays(Number(v) as DayRange)}
+            style={{ minWidth: 160 }}
+          />
           <button className="btn" onClick={load}>
             <Icon.Refresh /> Refresh
           </button>

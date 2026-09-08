@@ -932,24 +932,24 @@ export function GarmentTypesTab() {
           </div>
           <div className="field">
             <label>Gender</label>
-            <select
-              className="select"
+            <SearchableSelect
+              options={[
+                { id: 'men', label: 'Men' },
+                { id: 'women', label: 'Women' },
+                { id: 'boys', label: 'Boys' },
+                { id: 'girls', label: 'Girls' },
+              ]}
               value={subcatForm.genderSlug}
               disabled={subcatSaving}
-              onChange={(e) => {
-                const genderSlug = e.target.value as GenderSlug;
+              onChange={(v) => {
+                const genderSlug = v as GenderSlug;
                 setSubcatForm((f) => ({
                   ...f,
                   genderSlug,
                   sortOrder: nextSortOrderFor(genderSlug),
                 }));
               }}
-            >
-              <option value="men">Men</option>
-              <option value="women">Women</option>
-              <option value="boys">Boys</option>
-              <option value="girls">Girls</option>
-            </select>
+            />
           </div>
           <div className="field">
             <label>
@@ -2010,23 +2010,19 @@ function PoseConfigsPanel({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <select
-            className="select"
-            style={{ fontSize: 12, padding: '3px 8px', height: 30 }}
+          <SearchableSelect
+            options={[
+              ...(hasUnassignedPose ? [{ id: 'none', label: 'No workflow assigned' }] : []),
+              ...usedWorkflowOptions.map((w) => ({ id: w.id, label: w.label })),
+            ]}
+            style={{ fontSize: 12, height: 30 }}
             value={workflowFilter}
-            onChange={(e) => {
-              setWorkflowFilter(e.target.value);
+            emptyLabel="Filter: all workflows"
+            onChange={(v) => {
+              setWorkflowFilter(v);
               clearSelection();
             }}
-          >
-            <option value="">Filter: all workflows</option>
-            {hasUnassignedPose && <option value="none">No workflow assigned</option>}
-            {usedWorkflowOptions.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.label}
-              </option>
-            ))}
-          </select>
+          />
           <button
             className="btn sm ghost"
             onClick={

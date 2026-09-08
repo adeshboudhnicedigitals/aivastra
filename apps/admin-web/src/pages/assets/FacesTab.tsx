@@ -4,6 +4,7 @@ import { AssetThumb } from '../../components/AssetThumb';
 import { EditFaceModal } from '../../components/EditFaceModal';
 import { Icon } from '../../components/Icons';
 import { Pager } from '../../components/Pager';
+import { SearchableSelect } from '../../components/SearchableSelect';
 import { Switch } from '../../components/Switch';
 import { CONTINENTS, continentLabel } from '../../lib/continents';
 import { apiErrorMessage, apiFetch } from '../../lib/data';
@@ -337,20 +338,14 @@ export function FacesTab() {
             {selectedFaceIds.length > 0 && (
               <>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <select
-                    className="select"
+                  <SearchableSelect
+                    options={knownContinents.map((c) => ({ id: c.value, label: c.label }))}
                     value={bulkContinent}
                     disabled={bulkContinentSaving}
-                    onChange={(e) => setBulkContinent(e.target.value as Continent | '')}
-                    style={{ fontSize: 12, height: 28, padding: '3px 6px' }}
-                  >
-                    <option value="">Unassigned</option>
-                    {knownContinents.map((c) => (
-                      <option key={c.value} value={c.value}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
+                    emptyLabel="Unassigned"
+                    onChange={(v) => setBulkContinent(v as Continent | '')}
+                    style={{ fontSize: 12, height: 28 }}
+                  />
                   <button
                     className="btn sm"
                     disabled={bulkContinentSaving}

@@ -301,17 +301,17 @@ export function EditPoseAssetModal({ asset, workflows, onSaved, onClose, toast }
 
         <div className="field">
           <label>Category</label>
-          <select
-            className="select"
+          <SearchableSelect
+            options={[
+              { id: 'men', label: 'Men' },
+              { id: 'women', label: 'Women' },
+              { id: 'boys', label: 'Boys' },
+              { id: 'girls', label: 'Girls' },
+            ]}
             value={genderSlug}
             disabled={saving}
-            onChange={(e) => setGenderSlug(e.target.value as GenderSlug)}
-          >
-            <option value="men">Men</option>
-            <option value="women">Women</option>
-            <option value="boys">Boys</option>
-            <option value="girls">Girls</option>
-          </select>
+            onChange={(v) => setGenderSlug(v as GenderSlug)}
+          />
         </div>
 
         <div className="field">

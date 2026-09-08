@@ -174,18 +174,18 @@ export function EditBackgroundModal({ background, categories, onSaved, onClose, 
         />
         <div className="field">
           <label>Gender</label>
-          <select
-            className="select"
+          <SearchableSelect
+            options={[
+              { id: 'men', label: 'Men' },
+              { id: 'women', label: 'Women' },
+              { id: 'boys', label: 'Boys' },
+              { id: 'girls', label: 'Girls' },
+            ]}
             value={form.genderSlug}
             disabled={saving}
-            onChange={(e) => setForm((f) => ({ ...f, genderSlug: e.target.value }))}
-          >
-            <option value="">All genders</option>
-            <option value="men">Men</option>
-            <option value="women">Women</option>
-            <option value="boys">Boys</option>
-            <option value="girls">Girls</option>
-          </select>
+            emptyLabel="All genders"
+            onChange={(v) => setForm((f) => ({ ...f, genderSlug: v }))}
+          />
         </div>
         <div className="field">
           <label>Category</label>
@@ -214,21 +214,13 @@ export function EditBackgroundModal({ background, categories, onSaved, onClose, 
           <label>
             Special tag <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
           </label>
-          <select
-            className="select"
+          <SearchableSelect
+            options={SPECIAL_TAG_OPTIONS.map((t) => ({ id: t.value, label: t.label }))}
             value={form.specialTag}
             disabled={saving}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, specialTag: e.target.value as CategoryTag | '' }))
-            }
-          >
-            <option value="">No tag</option>
-            {SPECIAL_TAG_OPTIONS.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
-            ))}
-          </select>
+            emptyLabel="No tag"
+            onChange={(v) => setForm((f) => ({ ...f, specialTag: v as CategoryTag | '' }))}
+          />
         </div>
       </div>
       <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0 }}>

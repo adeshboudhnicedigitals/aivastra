@@ -138,31 +138,28 @@ function ConditionsEditor({
       {conditions.map((condition, idx) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: rows have no stable identity of their own until saved — index is fine for a client-only draft list that's never reordered (mirrors apps/shopify/src/pages/RoutingPage.tsx).
         <div key={idx} style={{ display: 'flex', gap: 8 }}>
-          <select
-            className="select"
+          <SearchableSelect
+            options={CONDITION_FIELD_OPTIONS.map((f) => ({
+              id: f,
+              label: CONDITION_FIELD_LABEL[f],
+            }))}
             style={{ flex: '0 0 140px' }}
             value={condition.field}
             disabled={disabled}
-            aria-label="Field"
-            onChange={(e) => update(idx, { field: e.target.value as ConditionField })}
-          >
-            {CONDITION_FIELD_OPTIONS.map((f) => (
-              <option key={f} value={f}>
-                {CONDITION_FIELD_LABEL[f]}
-              </option>
-            ))}
-          </select>
-          <select
-            className="select"
+            ariaLabel="Field"
+            onChange={(v) => update(idx, { field: v as ConditionField })}
+          />
+          <SearchableSelect
+            options={[
+              { id: 'equals', label: 'is' },
+              { id: 'contains', label: 'contains' },
+            ]}
             style={{ flex: '0 0 110px' }}
             value={condition.operator}
             disabled={disabled}
-            aria-label="Match"
-            onChange={(e) => update(idx, { operator: e.target.value as ConditionOperator })}
-          >
-            <option value="equals">is</option>
-            <option value="contains">contains</option>
-          </select>
+            ariaLabel="Match"
+            onChange={(v) => update(idx, { operator: v as ConditionOperator })}
+          />
           <input
             className="input"
             style={{ flex: 1 }}

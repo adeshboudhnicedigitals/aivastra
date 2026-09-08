@@ -17,6 +17,8 @@ import { SupportModal } from '@/components/SupportModal';
 import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { PremiumSelect } from '@/components/ui/premium-select';
+import { ZoomableImage } from '@/components/ZoomableImage';
 import { useGoogleDriveStatus } from '@/hooks/use-google-drive-status';
 import { useJobStream } from '@/hooks/use-job-stream';
 import { api } from '@/lib/api';
@@ -1205,26 +1207,7 @@ export default function CataloguePage({
           >
             <XIcon size={20} />
           </button>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          {/* biome-ignore lint/performance/noImgElement: presigned R2 URL, Next/Image incompatible */}
-          <img
-            src={zoom.url}
-            alt=""
-            draggable={false}
-            onContextMenu={(e) => e.preventDefault()}
-            style={{
-              maxWidth: '100%',
-              maxHeight: '100%',
-              objectFit: 'contain',
-              borderRadius: 8,
-              transform: zoomVisible ? 'translateX(0)' : 'translateX(100%)',
-              transition: 'transform 300ms ease-out',
-              pointerEvents: 'none',
-              WebkitTouchCallout: 'none',
-              WebkitUserSelect: 'none',
-              userSelect: 'none',
-            }}
-          />
+          <ZoomableImage src={zoom.url} visible={zoomVisible} variant="slide" />
           {REGENERATE_ENABLED && zoom.job.status === 'COMPLETED' && !zoom.job.alreadyDownloaded && (
             <button
               type="button"
@@ -1294,26 +1277,17 @@ export default function CataloguePage({
               You get {FREE_REGENERATE_DAILY_LIMIT} free regenerations a day. Once this image is
               downloaded it can no longer be regenerated.
             </p>
-            <select
+            <PremiumSelect
+              ariaLabel="Reason for regenerating"
               value={regenerateReason}
-              onChange={(e) => setRegenerateReason(e.target.value)}
+              onChange={(v) => setRegenerateReason(String(v))}
+              options={reasonOptions.map((r) => ({ value: r, label: r }))}
               disabled={regenerating}
-              style={{
-                padding: '10px 12px',
-                borderRadius: 8,
-                border: `1px solid ${C.border}`,
-                background: C.field,
-                color: C.text,
-                fontSize: 13,
-              }}
-            >
-              <option value="">Select a reason…</option>
-              {reasonOptions.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
-              ))}
-            </select>
+              placeholder="Select a reason…"
+              fullWidth
+              height={40}
+              fontSize={13}
+            />
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button
                 type="button"

@@ -65,7 +65,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
         {isSellio && <SellioSidebarToggle />}
       </SidebarProvider>
-      {process.env.NODE_ENV === 'development' && <ChatWidget />}
+      {(process.env.NODE_ENV === 'development' ||
+        process.env.NEXT_PUBLIC_CHATBOT_ENABLED === 'true') && <ChatWidget />}
     </div>
   );
 }

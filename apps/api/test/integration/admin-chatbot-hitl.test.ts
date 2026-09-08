@@ -1,4 +1,5 @@
 import { schema } from '@aivastra/db';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { hashPassword } from '../../src/modules/auth/service.js';
 import { buildTestApp, type TestApp } from '../helpers/api';
@@ -8,6 +9,7 @@ describe('admin chatbot hitl', () => {
   let c: Containers;
   let app: TestApp;
   let adminToken: string;
+  let adminUserId: string;
 
   beforeAll(async () => {
     c = await startContainers();
@@ -17,9 +19,11 @@ describe('admin chatbot hitl', () => {
       .insert(schema.users)
       .values({ email: 'hitl-admin@x.com', passwordHash, emailVerified: true })
       .returning();
-    await app.db
+    const [admin] = await app.db
       .insert(schema.adminUsers)
-      .values({ userId: user.id, role: 'SUPER_ADMIN', passwordHash });
+      .values({ userId: user.id, role: 'SUPER_ADMIN', passwordHash })
+      .returning();
+    adminUserId = admin.id;
     const res = await app.inject({
       method: 'POST',
       url: '/admin/auth/login',
@@ -36,7 +40,11 @@ describe('admin chatbot hitl', () => {
   async function seedConv(status: string) {
     const [u] = await app.db
       .insert(schema.users)
-      .values({ email: `hitl-user-${Date.now()}@x.com`, passwordHash: '', emailVerified: true })
+      .values({
+        email: `hitl-user-${Date.now()}-${Math.random()}@x.com`,
+        passwordHash: '',
+        emailVerified: true,
+      })
       .returning();
     const [conv] = await app.db
       .insert(schema.chatbotConversations)
@@ -45,19 +53,20 @@ describe('admin chatbot hitl', () => {
     return { user: u, conv };
   }
 
-  it('claim sets PENDING_HUMAN→HUMAN', async () => {
-    const { conv } = await seedConv('PENDING_HUMAN');
+  it('claim sets OPEN→IN_PROGRESS', async () => {
+    const { conv } = await seedConv('OPEN');
     const res = await app.inject({
       method: 'POST',
       url: `/admin/chatbot/conversations/${conv.id}/claim`,
       headers: { authorization: `Bearer ${adminToken}` },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().status).toBe('HUMAN');
+    expect(res.json().status).toBe('IN_PROGRESS');
+    expect(res.json().assignedAgentId).toBe(adminUserId);
   });
 
   it('second claim 409', async () => {
-    const { conv } = await seedConv('PENDING_HUMAN');
+    const { conv } = await seedConv('OPEN');
     await app.inject({
       method: 'POST',
       url: `/admin/chatbot/conversations/${conv.id}/claim`,
@@ -71,8 +80,34 @@ describe('admin chatbot hitl', () => {
     expect(res2.statusCode).toBe(409);
   });
 
-  it('end sets HUMAN→CLOSED (assigned agent only)', async () => {
-    const { conv } = await seedConv('PENDING_HUMAN');
+  it('resolve sets IN_PROGRESS→RESOLVED for the assigned agent', async () => {
+    const { conv } = await seedConv('OPEN');
+    await app.inject({
+      method: 'POST',
+      url: `/admin/chatbot/conversations/${conv.id}/claim`,
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: `/admin/chatbot/conversations/${conv.id}/resolve`,
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().status).toBe('RESOLVED');
+  });
+
+  it('resolve fails for an unassigned agent', async () => {
+    const { conv } = await seedConv('IN_PROGRESS');
+    const res = await app.inject({
+      method: 'POST',
+      url: `/admin/chatbot/conversations/${conv.id}/resolve`,
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    expect(res.statusCode).toBe(409);
+  });
+
+  it('end sets IN_PROGRESS→CLOSED (assigned agent only)', async () => {
+    const { conv } = await seedConv('OPEN');
     const claimed = await app.inject({
       method: 'POST',
       url: `/admin/chatbot/conversations/${conv.id}/claim`,
@@ -91,13 +126,117 @@ describe('admin chatbot hitl', () => {
   });
 
   it('end fails for unassigned agent', async () => {
-    const { conv } = await seedConv('HUMAN');
+    const { conv } = await seedConv('IN_PROGRESS');
     const res = await app.inject({
       method: 'POST',
       url: `/admin/chatbot/conversations/${conv.id}/end`,
       headers: { authorization: `Bearer ${adminToken}` },
     });
     expect(res.statusCode).toBe(409);
+  });
+
+  it('PATCH updates subject/category/priority', async () => {
+    const { conv } = await seedConv('OPEN');
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/admin/chatbot/conversations/${conv.id}`,
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: { subject: 'Refund question', category: 'billing', priority: 'high' },
+    });
+    expect(res.statusCode).toBe(200);
+    const [row] = await app.db
+      .select()
+      .from(schema.chatbotConversations)
+      .where(eq(schema.chatbotConversations.id, conv.id));
+    expect(row?.subject).toBe('Refund question');
+    expect(row?.category).toBe('billing');
+    expect(row?.priority).toBe('high');
+  });
+
+  it('PATCH with an empty body is a 400, not a 500', async () => {
+    const { conv } = await seedConv('OPEN');
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/admin/chatbot/conversations/${conv.id}`,
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: {},
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('a resolved-then-reopened ticket can be claimed again', async () => {
+    // Regression: `resolve` used to leave chatbot:conv:{id}:lock set (no TTL), so
+    // once the user's next message reopened the ticket to OPEN, every subsequent
+    // claim hit SET ... NX and 409'd forever — with the one-active-ticket index,
+    // that killed the user's support channel permanently.
+    const { conv } = await seedConv('OPEN');
+    const claimed = await app.inject({
+      method: 'POST',
+      url: `/admin/chatbot/conversations/${conv.id}/claim`,
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    expect(claimed.statusCode).toBe(200);
+
+    const resolved = await app.inject({
+      method: 'POST',
+      url: `/admin/chatbot/conversations/${conv.id}/resolve`,
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    expect(resolved.statusCode).toBe(200);
+
+    // Simulate the user sending a new message: reopenIfResolved / both REST routes
+    // flip the row back to OPEN and clear the assignment.
+    await app.db
+      .update(schema.chatbotConversations)
+      .set({ status: 'OPEN', assignedAgentId: null })
+      .where(eq(schema.chatbotConversations.id, conv.id));
+
+    const reclaimed = await app.inject({
+      method: 'POST',
+      url: `/admin/chatbot/conversations/${conv.id}/claim`,
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    expect(reclaimed.statusCode).toBe(200);
+    expect(reclaimed.json().status).toBe('IN_PROGRESS');
+  });
+
+  describe('GET /admin/chatbot/conversations', () => {
+    it('hides a ticket with no user message and shows one that has one', async () => {
+      const { conv: empty } = await seedConv('OPEN');
+      const { conv: withMsg } = await seedConv('OPEN');
+      await app.db.insert(schema.chatbotMessages).values({
+        conversationId: withMsg.id,
+        role: 'user',
+        content: 'I need help',
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/admin/chatbot/conversations?status=OPEN&limit=200',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(res.statusCode).toBe(200);
+      const ids = (res.json().rows as Array<{ id: string }>).map((r) => r.id);
+      expect(ids).toContain(withMsg.id);
+      expect(ids).not.toContain(empty.id);
+    });
+
+    it('does not count a system-message-only ticket as having user activity', async () => {
+      const { conv } = await seedConv('OPEN');
+      await app.db.insert(schema.chatbotMessages).values({
+        conversationId: conv.id,
+        role: 'system',
+        content: 'A support agent has joined the conversation.',
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/admin/chatbot/conversations?status=OPEN&limit=200',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      const ids = (res.json().rows as Array<{ id: string }>).map((r) => r.id);
+      expect(ids).not.toContain(conv.id);
+    });
   });
 
   it('duty toggle round-trips', async () => {

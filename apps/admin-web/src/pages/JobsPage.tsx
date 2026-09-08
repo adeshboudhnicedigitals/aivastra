@@ -3,6 +3,7 @@ import { Icon } from '../components/Icons';
 import { JobTypeBadge } from '../components/JobTypeBadge';
 import { KV } from '../components/KV';
 import { Pager } from '../components/Pager';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { StatusBadge } from '../components/StatusBadge';
 import type { SortDir } from '../components/Th';
 import { Th } from '../components/Th';
@@ -1228,24 +1229,24 @@ export default function JobsPage({ onNav, toast }: Props) {
             >
               Sort by:
             </span>
-            <select
-              className="filter-select"
+            <SearchableSelect
+              options={[
+                { id: 'createdAt-desc', label: 'Newest Created' },
+                { id: 'createdAt-asc', label: 'Oldest Created' },
+                { id: 'userEmail-asc', label: 'User Email (A-Z)' },
+                { id: 'userEmail-desc', label: 'User Email (Z-A)' },
+                { id: 'creditsCharged-desc', label: 'Credits (High-Low)' },
+                { id: 'creditsCharged-asc', label: 'Credits (Low-High)' },
+                { id: 'status-asc', label: 'Status' },
+              ]}
               value={`${sortKey}-${sortDir}`}
-              onChange={(e) => {
-                const [key, dir] = e.target.value.split('-');
+              onChange={(v) => {
+                const [key, dir] = v.split('-');
                 setSortKey(key as keyof Job);
                 setSortDir(dir as SortDir);
               }}
-              style={{ height: 32, fontSize: 12.5, padding: '0 24px 0 10px' }}
-            >
-              <option value="createdAt-desc">Newest Created</option>
-              <option value="createdAt-asc">Oldest Created</option>
-              <option value="userEmail-asc">User Email (A-Z)</option>
-              <option value="userEmail-desc">User Email (Z-A)</option>
-              <option value="creditsCharged-desc">Credits (High-Low)</option>
-              <option value="creditsCharged-asc">Credits (Low-High)</option>
-              <option value="status-asc">Status</option>
-            </select>
+              style={{ height: 32, fontSize: 12.5 }}
+            />
           </div>
         </div>
 
@@ -1316,19 +1317,13 @@ export default function JobsPage({ onNav, toast }: Props) {
                   >
                     Job Type
                   </span>
-                  <select
-                    className="filter-select"
+                  <SearchableSelect
+                    options={jobTypeOptions.map((jt) => ({ id: jt, label: jt }))}
                     value={jobTypeFilter}
-                    onChange={(e) => handleJobTypeFilter(e.target.value)}
+                    onChange={handleJobTypeFilter}
+                    emptyLabel="All Job Types"
                     style={{ width: '100%', height: 32, fontSize: 12.5 }}
-                  >
-                    <option value="">All Job Types</option>
-                    {jobTypeOptions.map((jt) => (
-                      <option key={jt} value={jt}>
-                        {jt}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </div>
 
                 <div style={{ borderTop: '1px solid var(--border)' }} />
@@ -1348,19 +1343,13 @@ export default function JobsPage({ onNav, toast }: Props) {
                   >
                     Worker Pool
                   </span>
-                  <select
-                    className="filter-select"
+                  <SearchableSelect
+                    options={workerOptions.map((w) => ({ id: w.id, label: w.label || w.id }))}
                     value={workerFilter}
-                    onChange={(e) => handleWorkerFilter(e.target.value)}
+                    onChange={handleWorkerFilter}
+                    emptyLabel="All Workers"
                     style={{ width: '100%', height: 32, fontSize: 12.5 }}
-                  >
-                    <option value="">All Workers</option>
-                    {workerOptions.map((w) => (
-                      <option key={w.id} value={w.id}>
-                        {w.label || w.id}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </div>
 
                 <div style={{ borderTop: '1px solid var(--border)' }} />
@@ -1446,18 +1435,18 @@ export default function JobsPage({ onNav, toast }: Props) {
                         style={{ flex: 1, height: 32, fontSize: 12 }}
                       />
                     </div>
-                    <select
-                      className="filter-select"
+                    <SearchableSelect
+                      options={[
+                        { id: 'seconds', label: 'Seconds' },
+                        { id: 'minutes', label: 'Minutes' },
+                      ]}
                       value={durationUnit}
-                      onChange={(e) => {
-                        setDurationUnit(e.target.value as 'seconds' | 'minutes');
+                      onChange={(v) => {
+                        setDurationUnit(v as 'seconds' | 'minutes');
                         setPage(0);
                       }}
                       style={{ width: '100%', height: 32, fontSize: 12.5 }}
-                    >
-                      <option value="seconds">Seconds</option>
-                      <option value="minutes">Minutes</option>
-                    </select>
+                    />
                   </div>
                 </div>
 

@@ -4,6 +4,7 @@ import { makeThumbnail } from '../lib/thumbnail';
 import type { CatalogueTemplate, GenderSlug, ModelBackground, ModelPoseAsset } from '../types';
 import { EditDrawer } from './EditDrawer';
 import { Icon } from './Icons';
+import { SearchableSelect } from './SearchableSelect';
 
 async function putFile(url: string, file: Blob): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -459,17 +460,17 @@ export function EditCatalogueTemplateModal({
                           {genderSlug}
                         </span>
                       ) : (
-                        <select
-                          className="select"
+                        <SearchableSelect
+                          options={[
+                            { id: 'men', label: 'Men' },
+                            { id: 'women', label: 'Women' },
+                            { id: 'boys', label: 'Boys' },
+                            { id: 'girls', label: 'Girls' },
+                          ]}
                           value={genderSlug}
                           disabled={saving}
-                          onChange={(e) => setGenderSlug(e.target.value as GenderSlug)}
-                        >
-                          <option value="men">Men</option>
-                          <option value="women">Women</option>
-                          <option value="boys">Boys</option>
-                          <option value="girls">Girls</option>
-                        </select>
+                          onChange={(v) => setGenderSlug(v as GenderSlug)}
+                        />
                       )}
                     </div>
                     <div className="field">
@@ -548,27 +549,22 @@ export function EditCatalogueTemplateModal({
                       />
                       <div className="field" style={{ margin: 0, width: 120 }}>
                         <label style={{ fontSize: 10 }}>Shot type</label>
-                        <select
-                          className="select"
-                          style={{ fontSize: 12, padding: '3px 6px', height: 30 }}
+                        <SearchableSelect
+                          options={[
+                            { id: 'full', label: 'Full pose' },
+                            { id: 'half', label: 'Half pose' },
+                            { id: 'closeup', label: 'Closeup' },
+                          ]}
+                          style={{ fontSize: 12, height: 30 }}
                           value={row.shotType ?? ''}
                           disabled={saving || uploadingPoseForRow === row.key}
-                          title={
-                            uploadingPoseForRow === row.key
-                              ? 'Wait for the current upload to finish before changing this'
-                              : 'Saved when you click "Save template" below'
-                          }
-                          onChange={(e) =>
+                          emptyLabel="— not tagged —"
+                          onChange={(v) =>
                             updateLookRow(row.key, {
-                              shotType: (e.target.value || null) as LookRow['shotType'],
+                              shotType: (v || null) as LookRow['shotType'],
                             })
                           }
-                        >
-                          <option value="">— not tagged —</option>
-                          <option value="full">Full pose</option>
-                          <option value="half">Half pose</option>
-                          <option value="closeup">Closeup</option>
-                        </select>
+                        />
                       </div>
                       <button
                         type="button"

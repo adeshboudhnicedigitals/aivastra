@@ -631,7 +631,10 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
         excluded: garment?.excluded ?? false,
       });
 
-      return { enabled };
+      // Piggybacks on this call because it's the first request the widget makes
+      // on init (see the comment above this route). true only when the env var
+      // is exactly 'true' — see SHOPIFY_WIDGET_VERBOSE in env.ts.
+      return { enabled, verboseErrors: app.env.SHOPIFY_WIDGET_VERBOSE === true };
     },
   );
 

@@ -209,25 +209,31 @@ const PLATFORM_LOGOS: Record<string, { src: string; h: number }> = {
   Shopify: { src: `${BASE}/assets/platform-logos/shopify-logo.svg`, h: 20 },
 };
 const ALL_ASPECTS = ['1:1', '2:3', '3:4', '4:5', '9:16', '16:9'];
+// 1:1/2:3/3:4 raised to a 2560 long edge (2026-09-07) to match ASPECT_DIMENSIONS in
+// packages/types/src/jobs.ts — keep these two tables in sync. 4:5 intentionally
+// untouched, not part of that bump.
 const ASPECT_DIMS: Record<string, string> = {
-  '1:1': '2048 × 2048 px',
-  '2:3': '1365 × 2048 px',
-  '3:4': '1331 × 1774 px',
+  '1:1': '2560 × 2560 px',
+  '2:3': '1707 × 2560 px',
+  '3:4': '1920 × 2560 px',
   '4:5': '1375 × 1718 px',
   '9:16': '1152 × 2048 px',
   '16:9': '2048 × 1152 px',
 };
 const ASPECT_PX: Record<string, { w: number; h: number }> = {
-  '1:1': { w: 2048, h: 2048 },
-  '2:3': { w: 1365, h: 2048 },
-  '3:4': { w: 1331, h: 1774 },
+  '1:1': { w: 2560, h: 2560 },
+  '2:3': { w: 1707, h: 2560 },
+  '3:4': { w: 1920, h: 2560 },
   '4:5': { w: 1375, h: 1718 },
 };
+// Mirrors the server-authoritative resolutionFromDims in packages/types/src/jobs.ts
+// (>3000 → 4K, >1200 → 2K) — must use the same thresholds or this display badge/estimate
+// would disagree with what the server actually charges.
 function resolutionFromOutputDims(w: number, h: number): 'HD' | '2K' | '4K' {
   const longer = Math.max(w, h);
-  if (longer <= 1440) return 'HD';
-  if (longer <= 2048) return '2K';
-  return '4K';
+  if (longer > 3000) return '4K';
+  if (longer > 1200) return '2K';
+  return 'HD';
 }
 
 /**
@@ -498,8 +504,8 @@ export default function StudioPage(): React.ReactElement {
     '4K': { enabled: true, creditCost: 40 },
   };
   // Admin-configured platform ceiling (Settings → Max Output Resolution) — falls back
-  // to 2048 only until the query resolves, never as a silent permanent cap.
-  const maxOutputPx = resolutionConfigData?.maxOutputPx ?? 2048;
+  // to 2560 only until the query resolves, never as a silent permanent cap.
+  const maxOutputPx = resolutionConfigData?.maxOutputPx ?? 2560;
 
   // Custom dimension validation — computed at component level so handleSubmit and
   // canGenerate can both reference them without re-deriving inside the render IIFE.
@@ -708,11 +714,17 @@ export default function StudioPage(): React.ReactElement {
     }
   }, [qc, showToast]);
 
-  const { data: creditsData } = useQuery<{ balance: number }>({
+  const { data: creditsData } = useQuery<{
+    balance: number;
+    unlimitedPlan?: { status: 'active' | 'expiring_soon' | 'expired' | 'revoked' | 'none' } | null;
+  }>({
     queryKey: ['credits'],
     queryFn: () => api.get('/v1/credits'),
   });
   const userCredits = creditsData?.balance ?? 0;
+  const isUnlimitedPlan =
+    creditsData?.unlimitedPlan?.status === 'active' ||
+    creditsData?.unlimitedPlan?.status === 'expiring_soon';
 
   const { data: garmentTypes } = useQuery<{ items: GarmentType[] }>({
     queryKey: ['garmentTypes', gender],
@@ -2064,6 +2076,7 @@ export default function StudioPage(): React.ReactElement {
                 resolution ? RESOLUTION_COSTS[resolution] : (resolutionConfig.HD?.creditCost ?? 25)
               }
               balance={userCredits}
+              unlimited={isUnlimitedPlan}
               onDirtyChange={setBatchDirty}
             />
           ) : (
@@ -4604,11 +4617,14 @@ export default function StudioPage(): React.ReactElement {
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
-                      {creditCost} credits required
+                      {isUnlimitedPlan ? 'Monthly plan' : `${creditCost} credits required`}
                     </span>
                     <span style={{ fontSize: 12, color: C.mid }}>
-                      You have {userCredits} credits (
-                      {creditCost > 0 ? Math.floor(userCredits / creditCost) : 0} generations)
+                      {isUnlimitedPlan
+                        ? 'Unlimited generations'
+                        : `You have ${userCredits} credits (${
+                            creditCost > 0 ? Math.floor(userCredits / creditCost) : 0
+                          } generations)`}
                     </span>
                   </div>
                 </div>

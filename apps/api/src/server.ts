@@ -43,6 +43,7 @@ import { adminMerchantCatalogRoutes } from './modules/admin/merchant-catalog.rou
 import { adminMerchantsRoutes } from './modules/admin/merchants.routes.js';
 import { adminAssetsRoutes } from './modules/admin/models.routes.js';
 import { adminPaymentsRoutes } from './modules/admin/payments.routes.js';
+import { adminProdSnapshotRoutes } from './modules/admin/prod-snapshot.routes.js';
 import { adminRolePermissionsRoutes } from './modules/admin/role-permissions.routes.js';
 import { adminSareeRoutes } from './modules/admin/saree.routes.js';
 import { adminShopifyFunnelRulesRoutes } from './modules/admin/shopify-funnel-rules.routes.js';
@@ -52,6 +53,7 @@ import { adminSignupCampaignsRoutes } from './modules/admin/signupCampaigns.rout
 import { adminGarmentTypesRoutes } from './modules/admin/subcategories.routes.js';
 import { adminTelemetryRoutes } from './modules/admin/telemetry.routes.js';
 import { adminTryonRoutes } from './modules/admin/tryon.routes.js';
+import { adminUnlimitedPlanRoutes } from './modules/admin/unlimitedPlan.routes.js';
 import { adminUsersRoutes } from './modules/admin/users.routes.js';
 import { adminWorkersRoutes } from './modules/admin/workers.routes.js';
 import { adminWorkflowsRoutes } from './modules/admin/workflows.routes.js';
@@ -60,6 +62,8 @@ import { authRoutes } from './modules/auth/routes.js';
 import { backgroundsRoutes } from './modules/backgrounds/routes.js';
 import { catalogRoutes } from './modules/catalog/routes.js';
 import { creditsRoutes } from './modules/credits/routes.js';
+import { unlimitedPlanLoginCheckRoutes } from './modules/credits/unlimited-plan-login-check.routes.js';
+import { unlimitedPlanRenewalRoutes } from './modules/credits/unlimited-plan-renewal.routes.js';
 import { devCatalogRoutes } from './modules/dev/catalog.routes.js';
 import { devRoutes } from './modules/dev/routes.js';
 import { googleDriveRoutes } from './modules/google-drive/routes.js';
@@ -379,6 +383,8 @@ export async function buildServer(env: Env) {
   await app.register(authRoutes);
   await app.register(googleAuthRoutes);
   await app.register(creditsRoutes);
+  await app.register(unlimitedPlanRenewalRoutes);
+  await app.register(unlimitedPlanLoginCheckRoutes);
   await app.register(catalogRoutes);
   await app.register(uploadsRoutes);
   await app.register(backgroundsRoutes);
@@ -406,6 +412,7 @@ export async function buildServer(env: Env) {
   await app.register(adminRolePermissionsRoutes);
   await app.register(adminCreditsRoutes);
   await app.register(adminCreditPlansRoutes);
+  await app.register(adminUnlimitedPlanRoutes);
   await app.register(adminCreditAnalysisRoutes);
   await app.register(adminPaymentsRoutes);
   await app.register(adminSignupCampaignsRoutes);
@@ -416,6 +423,7 @@ export async function buildServer(env: Env) {
   await app.register(adminMerchantCatalogRoutes);
   await app.register(adminDemoCatalogRoutes);
   await app.register(adminWorkersRoutes);
+  await app.register(adminProdSnapshotRoutes);
   await app.register(adminConfigRoutes);
   await app.register(adminTelemetryRoutes);
   await app.register(adminMeRoutes);

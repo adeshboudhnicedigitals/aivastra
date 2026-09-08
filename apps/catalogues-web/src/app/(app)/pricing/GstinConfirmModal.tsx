@@ -4,7 +4,6 @@ import { GSTIN_REGEX } from '@aivastra/types';
 import { X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { C, grad } from '@/components/tokens';
-import type { CreditPlan } from './use-pricing-data';
 
 export function GstinConfirmModal({
   plan,
@@ -16,7 +15,10 @@ export function GstinConfirmModal({
   onClose,
   onPay,
 }: {
-  plan: CreditPlan;
+  // Only basePaise is ever read below — a plain object works for both a real
+  // CreditPlan (pack purchase) and a synthetic one built from
+  // unlimitedRenewalPricePaise (plan renewal), so this stays that minimal.
+  plan: { basePaise: number };
   gstin: string;
   setGstin: (v: string) => void;
   displayBase: (basePaise: number) => string;

@@ -47,22 +47,48 @@ export function getToken(): string | null {
 // the rest hit a revoked token and force a logout. Dedup avoids that race.
 let refreshInFlight: Promise<string | null> | null = null;
 
+const AUTH_REFRESH_LOCK_NAME = 'aivastra-auth-refresh';
+
+async function doRefresh(): Promise<string | null> {
+  try {
+    const res = await fetch(`${BASE}/api/auth/refresh`, { method: 'POST' });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { accessToken: string };
+    _memToken = data.accessToken;
+    AUTH_CHANNEL?.postMessage({ type: 'token-refreshed', accessToken: data.accessToken });
+    return data.accessToken;
+  } catch {
+    return null;
+  }
+}
+
 // Exported so other independent fetch clients (e.g. the SSE connection in
 // sse.ts) share this single flight instead of racing their own refresh call
 // against this one — see the comment above.
+//
+// The single-flight guard above only dedupes within one tab (each tab is its
+// own JS module instance). A user with several tabs open on the same account
+// still had every tab independently 401 and call /refresh within the same
+// instant — production logs showed bursts of 4-8 near-simultaneous
+// /v1/auth/refresh calls from one account, racing the same single-use
+// refresh token and adding to the per-IP rate-limit budget (see
+// docs/progress.md, "catalog-video rate-limit incident"). navigator.locks
+// serializes the actual network call across tabs: only the lock holder calls
+// doRefresh(); everyone else waits, then re-checks whether the holder's
+// broadcast already delivered a fresh token before spending another refresh
+// call of their own. Browsers without the Web Locks API fall back to today's
+// per-tab-only behavior — still correct, just not cross-tab-coordinated.
 export function tryRefresh(): Promise<string | null> {
   if (!refreshInFlight) {
+    const tokenBeforeRefresh = _memToken;
     refreshInFlight = (async () => {
-      try {
-        const res = await fetch(`${BASE}/api/auth/refresh`, { method: 'POST' });
-        if (!res.ok) return null;
-        const data = (await res.json()) as { accessToken: string };
-        _memToken = data.accessToken;
-        AUTH_CHANNEL?.postMessage({ type: 'token-refreshed', accessToken: data.accessToken });
-        return data.accessToken;
-      } catch {
-        return null;
+      if (typeof navigator === 'undefined' || !navigator.locks) {
+        return doRefresh();
       }
+      return navigator.locks.request(AUTH_REFRESH_LOCK_NAME, async () => {
+        if (_memToken && _memToken !== tokenBeforeRefresh) return _memToken;
+        return doRefresh();
+      });
     })().finally(() => {
       refreshInFlight = null;
     });

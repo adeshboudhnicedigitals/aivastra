@@ -30,7 +30,7 @@ class Aivastra_Settings_Page
     // rejected (HTTP 401).") and is shown as-is.
     private const ERROR_MESSAGES = [
         'invalid_key_format' => 'Please paste both keys — check they match the sk_live_… format exactly.',
-        'not_connected' => 'Connect your account before mapping categories.',
+        'not_connected' => 'Connect your account before setting up categories.',
     ];
 
     // Hardcoded, no user data ever passed through — safe to echo raw.
@@ -59,20 +59,20 @@ class Aivastra_Settings_Page
     // re-declared here to give this admin screen the same look as the
     // consumer pricing page for the same four tiers.
     private const PLAN_META = [
-        ['icon' => 'rocket', 'subtext' => 'Perfect for Startups', 'accent' => '#626262', 'checkGrad' => false],
-        ['icon' => 'bar-chart-icon', 'subtext' => 'Most Popular Choice', 'accent' => '#209e46', 'checkGrad' => true],
-        ['icon' => 'building', 'subtext' => 'Best for Growing Businesses', 'accent' => '#626262', 'checkGrad' => false],
-        ['icon' => 'building', 'subtext' => 'Enterprises & High Volume', 'accent' => '#626262', 'checkGrad' => false],
+        ['icon' => 'rocket', 'subtext' => 'Great for getting started', 'accent' => '#626262', 'checkGrad' => false],
+        ['icon' => 'bar-chart-icon', 'subtext' => 'Most popular', 'accent' => '#209e46', 'checkGrad' => true],
+        ['icon' => 'building', 'subtext' => 'For growing stores', 'accent' => '#626262', 'checkGrad' => false],
+        ['icon' => 'building', 'subtext' => 'For stores with high traffic', 'accent' => '#626262', 'checkGrad' => false],
     ];
 
     // Same static copy as TRYON_FEATURES in use-pricing-data.ts — identical
     // across every try-on plan there, so no per-plan variant is needed here.
     private const PLAN_FEATURES = [
-        'Instant Priority Processing',
-        'Pay Only for Successful Try-Ons',
-        'White Label Integration',
-        'Website & Shopify Integration',
-        'Standard AI Quality',
+        'Faster processing, ahead of the queue',
+        'Only pay for try-ons that work',
+        'No Aivastra branding shown to shoppers',
+        'Works on your website and Shopify store',
+        'Standard AI quality',
     ];
 
     // Icon shown before each sidebar nav item's label.
@@ -114,6 +114,13 @@ class Aivastra_Settings_Page
             AIVASTRA_TRYON_URL . 'admin/assets/settings-page.css',
             [],
             AIVASTRA_TRYON_VERSION
+        );
+        wp_enqueue_script(
+            'aivastra-tryon-select',
+            AIVASTRA_TRYON_URL . 'admin/assets/select.js',
+            [],
+            AIVASTRA_TRYON_VERSION,
+            true
         );
 
         if (!isset($_GET['aivastra_checkout'])) {
@@ -365,8 +372,8 @@ class Aivastra_Settings_Page
         $items = ['connection' => 'Connection'];
         if ($connected) {
             $items['plans'] = 'Plans & Credits';
-            $items['widget'] = 'Widget Appearance';
-            $items['categories'] = 'Category Mapping';
+            $items['widget'] = 'Try-On Button';
+            $items['categories'] = 'Categories';
             $items['analytics'] = 'Analytics';
         }
         $items['support'] = 'Support';
@@ -413,7 +420,7 @@ class Aivastra_Settings_Page
             ?>
             <div class="aivastra-card aivastra-connect-card">
               <h2 class="aivastra-connect-heading"><?php echo self::heading_icon('link'); ?>Connect your Ai Vastra account</h2>
-              <p class="aivastra-connect-description">Paste two keys from your Ai Vastra dashboard to enable virtual try-on on your storefront.</p>
+              <p class="aivastra-connect-description">Paste two keys from your Ai Vastra dashboard to get started.</p>
               <?php self::render_connect_form(); ?>
             </div>
             <?php
@@ -464,7 +471,7 @@ class Aivastra_Settings_Page
           <div class="aivastra-danger-zone">
             <div class="aivastra-danger-copy">
               <strong>Disconnect this site</strong>
-              <p>Removes your stored keys and category mapping. The storefront button stops working until you reconnect.</p>
+              <p>Removes your stored keys and saved categories. The storefront button stops working until you reconnect.</p>
             </div>
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
               <input type="hidden" name="action" value="aivastra_tryon_disconnect">
@@ -491,7 +498,7 @@ class Aivastra_Settings_Page
               <img src="<?php echo esc_url(AIVASTRA_TRYON_URL . 'admin/assets/images/logo.svg'); ?>" alt="" class="aivastra-logo-mark">
               <img src="<?php echo esc_url(AIVASTRA_TRYON_URL . 'admin/assets/images/logo-text.svg'); ?>" alt="Ai Vastra Try-On" class="aivastra-logo-text">
             </h1>
-            <p class="aivastra-page-subtitle">Manage the connection powering your storefront's virtual try-on button.</p>
+            <p class="aivastra-page-subtitle">Settings for your storefront's virtual try-on button.</p>
           </div>
 
           <?php self::render_notices(); ?>
@@ -580,7 +587,7 @@ class Aivastra_Settings_Page
             </div>
 
             <?php if (!empty($result['products'])): ?>
-              <h3 class="aivastra-analytics-subheading">Products (advisory)</h3>
+              <h3 class="aivastra-analytics-subheading">Products (estimated)</h3>
               <table class="aivastra-analytics-table">
                 <thead>
                   <tr>
@@ -619,9 +626,6 @@ class Aivastra_Settings_Page
         <div class="aivastra-card aivastra-support-card">
           <h2 class="aivastra-card-heading"><?php echo self::heading_icon('life-buoy'); ?>Support</h2>
           <p class="aivastra-card-description">Two ways to reach the team.</p>
-          <div class="aivastra-support-banner">
-            Live chat is the fastest option during business hours. Email is answered within 24 hours the rest of the time.
-          </div>
           <div class="aivastra-support-grid">
             <div class="aivastra-support-channel">
               <h3 class="aivastra-support-channel-title">Email support</h3>
@@ -649,7 +653,7 @@ class Aivastra_Settings_Page
     {
         ?>
         <div class="aivastra-onboarding-banner">
-          <p class="aivastra-onboarding-banner-text">Don&rsquo;t have your keys yet? Get set up in your Ai Vastra account:</p>
+          <p class="aivastra-onboarding-banner-text">You&rsquo;ll need two keys from your Ai Vastra account to connect your store:</p>
           <div class="aivastra-onboarding-links">
             <a href="<?php echo esc_url(self::API_BASE . '/register?src=wordpress_plugin'); ?>" target="_blank" rel="noopener noreferrer" class="aivastra-btn aivastra-btn-primary">Create a free account &rarr;</a>
             <a href="<?php echo esc_url(self::API_BASE . '/developers'); ?>" target="_blank" rel="noopener noreferrer" class="aivastra-btn aivastra-btn-ghost">Already have an account? Get your API keys &rarr;</a>
@@ -662,7 +666,7 @@ class Aivastra_Settings_Page
             <span class="aivastra-step-number">1</span>
             <div class="aivastra-step-body">
               <label for="aivastra_full_key">Full API key</label>
-              <p class="aivastra-step-hint">Verified against your account and stored securely (encrypted) so you can buy credits below without re-entering it.</p>
+              <p class="aivastra-step-hint">We check it against your account and store it securely (encrypted), so you won&rsquo;t need to re-enter it when buying credits.</p>
               <input type="password" id="aivastra_full_key" name="aivastra_full_key" class="aivastra-input" autocomplete="off" placeholder="sk_live_&hellip;">
             </div>
           </div>
@@ -688,13 +692,13 @@ class Aivastra_Settings_Page
             self::render_notice('success', 'Balance refreshed.');
         }
         if (isset($_GET['aivastra_disconnected'])) {
-            self::render_notice('success', 'Disconnected. All stored settings, including the category mapping, have been cleared.');
+            self::render_notice('success', 'Disconnected. All stored settings, including your saved categories, have been cleared.');
         }
         if (isset($_GET['aivastra_category_map_saved'])) {
-            self::render_notice('success', 'Category mapping saved.');
+            self::render_notice('success', 'Categories saved.');
         }
         if (isset($_GET['aivastra_widget_saved'])) {
-            self::render_notice('success', 'Widget appearance saved.');
+            self::render_notice('success', 'Try-on button settings saved.');
         }
         if (isset($_GET['aivastra_error'])) {
             $code = (string) $_GET['aivastra_error'];
@@ -763,7 +767,7 @@ class Aivastra_Settings_Page
                     <div class="aivastra-plan-divider"></div>
 
                     <div class="aivastra-plan-features">
-                      <p class="aivastra-plan-features-heading">Included Features</p>
+                      <p class="aivastra-plan-features-heading">What's included</p>
                       <?php foreach (self::PLAN_FEATURES as $feature): ?>
                         <div class="aivastra-plan-feature-row">
                           <span
@@ -806,8 +810,8 @@ class Aivastra_Settings_Page
         $c = $settings->get_widget_customization();
         ?>
         <div class="aivastra-card aivastra-widget-customization-card">
-          <h2 class="aivastra-card-heading"><?php echo self::heading_icon('palette'); ?>Widget appearance</h2>
-          <p class="aivastra-card-description">Customize the colors and copy shoppers see in the try-on button and modal. Leave a field blank to use the default.</p>
+          <h2 class="aivastra-card-heading"><?php echo self::heading_icon('palette'); ?>Try-on button</h2>
+          <p class="aivastra-card-description">Customize the colors and text shoppers see in the try-on button and popup. Leave a field blank to use the default.</p>
           <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="aivastra-form aivastra-widget-form">
             <input type="hidden" name="action" value="aivastra_tryon_save_widget_customization">
             <?php wp_nonce_field('aivastra_tryon_save_widget_customization'); ?>
@@ -818,12 +822,12 @@ class Aivastra_Settings_Page
             </div>
 
             <div class="aivastra-field-row">
-              <label for="aivastra_widget_heading">Modal heading</label>
+              <label for="aivastra_widget_heading">Popup heading</label>
               <input type="text" id="aivastra_widget_heading" name="aivastra_widget[heading]" class="aivastra-input" maxlength="60" placeholder="Virtual Try-On" value="<?php echo esc_attr($c['heading'] ?? ''); ?>">
             </div>
 
             <div class="aivastra-field-row">
-              <label for="aivastra_widget_subheading">Modal subheading</label>
+              <label for="aivastra_widget_subheading">Popup subheading</label>
               <input type="text" id="aivastra_widget_subheading" name="aivastra_widget[subheading]" class="aivastra-input" maxlength="160" placeholder="Upload a full-body photo to see how it looks on you." value="<?php echo esc_attr($c['subheading'] ?? ''); ?>">
             </div>
 
@@ -834,7 +838,7 @@ class Aivastra_Settings_Page
 
             <div class="aivastra-field-row aivastra-field-row-checkbox">
               <label for="aivastra_widget_add_to_cart">
-                <input type="checkbox" id="aivastra_widget_add_to_cart" name="aivastra_widget[addToCart]" value="1" <?php checked($c['addToCart']); ?>>
+                <input type="checkbox" id="aivastra_widget_add_to_cart" name="aivastra_widget[addToCart]" value="1" class="aivastra-checkbox" <?php checked($c['addToCart']); ?>>
                 Show "Add to Cart" on the result
               </label>
               <input type="text" id="aivastra_widget_add_to_cart_label" name="aivastra_widget[addToCartLabel]" class="aivastra-input aivastra-input-inline" maxlength="30" placeholder="Add to Cart" value="<?php echo esc_attr($c['addToCartLabel'] ?? ''); ?>">
@@ -842,7 +846,7 @@ class Aivastra_Settings_Page
 
             <div class="aivastra-field-row aivastra-field-row-checkbox">
               <label for="aivastra_widget_share">
-                <input type="checkbox" id="aivastra_widget_share" name="aivastra_widget[share]" value="1" <?php checked($c['share']); ?>>
+                <input type="checkbox" id="aivastra_widget_share" name="aivastra_widget[share]" value="1" class="aivastra-checkbox" <?php checked($c['share']); ?>>
                 Show "Share" on the result
               </label>
               <input type="text" id="aivastra_widget_share_label" name="aivastra_widget[shareLabel]" class="aivastra-input aivastra-input-inline" maxlength="30" placeholder="Share" value="<?php echo esc_attr($c['shareLabel'] ?? ''); ?>">
@@ -869,15 +873,15 @@ class Aivastra_Settings_Page
         $currentMap = $settings->get_category_map();
         ?>
         <div class="aivastra-card aivastra-category-card">
-          <h2 class="aivastra-card-heading"><?php echo self::heading_icon('tag'); ?>Try-on category mapping</h2>
+          <h2 class="aivastra-card-heading"><?php echo self::heading_icon('tag'); ?>Categories</h2>
           <?php if (!$result['ok']): ?>
             <p class="aivastra-empty-state">Could not load your Ai Vastra categories right now — try reloading this page.</p>
           <?php elseif (empty($result['categories'])): ?>
-            <p class="aivastra-empty-state">No active try-on categories are configured on your Ai Vastra account yet. Every product will use the <code>general</code> category until one exists.</p>
+            <p class="aivastra-empty-state">You don't have any try-on categories set up on your Ai Vastra account yet. Until you add one, every product uses the <code>general</code> category.</p>
           <?php elseif (empty($productCategories)): ?>
             <p class="aivastra-empty-state">No WooCommerce product categories found — every product uses the <code>general</code> try-on category.</p>
           <?php else: ?>
-            <p class="aivastra-card-description">Pick which Ai Vastra try-on workflow applies to each WooCommerce product category. A category left as "Default" falls back to <code>general</code>.</p>
+            <p class="aivastra-card-description">Choose which try-on style each of your product categories should use. Categories left as "Default" use the <code>general</code> style.</p>
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="aivastra-form">
               <input type="hidden" name="action" value="aivastra_tryon_save_category_map">
               <?php wp_nonce_field('aivastra_tryon_save_category_map'); ?>
@@ -896,7 +900,7 @@ class Aivastra_Settings_Page
                   </div>
                 <?php endforeach; ?>
               </div>
-              <button type="submit" class="aivastra-btn aivastra-btn-primary">Save category mapping</button>
+              <button type="submit" class="aivastra-btn aivastra-btn-primary">Save categories</button>
             </form>
           <?php endif; ?>
         </div>

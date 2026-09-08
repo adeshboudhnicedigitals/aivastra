@@ -65,3 +65,7 @@ affected.json
 # share no code with this repo. Harness, findings and per-box records live in the
 # separate `aivastra-gpu` repo.
 /gpubenchmarking/
+
+# scripts/bulk-tryon moved out to its own standalone repo (D:\aivastra-bulk-tryon,
+# 2026-09-03) — no code or database dependency on this repo, see that repo's
+# README for why. Nothing left to ignore here.

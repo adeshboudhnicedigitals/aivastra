@@ -2,6 +2,278 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-04 — Catalog-video rate-limit incident
+
+Two production accounts hit the global per-IP rate limiter (200/min,
+`apps/api/src/server.ts`) while using the Catalog Video wizard's "existing
+image" picker: `satyamcreations@gmail.com` (429 on upload, self-healed on
+retry) and `durga.niceinteractive@gmail.com` (instant 429 on first upload,
+succeeded after 2-3 retries). Investigated independently by a Claude Code
+session running on the production VPS; findings verified against this repo's
+source before acting on them — every specific code claim checked out.
+
+**Root cause:** `apps/catalogues-web/src/app/(app)/catalog-video/CatalogVideoWizard.tsx`'s
+image picker rendered one `JobThumbnail` per completed job across every
+catalogue the account has ever created, each firing its own
+`GET /v1/jobs/:id/thumbnail` on mount with no batching or limit. A
+long-history account opening this one page could burn through the account's
+entire per-IP budget — including for unrelated routes like
+`/v1/uploads/presign` — before doing anything else.
+
+**Done**
+- `apps/catalogues-web/.../CatalogVideoWizard.tsx` — the picker now paginates
+  instead of rendering every completed job at once: sorted by `createdAt`
+  desc client-side (`CatalogueResponse`'s job type widened to carry
+  `createdAt`), initial render shows the 10 most recent
+  (`IMAGE_OPTIONS_PAGE_SIZE`), and a "Load more" button reveals 10 more per
+  click (`visibleImageCount` state). Older images stay reachable, unlike the
+  first pass's hard 10-image cap.
+- Same file — thumbnail fetches deferred until each tile scrolls into view
+  (`useInView`, `IntersectionObserver` + 200px lookahead), instead of firing
+  for every rendered tile on mount. Implemented as a callback ref (not a
+  `RefObject`) since the hook is shared across `JobThumbnail`'s `<div>`
+  placeholder and `<img>` loaded-state branches, and `RefObject<T>` is
+  invariant in `T`.
+- `apps/api/src/modules/jobs/routes.ts` — `/v1/jobs/:id/thumbnail` given its
+  own rate-limit bucket (`config: { rateLimit: { max: 300, timeWindow: '1
+  minute' } }`) separate from the global 200/min, as defense-in-depth for any
+  other page that legitimately bursts thumbnail requests.
+- `apps/catalogues-web/.../CatalogVideoWizard.tsx` — `sourceTab` no longer
+  strands a brand-new account (zero completed images) on the empty "My
+  Catalogue Images" tab: a one-time effect switches to "Upload New" once
+  `catalogues` has loaded and turns out empty, guarded by a ref so it never
+  overrides a manual tab click afterward.
+- `apps/catalogues-web/src/lib/api.ts` — `tryRefresh()`'s single-flight only
+  deduped concurrent refreshes *within one tab*; production logs showed
+  bursts of 4-8 near-simultaneous `/v1/auth/refresh` calls from accounts with
+  several tabs open, all racing the same single-use refresh token and adding
+  to the same per-IP rate-limit budget the thumbnail burst was exhausting.
+  Now serialized across tabs via `navigator.locks.request('aivastra-auth-refresh', ...)`:
+  only the lock holder calls the network refresh; a tab that was waiting
+  re-checks whether the holder's `BroadcastChannel` message already delivered
+  a fresh token before spending a refresh call of its own. Falls back to the
+  prior per-tab-only behavior when the Web Locks API is unavailable — still
+  correct, just not cross-tab-coordinated. `apps/catalogues-web/src/app/tryon-library-app/catalog-app-api.ts`
+  has its own, simpler per-tab-only `tryRefresh()` for the embedded
+  tryon-library-app — not touched, out of scope for this incident.
+- Verified: `pnpm --filter @aivastra/api typecheck`,
+  `pnpm --filter @aivastra/web typecheck`, and `pnpm --filter @aivastra/web build`
+  all clean; `pnpm --filter @aivastra/web lint` clean on the modified files.
+
+**Not done**
+- Not yet deployed/verified against the two affected accounts' actual usage
+  patterns in production — this was a local code fix + typecheck/lint pass
+  only, no staging or prod verification run this session.
+
+## 2026-09-03 — Chatbot detached from its LLM agent, HITL turned into a ticket system
+
+Implemented the 15-task plan from `.superpowers/sdd/2026-09-03-chatbot-ticket-system/`
+(spec: `docs/superpowers/specs/2026-09-03-chatbot-detach-agent-ticket-system-design.md`),
+each task TDD'd and reviewed via subagent-driven-development, plus a final whole-branch
+review that found and fixed one critical bug before merge.
+
+**Done**
+- `apps/chatbot` no longer runs an LLM in the answering path. `conversation/orchestrator.ts`'s
+  `handleUserMessage` just appends the user's message and (for a brand-new ticket) publishes
+  a queue update — no router/gen model call, no fallback counting, no auto-escalate heuristic.
+  `agent/bot.ts`, `agent/tools.ts`, `agent/models.ts`, `agent/search.ts` and the pgvector RAG
+  infra (`chatbot_qna`/`chatbot_embeddings`/ingest pipeline/`ChatbotQnaPage`) are **not
+  deleted** — left on disk, unwired, per explicit instruction this session that "hiding" code
+  means removing its call sites, not the files. Same treatment for
+  `conversation/escalation.ts` (the whole file) and two blocks of `conversation/sweeper.ts`
+  (idle-`BOT` sweep, stale-`PENDING_HUMAN` email-fallback sweep) — both reference retired
+  statuses that no ticket will ever have again post-migration, both left untouched. The
+  `ConvStatus`/`ConversationStatus` types (`apps/chatbot/src/conversation/service.ts`,
+  `packages/types/src/chatbot.ts`) are **widened, not narrowed** — they keep the legacy
+  `BOT`/`PENDING_HUMAN`/`HUMAN` values alongside the new ones specifically so this hidden code
+  keeps compiling without being touched.
+- Every user message, from any of three entry points, now becomes or continues one ticket per
+  user (`chatbot_conversations` — table name unchanged, a row is now a "ticket"). Statuses:
+  `OPEN` (queued) → `IN_PROGRESS` (agent claimed) → `RESOLVED`/`CLOSED`. New columns: `source`
+  (`chat_widget`/`contact_us`/`support_modal`), `category`, `priority`, `subject` (auto-derived
+  from the first message), plus `attachmentKey`/`attachmentType` on `chatbot_messages`.
+  Migration `0190_gray_jack_flag.sql` backfills existing rows (`BOT`/`PENDING_HUMAN`→`OPEN`,
+  `HUMAN`→`IN_PROGRESS`) and incidentally repairs a pre-existing, unrelated snapshot-drift bug
+  in `0189_snapshot.json` (two `garment_subcategories` columns from migrations `0186`/`0187`
+  were missing from the snapshot chain — `0190`'s snapshot reflects the full live schema, so
+  future `db:generate` runs stop re-proposing them).
+- **Architecture correction made mid-plan, before any code was written**: the spec originally
+  called for `apps/chatbot` to expose new REST endpoints for the two form-based entry points
+  (Contact Us, Support modal), with a new `StorageProvider` added to `ChatbotDeps`. File-mapping
+  during planning found `apps/api`'s admin routes (`chatbot.routes.ts`: claim/takeover/end)
+  already write directly into `chatbot_conversations`/`chatbot_messages` and publish to the same
+  Redis channels the chatbot service uses — there was no "only `apps/chatbot` touches ticket
+  state" boundary to preserve. `/v1/contact` and `/v1/support` (`apps/api`) were rewritten in
+  place to write tickets directly instead, matching that existing precedent — no new REST
+  surface or storage wiring added to `apps/chatbot`.
+- **`GET /v1/support/attachment`** (new route, `apps/api/src/modules/support/routes.ts`) serves
+  attachment images/PDFs to both frontends. It has **no auth requirement** — deliberately: an
+  `<img src>` tag can't carry a bearer header, and this codebase's own `auth.ts` forbids putting
+  tokens in query strings. Trust model instead: the route only serves keys matching
+  `^support/[0-9a-f-]{36}\.(jpg|png|webp|pdf)$` (a `randomUUID()`-derived, unguessable path) —
+  found and tightened during review after an initial version accepted any key shape, which
+  would have made it an unauthenticated presigned-GET oracle for the entire storage bucket
+  (invoices, job outputs, model assets — not all high-entropy keys).
+- Admin `ChatInboxPage.tsx` (`apps/admin-web`) becomes a two-column ticket queue (Queue/My
+  Tickets, was three-column BOT/PENDING_HUMAN/HUMAN), sortable by priority then age, with
+  subject/category/priority editing and Resolve/Close actions. The admin `takeover` route
+  (`fromStatus: 'BOT'`) is intentionally left registered but permanently unreachable — its
+  only UI caller (the removed "Bot Live" panel) is gone, and no ticket will ever be `'BOT'`
+  again, so it always 409s. Not a bug; hide-don't-delete applied to a route, not just a file.
+- Old fire-and-forget `contact_requests` table gets no new writes; its admin inbox page
+  (`ContactRequestsPage.tsx`) stays, relabeled "Contact Requests (Legacy)" with a banner —
+  existing history isn't dropped.
+- **Final whole-branch review (Opus) caught one Critical, pre-merge bug no per-task scoped
+  review could see**: the `resolve` admin route flipped a ticket to `RESOLVED` but never
+  released its Redis claim lock (`chatbot:conv:{id}:lock`, set with no TTL on claim). Sequence:
+  claim → resolve → user sends a new message (ticket reopens to `OPEN`, agent cleared) → any
+  agent tries to claim it → `SET NX` fails forever → permanent `409`. Combined with the
+  one-active-ticket-per-user constraint, this would have permanently killed that user's entire
+  support channel with no recovery path. Fixed (lock released in `resolve`, 1h TTL added as
+  defense-in-depth) and covered by a regression test reproducing the exact sequence. The same
+  review also caught: the chat bubble never published a queue update for a brand-new ticket
+  (agents wouldn't see it until an unrelated reload); opening the bubble before typing anything
+  created an agent-visible empty ticket that flooded the queue; the reopen-on-`RESOLVED` side
+  effects (audit event, `state_change`/`queue_update` publishes) existed in the canonical
+  `apps/chatbot` version but were missing from both REST-route copies; `subject` was never
+  actually derived anywhere despite being planned; neither REST route had the per-user rate
+  limit the WS path already had; `attachmentType` was never written by any production path, so
+  PDF attachments rendered as broken images; and the chat widget's upload code could silently
+  drop the user's typed message on a failed presign. All fixed in one coordinated pass
+  (`f3887a04..13f5802b`) and independently re-reviewed clean.
+- Deliberately deferred past this branch (ledgered, not forgotten): `PATCH
+  /admin/chatbot/conversations/:id`'s permission scope/audit-logging/assignment-check are policy
+  decisions, not mechanical fixes; `RESOLVED` tickets don't show in the admin queue view (data
+  isn't lost, just not listed there yet); a narrow race in the three duplicated
+  get-or-create-ticket implementations (a conflicting row going `CLOSED` between a failed insert
+  and its re-select) would need a retry loop across three files; nothing auto-closes an
+  abandoned `OPEN` ticket (the spec itself already accepted this as a known gap).
+
+**Open question / worth a look**
+- The get-or-create-active-ticket logic is intentionally duplicated three times
+  (`apps/chatbot/src/conversation/service.ts`, and two call sites in `apps/api` — the second of
+  which now shares `apps/api/src/lib/tickets.ts` for its reopen-side-effects logic specifically,
+  extracted during the final-review fix wave). Matches existing precedent
+  (`apps/api`'s admin routes already reimplement rather than import `apps/chatbot`'s helpers,
+  since they're separate deployed processes) but is worth revisiting if a fourth entry point
+  ever gets added.
+
+## 2026-09-03 — Superadmin "Download DB snapshot" button (Settings)
+
+Follow-up to the local-dev production-snapshot sync below. User originally
+asked for a single admin-panel button producing one zip with the full DB +
+~15.6G of assets; research this session showed that's the wrong shape (no
+resumability at that size/timeout risk over one HTTP response, and no
+`pg_dump`/`child_process`/cross-bucket-copy capability exists in the API
+process or its Docker image — adding any would be a first for this
+codebase). Scoped down to: the API surfaces status/download for the DB-dump
+portion only (reusing the exact `db/latest.dump.age` object the CLI flow
+already produces); assets stay exclusively on `mc mirror`. First pass also
+over-built this as a standalone page + sidebar nav item — user correctly
+called that out as unnecessary for one button; folded into Settings instead,
+matching where other superadmin-only tools already live.
+
+**Done**
+- `apps/api/src/modules/admin/prod-snapshot.routes.ts` — `GET
+  /admin/prod-snapshot/status` (reads `db/manifest.json` from the
+  distribution bucket) and `GET /admin/prod-snapshot/download-url`
+  (`presignGet` on `db/latest.dump.age`, audited via `recordAudit` since it
+  hands out a capability URL to the full prod DB dump). Both gated
+  `requireAdmin(['SUPER_ADMIN'])` — deliberately not on the permissions
+  matrix. Degrades to `{configured:false}` when `DEV_SNAPSHOT_*` is unset.
+- `apps/api/src/env.ts` — four new optional `DEV_SNAPSHOT_*` vars.
+  `.env.production.example` gets the matching block (`.env.example` already
+  had it from the CLI-flow work).
+- `apps/admin-web/src/pages/settings/ProdSnapshotTab.tsx` — one button, no
+  status card/explanatory text (cut after user feedback that the first
+  version was overbuilt). Wired as a new Settings tab (`SettingsPage.tsx`),
+  gated on a permission key (`prod_snapshot.download`) that's never actually
+  granted to any role in `role_permissions` — visible only via
+  `hasPermission()`'s `SUPER_ADMIN` short-circuit, matching the backend gate
+  exactly without adding a parallel role-based UI mechanism.
+- `apps/api/test/integration/admin-prod-snapshot.test.ts` — 7 cases, all
+  passing: not-configured, found/not-found for both routes, 403 for a
+  non-`SUPER_ADMIN` role, and an audit row written on a successful
+  `download-url` call.
+- Verified end-to-end against the developer's own already-running local dev
+  API (not a fresh instance — see Failed-Not-Done): created a real local
+  MinIO bucket with a fake manifest + dump, confirmed `/status` and
+  `/download-url` both returned correct data over HTTP, and confirmed the
+  presigned URL actually served the file's real bytes. Cleaned up the test
+  bucket and `.env` additions afterward.
+
+**Failed-Not-Done**
+- Mid-verification, ran `pkill -f vite` to stop a duplicate dev server this
+  session had started (port conflict) — the pattern wasn't scoped to that
+  one process and killed two of the developer's own already-running `vite`
+  instances (ports 5173/5174) as a side effect. Caught and disclosed
+  immediately; developer had to restart those themselves. Lesson: kill by
+  the specific PID from a tool-started background task, never by a
+  name-based pattern that can match a process you didn't start.
+
+## 2026-09-03 — Local dev = production-snapshot sync (laptop-side)
+
+New developers previously had to hand-build admin-curated data (faces,
+backgrounds, poses, garment types, workflow templates, catalog taxonomy)
+through the admin panel to get a working local environment — slow, and it
+never actually matched production, since nothing did this end to end. Design
+was worked out and hardened jointly across two Claude Code sessions (one on
+this laptop clone, one running directly on the production VPS, relayed
+through the user) before implementation.
+
+**Done**
+- `scripts/local-sync/export-prod-snapshot.sh` — operator-run, VPS-side.
+  Same shape as `scripts/staging/sync-from-prod.sh`'s step 1 (`pg_dump` +
+  `mc mirror`, read-only against prod), but packages the result for remote
+  pickup: `--exclude-table-data=payments --exclude-table-data=audit_logs`
+  (schema kept, row data dropped — least debugging value, most compliance
+  weight of any two tables here), `age`-encrypts the dump before upload
+  (relays through the public `/minio/` proxy, unlike `sync-from-prod.sh`
+  which never leaves the VPS's internal network), and mirrors assets into a
+  **new, dedicated** `virtual-tryon-dev-snapshot` bucket rather than a prefix
+  in the live bucket.
+- `scripts/local-sync/check-local-env.sh` (+ `check-local-env.test.sh`,
+  fixture-driven, no Docker/network) — guardrail before any destructive pull,
+  adapted from `check-staging-env.sh` to this repo's actual local setup
+  (one `.env`, not a staging-vs-prod pair to diff).
+- `scripts/local-sync/pull-prod-snapshot.sh` — developer-run, locally.
+  Downloads + decrypts the snapshot, `dropdb`/`createdb`/`pg_restore` against
+  the local `tryon_dev` (hardcoded local container name — structurally can't
+  target a remote host), mirrors assets, applies
+  `scripts/staging/post-restore.sql` unchanged (empties `workers`, marks
+  `shopify_stores.uninstalled_at`), then `pnpm db:migrate`.
+- `scripts/local-sync/age-recipients.txt` (committed, public keys only),
+  `docs/local-dev-snapshot-runbook.md`, `Makefile` (`export-prod-snapshot`,
+  `sync-prod-snapshot`), `.env.example` (`DEV_SNAPSHOT_*` block), CLAUDE.md
+  commands table.
+- Verified in-session (not inferred): every admin-curated object key in
+  `packages/storage/src/keys.ts` is ID-derived (e.g.
+  `modelFace: (id) => \`models/faces/${id}.jpg\``), so `pg_restore` must
+  preserve exact production IDs — it does this natively, no extra logic
+  needed. `refresh_tokens.tokenHash` (`packages/db/src/schema/users.ts:75`)
+  and `api_keys` are hashed, not raw bearer tokens, so no directly-usable
+  live credential rides along even unscrubbed.
+- Tested from this laptop session (no prod/VPS access needed): all three new
+  scripts syntax-checked (`bash -n`); `check-local-env.test.sh` run for real
+  — clean local `.env` passes, non-loopback `DATABASE_URL`/`R2_ENDPOINT`
+  rejected, wrong `POSTGRES_DB`/`R2_BUCKET` rejected, `NODE_ENV=production`
+  rejected.
+
+**Open Questions / Not Done**
+- Not yet run for real: `export-prod-snapshot.sh` needs VPS + prod Docker
+  access this session doesn't have. Distribution bucket + scoped MinIO
+  service account (one-time operator setup, documented in the runbook) don't
+  exist yet either.
+- Unverified: whether `app.aivastra.com`'s `/minio/` Nginx proxy forwards
+  arbitrary bucket paths or is hardcoded to the live bucket — flagged in the
+  runbook as something to check before relying on it, not assumed.
+- No real end-to-end `pull-prod-snapshot.sh` run yet (needs the above to
+  exist first) — local admin panel showing real thumbnails,
+  `pnpm --filter @aivastra/api test:integration` against the restored
+  schema, and a studio job staying `QUEUED` are all still unverified.
+- No cron on the export step yet (manual `make export-prod-snapshot` for v1,
+  deliberately).
+
 ## 2026-09-02 — Shopify basket routing
 
 Implemented the full 11-task plan from
@@ -153,6 +425,12 @@ manual pins and per-store suppression of Aivastra-authored global rules.
   (referenced elsewhere in `CLAUDE.md` as the place for tracking findings like
   this) is gitignored and does not exist in this checkout, so this finding
   could not be filed there — it lives only in this progress.md entry for now.
+  **RESOLVED 2026-09-02, checked against production:** query returned exactly
+  one distinct `funnel_template_id`, pinned on 13 `shopify_product_garments`
+  rows — `31f89f46-f6d4-4234-944e-f2ab835f82be`, which is the `default`/"Default"
+  basket (`is_active: true`). Since unpinned products already fall through to
+  the default basket, these 13 rows resolve to the exact same basket with or
+  without the pin. No reconciliation needed — deploy is safe as-is.
 
 **Open Questions**
 - **Per-store default basket** — deliberately deferred (see the plan's "Deferred"

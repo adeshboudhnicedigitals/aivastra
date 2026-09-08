@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ConfirmModal } from '../../components/ConfirmModal';
 import { Icon } from '../../components/Icons';
+import { SearchableSelect } from '../../components/SearchableSelect';
 import { Switch } from '../../components/Switch';
 import { apiErrorMessage, apiFetch } from '../../lib/data';
 import type { CreditPlan } from '../../types';
@@ -126,15 +127,15 @@ function PlanModal({
           {!isFreePlan && (
             <div className="field">
               <label>Plan Type</label>
-              <select
-                className="input"
+              <SearchableSelect
+                options={[
+                  { id: 'catalogue', label: 'AI Catalogue Generation' },
+                  { id: 'tryon', label: 'AI Virtual Try-On' },
+                ]}
                 value={form.planType}
                 disabled={saving || !!plan}
-                onChange={(e) => set('planType', e.target.value as PlanType)}
-              >
-                <option value="catalogue">AI Catalogue Generation</option>
-                <option value="tryon">AI Virtual Try-On</option>
-              </select>
+                onChange={(v) => set('planType', v as PlanType)}
+              />
               {!plan && (
                 <span style={{ fontSize: 11, color: 'var(--muted)' }}>
                   Which pricing tab this plan is sold under. Cannot change later.
@@ -248,18 +249,16 @@ function PlanModal({
           <div style={{ display: 'flex', gap: 16 }}>
             <div className="field" style={{ flex: 1.5 }}>
               <label>Job Queue Priority</label>
-              <select
-                className="input"
+              <SearchableSelect
+                options={[
+                  { id: 'priority', label: '1st — Priority (jobs processed first)' },
+                  { id: 'normal', label: '2nd — Normal' },
+                  { id: 'low', label: '3rd — Low (processed last)' },
+                ]}
                 value={form.queueStream}
                 disabled={saving}
-                onChange={(e) =>
-                  set('queueStream', e.target.value as 'priority' | 'normal' | 'low')
-                }
-              >
-                <option value="priority">1st — Priority (jobs processed first)</option>
-                <option value="normal">2nd — Normal</option>
-                <option value="low">3rd — Low (processed last)</option>
-              </select>
+                onChange={(v) => set('queueStream', v as 'priority' | 'normal' | 'low')}
+              />
             </div>
             <div className="field" style={{ flex: 1 }}>
               <label>Marketing Badge</label>
