@@ -1366,6 +1366,20 @@
       "when": 1788436400817,
       "tag": "0194_milky_annihilus",
       "breakpoints": true
+    },
+    {
+      "idx": 195,
+      "version": "7",
+      "when": 1788763753657,
+      "tag": "0195_deep_warlock",
+      "breakpoints": true
+    },
+    {
+      "idx": 196,
+      "version": "7",
+      "when": 1788763789053,
+      "tag": "0196_flaky_scream",
+      "breakpoints": true
     }
   ]
 }
