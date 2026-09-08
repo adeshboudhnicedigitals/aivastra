@@ -1,3 +1,4 @@
+import type { DB } from '@aivastra/db';
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import { AdminMerchantUpdateBody, AssetContentType } from '@aivastra/types';
@@ -8,7 +9,36 @@ import { AppError } from '../../lib/errors.js';
 import { assignMerchantToActiveDemoSets } from '../merchant/demo-catalog-read.js';
 import { merchantAdminGrant } from '../merchant/ledger.js';
 import { findOrCreateUserForMerchant } from '../merchant/user-link.js';
+import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
+
+// webhookSecret signs outgoing webhook payloads — never write its raw value into
+// audit_logs.before/after, which the Team Activity page renders in plain diffs.
+function auditMerchantSnapshot(row: {
+  companyName: string;
+  contactName: string | null;
+  phone: string | null;
+  businessAddress: string | null;
+  isActive: boolean;
+  demoData: boolean;
+  jobRateLimitPerMin?: number | null;
+  webhookUrl?: string | null;
+  webhookSecret?: string | null;
+  logoKey?: string | null;
+}) {
+  return {
+    companyName: row.companyName,
+    contactName: row.contactName,
+    phone: row.phone,
+    businessAddress: row.businessAddress,
+    isActive: row.isActive,
+    demoData: row.demoData,
+    jobRateLimitPerMin: row.jobRateLimitPerMin,
+    webhookUrl: row.webhookUrl,
+    webhookSecret: row.webhookSecret ? '(set)' : null,
+    logoKey: row.logoKey,
+  };
+}
 
 const AdminCreateClient = z
   .object({
@@ -182,6 +212,15 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
           })
           .returning();
 
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'merchant.create',
+          resourceType: 'merchant',
+          resourceId: created.id,
+          after: auditMerchantSnapshot(created),
+          request: req,
+        });
+
         return created;
       });
 
@@ -304,13 +343,33 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
         updates.logoKey = body.logoKey;
       }
 
-      const [updated] = await app.db
-        .update(schema.merchants)
-        .set(updates)
-        .where(eq(schema.merchants.id, id))
-        .returning();
+      const updated = await app.db.transaction(async (tx) => {
+        const [existing] = await tx
+          .select()
+          .from(schema.merchants)
+          .where(eq(schema.merchants.id, id))
+          .for('update');
+        if (!existing) throw new AppError('NOT_FOUND', 404, 'Merchant not found');
 
-      if (!updated) throw new AppError('NOT_FOUND', 404, 'Merchant not found');
+        const [row] = await tx
+          .update(schema.merchants)
+          .set(updates)
+          .where(eq(schema.merchants.id, id))
+          .returning();
+        if (!row) throw new AppError('NOT_FOUND', 404, 'Merchant not found');
+
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'merchant.update',
+          resourceType: 'merchant',
+          resourceId: row.id,
+          before: auditMerchantSnapshot(existing),
+          after: auditMerchantSnapshot(row),
+          request: req,
+        });
+
+        return row;
+      });
 
       if (body.demoData === true) {
         await assignMerchantToActiveDemoSets(app.db, id, req.userId);
@@ -345,23 +404,29 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
       const { id } = req.params as { id: string };
       const { amount, reason } = req.body as z.infer<typeof AdminCreditBody>;
 
-      await merchantAdminGrant(
-        // biome-ignore lint/suspicious/noExplicitAny: DB type narrowing
-        app.db as any,
-        id,
-        amount,
-        reason,
-        req.userId,
-      );
+      const newBalance = await app.db.transaction(async (tx) => {
+        await merchantAdminGrant(tx as unknown as DB, id, amount, reason, req.userId);
 
-      const [credits] = await app.db
-        .select({ balance: schema.userCredits.balance })
-        .from(schema.merchants)
-        .innerJoin(schema.userCredits, eq(schema.userCredits.userId, schema.merchants.userId))
-        .where(eq(schema.merchants.id, id))
-        .limit(1);
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'merchant.credit_grant',
+          resourceType: 'merchant',
+          resourceId: id,
+          after: { amount, reason },
+          request: req,
+        });
 
-      return { newBalance: credits?.balance ?? amount };
+        const [credits] = await tx
+          .select({ balance: schema.userCredits.balance })
+          .from(schema.merchants)
+          .innerJoin(schema.userCredits, eq(schema.userCredits.userId, schema.merchants.userId))
+          .where(eq(schema.merchants.id, id))
+          .limit(1);
+
+        return credits?.balance ?? amount;
+      });
+
+      return { newBalance };
     },
   );
 }

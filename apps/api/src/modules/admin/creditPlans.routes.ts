@@ -3,6 +3,7 @@ import { asc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
 
 const PlanBody = z.object({
@@ -41,8 +42,18 @@ export async function adminCreditPlansRoutes(app: FastifyInstance) {
 
   app.post('/admin/credit-plans', { preHandler: W, schema: { body: PlanBody } }, async (req) => {
     const body = req.body as z.infer<typeof PlanBody>;
-    const [plan] = await app.db.insert(schema.creditPlans).values(body).returning();
-    return plan;
+    return app.db.transaction(async (tx) => {
+      const [plan] = await tx.insert(schema.creditPlans).values(body).returning();
+      await recordAudit(tx, {
+        actor: { userId: req.userId, role: req.adminRole! },
+        action: 'credit_plan.create',
+        resourceType: 'credit_plan',
+        resourceId: plan.id,
+        after: plan,
+        request: req,
+      });
+      return plan;
+    });
   });
 
   app.patch(
@@ -57,26 +68,37 @@ export async function adminCreditPlansRoutes(app: FastifyInstance) {
     async (req) => {
       const { id } = req.params as { id: string };
       const body = req.body as Partial<z.infer<typeof PlanBody>>;
-      const [existing] = await app.db
-        .select({ slug: schema.creditPlans.slug })
-        .from(schema.creditPlans)
-        .where(eq(schema.creditPlans.id, id));
-      if (!existing) throw new AppError('NOT_FOUND', 404, 'plan not found');
-      if (existing.slug === 'free' && body.slug && body.slug !== 'free')
-        throw new AppError('FORBIDDEN', 403, 'cannot change the free plan slug');
-      if (existing.slug === 'free' && body.isActive === false)
-        throw new AppError(
-          'FORBIDDEN',
-          403,
-          'cannot deactivate the free plan — new signups would silently get 0 free credits',
-        );
-      const [plan] = await app.db
-        .update(schema.creditPlans)
-        .set({ ...body, updatedAt: new Date() })
-        .where(eq(schema.creditPlans.id, id))
-        .returning();
-      if (!plan) throw new AppError('NOT_FOUND', 404, 'plan not found');
-      return plan;
+      return app.db.transaction(async (tx) => {
+        const [existing] = await tx
+          .select()
+          .from(schema.creditPlans)
+          .where(eq(schema.creditPlans.id, id));
+        if (!existing) throw new AppError('NOT_FOUND', 404, 'plan not found');
+        if (existing.slug === 'free' && body.slug && body.slug !== 'free')
+          throw new AppError('FORBIDDEN', 403, 'cannot change the free plan slug');
+        if (existing.slug === 'free' && body.isActive === false)
+          throw new AppError(
+            'FORBIDDEN',
+            403,
+            'cannot deactivate the free plan — new signups would silently get 0 free credits',
+          );
+        const [plan] = await tx
+          .update(schema.creditPlans)
+          .set({ ...body, updatedAt: new Date() })
+          .where(eq(schema.creditPlans.id, id))
+          .returning();
+        if (!plan) throw new AppError('NOT_FOUND', 404, 'plan not found');
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'credit_plan.update',
+          resourceType: 'credit_plan',
+          resourceId: plan.id,
+          before: existing,
+          after: plan,
+          request: req,
+        });
+        return plan;
+      });
     },
   );
 
@@ -88,43 +110,55 @@ export async function adminCreditPlansRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const { id } = req.params as { id: string };
-      const [plan] = await app.db
-        .select({ slug: schema.creditPlans.slug })
-        .from(schema.creditPlans)
-        .where(eq(schema.creditPlans.id, id));
-      if (!plan) throw new AppError('NOT_FOUND', 404, 'plan not found');
-      if (plan.slug === 'free') throw new AppError('FORBIDDEN', 403, 'cannot delete the free plan');
+      await app.db.transaction(async (tx) => {
+        const [plan] = await tx
+          .select()
+          .from(schema.creditPlans)
+          .where(eq(schema.creditPlans.id, id));
+        if (!plan) throw new AppError('NOT_FOUND', 404, 'plan not found');
+        if (plan.slug === 'free')
+          throw new AppError('FORBIDDEN', 403, 'cannot delete the free plan');
 
-      const [payment] = await app.db
-        .select({ id: schema.payments.id })
-        .from(schema.payments)
-        .where(eq(schema.payments.planId, plan.slug))
-        .limit(1);
-      if (payment) {
-        throw new AppError(
-          'CONFLICT',
-          409,
-          'plan has existing payments; deactivate instead of deleting',
-        );
-      }
+        const [payment] = await tx
+          .select({ id: schema.payments.id })
+          .from(schema.payments)
+          .where(eq(schema.payments.planId, plan.slug))
+          .limit(1);
+        if (payment) {
+          throw new AppError(
+            'CONFLICT',
+            409,
+            'plan has existing payments; deactivate instead of deleting',
+          );
+        }
 
-      // users.tier has a DB-level FK to credit_plans.slug (ON DELETE RESTRICT) as a
-      // backstop, but check here first so the admin gets a clear 409 instead of a
-      // raw Postgres constraint-violation error.
-      const [userOnPlan] = await app.db
-        .select({ id: schema.users.id })
-        .from(schema.users)
-        .where(eq(schema.users.tier, plan.slug))
-        .limit(1);
-      if (userOnPlan) {
-        throw new AppError(
-          'CONFLICT',
-          409,
-          'plan has users currently on it; deactivate instead of deleting',
-        );
-      }
+        // users.tier has a DB-level FK to credit_plans.slug (ON DELETE RESTRICT) as a
+        // backstop, but check here first so the admin gets a clear 409 instead of a
+        // raw Postgres constraint-violation error.
+        const [userOnPlan] = await tx
+          .select({ id: schema.users.id })
+          .from(schema.users)
+          .where(eq(schema.users.tier, plan.slug))
+          .limit(1);
+        if (userOnPlan) {
+          throw new AppError(
+            'CONFLICT',
+            409,
+            'plan has users currently on it; deactivate instead of deleting',
+          );
+        }
 
-      await app.db.delete(schema.creditPlans).where(eq(schema.creditPlans.id, id));
+        await tx.delete(schema.creditPlans).where(eq(schema.creditPlans.id, id));
+
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'credit_plan.delete',
+          resourceType: 'credit_plan',
+          resourceId: id,
+          before: plan,
+          request: req,
+        });
+      });
       reply.code(204).send();
     },
   );

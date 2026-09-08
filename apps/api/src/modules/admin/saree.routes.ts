@@ -1,3 +1,4 @@
+import type { DB } from '@aivastra/db';
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import {
@@ -10,6 +11,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { getSareeSettings, upsertSareeSettings } from '../saree/settings.js';
+import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
 import { detectSareeMappings } from './saree-detect.js';
 
@@ -98,6 +100,16 @@ export async function adminSareeRoutes(app: FastifyInstance) {
               tryonOutputNodeId: detected.outputNode,
             })
             .returning();
+
+          await recordAudit(tx, {
+            actor: { userId: req.userId, role: req.adminRole! },
+            action: 'saree_workflow.create',
+            resourceType: 'saree_workflow',
+            resourceId: created.id,
+            after: { slug: created.slug, label: created.label, isActive: created.isActive },
+            request: req,
+          });
+
           return created;
         } catch (err) {
           if ((err as { code?: string }).code === '23505') {
@@ -123,17 +135,32 @@ export async function adminSareeRoutes(app: FastifyInstance) {
     { preHandler: W, schema: { params: uuidParam } },
     async (req) => {
       const { id } = req.params as { id: string };
-      const [updated] = await app.db
-        .update(schema.workflowTemplates)
-        .set({ isActive: false, updatedAt: new Date() })
-        .where(
-          and(
-            eq(schema.workflowTemplates.id, id),
-            eq(schema.workflowTemplates.workflowType, 'saree'),
-          ),
-        )
-        .returning({ id: schema.workflowTemplates.id });
-      if (!updated) throw new AppError('NOT_FOUND', 404, 'saree workflow not found');
+      await app.db.transaction(async (tx) => {
+        const [updated] = await tx
+          .update(schema.workflowTemplates)
+          .set({ isActive: false, updatedAt: new Date() })
+          .where(
+            and(
+              eq(schema.workflowTemplates.id, id),
+              eq(schema.workflowTemplates.workflowType, 'saree'),
+            ),
+          )
+          .returning({
+            id: schema.workflowTemplates.id,
+            slug: schema.workflowTemplates.slug,
+            label: schema.workflowTemplates.label,
+          });
+        if (!updated) throw new AppError('NOT_FOUND', 404, 'saree workflow not found');
+
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'saree_workflow.delete',
+          resourceType: 'saree_workflow',
+          resourceId: updated.id,
+          before: { slug: updated.slug, label: updated.label },
+          request: req,
+        });
+      });
       return { ok: true };
     },
   );
@@ -204,7 +231,18 @@ export async function adminSareeRoutes(app: FastifyInstance) {
     { preHandler: W, schema: { body: AdminSareeSettingsPatch } },
     async (req) => {
       const body = req.body as z.infer<typeof AdminSareeSettingsPatch>;
-      await upsertSareeSettings(app.db, body);
+      await app.db.transaction(async (tx) => {
+        const before = await getSareeSettings(tx as unknown as DB);
+        await upsertSareeSettings(tx as unknown as DB, body);
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'saree_settings.update',
+          resourceType: 'saree_settings',
+          before,
+          after: body,
+          request: req,
+        });
+      });
       return { ok: true };
     },
   );

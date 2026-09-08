@@ -19,6 +19,7 @@ import {
 } from '../../lib/resolution-config.js';
 import { DEFAULT_UPLOAD_LIMITS } from '../../lib/upload-limits-config.js';
 import { CREDIT_PACKS } from '../shopify/packs.js';
+import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
 
 const KEY = 'config:system';
@@ -82,6 +83,20 @@ export async function adminConfigRoutes(app: FastifyInstance) {
     async (req) => {
       const cur = JSON.parse((await app.redis.get(KEY)) ?? '{}') as Record<string, unknown>;
       const next = { ...cur, ...(req.body as Record<string, unknown>) };
+      // System config lives in Redis, not Postgres, so there's no row for a
+      // failed audit insert to roll back — write the audit record first and
+      // only apply the Redis change once it succeeds, so a config change can
+      // never land without a Team Activity entry for who made it.
+      await app.db.transaction(async (tx) => {
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'config.update',
+          resourceType: 'system_config',
+          before: cur,
+          after: next,
+          request: req,
+        });
+      });
       await app.redis.set(KEY, JSON.stringify(next));
       return next;
     },
@@ -106,11 +121,24 @@ export async function adminConfigRoutes(app: FastifyInstance) {
   app.post(
     '/admin/config/app-video/confirm',
     { preHandler: requirePermission('config.manage') },
-    async () => {
+    async (req) => {
       const key = keys.appVideo();
       const cur = JSON.parse((await app.redis.get(KEY)) ?? '{}') as Record<string, unknown>;
       const updatedAt = new Date().toISOString();
-      cur.appVideo = { key, updatedAt };
+      const before = cur.appVideo ?? null;
+      const after = { key, updatedAt };
+      await app.db.transaction(async (tx) => {
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'config.app_video_update',
+          resourceType: 'system_config',
+          resourceId: 'app_video',
+          before,
+          after,
+          request: req,
+        });
+      });
+      cur.appVideo = after;
       await app.redis.set(KEY, JSON.stringify(cur));
       return { videoUrl: await appVideoUrl(app, key), updatedAt };
     },

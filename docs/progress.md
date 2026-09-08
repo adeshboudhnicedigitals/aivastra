@@ -2,6 +2,58 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-08 — Chat widget silently broken on prod: chatbot env vars pointed at unreachable hosts
+
+Enabling the customer-facing chat widget on production (mirroring the earlier staging
+activation) surfaced two pre-existing misconfigurations in `.env.production` on the VPS
+that had gone unnoticed because nothing browser-facing had exercised them until now.
+
+**Symptom:** widget visible, send button did nothing, no visible error. Root cause: the
+widget's `connect()` (`apps/catalogues-web/src/components/chat-widget.tsx`) has no
+try/catch around its `ws-ticket` fetch, so a failed connection is swallowed silently and
+`send()` just no-ops on a null `wsRef.current`.
+
+**Diagnosed remotely** via `curl -sI https://app.aivastra.com/studio` — the CSP header's
+`connect-src` (built in `apps/catalogues-web/src/lib/csp.ts` from `NEXT_PUBLIC_CHATBOT_URL`
+at build time) showed `http://localhost:4200 ws://localhost:4200`, meaning that var was
+literally set to the dev-only placeholder in prod's `.env.production`.
+
+**External state discovered (VPS-only, not in this repo):**
+- There is **no `chatbot.aivastra.com` subdomain** — no CloudPanel vhost, no htdocs dir.
+  The comment block at the top of `infra/docker-compose.prod.yml` describing that
+  subdomain was aspirational, never provisioned. Don't assume it exists.
+- The **actual working public chatbot endpoint is `https://app.aivastra.com/chatbot`** —
+  `app.aivastra.com.conf`'s own vhost already has a correct path-based proxy with
+  WS-upgrade headers (`proxy_pass http://127.0.0.1:4200/`, `Upgrade`/`Connection` headers,
+  `proxy_read_timeout 3600s`). Use this path, not a subdomain, for any future
+  browser-facing chatbot env var in prod.
+- `.env.production`'s `NEXT_PUBLIC_CHATBOT_URL` was `http://localhost:4200` (unreachable
+  from any real visitor's browser) — corrected to `https://app.aivastra.com/chatbot`.
+- `.env.production`'s `VITE_CHATBOT_URL` (feeds `apps/admin-web` and `apps/shopify`, both
+  Vite SPAs served on `admin.aivastra.com`) was `http://chatbot:4200` — a **docker-internal
+  hostname**, unreachable from any browser. Also corrected to
+  `https://app.aivastra.com/chatbot`. The chatbot service's CORS is permissive
+  (`origin: true`), so the cross-origin call from `admin.aivastra.com` works once rebuilt.
+- `CHATBOT_URL` (server-side only, `apps/api/src/modules/admin/chatbot.routes.ts`) is
+  correctly `http://chatbot:4200` — that one's meant to be the docker-network hostname and
+  was never wrong. Don't confuse it with the two `NEXT_PUBLIC_`/`VITE_` vars above.
+
+**Done**
+- Rebuilt+recreated the `web` service on prod with the corrected `NEXT_PUBLIC_CHATBOT_URL`.
+  Verified: CSP `connect-src` now shows `https://app.aivastra.com` / `wss://app.aivastra.com`,
+  no `localhost:4200`; confirmed absent from the built JS bundle too.
+- Verified the chatbot container itself was always healthy and reachable via the
+  `app.aivastra.com/chatbot` proxy (`ws-ticket` returns 401 through both the direct
+  `127.0.0.1:4200` path and the public proxy path — same as expected auth-required
+  behavior, proving the proxy forwards correctly).
+
+**Not done**
+- `admin`/`shopify-admin` prod containers not yet rebuilt with the corrected
+  `VITE_CHATBOT_URL` — the value is fixed in `.env.production` but the Vite build hasn't
+  picked it up yet (build-time var, restart alone won't help).
+- No real-browser click-test yet (widget send → message appears, no CSP console errors) —
+  needs a logged-in human, not verifiable headlessly.
+
 ## 2026-09-04 — Catalog-video rate-limit incident
 
 Two production accounts hit the global per-IP rate limiter (200/min,
