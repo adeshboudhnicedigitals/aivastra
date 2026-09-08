@@ -19,7 +19,7 @@ export const DEFAULT_RESOLUTION_CONFIG: Record<
   '4K': { enabled: true, creditCost: RESOLUTION_COSTS['4K'] },
 };
 
-export const DEFAULT_MAX_OUTPUT_PX = 2560;
+export const DEFAULT_MAX_OUTPUT_PX = 2688;
 
 export const DEFAULT_TRYON_CONFIG: { creditCost: number } = {
   creditCost: SIMPLE_TRYON_COST,
