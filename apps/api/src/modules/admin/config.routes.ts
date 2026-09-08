@@ -85,7 +85,21 @@ export async function adminConfigRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const cur = JSON.parse((await app.redis.get(KEY)) ?? '{}') as Record<string, unknown>;
-      const next = { ...cur, ...(req.body as Record<string, unknown>) };
+      const body = req.body as Record<string, unknown>;
+      const next = { ...cur, ...body };
+      // aspectDimensions is a nested per-ratio record — a submitted body may
+      // legitimately carry only the ratios the admin actually edited (see
+      // mergeAspectDimensions's doc comment), so it must be merged key-wise
+      // over the previously stored value rather than replaced wholesale, or
+      // every ratio missing from this PATCH would silently revert to default.
+      if (body.aspectDimensions) {
+        next.aspectDimensions = {
+          ...mergeAspectDimensions(
+            cur.aspectDimensions as Record<string, { width: number; height: number }> | undefined,
+          ),
+          ...(body.aspectDimensions as Record<string, { width: number; height: number }>),
+        };
+      }
       // System config lives in Redis, not Postgres, so there's no row for a
       // failed audit insert to roll back — write the audit record first and
       // only apply the Redis change once it succeeds, so a config change can

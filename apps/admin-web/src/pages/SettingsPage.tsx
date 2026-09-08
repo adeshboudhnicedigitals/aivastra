@@ -1,3 +1,4 @@
+import { ASPECT_DIMENSIONS, resolutionFromDims } from '@aivastra/types';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ConfirmModal } from '../components/ConfirmModal';
@@ -264,16 +265,11 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   const [maxOutputPx, setMaxOutputPx] = useState(2560);
   const [maxBatchJobs, setMaxBatchJobs] = useState(200);
   const [maxQueueDepth, setMaxQueueDepth] = useState(50);
-  // Mirrors DEFAULT_ASPECT_DIMENSIONS in apps/api/src/lib/resolution-config.ts —
-  // only a fallback shown before /admin/config responds; the server is authoritative.
-  const [aspectDimensions, setAspectDimensions] = useState<
-    Record<string, { width: number; height: number }>
-  >({
-    '1:1': { width: 2560, height: 2560 },
-    '2:3': { width: 1707, height: 2560 },
-    '3:4': { width: 1920, height: 2560 },
-    '4:5': { width: 1375, height: 1718 },
-  });
+  // ASPECT_DIMENSIONS is only a fallback shown before /admin/config responds —
+  // the server (DEFAULT_ASPECT_DIMENSIONS in apps/api/src/lib/resolution-config.ts,
+  // itself seeded from this same constant) is authoritative.
+  const [aspectDimensions, setAspectDimensions] =
+    useState<Record<string, { width: number; height: number }>>(ASPECT_DIMENSIONS);
   const [sellerGstin, setSellerGstin] = useState('');
   const [sellerLegalName, setSellerLegalName] = useState('');
   const [sellerAddress, setSellerAddress] = useState('');
@@ -895,8 +891,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                     {(Object.keys(aspectDimensions) as Array<keyof typeof aspectDimensions>).map(
                       (ratio) => {
                         const dims = aspectDimensions[ratio];
-                        const longEdge = Math.max(dims.width, dims.height);
-                        const tier = longEdge > 3000 ? '4K' : longEdge > 1200 ? '2K' : 'HD';
+                        const tier = resolutionFromDims(dims.width, dims.height);
                         const setDim = (field: 'width' | 'height', value: number) =>
                           setAspectDimensions((prev) => ({
                             ...prev,

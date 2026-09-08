@@ -260,7 +260,7 @@ export async function resolveTryonPlan(
     thirdGarmentKey,
     shoeCatalogId,
   } = body.inputs;
-  const aspectRatio: string | undefined = body.aspectRatio;
+  const aspectRatio: string = body.aspectRatio;
   const platform: string | undefined = body.platform;
   const resolvedUpperGarmentKey = opts.resolvedUpperGarmentKey ?? undefined;
 
@@ -268,16 +268,15 @@ export async function resolveTryonPlan(
   const customW = body.params?.outputWidth;
   const customH = body.params?.outputHeight;
   const isCustomDims = !!(customW && customH);
-  const aspectRatioKey = body.aspectRatio;
   const requestedDims = isCustomDims
     ? { width: customW, height: customH }
-    : (opts.cache?.aspectDimensions.get(aspectRatioKey) ??
+    : (opts.cache?.aspectDimensions.get(aspectRatio) ??
       (await (async () => {
-        const dims = (await getAspectDimensions(app, aspectRatioKey)) ?? {
+        const dims = (await getAspectDimensions(app, aspectRatio)) ?? {
           width: 2688,
           height: 2688,
         };
-        opts.cache?.aspectDimensions.set(aspectRatioKey, dims);
+        opts.cache?.aspectDimensions.set(aspectRatio, dims);
         return dims;
       })()));
   // Platform-wide resolution ceiling — admin-configured (see getMaxOutputPx) —
@@ -285,17 +284,20 @@ export async function resolveTryonPlan(
   // option). The named-ratio table above is itself admin-curated (Settings →
   // System → Aspect Ratio Sizes) and is already the intended output size, so
   // it's never second-guessed here: clamping it would silently shrink exactly
-  // what the admin just configured for that ratio.
-  const maxOutputPx =
-    opts.cache?.maxOutputPx ??
-    (await (async () => {
-      const value = await getMaxOutputPx(app);
-      if (opts.cache) opts.cache.maxOutputPx = value;
-      return value;
-    })());
+  // what the admin just configured for that ratio. Only fetched for the custom
+  // path — every named-ratio job would otherwise pay for a config read+parse
+  // whose result is never used (ceiling only ever gates isCustomDims below).
+  const maxOutputPx = isCustomDims
+    ? (opts.cache?.maxOutputPx ??
+      (await (async () => {
+        const value = await getMaxOutputPx(app);
+        if (opts.cache) opts.cache.maxOutputPx = value;
+        return value;
+      })()))
+    : undefined;
   const requestedLongEdge = Math.max(requestedDims.width, requestedDims.height);
   const outputDims =
-    isCustomDims && requestedLongEdge > maxOutputPx
+    isCustomDims && maxOutputPx !== undefined && requestedLongEdge > maxOutputPx
       ? requestedDims.width >= requestedDims.height
         ? {
             width: maxOutputPx,
