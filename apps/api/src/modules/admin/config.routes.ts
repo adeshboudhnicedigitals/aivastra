@@ -16,6 +16,7 @@ import {
   DEFAULT_SELLER_CONFIG,
   DEFAULT_SHOPIFY_TRIAL_CONFIG,
   DEFAULT_TRYON_CONFIG,
+  mergeAspectDimensions,
 } from '../../lib/resolution-config.js';
 import { DEFAULT_UPLOAD_LIMITS } from '../../lib/upload-limits-config.js';
 import { CREDIT_PACKS } from '../shopify/packs.js';
@@ -32,6 +33,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
     return {
       resolutions: cfg.resolutions ?? DEFAULT_RESOLUTION_CONFIG,
       maxOutputPx: cfg.maxOutputPx ?? DEFAULT_MAX_OUTPUT_PX,
+      aspectDimensions: mergeAspectDimensions(cfg.aspectDimensions),
     };
   });
 
@@ -51,6 +53,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
     const cfg = raw ? JSON.parse(raw) : {};
     cfg.resolutions = cfg.resolutions ?? DEFAULT_RESOLUTION_CONFIG;
     cfg.maxOutputPx = cfg.maxOutputPx ?? DEFAULT_MAX_OUTPUT_PX;
+    cfg.aspectDimensions = mergeAspectDimensions(cfg.aspectDimensions);
     cfg.maxBatchJobs = cfg.maxBatchJobs ?? DEFAULT_MAX_BATCH_JOBS;
     cfg.maxQueueDepth = cfg.maxQueueDepth ?? DEFAULT_MAX_QUEUE_DEPTH;
     cfg.tryon = cfg.tryon ?? DEFAULT_TRYON_CONFIG;
