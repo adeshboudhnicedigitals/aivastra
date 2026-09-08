@@ -234,12 +234,14 @@ tree — so deploy from a checkout that contains the commit you intend to ship.
 Three services with a hard boundary at the Redis Stream:
 
 1. **api** — auth, credits, catalog reads, job creation. Validates catalog IDs →
-   atomic credit deduct (`UPDATE WHERE balance > 0`) → writes `jobs` row → `XADD`.
+   atomic credit deduct (`UPDATE WHERE balance >= amount`) → writes `jobs` row → `XADD`.
    Never talks to ComfyUI.
 2. **dispatcher** — the only process that talks to GPU workers. `XREADGROUP` →
    selects a healthy IDLE worker → clones and patches the versioned workflow
    template with R2 keys → posts to ComfyUI `/prompt` over Cloudflare Tunnel →
-   listens on the ComfyUI websocket for progress → uploads the result to R2 →
+   polls ComfyUI's `/history/{promptId}` endpoint every 3s for progress (a deliberate
+   choice over the websocket — see the comment in `apps/dispatcher/src/comfyui/progress.ts`)
+   → uploads the result to R2 →
    updates Postgres + publishes SSE → `XACK`. Refunds credits in the same
    Postgres transaction on terminal failure (max 2 attempts).
 3. **web / admin / shopify** — browsers upload garments **direct to R2 via
