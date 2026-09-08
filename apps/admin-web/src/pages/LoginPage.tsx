@@ -1,4 +1,5 @@
 import { type FormEvent, useState } from 'react';
+import { Icon } from '../components/Icons';
 import { useAuth } from '../context/AuthContext';
 import { ApiError } from '../lib/data';
 
@@ -6,6 +7,7 @@ export default function LoginPage() {
   const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -98,24 +100,50 @@ export default function LoginPage() {
             <label style={{ fontSize: '0.8125rem', fontWeight: 500, color: 'var(--ink-2)' }}>
               Password
             </label>
-            <input
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              style={{
-                padding: '0.5rem 0.75rem',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--r)',
-                background: 'var(--surface-2)',
-                color: 'var(--ink)',
-                fontSize: '0.875rem',
-                outline: 'none',
-                width: '100%',
-                boxSizing: 'border-box',
-              }}
-            />
+            <div style={{ position: 'relative' }}>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                style={{
+                  padding: '0.5rem 2.25rem 0.5rem 0.75rem',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--r)',
+                  background: 'var(--surface-2)',
+                  color: 'var(--ink)',
+                  fontSize: '0.875rem',
+                  outline: 'none',
+                  width: '100%',
+                  boxSizing: 'border-box',
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                tabIndex={-1}
+                style={{
+                  position: 'absolute',
+                  right: '0.5rem',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '1.25rem',
+                  height: '1.25rem',
+                  padding: 0,
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'var(--muted)',
+                  cursor: 'pointer',
+                }}
+              >
+                {showPassword ? <Icon.EyeOff /> : <Icon.Eye />}
+              </button>
+            </div>
           </div>
 
           {error && (

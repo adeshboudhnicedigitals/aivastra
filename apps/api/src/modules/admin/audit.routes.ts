@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { and, count, desc, eq, gte, ilike, inArray, lte } from 'drizzle-orm';
+import { and, count, desc, eq, gte, ilike, inArray, lte, ne } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { requirePermission } from './guard.js';
@@ -22,6 +22,9 @@ const LABEL_TABLE_BY_RESOURCE_TYPE: Record<string, { table: any; labelCol: strin
   garment_type: { table: schema.garmentSubcategories, labelCol: 'label' },
   catalog_item: { table: schema.catalogItems, labelCol: 'label' },
   catalogue_template: { table: schema.catalogueTemplates, labelCol: 'label' },
+  credit_plan: { table: schema.creditPlans, labelCol: 'name' },
+  merchant: { table: schema.merchants, labelCol: 'companyName' },
+  saree_workflow: { table: schema.workflowTemplates, labelCol: 'label' },
 };
 
 async function resolveResourceLabels(
@@ -106,7 +109,13 @@ export async function adminAuditRoutes(app: FastifyInstance) {
       const { page, pageSize, actorUserId, action, resourceType, resourceId, startDate, endDate } =
         query;
 
-      const conditions = [];
+      const conditions = [
+        // Routine self-service credential sync, not team-facing activity —
+        // excluded from Team Activity by request, though the row itself still
+        // gets written (accountability for who touched an admin's credentials
+        // stays in the DB, just off the default feed).
+        ne(schema.auditLogs.action, 'admin_users.sync_password'),
+      ];
 
       if (actorUserId) conditions.push(eq(schema.auditLogs.actorUserId, actorUserId));
       if (action) conditions.push(ilike(schema.auditLogs.action, `%${action}%`));
