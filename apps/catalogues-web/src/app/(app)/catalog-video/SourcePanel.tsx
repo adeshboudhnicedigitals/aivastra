@@ -1,23 +1,25 @@
 'use client';
 
-import { ImagePlus, Upload } from 'lucide-react';
+import { ImagePlus, Images, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
 
 import { C } from '@/components/tokens';
 import { GradBtn } from '@/components/ui/grad-btn';
 
 // Left half of the Motion Studio main screen (mirrors Studio's two-column
-// layout: source input on the left, output preview on the right). Whole
-// card is a drop target; the "Browse Catalogues" button and a click
-// anywhere on the card both open the same native file picker — there's
-// only one upload path, just two ways to trigger it, per spec.
+// layout: source input on the left, output preview on the right). Two ways
+// to pick a source image: "Browse Catalogues" opens CataloguePickerModal to
+// reuse a past completed generation; "Upload Custom Image" (or dragging a
+// file onto the card, or clicking the card itself) uploads a fresh photo.
 export function SourcePanel({
   onFile,
+  onBrowseCatalogues,
   uploading,
   progress,
   error,
 }: {
   onFile: (file: File) => void;
+  onBrowseCatalogues: () => void;
   uploading: boolean;
   progress: number;
   error: string | null;
@@ -30,8 +32,8 @@ export function SourcePanel({
   }
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop surface backing a real <input type=file>; the button below and the input itself remain independently keyboard-accessible
-    // biome-ignore lint/a11y/useKeyWithClickEvents: same reasoning — the file input and the Browse Catalogues button are the keyboard-operable controls
+    // biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop surface backing a real <input type=file>; the two buttons and the input itself remain independently keyboard-accessible
+    // biome-ignore lint/a11y/useKeyWithClickEvents: same reasoning — the file input and the two buttons below are the keyboard-operable controls
     <div
       onClick={browse}
       onDragOver={(event) => {
@@ -98,19 +100,32 @@ export function SourcePanel({
           Drag and Drop your image here, Or click the button below to upload
         </p>
       </div>
-      <GradBtn
-        disabled={uploading}
-        onClick={(event) => {
-          // Stop the click from also bubbling to the card's own onClick —
-          // without this the card handler would fire a second time and
-          // reopen the file dialog it just opened.
-          event.stopPropagation();
-          browse();
-        }}
-      >
-        <Upload size={16} />
-        Browse Catalogues
-      </GradBtn>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
+        <GradBtn
+          outline
+          disabled={uploading}
+          onClick={(event) => {
+            // Stop the click from also bubbling to the card's own onClick —
+            // without this the card handler would fire too and open the
+            // file dialog on top of the catalogue picker.
+            event.stopPropagation();
+            onBrowseCatalogues();
+          }}
+        >
+          <Images size={16} />
+          Browse Catalogues
+        </GradBtn>
+        <GradBtn
+          disabled={uploading}
+          onClick={(event) => {
+            event.stopPropagation();
+            browse();
+          }}
+        >
+          <Upload size={16} />
+          Upload Custom Image
+        </GradBtn>
+      </div>
       {uploading && <p style={{ margin: 0, fontSize: 12, color: C.mid }}>Uploading… {progress}%</p>}
       {error && !uploading && <p style={{ margin: 0, fontSize: 12, color: '#D63B4C' }}>{error}</p>}
     </div>

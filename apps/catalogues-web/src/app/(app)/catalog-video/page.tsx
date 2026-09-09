@@ -10,6 +10,7 @@ import { useJobStream } from '@/hooks/use-job-stream';
 import { api } from '@/lib/api';
 import { isSupportedImageBytes } from '@/lib/image-validation';
 
+import { CataloguePickerModal } from './CataloguePickerModal';
 import { CatalogVideoWizard, type ImageSource } from './CatalogVideoWizard';
 import { SourcePanel } from './SourcePanel';
 
@@ -55,6 +56,7 @@ export default function CatalogVideoPage(): React.ReactElement {
   // page (see SourcePanel below) — it starts on step 2 (template selection)
   // and step 1 is reachable only via its own "Back" button.
   const [wizardSource, setWizardSource] = useState<ImageSource | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -165,16 +167,23 @@ export default function CatalogVideoPage(): React.ReactElement {
         }
 
         /* Main creation surface: source (left) + result preview (right),
-           same split as Studio's studio-left-column / studio-right-column. */
+           same split as Studio's studio-left-column / studio-right-column.
+           min-height fills the full viewport under the 76px TopBar (minus
+           this section's own share of .cat-video-main's padding) so both
+           columns stand as tall as the screen, same as Studio — "Your
+           Videos" below is reachable by scrolling further, not squeezed
+           into the same screen. */
         .cat-video-two-col {
           display: flex;
           gap: 20px;
           margin-bottom: 28px;
+          min-height: calc(100vh - 76px - 20px - 32px);
         }
         .cat-video-source-col,
         .cat-video-result-col {
           flex: 1 1 0;
           min-width: 0;
+          display: flex;
         }
 
         @media (max-width: 1023px) {
@@ -187,12 +196,16 @@ export default function CatalogVideoPage(): React.ReactElement {
           }
           .cat-video-two-col {
             flex-direction: column;
+            min-height: calc(100vh - 76px - 16px - 24px);
           }
         }
 
         @media (max-width: 639px) {
           .cat-video-main {
             padding: 12px 16px 20px;
+          }
+          .cat-video-two-col {
+            min-height: calc(100vh - 76px - 12px - 20px);
           }
           .cat-video-header {
             flex-direction: column;
@@ -221,6 +234,7 @@ export default function CatalogVideoPage(): React.ReactElement {
           <div className="cat-video-source-col">
             <SourcePanel
               onFile={handleUpload}
+              onBrowseCatalogues={() => setPickerOpen(true)}
               uploading={uploading}
               progress={uploadProgress}
               error={uploadError}
@@ -363,6 +377,16 @@ export default function CatalogVideoPage(): React.ReactElement {
           </div>
         )}
       </main>
+
+      {pickerOpen && (
+        <CataloguePickerModal
+          onClose={() => setPickerOpen(false)}
+          onSelect={(jobId) => {
+            setPickerOpen(false);
+            setWizardSource({ kind: 'existing', jobId });
+          }}
+        />
+      )}
 
       {wizardSource && (
         <CatalogVideoWizard
