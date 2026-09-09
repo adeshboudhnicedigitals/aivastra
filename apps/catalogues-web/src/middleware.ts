@@ -16,6 +16,8 @@ const PUBLIC_PATHS = [
   '/kiosk-upload',
   '/kiosk-download',
   '/tryon-library-app',
+  '/terms',
+  '/privacy',
 ];
 // Features not ready for real users — hidden from the sidebar (see sidebar.tsx
 // devOnly) and blocked here so direct navigation can't reach them either.
