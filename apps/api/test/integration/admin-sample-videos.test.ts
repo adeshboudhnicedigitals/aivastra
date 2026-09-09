@@ -108,7 +108,7 @@ describe('admin sample videos CRUD', () => {
     expect(listRes2.json().items.map((r: { id: string }) => r.id)).not.toContain(created.id);
   });
 
-  it('creates with explicit duration/quality; patch cannot change them', async () => {
+  it('creates with explicit duration/quality; patch can change every field', async () => {
     const confirmRes = await app.inject({
       method: 'POST',
       url: '/admin/assets/sample-videos',
@@ -128,38 +128,34 @@ describe('admin sample videos CRUD', () => {
     expect(created.duration).toBe(12);
     expect(created.quality).toBe('1080p');
 
-    // duration/quality are no longer part of PatchSampleVideoBody — a request
-    // that still sends them is not rejected (Zod strips unknown keys by
-    // default, no .strict() in this repo), it's just a no-op on those keys.
-    // isActive and sortOrder are the only fields the schema still accepts
-    // (both optional, since neither is a PixVerse generation input).
+    // By deliberate 2026-09-09 decision (see docs/progress.md), every
+    // PatchSampleVideoBody field is patchable, including title/prompt/
+    // duration/quality — the video itself is not touched or re-verified by
+    // a patch, admins are trusted to keep the two in sync manually.
     const patchRes = await app.inject({
       method: 'PATCH',
       url: `/admin/assets/sample-videos/${created.id}`,
       headers: { ...adminAuth, 'content-type': 'application/json' },
-      payload: JSON.stringify({ isActive: true, duration: 5, quality: '360p' }),
+      payload: JSON.stringify({
+        title: 'Slow spin',
+        prompt: 'model turns slowly',
+        isActive: false,
+        sortOrder: 5,
+        duration: 5,
+        quality: '360p',
+      }),
     });
     expect(patchRes.statusCode).toBe(200);
     const [afterPatch] = await app.db
       .select()
       .from(schema.sampleVideos)
       .where(eq(schema.sampleVideos.id, created.id));
-    expect(afterPatch.duration).toBe(12);
-    expect(afterPatch.quality).toBe('1080p');
-    expect(afterPatch.isActive).toBe(true);
-
-    const sortPatchRes = await app.inject({
-      method: 'PATCH',
-      url: `/admin/assets/sample-videos/${created.id}`,
-      headers: { ...adminAuth, 'content-type': 'application/json' },
-      payload: JSON.stringify({ sortOrder: 5 }),
-    });
-    expect(sortPatchRes.statusCode).toBe(200);
-    const [afterSortPatch] = await app.db
-      .select()
-      .from(schema.sampleVideos)
-      .where(eq(schema.sampleVideos.id, created.id));
-    expect(afterSortPatch.sortOrder).toBe(5);
+    expect(afterPatch.title).toBe('Slow spin');
+    expect(afterPatch.prompt).toBe('model turns slowly');
+    expect(afterPatch.isActive).toBe(false);
+    expect(afterPatch.sortOrder).toBe(5);
+    expect(afterPatch.duration).toBe(5);
+    expect(afterPatch.quality).toBe('360p');
   });
 
   it('rejects create without duration/quality — they are required fields, not defaulted', async () => {
@@ -176,6 +172,36 @@ describe('admin sample videos CRUD', () => {
       }),
     });
     expect(res.statusCode).toBe(400);
+  });
+
+  it('rejects duration outside 1-15 on patch, same as on create', async () => {
+    const confirmRes = await app.inject({
+      method: 'POST',
+      url: '/admin/assets/sample-videos',
+      headers: { ...adminAuth, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        title: 'Patch range check',
+        videoR2Key: 'sample-videos/range.mp4',
+        thumbnailR2Key: 'sample-videos/range.thumb.gif',
+        prompt: 'p',
+        sortOrder: 0,
+        duration: 8,
+        quality: '720p',
+      }),
+    });
+    const created = confirmRes.json();
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/admin/assets/sample-videos/${created.id}`,
+      headers: { ...adminAuth, 'content-type': 'application/json' },
+      payload: JSON.stringify({ duration: 0 }),
+    });
+    expect(res.statusCode).toBe(400);
+    const [unchanged] = await app.db
+      .select()
+      .from(schema.sampleVideos)
+      .where(eq(schema.sampleVideos.id, created.id));
+    expect(unchanged.duration).toBe(8);
   });
 
   it('rejects duration outside 1-15 on create', async () => {

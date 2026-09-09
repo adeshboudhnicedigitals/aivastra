@@ -1,3 +1,34 @@
+## 2026-09-09 — Sample-video templates become fully editable again (reversal)
+
+**Done**
+
+Reverses the create-only restriction from the entry immediately below,
+same day. Deliberate product decision: admins want to fix a title/prompt
+typo or retune duration/quality without deleting and re-uploading a whole
+template. `PatchSampleVideoBody` (`packages/types/src/admin.ts`) is back to
+accepting `title`/`prompt`/`sortOrder`/`duration`/`quality`/`isActive`, all
+optional — the same shape it had before that entry's restriction, now
+intentional rather than a bug. **The patch does not touch or re-verify the
+video** — editing prompt/duration/quality can leave the preview showing a
+result that no longer matches what's on the form. Admins are trusted to
+keep the two in sync manually; the admin-web edit drawer
+(`SampleVideoEditDrawer.tsx`, recreated) surfaces a hint to that effect but
+nothing enforces it. `apps/api/src/modules/admin/models.routes.ts`'s PATCH
+handler needed no change (unchanged since the original implementation —
+it already spread the validated body onto the update).
+
+Also moved Sample Videos out of the Assets tab bar into its own top-level
+admin nav item, "Pixverse" (`apps/admin-web/src/pages/PixversePage.tsx`,
+replacing `pages/assets/SampleVideosTab.tsx`) — same functionality,
+decoupled from `AssetsContext` since it no longer shares Assets' tab state.
+
+**Stale-entry note**: the `Sample-video templates become create-only
+(correction)` entry immediately below is now itself stale — its
+create-only restriction on `title`/`prompt`/`duration`/`quality` no longer
+holds. Its design doc
+(`docs/superpowers/specs/2026-09-09-sample-video-immutable-content-design.md`)
+was left as a historical record and was not amended for this reversal.
+
 ## 2026-09-09 — Sample-video templates become create-only (correction)
 
 Plan: `docs/superpowers/plans/2026-09-09-sample-video-immutable-content.md`.
