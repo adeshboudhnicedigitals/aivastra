@@ -108,7 +108,7 @@ describe('admin sample videos CRUD', () => {
     expect(listRes2.json().items.map((r: { id: string }) => r.id)).not.toContain(created.id);
   });
 
-  it('accepts explicit duration/quality on create and allows patching both', async () => {
+  it('creates with explicit duration/quality; patch cannot change them', async () => {
     const confirmRes = await app.inject({
       method: 'POST',
       url: '/admin/assets/sample-videos',
@@ -128,19 +128,25 @@ describe('admin sample videos CRUD', () => {
     expect(created.duration).toBe(12);
     expect(created.quality).toBe('1080p');
 
+    // duration/quality are no longer part of PatchSampleVideoBody — a request
+    // that still sends them is not rejected (Zod strips unknown keys by
+    // default, no .strict() in this repo), it's just a no-op on those keys.
+    // isActive must be present since it's now the schema's only (required)
+    // field.
     const patchRes = await app.inject({
       method: 'PATCH',
       url: `/admin/assets/sample-videos/${created.id}`,
       headers: { ...adminAuth, 'content-type': 'application/json' },
-      payload: JSON.stringify({ duration: 5, quality: '360p' }),
+      payload: JSON.stringify({ isActive: true, duration: 5, quality: '360p' }),
     });
     expect(patchRes.statusCode).toBe(200);
     const [afterPatch] = await app.db
       .select()
       .from(schema.sampleVideos)
       .where(eq(schema.sampleVideos.id, created.id));
-    expect(afterPatch.duration).toBe(5);
-    expect(afterPatch.quality).toBe('360p');
+    expect(afterPatch.duration).toBe(12);
+    expect(afterPatch.quality).toBe('1080p');
+    expect(afterPatch.isActive).toBe(true);
   });
 
   it('rejects create without duration/quality — they are required fields, not defaulted', async () => {

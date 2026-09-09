@@ -346,13 +346,14 @@ export const ConfirmSampleVideoBody = z.object({
   duration: z.number().int().min(PIXVERSE_DURATION_MIN).max(PIXVERSE_DURATION_MAX),
   quality: z.enum(PIXVERSE_QUALITIES),
 });
+// Create-only: a sample video's uploaded preview clip is a real PixVerse
+// output generated for one exact prompt/duration/quality — editing any of
+// title/prompt/sortOrder/duration/quality after creation would leave that
+// preview showing a result the template no longer produces. isActive is the
+// only field left, since retiring a template doesn't touch what the preview
+// was generated to match.
 export const PatchSampleVideoBody = z.object({
-  title: z.string().min(1).max(120).optional(),
-  prompt: z.string().min(1).max(5000).optional(),
-  isActive: z.boolean().optional(),
-  sortOrder: z.number().int().optional(),
-  duration: z.number().int().min(PIXVERSE_DURATION_MIN).max(PIXVERSE_DURATION_MAX).optional(),
-  quality: z.enum(PIXVERSE_QUALITIES).optional(),
+  isActive: z.boolean(),
 });
 
 export const PresignAppVideoBody = z.object({
