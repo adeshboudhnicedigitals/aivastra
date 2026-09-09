@@ -347,13 +347,16 @@ export const ConfirmSampleVideoBody = z.object({
   quality: z.enum(PIXVERSE_QUALITIES),
 });
 // Create-only: a sample video's uploaded preview clip is a real PixVerse
-// output generated for one exact prompt/duration/quality — editing any of
-// title/prompt/sortOrder/duration/quality after creation would leave that
-// preview showing a result the template no longer produces. isActive is the
-// only field left, since retiring a template doesn't touch what the preview
-// was generated to match.
+// output generated for one exact prompt/duration/quality — editing
+// title/prompt/duration/quality after creation would leave that preview
+// showing a result the template no longer produces. isActive and sortOrder
+// stay patchable: neither is a PixVerse generation input (isActive doesn't
+// touch what the preview was generated to match; sortOrder is pure display
+// ordering, not something PixVerse ever saw), so patching them can't cause
+// the desync this restriction exists to prevent.
 export const PatchSampleVideoBody = z.object({
-  isActive: z.boolean(),
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().optional(),
 });
 
 export const PresignAppVideoBody = z.object({

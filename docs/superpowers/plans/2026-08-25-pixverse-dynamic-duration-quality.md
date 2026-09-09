@@ -1899,6 +1899,12 @@ git commit -m "feat(web): show per-template credit cost in the catalog-video wiz
 
 ### Task 12: Admin — edit duration/quality on an existing sample-video template
 
+**Superseded 2026-09-09**: this task's premise (legacy rows "stranded" at
+the DB default) doesn't hold — the default (`8`/`'720p'`) matches exactly
+what the dispatcher hardcoded before this branch, so legacy previews are
+accurate, not stale. This task was implemented then reverted; see
+`docs/superpowers/specs/2026-09-09-sample-video-immutable-content-design.md`.
+
 > Added after the final whole-branch review: that review found existing
 > `sample_videos` rows have no UI path to change duration/quality after
 > creation (`PatchSampleVideoBody` already accepts both fields and the PATCH

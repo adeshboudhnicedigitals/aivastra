@@ -1,3 +1,29 @@
+## 2026-09-09 — Sample-video templates become create-only (correction)
+
+Plan: `docs/superpowers/plans/2026-09-09-sample-video-immutable-content.md`.
+Design: `docs/superpowers/specs/2026-09-09-sample-video-immutable-content-design.md`.
+
+**Done**
+
+A `sample_videos` row's uploaded preview clip is a real PixVerse output
+generated for one exact `prompt`/`duration`/`quality` combination — editing
+any of those after creation would leave the preview showing a result the
+template no longer produces. This branch had briefly added an admin edit
+drawer for `duration`/`quality` (Task 12 of the 2026-08-25 plan, added and
+implemented same-day after the whole-branch review, then reverted here).
+That drawer is now removed, and `PatchSampleVideoBody`
+(`packages/types/src/admin.ts`) is narrowed to `{ isActive, sortOrder }` —
+`title`/`prompt`/`duration`/`quality` are create-only; delete + re-upload is
+the only way to change them. `isActive` and `sortOrder` stay patchable since
+neither is a PixVerse generation input. No `.strict()` was introduced — a
+stray PATCH still sending `duration`/`quality` is a silent no-op on those
+keys (Zod's default strip-unknown-keys behavior), not a 400.
+
+**Stale-entry note**: the `2026-08-25 — PixVerse dynamic duration & quality
+for catalog video` entry below states `POST/PATCH /admin/assets/sample-videos`
+"require/accept `duration`/`quality`". That is still true for POST (create)
+but no longer true for PATCH — see above.
+
 ## 2026-08-25 — PixVerse dynamic duration & quality for catalog video
 
 Plan: `docs/superpowers/plans/2026-08-25-pixverse-dynamic-duration-quality.md`.

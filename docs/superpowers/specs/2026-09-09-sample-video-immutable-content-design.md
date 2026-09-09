@@ -29,6 +29,10 @@ content-bearing field. Nothing that was used to generate the preview clip —
 `title`, `prompt`, `duration`, `quality`, `sortOrder` — is editable after
 creation. To change any of them, an admin deletes the row and uploads a new
 template with a fresh preview video that actually matches the new params.
+(Task 12's original justification — that legacy rows would be "stranded" at
+the DB default forever — doesn't hold: the default (`8`/`'720p'`) is exactly
+what the dispatcher hardcoded before this branch, so legacy previews are
+accurate for what they show, not stale.)
 
 The one exception: `isActive`. Retiring a template from the catalogue picker
 without deleting its history doesn't touch the preview/prompt/duration/

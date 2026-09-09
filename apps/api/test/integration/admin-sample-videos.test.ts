@@ -147,6 +147,19 @@ describe('admin sample videos CRUD', () => {
     expect(afterPatch.duration).toBe(12);
     expect(afterPatch.quality).toBe('1080p');
     expect(afterPatch.isActive).toBe(true);
+
+    const sortPatchRes = await app.inject({
+      method: 'PATCH',
+      url: `/admin/assets/sample-videos/${created.id}`,
+      headers: { ...adminAuth, 'content-type': 'application/json' },
+      payload: JSON.stringify({ sortOrder: 5 }),
+    });
+    expect(sortPatchRes.statusCode).toBe(200);
+    const [afterSortPatch] = await app.db
+      .select()
+      .from(schema.sampleVideos)
+      .where(eq(schema.sampleVideos.id, created.id));
+    expect(afterSortPatch.sortOrder).toBe(5);
   });
 
   it('rejects create without duration/quality — they are required fields, not defaulted', async () => {
