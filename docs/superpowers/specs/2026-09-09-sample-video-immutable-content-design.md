@@ -24,15 +24,21 @@ generation params silently drift apart with no way to detect it later.
 
 ## Decision
 
-`sample_videos` rows become **create-new + delete only** for every
-content-bearing field. Nothing that was used to generate the preview clip —
-`title`, `prompt`, `duration`, `quality`, `sortOrder` — is editable after
-creation. To change any of them, an admin deletes the row and uploads a new
+`sample_videos` rows become **create-new + delete only** for every field that
+was used to generate the preview clip — `title`, `prompt`, `duration`,
+`quality`. To change any of them, an admin deletes the row and uploads a new
 template with a fresh preview video that actually matches the new params.
 (Task 12's original justification — that legacy rows would be "stranded" at
 the DB default forever — doesn't hold: the default (`8`/`'720p'`) is exactly
 what the dispatcher hardcoded before this branch, so legacy previews are
 accurate for what they show, not stale.)
+
+**Amended 2026-09-09 (post-review):** `sortOrder` stays patchable. It's pure
+display ordering — never a PixVerse generation input — so locking it wasn't
+actually justified by this design's own rationale, and doing so removed the
+only way to reorder the Catalog Video wizard's template list (no
+delete+reupload workaround, since a fresh create can't reproduce another
+row's exact preview video). See Change 2 below for the corrected schema.
 
 The one exception: `isActive`. Retiring a template from the catalogue picker
 without deleting its history doesn't touch the preview/prompt/duration/
@@ -60,16 +66,17 @@ dispatcher consumers are all unaffected.
 ### 2. Narrow `PatchSampleVideoBody`
 
 `packages/types/src/admin.ts`'s `PatchSampleVideoBody` drops `title`,
-`prompt`, `sortOrder`, `duration`, `quality`:
+`prompt`, `duration`, `quality` — `isActive` and `sortOrder` stay, both
+optional (per the 2026-09-09 amendment above, neither is a PixVerse
+generation input, so neither can cause the preview/params desync this design
+exists to prevent):
 
 ```ts
 export const PatchSampleVideoBody = z.object({
-  isActive: z.boolean(),
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().optional(),
 });
 ```
-
-`isActive` becomes required rather than optional — it's the only field this
-body carries, so there's nothing left to make optional.
 
 **Validation behavior:** this repo's Zod schemas have no `.strict()`
 precedent anywhere (checked — none exist in `packages/types/src`), so this
@@ -98,13 +105,18 @@ automatically once the schema does.
   fields are silently ignored, not applied. Rename the test to reflect this
   (e.g. `'creates with explicit duration/quality; patch cannot change
   them'`).
-- No new test is needed for `title`/`prompt`/`sortOrder` PATCH rejection
-  beyond the same silent-no-op assertion pattern, since all five removed
-  fields go through the identical Zod strip mechanism — one representative
+- No new test is needed for `title`/`prompt` PATCH rejection beyond the same
+  silent-no-op assertion pattern, since both removed fields go through the
+  identical Zod strip mechanism as `duration`/`quality` — one representative
   case (duration/quality) plus a note is sufficient; duplicating the same
-  assertion five times adds no coverage.
+  assertion for every removed field adds no coverage.
 - The first test (`'presign -> confirm -> list -> patch -> delete'`, line
   24) already PATCHes only `{ isActive: false }` — no change needed there.
+- **Amended 2026-09-09:** since `sortOrder` stays patchable (see Decision
+  above), the same test that proves `duration`/`quality` are no-ops also
+  gains a positive assertion — `PATCH { sortOrder: 5 }` on the same row,
+  re-read from Postgres, must show `sortOrder === 5` — proving the field
+  genuinely still works, not just that it wasn't accidentally locked too.
 
 ## Out of scope
 

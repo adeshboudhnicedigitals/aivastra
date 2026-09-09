@@ -131,8 +131,8 @@ describe('admin sample videos CRUD', () => {
     // duration/quality are no longer part of PatchSampleVideoBody — a request
     // that still sends them is not rejected (Zod strips unknown keys by
     // default, no .strict() in this repo), it's just a no-op on those keys.
-    // isActive must be present since it's now the schema's only (required)
-    // field.
+    // isActive and sortOrder are the only fields the schema still accepts
+    // (both optional, since neither is a PixVerse generation input).
     const patchRes = await app.inject({
       method: 'PATCH',
       url: `/admin/assets/sample-videos/${created.id}`,

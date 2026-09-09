@@ -2,6 +2,16 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Amended 2026-09-09 (post-final-review fix wave):** `sortOrder` was
+> re-added as patchable — it's pure display ordering, never a PixVerse
+> generation input, so locking it wasn't justified by this plan's own
+> rationale below, and doing so removed the only way to reorder the Catalog
+> Video wizard's template list. The Goal/Architecture/Task 2 text below is
+> the original, as-executed plan and is left as a historical record; the
+> design doc (`docs/superpowers/specs/2026-09-09-sample-video-immutable-content-design.md`)
+> reflects the corrected, shipped schema: `PatchSampleVideoBody` accepts
+> `{ isActive, sortOrder }`, both optional — not `{ isActive }` alone.
+
 **Goal:** Remove the ability to edit `title`/`prompt`/`sortOrder`/`duration`/`quality` on an existing `sample_videos` row after creation — a template's uploaded preview clip is a real PixVerse output generated for one exact prompt/duration/quality combo, so editing those afterward would leave a stale preview. Only `isActive` stays patchable; everything else is create-new + delete only.
 
 **Architecture:** Two independent, self-contained changes: (1) delete the Task-12 admin-web edit drawer and its wiring, (2) narrow the `PatchSampleVideoBody` Zod schema in `packages/types` to `{ isActive: boolean }`, which automatically narrows `PATCH /admin/assets/sample-videos/:id`'s effective behavior without touching route handler logic.
