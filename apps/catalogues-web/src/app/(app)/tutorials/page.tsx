@@ -288,10 +288,7 @@ export default function TutorialsPage() {
           }
         }
       `}</style>
-      <TopBar
-        title="Tutorials"
-        subtitle="Manage your profile, billing, credits, subscriptions, and account activity."
-      />
+      <TopBar title="Tutorials" subtitle="Learn How Ai Vastra Works" />
 
       <div className="tutorials-page-wrapper">
         {/* Filters and Search Row */}

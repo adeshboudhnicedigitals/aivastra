@@ -68,7 +68,7 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
       <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
         <TopBar
           title="Pricing & Plan"
-          subtitle="Create professional fashion catalogues without photoshoots, models, or editing headaches."
+          subtitle="Flexible pricing designed for fashion brands, retailers, and enterprises of every size."
           right={
             <div ref={countryRef} style={{ position: 'relative', flexShrink: 0 }}>
               <button
