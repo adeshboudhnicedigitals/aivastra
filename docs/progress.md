@@ -2,6 +2,257 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-09 (latest still) — WordPress live chat: real local e2e test, two bugs found and fixed
+
+Set up a full local end-to-end test of the WordPress live-chat feature added earlier today
+(previous entry below) — `apps/api` and `apps/chatbot` were already running locally via
+`pnpm dev`. Found and fixed two real bugs in the process; both were only reachable by actually
+driving the whole chain, not by typecheck/lint/`php -l` alone.
+
+**Bug 1 — `CHATBOT_BASE` derivation was wrong.** It was `self::API_BASE . '/chatbot'`, but the
+two constants are consumed in different network contexts: `API_BASE` is read by PHP running
+*inside* the WordPress container (needs `host.docker.internal` or the docker bridge gateway IP
+locally), while `CHATBOT_BASE` is only ever handed to browser JS via `wp_localize_script`
+(needs a URL the browser on the *host* machine can reach, e.g. `http://localhost:4200`).
+Overriding `API_BASE` for local testing silently broke `CHATBOT_BASE` too. Fixed:
+`CHATBOT_BASE` is now its own standalone constant (still defaults to
+`https://app.aivastra.com/chatbot` in production, where the two happen to coincide), with a
+comment explaining why it must not be derived. Also corrected `API_BASE`'s local-dev-override
+comment — `host.docker.internal` doesn't resolve in this local-wp compose setup (no
+`extra_hosts: host-gateway` entry; that's a Docker-Desktop-only default, not plain Docker
+Engine on Linux) — documented the verified working alternative, the docker bridge gateway IP
+(`docker network inspect local-wp_default`, e.g. `172.19.0.1` in this environment, can differ
+per machine).
+
+**Bug 2 — `create_support_session()`'s `wp_remote_post()` 415'd.** `wp_remote_post()` defaults
+to `Content-Type: application/x-www-form-urlencoded` when no `body` is given, and the API only
+has a JSON body parser registered — Fastify has no parser for urlencoded, so every call 415'd
+("Unsupported Media Type") even though the route itself worked fine (verified by calling it
+directly with curl, which sends no default content-type). Fixed by sending an explicit empty
+JSON body (`'body' => '{}'`, `Content-Type: application/json`), matching `create_order()`'s
+existing pattern in the same file — the one other POST call in this class, which already did
+this correctly.
+
+**Verified, this time via the actual protocol, not just markup rendering:** created a real
+throwaway merchant + full/widget API-key pair directly against the local dev DB, connected the
+plugin to it through the real `admin-post.php?action=aivastra_tryon_connect` flow (not a DB
+shortcut), then drove the exact sequence the browser JS performs: `admin-ajax.php` (real nonce)
+→ `POST /v1/dev/support/session` (through the WP container, via the gateway IP) → `POST
+/ws-ticket` → `WebSocket` connect → received the `ready` frame with a real `conversationId` →
+sent a message over the socket → received it echoed back via the conversation broadcast with
+`senderId` matching the test merchant's real `users.id` → confirmed `GET
+/conversations/:id/messages` (the history endpoint the browser fetches on `ready`) returns that
+same message. Full round trip, not a partial/mocked one.
+
+**Cleanup:** reverted both `API_BASE` and `CHATBOT_BASE` to their production values (the
+temporary override + a `// TEMP` marker were never left in place between edits), cleared the
+plugin's `aivastra_tryon_settings` option, and deleted the throwaway `users`/`merchants`/
+`api_keys`/`chatbot_conversations`/`chatbot_messages` rows from the local dev DB.
+
+## 2026-09-09 (latest) — WordPress plugin: real embedded live chat, matching the Shopify admin's
+
+User asked whether the WordPress plugin used the chatbot the same way the Shopify embedded
+admin does — it didn't (only a static `<a target="_blank">` link to `app.aivastra.com/support`)
+— then asked to make it match. Built the same WS-ticket handshake `apps/shopify`'s
+`useSupportChat.ts` uses, adapted to the plugin's existing API-key auth instead of Shopify's
+session-token auth.
+
+**API** (`apps/api/src/modules/dev/routes.ts`): new `POST /v1/dev/support/session`, guarded by
+`app.requireApiKey` only (no `requireDevScope`, same reasoning as `/v1/dev/balance`/`/plans` —
+the plugin only ever holds a widget-scoped key day-to-day). Returns `{ token }`, a
+`signAccess`-signed JWT for `req.merchantUserId` — simpler than Shopify's
+`getOrCreateSupportUser()`, since an API-key-authed request already resolves to a real
+`users.id` via `schema.merchants.userId` (a merchant IS a user; no synthetic user needed).
+New schema `DevSupportSessionResponse` in `packages/types/src/dev.ts`. Covered by
+`apps/api/test/integration/dev-support-session.test.ts` (3 tests, passing) — mirrors
+`shopify-support-session.test.ts`'s structure.
+
+**WordPress plugin**: `Aivastra_Settings_Page::CHATBOT_BASE` (new, `admin/class-settings-page.php`)
+derives `https://app.aivastra.com/chatbot` from `API_BASE` — the real production chatbot
+endpoint is a path under the same host, not the `chatbot.aivastra.com` subdomain
+`docker-compose.prod.yml`'s own comment aspirationally describes (see this file's 2026-09-XX
+chatbot CORS/URL-fix entry; never assume that subdomain exists). `Aivastra_Connection_Service::
+create_support_session()` (new) calls the API route with the stored widget key, same pattern as
+`list_categories()`/`list_plans()`. `Aivastra_Support_Ajax` (new,
+`includes/class-support-ajax.php`) proxies that through `admin-ajax.php` — same admin-only,
+nonce-gated, no-`nopriv`-variant pattern as `Aivastra_Checkout_Ajax` — so the merchant's stored
+API key never reaches browser JS. `admin/assets/support-chat.js` (new, vanilla JS, no framework
+per this plugin's own convention) then talks to the chatbot service directly from the browser:
+`POST {CHATBOT_BASE}/ws-ticket` with the session JWT → `WebSocket({CHATBOT_BASE}/ws?ticket=...)`
+→ on the `ready` frame, `GET {CHATBOT_BASE}/conversations/:id/messages` for history → `send()`
+pushes `{type:'message', content}` over the open socket. Same 401-retry-once logic as
+`useSupportChat.ts`. The Support screen's static "Start a chat" link
+(`admin/class-settings-page.php`'s `render_support()`) is now a button opening a real chat
+modal (`admin/assets/settings-page.css` gets the modal/message-bubble styles, restyled with
+this plugin's own `--aivastra-*` tokens since there's no Polaris here).
+
+`readme.txt`'s Third Party Services section gets a new disclosed entry for
+`https://app.aivastra.com/chatbot` (wp.org requires disclosure of every external service a
+plugin calls) — required regardless of wp.org vs direct-share build, since this isn't gated
+behind the update-checker's build-time exclusion.
+
+**Verified locally**: `php -l` clean on all changed/new PHP files (via `local-wp-wpcli-1`);
+logged into the local-wp admin (temporarily reset the seeded `admin` user's password for this),
+loaded `options-general.php?page=aivastra-tryon&section=support` — no fatals, the new modal
+markup and `aivastraSupportChat` localized JS object (ajaxUrl/nonce/chatbotBase) render
+correctly. `node --check` clean on the new JS. **Not verified**: an actual end-to-end chat
+session (WS connect → send/receive a message) against a live chatbot instance — that needs
+`apps/chatbot` and `apps/api` both running locally with `CHATBOT_BASE`/`API_BASE` pointed at
+them (no override mechanism exists for either constant in this local-wp setup today; both are
+hardcoded to their production values), which wasn't set up this session.
+
+## 2026-09-09 (later still) — Reconciled draft Terms/Privacy with the live aivastra.com legal pages
+
+User pointed at two real, already-published pages — `https://aivastra.com/terms/` and
+`https://aivastra.com/privacy-policy/` — that weren't previously known to exist anywhere in
+this repo's context. Fetched both and used the confirmed facts to resolve several
+`[LEGAL TO CONFIRM]` placeholders in the draft pages added earlier today
+(`apps/catalogues-web/src/app/terms/page.tsx`, `.../privacy/page.tsx`), rather than waiting
+idle on formal legal sign-off.
+
+**Resolved from the live pages:**
+- Brand/trading name "AI Vastra", Corporate Office (Kondapur, Hyderabad) and Head Office
+  (Innespeta, Rajahmundry, Andhra Pradesh) addresses, phone `+91 7729883692`.
+- AI-training-on-uploads stance: live Privacy Policy states uploads are not used to train
+  general-purpose AI models "unless...separately informed" — matches the draft's existing
+  default, now stated as confirmed instead of TBD.
+- Liability cap: live Terms state 12 months — draft's `[3/6/12]` bracket resolved to 12.
+- Added two clauses actually published live that the draft didn't have: an
+  aggregated/de-identified-data-use clause and a no-absolute-security-guarantee clause.
+
+**Still genuinely open even after checking the live pages** (not just unresolved in the
+draft — the live pages don't state these either): governing law/jurisdiction city, a formally
+registered legal entity name (the live pages use "AI Vastra" as a trading name only), credit
+expiry policy, hosting region for international-transfer disclosure, and a named Grievance
+Officer.
+
+**New gap surfaced, not resolved:** the live Terms of Service is scoped specifically to
+Shopify merchants ("a valid Shopify store", billing "through Shopify Billing") and doesn't
+mention the WordPress plugin, the direct web app, the developer API, or Razorpay credit-pack
+purchases — while the live Privacy Policy is broader and does mention WordPress. Flagged
+in-line in the draft Terms page (Section 1) as a `[NOTE FOR LEGAL]` rather than guessed at.
+Still unanswered: whether to point the WordPress plugin's `readme.txt` Third Party Services
+links at the live `aivastra.com` URLs, or keep the local draft pages as a
+WordPress/direct-API-specific supplement — user has not yet chosen between the two.
+
+Regenerated `dist/legal-drafts/Ai-Vastra-Terms-of-Service-DRAFT.docx` and
+`.../Ai-Vastra-Privacy-Policy-DRAFT.docx` (gitignored, delivered via SendUserFile) to match,
+so the documents shared with the review team don't drift from the in-repo drafts.
+
+## 2026-09-09 — WordPress plugin: wp.org submission readiness + direct-share update delivery
+
+A prior session's decision to prepare the plugin for both WordPress.org submission and
+interim direct-share distribution (pilot merchants + a public download link) had never been
+written down anywhere in this repo — no readme.txt, no packaging tooling, no update
+mechanism for installs outside wp.org. Rebuilt the plan from scratch this session and
+implemented it.
+
+**Done**
+- `wordpress-plugin/readme.txt` (new): wp.org-required headers (`Requires at least: 6.5`,
+  `Tested up to: 7.1` — verified against the actual local-wp container's WordPress version;
+  `Requires PHP: 8.1`, `Requires Plugins: woocommerce`, `Stable tag: 0.5.13` matching the
+  plugin header), Description, Installation, FAQ, Changelog, and a mandatory **Third Party
+  Services** disclosure covering the Ai Vastra API and Razorpay (wp.org requires this for any
+  plugin that calls an external service). Two fields are left as explicit `TODO_` placeholders
+  that only the business can fill: a wp.org.org `Contributors` username, and Ai Vastra's own
+  Terms of Service / Privacy Policy URLs — **neither of those pages exists anywhere in this
+  repo or its infra today**, and wp.org's disclosure section needs a real link, not a
+  fabricated one.
+- **Self-hosted update delivery** (`wordpress-plugin/includes/class-update-checker.php`):
+  vendored the MIT-licensed Plugin Update Checker library
+  (`includes/vendor/plugin-update-checker/`, github.com/YahnisElsts/plugin-update-checker
+  v5.7, unmodified) and wired it to a new `GET /v1/wordpress-plugin/update-info` endpoint.
+  Deliberately **not** included in the wp.org build — a wp.org-listed plugin must not carry
+  its own updater, since WordPress core takes over updates for a listed slug via the SVN
+  `Stable tag`. `aivastra-tryon.php` guards the require behind `file_exists()`, so omitting
+  the file (as the wp.org zip does) just skips it, the same as any optional add-on file.
+- **API**: `apps/api/src/modules/admin/config.routes.ts` gets a `wordpressPlugin` slice of
+  the existing `config:system` Redis config (mirroring the pre-existing app-video
+  presign/confirm pattern) — `POST/GET /admin/config/wordpress-plugin/*` for an admin to
+  publish a new release (version, changelog, `requiresAtLeast`/`testedUpTo`/`requiresPhp`),
+  plus two public, unauthenticated routes PUC actually polls: `GET
+  /v1/wordpress-plugin/update-info` (PUC's documented JSON metadata shape — do not rename
+  its fields) and `GET /v1/wordpress-plugin/download` (302-redirects to a freshly presigned
+  R2/MinIO URL on every call, rather than embedding a presigned URL directly in the
+  cacheable manifest, so a stale signature can't strand someone who waits hours to click
+  "Update now"). New storage key `keys.wordpressPluginZip(version)` — one object per
+  version, never overwritten, so old releases stay fetchable. New Zod schemas
+  `PresignWordpressPluginBody`/`ConfirmWordpressPluginBody` in `@aivastra/types`.
+  Deliberately did **not** add an admin-web UI panel for publishing a release — this is a
+  rare, developer-run action, so a `make` target is the better fit, matching how
+  `make shopify-deploy` already publishes from the working tree rather than through a UI.
+- **Packaging**: `scripts/wordpress-plugin/build-zip.sh` (`make wordpress-plugin-zip
+  [version=X.Y.Z]`) builds both release zips from the one `wordpress-plugin/` source tree —
+  `aivastra-tryon-wporg-<version>.zip` (strips `includes/class-update-checker.php` and the
+  whole `includes/vendor/` directory) and `aivastra-tryon-direct-<version>.zip` (keeps them),
+  both excluding `local-wp/`, `tests/`, `composer.json/lock`, the root `vendor/` (composer's
+  PHPUnit dev deps — not to be confused with the shipped `includes/vendor/`), and
+  `phpunit.xml.dist`. Hit one real bug during verification: an unanchored `--exclude
+  "vendor"` rsync pattern matched `includes/vendor/` too (rsync excludes by basename at any
+  depth unless anchored with a leading `/`) and silently stripped the update checker out of
+  the direct-share build — fixed by anchoring to `/vendor`.
+
+**Verification**
+- Full WordPress PHPUnit suite (67 tests, 101 assertions) unaffected, run against the
+  existing local-wp Docker container (installed Composer fresh into the container to get
+  PHPUnit running, since neither is present on the host).
+- `php -l` clean on the new/changed PHP files; manually loaded WordPress
+  (`wp-load.php`) inside the container and confirmed `Aivastra_Update_Checker` and the
+  vendored `PucFactory` both class-load without fatals.
+- Built both zips, unzipped each, and confirmed by file listing that the wp.org zip has zero
+  `includes/vendor` entries while the direct zip has all 44 (130 in the final zip listing
+  including directory entries) PUC files; re-ran `php -l` against the extracted direct zip's
+  `aivastra-tryon.php` and `class-update-checker.php`, and loaded the vendored library
+  standalone to confirm `PucFactory` resolves.
+- `pnpm --filter @aivastra/types build` and `pnpm --filter @aivastra/api typecheck` both
+  clean. The existing `test/integration/admin-config.test.ts` (8 tests, pre-existing
+  `/admin/config` coverage, not specific to this change) still passes against the real local
+  Postgres/Redis/MinIO stack. Started the API locally and curled both new public routes
+  directly: `GET /v1/wordpress-plugin/update-info` returns `{"name":"Ai Vastra Try-On"}` with
+  no release configured yet; `GET /v1/wordpress-plugin/download` correctly 404s with no
+  release configured.
+
+**Not done / open**
+- No release has actually been published through the new admin endpoints yet — `wp.org`
+  submission itself, and the first direct-share zip handoff to pilot merchants, are both
+  still ahead.
+- The two readme.txt `TODO_` placeholders (wp.org username, Terms/Privacy URLs) block an
+  actual wp.org submission until filled — flagged to the user as a real product gap, not
+  something to guess at.
+- `docs/wordpress-plugin-design.md` still carries its original "Status: Design proposal, not
+  yet implemented" banner from before most of the plugin existed — stale, not corrected this
+  session (out of scope; noted here so the next reader doesn't trust it at face value).
+
+## 2026-09-09 (later) — Draft Terms of Service / Privacy Policy pages
+
+Closes the gap flagged in the WordPress plugin readme.txt work above: `app.aivastra.com/terms`
+and `/privacy` didn't exist anywhere in the repo, and the readme's Third Party Services
+section pointed at placeholder URLs.
+
+**Done**
+- `apps/catalogues-web/src/app/terms/page.tsx` and `.../privacy/page.tsx` (new), sharing a
+  `LegalPage`/`LegalSection` layout (`src/components/legal-page.tsx`) styled with the `C`
+  design tokens per this file's own convention. Added to `middleware.ts`'s `PUBLIC_PATHS` so
+  they're reachable without login. Verified with a live `pnpm dev` run: both return 200 with
+  no auth redirect, and correct `<title>` tags render.
+- Content is grounded in what the codebase actually does — Razorpay/Shopify billing, credit
+  metering, GST, the 24h orphaned-upload sweep, the 400-day widget-event retention, the
+  Shopify GDPR-erasure flow, encrypted-at-rest tokens — not generic boilerplate.
+- `wordpress-plugin/readme.txt` updated to point at the real relative URLs, with an explicit
+  note that both pages are drafts pending legal review.
+
+**Explicitly NOT done — these are drafts, not a publishable policy**
+- Both pages open with a bold "working draft, not yet published" banner and carry several
+  bracketed `[LEGAL TO CONFIRM]` markers for things only the business can decide or verify:
+  the operating legal entity's exact name (inferred from the Shopify Partner org name "Nice
+  Interactive" and team email domains — **not independently confirmed**, flagged rather than
+  asserted), governing-law jurisdiction/city, credit-expiry policy, liability-cap duration,
+  whether uploaded photos are ever used for model training (defaulted to "no" as the safer
+  draft position, pending an actual decision), hosting region for international-transfer
+  disclosure, and the India IT-Rules-required Grievance Officer name/address.
+- Not reviewed by a lawyer. Do not treat as binding or submit the plugin to wp.org referencing
+  these URLs until that review happens and the bracketed items are resolved.
+
 ## 2026-09-08 — Dispatcher crash-recovery can push `attempts` past MAX_ATTEMPTS
 
 **Open question / known issue (not yet fixed).**
