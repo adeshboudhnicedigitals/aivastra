@@ -51,6 +51,12 @@ const groups: NavGroup[] = [
         perm: 'assets.read',
       },
       {
+        k: 'pixverse',
+        label: 'Pixverse',
+        icon: Icon.Video,
+        perm: 'assets.read',
+      },
+      {
         k: 'workflows',
         label: 'Workflows',
         icon: Icon.Workflow,

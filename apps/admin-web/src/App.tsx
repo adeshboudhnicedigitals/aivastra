@@ -18,6 +18,7 @@ import HeldBatchesPage from './pages/HeldBatchesPage';
 import JobsPage from './pages/JobsPage';
 import LoginPage from './pages/LoginPage';
 import PaymentsPage from './pages/PaymentsPage';
+import PixversePage from './pages/PixversePage';
 import RecycleBinPage from './pages/RecycleBinPage';
 import SareePage from './pages/SareePage';
 import SettingsPage from './pages/SettingsPage';
@@ -35,6 +36,7 @@ type Theme = 'light' | 'dark' | 'system';
 const PATH_LABELS: Record<string, string> = {
   dashboard: 'Dashboard',
   assets: 'Assets',
+  pixverse: 'Pixverse',
   'demo-catalog': 'Kiosk Demo Data',
   users: 'Users',
   jobs: 'Jobs',
@@ -239,6 +241,7 @@ export default function App() {
             <Route path="/" element={<DashboardPage {...pageProps} />} />
             <Route path="/dashboard" element={<DashboardPage {...pageProps} />} />
             <Route path="/assets" element={<AssetsPage {...pageProps} />} />
+            <Route path="/pixverse" element={<PixversePage {...pageProps} />} />
             <Route path="/users" element={<UsersPage {...pageProps} />} />
             <Route path="/jobs" element={<JobsPage {...pageProps} />} />
             <Route path="/held-batches" element={<HeldBatchesPage {...pageProps} />} />

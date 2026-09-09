@@ -297,4 +297,10 @@ export const Icon: Record<string, (props?: IconProps) => JSX.Element> = {
       <path d="M5.5 10.5H3a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v2" />
     </svg>
   ),
+  Video: () => (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <rect x="1.5" y="3" width="13" height="10" rx="1.5" />
+      <path d="M6.5 6l4 2.5-4 2.5V6z" fill="currentColor" stroke="none" />
+    </svg>
+  ),
 };

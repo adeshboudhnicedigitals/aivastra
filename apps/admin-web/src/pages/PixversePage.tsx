@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Icon } from '../../components/Icons';
-import { type SampleVideo, SampleVideoUploadModal } from '../../components/SampleVideoUploadModal';
-import { Switch } from '../../components/Switch';
-import { apiErrorMessage, apiFetch } from '../../lib/data';
-import { useAssetsContext } from './AssetsContext';
+import { Icon } from '../components/Icons';
+import { type SampleVideo, SampleVideoUploadModal } from '../components/SampleVideoUploadModal';
+import { Switch } from '../components/Switch';
+import { apiErrorMessage, apiFetch } from '../lib/data';
 
-export function SampleVideosTab() {
-  const { toast } = useAssetsContext();
+interface Props {
+  onNav: (_page: string, _filter?: { page: string; filter?: string }) => void;
+  toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
+}
+
+// Formerly a tab inside AssetsPage (pages/assets/SampleVideosTab.tsx) — promoted
+// to its own top-level nav item since Sample Videos is the only PixVerse-specific
+// content type and doesn't share the rest of Assets' curated-content workflow.
+export default function PixversePage({ toast }: Props) {
   const [items, setItems] = useState<SampleVideo[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
