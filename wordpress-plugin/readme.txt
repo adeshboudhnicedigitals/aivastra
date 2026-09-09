@@ -55,6 +55,11 @@ processing.
   credit pack from the plugin's settings page. Card/payment details are handled entirely by
   Razorpay's own checkout; this plugin never sees or stores payment credentials.
   Privacy Policy: https://razorpay.com/privacy/
+* **Ai Vastra Support Chat** (https://app.aivastra.com/chatbot) — when a store admin clicks
+  "Start a chat" on the plugin's Support screen, the browser opens a WebSocket directly to
+  this service to exchange live-chat messages with the Ai Vastra support team. Only what the
+  admin types in the chat window is sent; no page or shopper data is transmitted to it.
+  Same Terms of Service / Privacy Policy as the main Ai Vastra service, above.
 
 == Installation ==
 

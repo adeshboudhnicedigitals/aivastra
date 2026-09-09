@@ -171,6 +171,15 @@ export const DevBalanceResponse = z.object({
   tryOnsRemaining: z.number().int(),
 });
 
+// The WordPress plugin's live-chat button exchanges this for a chatbot
+// ws-ticket, exactly as the Shopify embedded admin's Support tab does with
+// /v1/shopify/support/session (apps/shopify/src/hooks/useSupportChat.ts) —
+// same JWT shape, same chatbot handshake, different auth (API key vs
+// session token) to mint it.
+export const DevSupportSessionResponse = z.object({
+  token: z.string(),
+});
+
 export const DevPlan = z.object({
   slug: z.string(),
   name: z.string(),
