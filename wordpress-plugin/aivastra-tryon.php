@@ -30,6 +30,13 @@ require_once AIVASTRA_TRYON_DIR . 'includes/class-checkout-ajax.php';
 require_once AIVASTRA_TRYON_DIR . 'admin/class-settings-page.php';
 require_once AIVASTRA_TRYON_DIR . 'public/class-widget-loader.php';
 
+// Update checker: present only in the direct-share build, never in the wp.org
+// submission zip — see includes/class-update-checker.php's doc comment.
+$aivastra_update_checker_file = AIVASTRA_TRYON_DIR . 'includes/class-update-checker.php';
+if (file_exists($aivastra_update_checker_file)) {
+    require_once $aivastra_update_checker_file;
+}
+
 // No external calls on activation — connection happens explicitly in
 // settings, per docs/wordpress-plugin-design.md §4.3.
 register_activation_hook(__FILE__, function (): void {
@@ -42,4 +49,7 @@ add_action('plugins_loaded', function (): void {
     Aivastra_Cart_Ajax::init();
     Aivastra_Checkout_Ajax::init();
     Aivastra_Product_Toggle::init();
+    if (class_exists('Aivastra_Update_Checker')) {
+        Aivastra_Update_Checker::init();
+    }
 });

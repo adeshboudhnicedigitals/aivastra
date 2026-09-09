@@ -364,6 +364,21 @@ export const PresignAppVideoBody = z.object({
   contentType: z.literal('video/mp4'),
 });
 
+// ── WordPress plugin release (self-hosted update feed for direct-share installs) ──
+
+export const PresignWordpressPluginBody = z.object({
+  version: z.string().regex(/^\d+\.\d+\.\d+$/, 'Version must be semver (e.g. 0.6.0)'),
+  contentType: z.literal('application/zip'),
+});
+
+export const ConfirmWordpressPluginBody = z.object({
+  version: z.string().regex(/^\d+\.\d+\.\d+$/, 'Version must be semver (e.g. 0.6.0)'),
+  changelog: z.string().min(1).max(5000),
+  requiresAtLeast: z.string().min(1).max(20),
+  testedUpTo: z.string().min(1).max(20),
+  requiresPhp: z.string().min(1).max(20),
+});
+
 // ── Workflow template schemas ─────────────────────────────────────────────
 
 export const CreateWorkflowBody = z
