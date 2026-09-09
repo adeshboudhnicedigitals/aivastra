@@ -55,6 +55,10 @@ export const keys = {
   // Android app via GET /v1/config/app-video). Fixed key — a new upload replaces
   // the previous one in place; cache-busting is via the ?v= query param, not the key.
   appVideo: () => `config/app-video.mp4`,
+  // One object per released version — never overwritten, so an old version stays
+  // fetchable (rollback, or a merchant re-downloading a changelog-matched build).
+  wordpressPluginZip: (version: string) =>
+    `wordpress-plugin-releases/${version}/aivastra-tryon.zip`,
   videoOutput: (jobId: string) => `outputs/${jobId}/result.mp4`,
   supportAttachment: (id: string, ext: string) => `support/${id}.${ext}`,
   invoice: (paymentId: string) => `invoices/${paymentId}.pdf`,

@@ -17,6 +17,7 @@ import {
   DevPhotoPreviewResponse,
   DevPlansResponse,
   DevSareeMannequinJsonBody,
+  DevSupportSessionResponse,
   DevTryonJsonBody,
   DevTryonResponse,
   DevWidgetEventBody,
@@ -30,6 +31,7 @@ import { AppError } from '../../lib/errors.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 import { assertWidgetKeyRateLimit } from '../../lib/widget-key-rate-limit.js';
+import { signAccess } from '../auth/service.js';
 import {
   createRazorpayOrder,
   GST_RATE,
@@ -211,6 +213,41 @@ export async function devRoutes(app: FastifyInstance) {
           unitCountLabel: r.unitCountLabel,
         })),
       };
+    },
+  );
+
+  app.post(
+    '/v1/dev/support/session',
+    {
+      // No requireDevScope() — same reasoning as /v1/dev/balance and
+      // /v1/dev/plans: this only needs to identify the merchant, not touch
+      // anything sensitive, and the WordPress plugin only ever holds a
+      // widget-scoped key day-to-day.
+      preHandler: app.requireApiKey,
+      config: rateLimitConfig,
+      schema: {
+        // wp-internal: mirrors POST /v1/shopify/support/session
+        // (apps/api/src/modules/shopify/support.routes.ts) for the WordPress
+        // plugin's live-chat button. The browser exchanges the returned JWT
+        // for a chatbot ws-ticket exactly the way the Shopify embedded
+        // admin's useSupportChat.ts does.
+        tags: ['wp-internal'],
+        summary: 'Mint a chatbot session token for the connected merchant',
+        response: { 200: DevSupportSessionResponse, 401: DevErrorResponse, 429: DevErrorResponse },
+      },
+    },
+    async (req) => {
+      // Unlike Shopify's getOrCreateSupportUser(), no synthetic user is
+      // needed — an API-key-authed request already resolves to a real
+      // users.id via schema.merchants.userId (a merchant IS a user).
+      const secret = new TextEncoder().encode(app.env.JWT_SECRET);
+      const token = await signAccess(
+        secret,
+        req.merchantUserId as string,
+        { kind: 'access' },
+        app.env.JWT_EXPIRY,
+      );
+      return { token };
     },
   );
 

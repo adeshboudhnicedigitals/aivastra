@@ -1,7 +1,7 @@
 # Aivastra — Makefile shortcuts
 # Requires: pnpm, docker, node >=20
 
-.PHONY: setup sync dev dev-api dev-web dev-dispatcher dev-admin build test typecheck lint docker-up docker-down docker-reset db-generate db-migrate seed-catalog health prod-up prod-down prod-restart prod-bootstrap prod-logs prod-ps shopify-deploy shopify-deploy-dev shopify-deploy-staging shopify-dev shopify-dev-dev export-prod-snapshot sync-prod-snapshot
+.PHONY: setup sync dev dev-api dev-web dev-dispatcher dev-admin build test typecheck lint docker-up docker-down docker-reset db-generate db-migrate seed-catalog health prod-up prod-down prod-restart prod-bootstrap prod-logs prod-ps shopify-deploy shopify-deploy-dev shopify-deploy-staging shopify-dev shopify-dev-dev export-prod-snapshot sync-prod-snapshot wordpress-plugin-zip
 
 setup:
 	cp .env.example .env
@@ -140,3 +140,9 @@ prod-logs:
 
 prod-ps:
 	$(PROD_COMPOSE) ps
+
+# Builds both WordPress plugin release zips (wp.org submission + direct-share
+# with the self-hosted update checker) into dist/wordpress-plugin/. Pass
+# version=X.Y.Z to override the version read from aivastra-tryon.php.
+wordpress-plugin-zip:
+	bash scripts/wordpress-plugin/build-zip.sh $(version)

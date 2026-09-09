@@ -144,6 +144,52 @@ class Aivastra_Connection_Service
     }
 
     /**
+     * Mints a short-lived chatbot session token for the connected merchant —
+     * POST /v1/dev/support/session accepts a widget-scoped key, same
+     * reasoning as list_categories()/list_plans(). The browser exchanges the
+     * returned JWT for a chatbot ws-ticket directly against
+     * Aivastra_Settings_Page::CHATBOT_BASE, mirroring
+     * apps/shopify/src/hooks/useSupportChat.ts's two-step handshake.
+     *
+     * @return array{ok: bool, token?: string, error?: string}
+     */
+    public function create_support_session(): array
+    {
+        $widgetKey = $this->settings->get_widget_key();
+        if ($widgetKey === null) {
+            return ['ok' => false, 'error' => 'not_connected'];
+        }
+
+        $response = wp_remote_post($this->apiBase . '/v1/dev/support/session', [
+            // wp_remote_post() defaults to Content-Type:
+            // application/x-www-form-urlencoded when no body is given, and
+            // the API only has a JSON body parser registered — an empty
+            // urlencoded body 415s. Send an explicit empty JSON body instead,
+            // same as create_order()'s POST below.
+            'headers' => ['Authorization' => 'Bearer ' . $widgetKey, 'Content-Type' => 'application/json'],
+            'body' => '{}',
+            'timeout' => 15,
+        ]);
+
+        if (is_wp_error($response)) {
+            return ['ok' => false, 'error' => 'Could not reach the aivastra API.'];
+        }
+
+        $code = wp_remote_retrieve_response_code($response);
+        if ($code !== 200) {
+            return ['ok' => false, 'error' => 'The widget key was rejected (HTTP ' . $code . ').'];
+        }
+
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+        $token = is_array($body) ? ($body['token'] ?? null) : null;
+        if (!is_string($token) || $token === '') {
+            return ['ok' => false, 'error' => 'Unexpected response from the aivastra API.'];
+        }
+
+        return ['ok' => true, 'token' => $token];
+    }
+
+    /**
      * Creates a Razorpay order for the given plan using the stored, encrypted
      * full key — POST /v1/dev/payments/orders requires full scope. The
      * decrypted key lives only in this method's local scope.

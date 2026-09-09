@@ -16,13 +16,33 @@ class Aivastra_Settings_Page
     // Production serves the API from the SAME host as the web app, reverse-
     // proxied at /v1/* (see infra/docker-compose.prod.yml) — there is no
     // separate api.aivastra.com. For local development against
-    // `pnpm --filter @aivastra/api dev` (port 4000), override this to
-    // 'http://host.docker.internal:4000' — host.docker.internal, not
-    // localhost, since this plugin runs inside the WordPress container,
-    // which has its own network namespace.
+    // `pnpm --filter @aivastra/api dev` (port 4000), override this to reach
+    // the host from inside the WordPress container (its own network
+    // namespace, not localhost). `host.docker.internal` only resolves if
+    // local-wp's compose file sets `extra_hosts: host.docker.internal:
+    // host-gateway` — it doesn't here (Docker Desktop adds it automatically;
+    // plain Docker Engine on Linux doesn't). Verified working alternative:
+    // the docker bridge gateway IP, e.g. 'http://172.19.0.1:4000' — get the
+    // actual value via `docker network inspect local-wp_default` (or `docker
+    // inspect local-wp-wordpress-1 --format '{{json .NetworkSettings.Networks}}'`),
+    // it can differ per machine/network recreation.
     // Public: Aivastra_Checkout_Ajax (includes/class-checkout-ajax.php) needs
     // the same base URL and has no other way to reach it.
     public const API_BASE = 'https://app.aivastra.com';
+
+    // Production chatbot endpoint: path-proxied under the SAME host as
+    // API_BASE at /chatbot (docker-compose.prod.yml's own comment claims a
+    // chatbot.aivastra.com subdomain, but that was never actually
+    // provisioned — see docs/progress.md's chatbot CORS/URL fix entry. Use
+    // this path, not a subdomain.) Deliberately NOT derived from API_BASE
+    // (`self::API_BASE . '/chatbot'`) even though they match in production —
+    // API_BASE is read by PHP running inside the WordPress container
+    // (needs host.docker.internal locally), while this constant is only
+    // ever handed to browser JS via wp_localize_script (needs a URL the
+    // browser on the HOST machine can reach) — the two diverge in local
+    // dev. For local development against `pnpm --filter @aivastra/chatbot
+    // dev` (port 4200), override this to 'http://localhost:4200'.
+    public const CHATBOT_BASE = 'https://app.aivastra.com/chatbot';
 
     // Two internal short-codes get a friendly rewrite; every other value in
     // $_GET['aivastra_error'] already IS a human-readable message coming
@@ -122,6 +142,18 @@ class Aivastra_Settings_Page
             AIVASTRA_TRYON_VERSION,
             true
         );
+        wp_enqueue_script(
+            'aivastra-tryon-support-chat',
+            AIVASTRA_TRYON_URL . 'admin/assets/support-chat.js',
+            [],
+            AIVASTRA_TRYON_VERSION,
+            true
+        );
+        wp_localize_script('aivastra-tryon-support-chat', 'aivastraSupportChat', [
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce(Aivastra_Support_Ajax::NONCE_ACTION),
+            'chatbotBase' => self::CHATBOT_BASE,
+        ]);
 
         if (!isset($_GET['aivastra_checkout'])) {
             return;
@@ -635,8 +667,25 @@ class Aivastra_Settings_Page
             <div class="aivastra-support-channel">
               <h3 class="aivastra-support-channel-title">Live chat</h3>
               <p class="aivastra-support-channel-body">Talk to the team in real time during business hours.</p>
-              <a href="https://app.aivastra.com/support" target="_blank" rel="noopener noreferrer" class="aivastra-btn aivastra-btn-secondary">Start a chat</a>
+              <button type="button" id="aivastra-start-chat" class="aivastra-btn aivastra-btn-secondary">Start a chat</button>
             </div>
+          </div>
+        </div>
+
+        <div id="aivastra-chat-modal" class="aivastra-chat-modal" hidden aria-hidden="true">
+          <div class="aivastra-chat-modal__backdrop" data-aivastra-chat-close></div>
+          <div class="aivastra-chat-modal__panel" role="dialog" aria-modal="true" aria-label="Live chat">
+            <div class="aivastra-chat-modal__header">
+              <span class="aivastra-chat-modal__title">Ai Vastra Support</span>
+              <span class="aivastra-chat-modal__status" id="aivastra-chat-status">Connecting…</span>
+              <button type="button" class="aivastra-chat-modal__close" data-aivastra-chat-close aria-label="Close chat">&times;</button>
+            </div>
+            <div class="aivastra-chat-modal__error" id="aivastra-chat-error" hidden></div>
+            <div class="aivastra-chat-modal__messages" id="aivastra-chat-messages"></div>
+            <form class="aivastra-chat-modal__composer" id="aivastra-chat-composer">
+              <input type="text" id="aivastra-chat-input" placeholder="Type a message…" autocomplete="off" />
+              <button type="submit" class="aivastra-btn aivastra-btn-primary">Send</button>
+            </form>
           </div>
         </div>
         <?php
