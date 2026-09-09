@@ -1,16 +1,17 @@
 'use client';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Film, Plus } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { Film } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
-import { GradBtn } from '@/components/ui/grad-btn';
 import { useJobStream } from '@/hooks/use-job-stream';
 import { api } from '@/lib/api';
+import { isSupportedImageBytes } from '@/lib/image-validation';
 
-import { CatalogVideoWizard } from './CatalogVideoWizard';
+import { CatalogVideoWizard, type ImageSource } from './CatalogVideoWizard';
+import { SourcePanel } from './SourcePanel';
 
 interface CatalogVideoItem {
   id: string;
@@ -50,7 +51,14 @@ function statusLabel(status: string): string {
 
 export default function CatalogVideoPage(): React.ReactElement {
   const qc = useQueryClient();
-  const [wizardOpen, setWizardOpen] = useState(false);
+  // The wizard now only ever opens pre-seeded with a source picked on this
+  // page (see SourcePanel below) — it starts on step 2 (template selection)
+  // and step 1 is reachable only via its own "Back" button.
+  const [wizardSource, setWizardSource] = useState<ImageSource | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const uploadAbortRef = useRef<AbortController | null>(null);
 
   const { data: items, isLoading } = useQuery<CatalogVideoItem[]>({
     queryKey: ['catalog-videos'],
@@ -74,6 +82,49 @@ export default function CatalogVideoPage(): React.ReactElement {
       [qc],
     ),
   );
+
+  // Abort any in-flight upload on unmount, same as the wizard's own dropzone.
+  useEffect(() => {
+    return () => uploadAbortRef.current?.abort();
+  }, []);
+
+  async function handleUpload(file: File) {
+    if (uploading) return;
+    if (file.size > 10 * 1024 * 1024) {
+      setUploadError('File exceeds 10 MB. Please choose a smaller image.');
+      return;
+    }
+    if (!(await isSupportedImageBytes(file))) {
+      setUploadError('Unsupported file type. Please upload a JPEG, PNG, or WebP image.');
+      return;
+    }
+    setUploadError(null);
+    setUploading(true);
+    setUploadProgress(0);
+    const abort = new AbortController();
+    uploadAbortRef.current = abort;
+    const previewUrl = URL.createObjectURL(file);
+    try {
+      const { uploadUrl, r2Key } = await api.post<{
+        uploadUrl: string;
+        r2Key: string;
+        expiresIn: number;
+      }>('/v1/uploads/presign', { contentType: file.type, contentLength: file.size });
+      await api.uploadToR2WithProgress(uploadUrl, file, setUploadProgress, abort.signal);
+      setWizardSource({ kind: 'upload', r2Key, previewUrl });
+    } catch (e) {
+      URL.revokeObjectURL(previewUrl);
+      if (e instanceof DOMException && e.name === 'AbortError') return;
+      const msg = e instanceof Error ? e.message : '';
+      setUploadError(
+        msg.includes('403')
+          ? 'Upload session expired. Please re-upload your image and try again.'
+          : `Upload failed: ${msg}`,
+      );
+    } finally {
+      setUploading(false);
+    }
+  }
 
   return (
     <>
@@ -113,6 +164,19 @@ export default function CatalogVideoPage(): React.ReactElement {
           gap: 16px;
         }
 
+        /* Main creation surface: source (left) + result preview (right),
+           same split as Studio's studio-left-column / studio-right-column. */
+        .cat-video-two-col {
+          display: flex;
+          gap: 20px;
+          margin-bottom: 28px;
+        }
+        .cat-video-source-col,
+        .cat-video-result-col {
+          flex: 1 1 0;
+          min-width: 0;
+        }
+
         @media (max-width: 1023px) {
           .cat-video-main {
             padding: 16px 20px 24px;
@@ -120,6 +184,9 @@ export default function CatalogVideoPage(): React.ReactElement {
           .cat-video-grid {
             grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
             gap: 12px;
+          }
+          .cat-video-two-col {
+            flex-direction: column;
           }
         }
 
@@ -146,21 +213,55 @@ export default function CatalogVideoPage(): React.ReactElement {
         }
       `}</style>
       <TopBar
-        title="Catalog Video"
-        subtitle="Create motion-ready product video from your catalogue images"
+        title="Motion Studio"
+        subtitle="Animate a catalogue photo into a motion-ready product video"
       />
       <main className="cat-video-main">
+        <div className="cat-video-two-col">
+          <div className="cat-video-source-col">
+            <SourcePanel
+              onFile={handleUpload}
+              uploading={uploading}
+              progress={uploadProgress}
+              error={uploadError}
+            />
+          </div>
+          <div className="cat-video-result-col">
+            <div
+              style={{
+                width: '100%',
+                height: '100%',
+                minHeight: 360,
+                borderRadius: 20,
+                background: C.card,
+                boxShadow: `inset 0 0 0 1.5px ${C.border2}, 0 4px 15px rgba(0,0,0,0.08)`,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 12,
+                padding: 40,
+                boxSizing: 'border-box',
+                textAlign: 'center',
+                color: C.mid,
+              }}
+            >
+              <Film size={28} strokeWidth={1.5} />
+              <span style={{ fontSize: 15, fontWeight: 700, color: C.text }}>
+                Your animated video will appear here
+              </span>
+              <span style={{ fontSize: 13, maxWidth: 280, lineHeight: 1.5 }}>
+                Upload a photo on the left, then choose a motion template to generate your video.
+              </span>
+            </div>
+          </div>
+        </div>
+
         <div className="cat-video-header">
           <div>
-            <h1 className="cat-video-title">Catalog Videos</h1>
+            <h1 className="cat-video-title">Your Videos</h1>
             <p className="cat-video-subtitle">Your generated product videos</p>
           </div>
-          <GradBtn onClick={() => setWizardOpen(true)}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-              <Plus size={15} />
-              New catalog video
-            </span>
-          </GradBtn>
         </div>
 
         {isLoading ? (
@@ -181,7 +282,6 @@ export default function CatalogVideoPage(): React.ReactElement {
           >
             <Film size={28} strokeWidth={1.5} />
             <span style={{ fontSize: 13 }}>No catalog videos yet.</span>
-            <GradBtn onClick={() => setWizardOpen(true)}>Create video</GradBtn>
           </div>
         ) : (
           <div className="cat-video-grid">
@@ -264,10 +364,11 @@ export default function CatalogVideoPage(): React.ReactElement {
         )}
       </main>
 
-      {wizardOpen && (
+      {wizardSource && (
         <CatalogVideoWizard
-          onClose={() => setWizardOpen(false)}
-          onCreated={() => setWizardOpen(false)}
+          initialSource={wizardSource}
+          onClose={() => setWizardSource(null)}
+          onCreated={() => setWizardSource(null)}
         />
       )}
     </>

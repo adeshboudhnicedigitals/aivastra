@@ -39,7 +39,7 @@ const NAV: {
   {
     id: 'catalog-video',
     href: '/catalog-video',
-    label: 'Catalog Video',
+    label: 'Motion Studio',
     icon: `${BASE}/assets/catalog-video-icon.svg`,
     catalogVideoOnly: true,
   },

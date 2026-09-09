@@ -11,7 +11,10 @@ export function GradBtn({
   className,
 }: {
   children: React.ReactNode;
-  onClick?: () => void;
+  // Accepts the click event so callers nesting this button inside another
+  // click zone (e.g. SourcePanel's whole-card drop target) can stopPropagation
+  // to avoid double-firing. Existing zero-arg callers stay valid as-is.
+  onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   style?: React.CSSProperties;
   outline?: boolean;
   disabled?: boolean;
