@@ -1,3 +1,5 @@
+import { schema } from '@aivastra/db';
+import { and, eq, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { getCatalogOptions } from '../../lib/catalog-options-cache.js';
 import { AppError } from '../../lib/errors.js';
@@ -51,6 +53,31 @@ function pick(
   return hit.id;
 }
 
+/**
+ * A merchant's own dev-uploaded backgrounds (POST /v1/dev/backgrounds/confirm) —
+ * `scope='user'` rows owned by their linked user account (req.merchantUserId; a
+ * merchant IS a user, see packages/db/src/schema/merchant.ts). Deliberately a
+ * separate, UNCACHED query rather than folded into getCatalogOptions: that cache's
+ * key has no tenant dimension, and this set is small and per-caller, so a direct
+ * indexed lookup (model_backgrounds_user_id_idx) is the right tradeoff over either
+ * exploding the cache key space or adding new invalidation hooks for every upload.
+ * A row's own id doubles as its slug — see DevBackgroundItem in packages/types.
+ */
+async function fetchMerchantOwnedBackgrounds(app: FastifyInstance, merchantUserId: string) {
+  const rows = await app.db
+    .select({ id: schema.modelBackgrounds.id })
+    .from(schema.modelBackgrounds)
+    .where(
+      and(
+        eq(schema.modelBackgrounds.scope, 'user'),
+        eq(schema.modelBackgrounds.userId, merchantUserId),
+        eq(schema.modelBackgrounds.isActive, true),
+        isNull(schema.modelBackgrounds.deletedAt),
+      ),
+    );
+  return rows.map((r) => ({ id: r.id, slug: r.id }));
+}
+
 export async function resolveCatalogSelection(
   app: FastifyInstance,
   body: {
@@ -61,6 +88,7 @@ export async function resolveCatalogSelection(
     lower?: string;
     shoe?: string;
   },
+  merchantUserId?: string,
 ): Promise<ResolvedCatalogSelection> {
   // Two-phase: the garment type has to be resolved against the UNFILTERED pool for
   // this gender, because the pose/lower/shoe lists in the second lookup are narrowed
@@ -77,11 +105,15 @@ export async function resolveCatalogSelection(
     publicOnly: true,
   });
 
+  const backgroundPool = merchantUserId
+    ? [...options.backgrounds, ...(await fetchMerchantOwnedBackgrounds(app, merchantUserId))]
+    : options.backgrounds;
+
   return {
     faceId: pick(options.faces, body.face, 'face'),
     looks: body.looks.map((l) => ({
       poseId: pick(options.poses, l.pose, 'pose', body.garmentType),
-      backgroundId: pick(options.backgrounds, l.background, 'background'),
+      backgroundId: pick(backgroundPool, l.background, 'background'),
     })),
     garmentTypeId,
     lowerCatalogId: body.lower

@@ -8,12 +8,12 @@ import {
 } from '@aivastra/types';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import sharp from 'sharp';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { fetchImageWithCap } from '../../lib/fetch-image.js';
 import { isPinterestUrl, resolvePinterestImageUrl } from '../../lib/pinterest-resolver.js';
 import { assertPublicHttpUrl } from '../../lib/ssrf-guard.js';
+import { normalizeAndStoreBackground, toItem } from './normalize.js';
 
 const UPLOAD_OWNER_TTL_SEC = 24 * 60 * 60;
 const MAX_URL_IMAGE_BYTES = 15 * 1024 * 1024;
@@ -21,68 +21,6 @@ const MAX_URL_IMAGE_BYTES = 15 * 1024 * 1024;
 // The presigned PUT does not enforce this at R2 (see r2.ts presignPut comment), so it must be
 // re-checked here via headObject before the object is ever read into API memory.
 const MAX_CONFIRM_UPLOAD_BYTES = 10 * 1024 * 1024;
-const ALLOWED_FORMATS = new Set(['jpeg', 'png', 'webp']);
-
-async function makeThumb(buf: Buffer): Promise<Buffer> {
-  return sharp(buf)
-    .rotate()
-    .resize({ width: 512, height: 512, fit: 'inside', withoutEnlargement: true })
-    .jpeg({ quality: 78 })
-    .toBuffer();
-}
-
-async function toItem(
-  app: FastifyInstance,
-  row: { id: string; label: string; thumbnailKey: string },
-) {
-  return {
-    id: row.id,
-    label: row.label,
-    thumbnailUrl: (await app.storage.presignGet(row.thumbnailKey, 3600)).url,
-  };
-}
-
-/**
- * Shared "validate -> normalize -> store" pipeline for both the `confirm` and `from-url` routes.
- * Both routes end up with raw image bytes from different origins (an already-uploaded R2 object
- * vs. freshly fetched bytes); from that point on the logic is identical: sniff the real format
- * from bytes (never trust the caller-supplied Content-Type), reject anything not in
- * ALLOWED_FORMATS, re-encode to real JPEG, generate a thumbnail from the original bytes, store
- * both objects, and insert the DB row.
- */
-async function normalizeAndStoreBackground(
-  app: FastifyInstance,
-  userId: string,
-  buf: Buffer,
-  r2Key: string,
-  thumbnailKey: string,
-  label: string | undefined,
-) {
-  let format: string | undefined;
-  try {
-    format = (await sharp(buf).metadata()).format;
-  } catch {
-    throw new AppError('BAD_UPLOAD', 400, 'uploaded file is not a valid image');
-  }
-  if (!format || !ALLOWED_FORMATS.has(format)) {
-    throw new AppError('BAD_UPLOAD', 400, 'unsupported image format');
-  }
-  const normalized = await sharp(buf).jpeg({ quality: 90 }).toBuffer();
-  const thumb = await makeThumb(buf);
-  await app.storage.putObject(r2Key, normalized, 'image/jpeg');
-  await app.storage.putObject(thumbnailKey, thumb, 'image/jpeg');
-  const [row] = await app.db
-    .insert(schema.modelBackgrounds)
-    .values({
-      label: label ?? 'My background',
-      r2Key,
-      thumbnailKey,
-      scope: 'user',
-      userId,
-    })
-    .returning();
-  return await toItem(app, row);
-}
 
 const BACKGROUND_ROW_COLUMNS = {
   id: schema.modelBackgrounds.id,
