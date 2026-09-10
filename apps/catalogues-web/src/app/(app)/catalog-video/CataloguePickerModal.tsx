@@ -2,10 +2,17 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { Check, X } from 'lucide-react';
+import { useState } from 'react';
 
 import { C } from '@/components/tokens';
 import { api } from '@/lib/api';
 import { type CatalogueResponse, JobThumbnail } from './JobThumbnail';
+
+// Page size for this picker — both the initial render and each "Load more"
+// click reveal this many additional images. Keeping this small (rather than
+// rendering every job up front) is what bounds the thumbnail-fetch burst;
+// see JobThumbnail's useInView comment for why bounding the burst matters.
+const IMAGE_OPTIONS_PAGE_SIZE = 10;
 
 // Opened by SourcePanel's "Browse Catalogues" button — picks one completed
 // AI Vastra job as the Motion Studio source image, as an alternative to
@@ -18,16 +25,35 @@ export function CataloguePickerModal({
   onClose: () => void;
   onSelect: (jobId: string) => void;
 }): React.ReactElement {
+  const [visibleCount, setVisibleCount] = useState(IMAGE_OPTIONS_PAGE_SIZE);
   const { data: catalogues, isLoading } = useQuery<CatalogueResponse>({
     queryKey: ['catalogues'],
     queryFn: () => api.get('/v1/catalogues'),
   });
 
-  const imageOptions = (catalogues ?? []).flatMap((catalogue) =>
-    catalogue.jobs
-      .filter((job) => job.status === 'COMPLETED')
-      .map((job) => ({ jobId: job.id, catalogueId: catalogue.catalogueId })),
-  );
+  // Sorted newest-first so the initial page (and each "Load more" page) is
+  // always the next-most-recent batch. Rendering is paginated via
+  // visibleCount rather than putting every job in the DOM up front — an
+  // unbounded gallery fires one thumbnail request per job as it scrolls into
+  // view (JobThumbnail's useInView), and for a long-history account even
+  // that lazy-loaded burst could exceed the API's per-IP rate limit if the
+  // whole history were reachable at once (see docs/progress.md,
+  // "catalog-video rate-limit incident"). Paging bounds how much of the
+  // account's history is ever mounted, regardless of how many jobs it has.
+  const allImageOptions = (catalogues ?? [])
+    .flatMap((catalogue) =>
+      catalogue.jobs
+        .filter((job) => job.status === 'COMPLETED')
+        .map((job) => ({
+          jobId: job.id,
+          catalogueId: catalogue.catalogueId,
+          createdAt: job.createdAt,
+        })),
+    )
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .map(({ jobId, catalogueId }) => ({ jobId, catalogueId }));
+  const imageOptions = allImageOptions.slice(0, visibleCount);
+  const hasMoreImages = visibleCount < allImageOptions.length;
 
   return (
     <>
@@ -186,6 +212,26 @@ export function CataloguePickerModal({
                   </button>
                 ))}
               </div>
+            )}
+            {hasMoreImages && (
+              <button
+                type="button"
+                onClick={() => setVisibleCount((count) => count + IMAGE_OPTIONS_PAGE_SIZE)}
+                style={{
+                  display: 'block',
+                  margin: '16px auto 0',
+                  padding: '8px 20px',
+                  borderRadius: 999,
+                  border: `1px solid ${C.border}`,
+                  background: 'transparent',
+                  color: C.mid,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Load more
+              </button>
             )}
           </div>
         </section>
