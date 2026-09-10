@@ -1,6 +1,9 @@
 import {
   ASPECT_DIMENSIONS,
+  computePixverseVideoCost,
   PIXVERSE_VIDEO_COST,
+  type PixverseQuality,
+  type PixverseVideoPricingConfig,
   RESOLUTION_COSTS,
   type Resolution,
   SAREE_MANNEQUIN_DEV_COST,
@@ -54,7 +57,15 @@ export const DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG: { creditCost: number } = {
   creditCost: SAREE_MANNEQUIN_DEV_COST,
 };
 
-export const DEFAULT_PIXVERSE_CONFIG: { creditCost: number } = { creditCost: PIXVERSE_VIDEO_COST };
+export const DEFAULT_PIXVERSE_VIDEO_PRICING: PixverseVideoPricingConfig = {
+  perSecondRate: 0,
+  qualityBase: {
+    '360p': PIXVERSE_VIDEO_COST,
+    '540p': PIXVERSE_VIDEO_COST,
+    '720p': PIXVERSE_VIDEO_COST,
+    '1080p': PIXVERSE_VIDEO_COST,
+  },
+};
 
 export const DEFAULT_SHOPIFY_TRIAL_CONFIG: { trialCredits: number } = { trialCredits: 25 };
 
@@ -167,15 +178,48 @@ export async function getSareeMannequinDevCreditCost(app: FastifyInstance): Prom
   }
 }
 
-export async function getPixverseCreditCost(app: FastifyInstance): Promise<number> {
+/**
+ * Reads the admin-configured PixVerse duration/quality pricing formula from
+ * the `config:system` Redis key, merged per-key against
+ * DEFAULT_PIXVERSE_VIDEO_PRICING. `SystemConfigBody.pixverseVideoPricing`
+ * lets an admin PATCH just one quality tier (`qualityBase` is a Zod
+ * `.partial()`), so a stored config can legitimately be missing tiers — an
+ * existence check (`cfg.pixverseVideoPricing ?? DEFAULT`) would let a
+ * partial `qualityBase` reach computePixverseVideoCost, which indexes it
+ * directly with no fallback — `undefined + number` is `NaN`. Exported so
+ * both getPixverseVideoCreditCost() (below) and the public
+ * GET /v1/models/sample-videos response (apps/api/src/modules/models/routes.ts)
+ * can read the same resolved config — the route exposes it for a
+ * client-side Custom-mode cost preview; the server still recomputes the
+ * charged cost itself at job-creation time regardless of what the client
+ * showed.
+ */
+export async function getPixverseVideoPricingConfig(
+  app: FastifyInstance,
+): Promise<PixverseVideoPricingConfig> {
   try {
     const raw = await app.redis.get(CONFIG_KEY);
     const cfg = raw ? JSON.parse(raw) : {};
-    const cost = cfg.pixverse?.creditCost;
-    return typeof cost === 'number' ? cost : PIXVERSE_VIDEO_COST;
+    const stored = cfg.pixverseVideoPricing as Partial<PixverseVideoPricingConfig> | undefined;
+    return {
+      perSecondRate:
+        typeof stored?.perSecondRate === 'number'
+          ? stored.perSecondRate
+          : DEFAULT_PIXVERSE_VIDEO_PRICING.perSecondRate,
+      qualityBase: { ...DEFAULT_PIXVERSE_VIDEO_PRICING.qualityBase, ...stored?.qualityBase },
+    };
   } catch {
-    return PIXVERSE_VIDEO_COST;
+    return DEFAULT_PIXVERSE_VIDEO_PRICING;
   }
+}
+
+export async function getPixverseVideoCreditCost(
+  app: FastifyInstance,
+  duration: number,
+  quality: PixverseQuality,
+): Promise<number> {
+  const pricing = await getPixverseVideoPricingConfig(app);
+  return computePixverseVideoCost(duration, quality, pricing);
 }
 
 /**

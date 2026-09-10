@@ -30,7 +30,7 @@ describe('catalog video job (PixVerse)', () => {
     vi.restoreAllMocks();
   });
 
-  async function seedVideoJob() {
+  async function seedVideoJob(duration = 12, quality = '1080p') {
     const [user] = await env.db
       .insert(schema.users)
       .values({ email: `video-${Date.now()}@test.com`, passwordHash: 'x', tier: 'free' })
@@ -60,6 +60,8 @@ describe('catalog video job (PixVerse)', () => {
         sourceImageKey: `outputs/${sourceJob?.id}/result.png`,
         sampleVideoId: randomUUID(),
         prompt: 'model turning slowly',
+        duration,
+        quality,
       },
     });
 
@@ -201,5 +203,48 @@ describe('catalog video job (PixVerse)', () => {
       .from(schema.userCredits)
       .where(eq(schema.userCredits.userId, userId));
     expect(bal.balance).toBe(20);
+  });
+
+  it("sends the job's own duration/quality to PixVerse instead of a hardcoded 8/720p", async () => {
+    const { jobId, userId } = await seedVideoJob(12, '1080p');
+    const log = createLogger('test');
+
+    let capturedBody: Record<string, unknown> | undefined;
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.includes('/image/upload')) {
+        return new Response(JSON.stringify({ ErrCode: 0, Resp: { img_id: 123 } }), { status: 200 });
+      }
+      if (url.includes('/video/img/generate')) {
+        capturedBody = JSON.parse(init?.body as string);
+        return new Response(JSON.stringify({ ErrCode: 0, Resp: { video_id: 456 } }), {
+          status: 200,
+        });
+      }
+      if (url.includes('/video/result/')) {
+        return new Response(
+          JSON.stringify({
+            ErrCode: 0,
+            Resp: { status: 1, url: 'https://pixverse.example/video.mp4' },
+          }),
+          { status: 200 },
+        );
+      }
+      if (url === 'https://pixverse.example/video.mp4') {
+        return new Response(Buffer.from('fake-mp4-bytes'), { status: 200 });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    await processJob(
+      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      jobId,
+      userId,
+      'jobs:normal',
+      '1-0',
+    );
+
+    expect(capturedBody).toMatchObject({ duration: 12, quality: '1080p' });
   });
 });

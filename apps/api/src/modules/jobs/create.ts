@@ -8,6 +8,8 @@ import {
   type CreateTryOnJobRequest,
   JOB_SOURCE,
   type JobSource,
+  PIXVERSE_CUSTOM_VIDEO_PROMPT,
+  type PixverseQuality,
   type Resolution,
   resolutionFromDims,
   type SareeStep2Inputs,
@@ -21,7 +23,7 @@ import { assertQueueCapacity } from '../../lib/queue-capacity-config.js';
 import {
   getAspectDimensions,
   getMaxOutputPx,
-  getPixverseCreditCost,
+  getPixverseVideoCreditCost,
   getResolutionCreditCost,
   getTryonCreditCost,
 } from '../../lib/resolution-config.js';
@@ -1240,8 +1242,6 @@ export async function createCatalogVideoJob(
   userId: string,
   body: z.infer<typeof CreateCatalogVideoJobRequest>,
 ) {
-  const cost = await getPixverseCreditCost(app);
-
   // Exactly one of sourceJobId or sourceImageKey is present — enforced by
   // CreateCatalogVideoJobRequest's XOR refine. sourceImageKey lets the caller
   // animate any image they own, not required to be an AI Vastra generation;
@@ -1276,17 +1276,49 @@ export async function createCatalogVideoJob(
     throw new AppError('VALIDATION', 400, 'sourceJobId or sourceImageKey is required');
   }
 
-  const [sample] = await app.db
-    .select()
-    .from(schema.sampleVideos)
-    .where(eq(schema.sampleVideos.id, body.sampleVideoId));
-  if (!sample || sample.deletedAt) throw new AppError('NOT_FOUND', 404, 'sample video not found');
-  if (!sample.isActive) throw new AppError('VALIDATION', 400, 'sample video is not active');
   const [user] = await app.db.select().from(schema.users).where(eq(schema.users.id, userId));
   if (!user || user.isBanned) throw new AppError('FORBIDDEN', 403, 'banned');
   if (!isCatalogVideoAllowed(app.env, user.email)) {
     throw new AppError('FORBIDDEN', 403, 'catalog video is not enabled for this account');
   }
+
+  // At least one of sampleVideoId or (duration + quality) is present —
+  // enforced by CreateCatalogVideoJobRequest's refine checks. sampleVideoId
+  // always supplies the prompt (never user- or client-suppliable); its own
+  // duration/quality are only the fallback — Motion Studio's normal flow
+  // lets the caller override a preset's duration/quality while keeping its
+  // prompt, so body.duration/body.quality win when present. The standalone
+  // custom path (no sampleVideoId, fixed system prompt) still works
+  // unchanged for any caller that omits sampleVideoId entirely.
+  let prompt: string;
+  let duration: number;
+  let quality: PixverseQuality;
+  let sampleVideoId: string | null;
+  if (body.sampleVideoId) {
+    const [sample] = await app.db
+      .select()
+      .from(schema.sampleVideos)
+      .where(eq(schema.sampleVideos.id, body.sampleVideoId));
+    if (!sample || sample.deletedAt) throw new AppError('NOT_FOUND', 404, 'sample video not found');
+    if (!sample.isActive) throw new AppError('VALIDATION', 400, 'sample video is not active');
+    prompt = sample.prompt;
+    duration = body.duration ?? sample.duration;
+    quality = body.quality ?? (sample.quality as PixverseQuality);
+    sampleVideoId = body.sampleVideoId;
+  } else {
+    // Unreachable per the schema's refine checks — guarded here so
+    // TypeScript sees duration/quality as definitely assigned below.
+    if (body.duration === undefined || body.quality === undefined) {
+      throw new AppError('VALIDATION', 400, 'duration and quality are required');
+    }
+    prompt = PIXVERSE_CUSTOM_VIDEO_PROMPT;
+    duration = body.duration;
+    quality = body.quality;
+    sampleVideoId = null;
+  }
+  // Priced by this job's own duration/quality — not a flat cost — since
+  // PixVerse's real cost varies by both, for presets and custom alike.
+  const cost = await getPixverseVideoCreditCost(app, duration, quality);
   const [job] = await app.db.transaction(async (tx) => {
     const [newJob] = await tx
       .insert(schema.jobs)
@@ -1309,8 +1341,13 @@ export async function createCatalogVideoJob(
         kind: 'video',
         ...(body.sourceJobId ? { sourceJobId: body.sourceJobId } : {}),
         sourceImageKey: resolvedSourceImageKey,
-        sampleVideoId: body.sampleVideoId,
-        prompt: sample.prompt,
+        sampleVideoId,
+        prompt,
+        // Snapshotted at creation time — same immutable-input pattern the
+        // preset path already had — so the dispatcher forwards exactly what
+        // this job was priced and created with.
+        duration,
+        quality,
       },
     });
     return [newJob];

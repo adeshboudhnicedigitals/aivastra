@@ -1,16 +1,24 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Icon } from '../../components/Icons';
-import { type SampleVideo, SampleVideoUploadModal } from '../../components/SampleVideoUploadModal';
-import { Switch } from '../../components/Switch';
-import { apiErrorMessage, apiFetch } from '../../lib/data';
-import { useAssetsContext } from './AssetsContext';
+import { Icon } from '../components/Icons';
+import { SampleVideoEditDrawer } from '../components/SampleVideoEditDrawer';
+import { type SampleVideo, SampleVideoUploadModal } from '../components/SampleVideoUploadModal';
+import { Switch } from '../components/Switch';
+import { apiErrorMessage, apiFetch } from '../lib/data';
 
-export function SampleVideosTab() {
-  const { toast } = useAssetsContext();
+interface Props {
+  onNav: (_page: string, _filter?: { page: string; filter?: string }) => void;
+  toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
+}
+
+// Formerly a tab inside AssetsPage (pages/assets/SampleVideosTab.tsx) — promoted
+// to its own top-level nav item since Sample Videos is the only PixVerse-specific
+// content type and doesn't share the rest of Assets' curated-content workflow.
+export default function PixversePage({ toast }: Props) {
   const [items, setItems] = useState<SampleVideo[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [editingItem, setEditingItem] = useState<SampleVideo | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -138,6 +146,15 @@ export function SampleVideosTab() {
                   >
                     {item.prompt}
                   </p>
+                  <p
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--muted)',
+                      margin: '2px 0 0',
+                    }}
+                  >
+                    {item.duration}s · {item.quality}
+                  </p>
                   <div
                     style={{
                       display: 'flex',
@@ -148,10 +165,13 @@ export function SampleVideosTab() {
                   >
                     <Switch checked={item.isActive} onChange={() => void toggle(item)} />
                     <button
-                      className="btn sm danger"
+                      className="btn sm"
                       style={{ marginLeft: 'auto' }}
-                      onClick={() => setConfirmDeleteId(item.id)}
+                      onClick={() => setEditingItem(item)}
                     >
+                      <Icon.Edit /> Edit
+                    </button>
+                    <button className="btn sm danger" onClick={() => setConfirmDeleteId(item.id)}>
                       <Icon.Trash /> Delete
                     </button>
                   </div>
@@ -189,6 +209,18 @@ export function SampleVideosTab() {
           onDone={(created) => {
             setItems((v) => [...v, created]);
             setModalOpen(false);
+          }}
+        />
+      )}
+
+      {editingItem && (
+        <SampleVideoEditDrawer
+          item={editingItem}
+          toast={toast}
+          onClose={() => setEditingItem(null)}
+          onSaved={(updated) => {
+            setItems((v) => v.map((x) => (x.id === editingItem.id ? { ...x, ...updated } : x)));
+            setEditingItem(null);
           }}
         />
       )}

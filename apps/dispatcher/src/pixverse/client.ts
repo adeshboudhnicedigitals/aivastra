@@ -67,6 +67,8 @@ export async function createVideoTask(
   apiKey: string,
   imageUrl: string,
   prompt: string,
+  duration: number,
+  quality: string,
   log?: { info: (obj: unknown, msg: string) => void; error: (obj: unknown, msg: string) => void },
 ): Promise<PixverseTaskResult> {
   const urlBase = baseUrl(configuredBaseUrl);
@@ -77,12 +79,12 @@ export async function createVideoTask(
     method: 'POST',
     headers: apiHeaders(apiKey),
     body: JSON.stringify({
-      duration: 8,
+      duration,
       img_id: imageId,
       model: 'v6',
       motion_mode: 'normal',
       prompt,
-      quality: '720p',
+      quality,
       seed: 0,
     }),
     signal: AbortSignal.timeout(30_000),

@@ -1,3 +1,11 @@
+import {
+  computePixverseVideoCost,
+  PIXVERSE_DURATION_MAX,
+  PIXVERSE_DURATION_MIN,
+  PIXVERSE_QUALITIES,
+  type PixverseQuality,
+  type PixverseVideoPricingConfig,
+} from '@aivastra/types';
 import { useEffect, useState } from 'react';
 import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeGifFromVideo } from '../lib/gif';
@@ -16,6 +24,8 @@ export interface SampleVideo {
   videoR2Key: string;
   thumbnailR2Key: string;
   prompt: string;
+  duration: number;
+  quality: string;
   isActive: boolean;
   sortOrder: number;
   videoUrl: string;
@@ -54,6 +64,9 @@ export function SampleVideoUploadModal({
   const [title, setTitle] = useState('');
   const [prompt, setPrompt] = useState('');
   const [sortOrder, setSortOrder] = useState(0);
+  const [duration, setDuration] = useState(8);
+  const [quality, setQuality] = useState<PixverseQuality>('720p');
+  const [pricing, setPricing] = useState<PixverseVideoPricingConfig | null>(null);
   const [uploading, setUploading] = useState(false);
   const canSubmit = Boolean(title.trim() && prompt.trim());
 
@@ -92,6 +105,16 @@ export function SampleVideoUploadModal({
     };
   }, [gifPreviewUrl]);
 
+  useEffect(() => {
+    apiFetch<{ pixverseVideoPricing?: PixverseVideoPricingConfig }>('/admin/config')
+      .then((cfg) => {
+        if (cfg.pixverseVideoPricing) setPricing(cfg.pixverseVideoPricing);
+      })
+      .catch(() => {
+        /* preview is best-effort; the submit itself doesn't need this */
+      });
+  }, []);
+
   const submit = async () => {
     if (!videoFile || !gifBlob || !canSubmit) return;
     setUploading(true);
@@ -115,6 +138,8 @@ export function SampleVideoUploadModal({
           thumbnailR2Key: presign.thumbnailR2Key,
           prompt: prompt.trim(),
           sortOrder,
+          duration,
+          quality,
         }),
       });
       toast({ title: 'Sample video uploaded' });
@@ -248,6 +273,44 @@ export function SampleVideoUploadModal({
               style={{ width: 100 }}
             />
           </div>
+          <div className="field">
+            <label>Duration (seconds)</label>
+            <input
+              className="input"
+              type="number"
+              min={PIXVERSE_DURATION_MIN}
+              max={PIXVERSE_DURATION_MAX}
+              value={duration}
+              onChange={(e) =>
+                setDuration(
+                  Math.min(
+                    PIXVERSE_DURATION_MAX,
+                    Math.max(PIXVERSE_DURATION_MIN, Number(e.target.value)),
+                  ),
+                )
+              }
+              style={{ width: 100 }}
+            />
+          </div>
+          <div className="field">
+            <label>Quality</label>
+            <select
+              className="input"
+              value={quality}
+              onChange={(e) => setQuality(e.target.value as PixverseQuality)}
+            >
+              {PIXVERSE_QUALITIES.map((q) => (
+                <option key={q} value={q}>
+                  {q}
+                </option>
+              ))}
+            </select>
+          </div>
+          {pricing && (
+            <p className="hint">
+              Estimated cost: {computePixverseVideoCost(duration, quality, pricing)} credits
+            </p>
+          )}
         </>
       )}
     </EditDrawer>

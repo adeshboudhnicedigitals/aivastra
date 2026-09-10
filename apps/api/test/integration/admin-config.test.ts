@@ -1,5 +1,8 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { DEFAULT_SELLER_CONFIG } from '../../src/lib/resolution-config.js';
+import {
+  DEFAULT_SELLER_CONFIG,
+  getPixverseVideoCreditCost,
+} from '../../src/lib/resolution-config.js';
 import { adminAuthHeader } from '../helpers/admin.js';
 import { buildTestApp, type TestApp } from '../helpers/api.js';
 import { type Containers, startContainers } from '../helpers/containers.js';
@@ -54,21 +57,58 @@ describe('admin config', () => {
     expect(getRes2.json().uploadLimits.merchantCatalogMaxBytes).toBe(20 * 1024 * 1024);
   });
 
-  it('GET /admin/config default-fills pixverse cost, and PATCH persists an override', async () => {
+  it('GET /admin/config default-fills pixverse video pricing, and PATCH persists an override', async () => {
     const getRes = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
     expect(getRes.statusCode).toBe(200);
-    expect(getRes.json().pixverse.creditCost).toBe(150);
+    expect(getRes.json().pixverseVideoPricing).toEqual({
+      perSecondRate: 0,
+      qualityBase: { '360p': 150, '540p': 150, '720p': 150, '1080p': 150 },
+    });
 
     const patchRes = await app.inject({
       method: 'PATCH',
       url: '/admin/config',
       headers: { ...adminAuth, 'content-type': 'application/json' },
-      payload: JSON.stringify({ pixverse: { creditCost: 35 } }),
+      payload: JSON.stringify({
+        pixverseVideoPricing: { perSecondRate: 5, qualityBase: { '720p': 35 } },
+      }),
     });
     expect(patchRes.statusCode).toBe(200);
 
+    // PATCH replaces the stored pixverseVideoPricing object wholesale (shallow
+    // top-level replace in config.routes.ts) — it does not merge qualityBase.
+    // The untouched tiers (360p/540p/1080p) only reappear here because GET
+    // (and getPixverseVideoCreditCost) default-fill missing tiers from
+    // DEFAULT_PIXVERSE_VIDEO_PRICING on READ, same pattern as the
+    // uploadLimits/seller partial-override tests above and below.
     const getRes2 = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
-    expect(getRes2.json().pixverse.creditCost).toBe(35);
+    expect(getRes2.json().pixverseVideoPricing).toEqual({
+      perSecondRate: 5,
+      qualityBase: { '360p': 150, '540p': 150, '720p': 35, '1080p': 150 },
+    });
+  });
+
+  it('regression: getPixverseVideoCreditCost returns a real number (not NaN) for a quality tier omitted from a partial qualityBase PATCH', async () => {
+    // PATCH only the 720p tier — 360p/540p/1080p are intentionally left out
+    // of the request body, exercising the same partial-qualityBase shape as
+    // the test above.
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: '/admin/config',
+      headers: { ...adminAuth, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        pixverseVideoPricing: { perSecondRate: 5, qualityBase: { '720p': 35 } },
+      }),
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    // Before the fix, getPixverseVideoCreditCost trusted cfg.pixverseVideoPricing
+    // as a complete object via `??`, so qualityBase['360p'] was `undefined` and
+    // `undefined + duration * perSecondRate` produced NaN credits for any
+    // tier not included in the PATCH.
+    const cost = await getPixverseVideoCreditCost(app, 8, '360p');
+    expect(cost).not.toBeNaN();
+    expect(cost).toBe(150 + 8 * 5); // default 360p base (untouched) + duration * the patched perSecondRate
   });
 
   it('GET /admin/config default-fills shopify trial credits, and PATCH persists an override', async () => {

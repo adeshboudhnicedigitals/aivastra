@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PIXVERSE_DURATION_MAX, PIXVERSE_DURATION_MIN, PIXVERSE_QUALITIES } from './jobs.js';
 export const AdminRole = z.enum(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT']);
 export const GrantCreditsBody = z.object({
   userId: z.string().uuid(),
@@ -172,7 +173,20 @@ export const SystemConfigBody = z.object({
       creditCost: z.number().int().positive().max(1_000),
     })
     .optional(),
-  pixverse: z.object({ creditCost: z.number().int().positive().max(1_000) }).optional(),
+  pixverseVideoPricing: z
+    .object({
+      // Credits per second of video, added on top of the quality base below.
+      perSecondRate: z.number().min(0).max(100),
+      qualityBase: z
+        .object({
+          '360p': z.number().int().positive().max(1_000),
+          '540p': z.number().int().positive().max(1_000),
+          '720p': z.number().int().positive().max(1_000),
+          '1080p': z.number().int().positive().max(1_000),
+        })
+        .partial(),
+    })
+    .optional(),
   shopify: z
     .object({
       trialCredits: z.number().int().min(0).max(99999).optional(),
@@ -352,12 +366,23 @@ export const ConfirmSampleVideoBody = z.object({
   thumbnailR2Key: z.string().min(1),
   prompt: z.string().min(1).max(5000),
   sortOrder: z.number().int().default(0),
+  duration: z.number().int().min(PIXVERSE_DURATION_MIN).max(PIXVERSE_DURATION_MAX),
+  quality: z.enum(PIXVERSE_QUALITIES),
 });
+// All fields editable post-creation, by deliberate choice (2026-09-09,
+// reverses the brief create-only restriction from earlier the same day —
+// see docs/progress.md). The uploaded preview clip is a real PixVerse output
+// generated for one exact prompt/duration/quality, so editing these fields
+// here does NOT regenerate or re-check the video — admins are trusted to
+// keep the two in sync manually. The admin-web edit drawer surfaces a hint
+// to that effect; this schema does not enforce it.
 export const PatchSampleVideoBody = z.object({
   title: z.string().min(1).max(120).optional(),
   prompt: z.string().min(1).max(5000).optional(),
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
+  duration: z.number().int().min(PIXVERSE_DURATION_MIN).max(PIXVERSE_DURATION_MAX).optional(),
+  quality: z.enum(PIXVERSE_QUALITIES).optional(),
 });
 
 export const PresignAppVideoBody = z.object({

@@ -1,5 +1,6 @@
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
+import { PIXVERSE_CUSTOM_VIDEO_PROMPT } from '@aivastra/types';
 import { and, eq, ne } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { signAccess } from '../../src/modules/auth/service.js';
@@ -63,6 +64,20 @@ describe('POST /v1/jobs/catalog-video', () => {
         videoR2Key: 'sample-videos/x.mp4',
         thumbnailR2Key: 'sample-videos/x.thumb.jpg',
         prompt: 'model turns slowly',
+      })
+      .returning();
+    return row.id;
+  }
+  async function activeSampleWithPricing(duration: number, quality: string) {
+    const [row] = await app.db
+      .insert(schema.sampleVideos)
+      .values({
+        title: 'Custom',
+        videoR2Key: 'sample-videos/custom.mp4',
+        thumbnailR2Key: 'sample-videos/custom.thumb.jpg',
+        prompt: 'model turns slowly',
+        duration,
+        quality,
       })
       .returning();
     return row.id;
@@ -297,6 +312,215 @@ describe('POST /v1/jobs/catalog-video', () => {
       url: '/v1/jobs/catalog-video',
       headers: { authorization: `Bearer ${token}` },
       payload: { sampleVideoId: await activeSample() },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+  it('charges the formula-computed cost for the sample video own duration/quality, and snapshots both onto job_inputs.params', async () => {
+    const { token, userId } = await registerUser('cv-formula@x.com');
+    await grantCredits(userId, 500);
+    const sourceJobId = await sourceJob(userId);
+    const sampleVideoId = await activeSampleWithPricing(15, '1080p');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/catalog-video',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { sourceJobId, sampleVideoId },
+    });
+    expect(res.statusCode).toBe(201);
+    const { jobId } = res.json();
+    const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+    // Default pricing config: qualityBase=150 for every tier, perSecondRate=0
+    // -> cost is 150 regardless of duration/quality until an admin tunes it.
+    // This asserts the *lookup* is per-sample now, not that the number differs
+    // from the flat default (see the JobCostsTab-driven test in Task 10 for
+    // an admin-tuned, differing cost).
+    expect(job.creditsCharged).toBe(150);
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, jobId));
+    const params = inputs.params as Record<string, unknown>;
+    expect(params.duration).toBe(15);
+    expect(params.quality).toBe('1080p');
+  });
+  it('uses the admin-configured pricing formula, not the hardcoded default, once tuned', async () => {
+    await app.redis.set(
+      'config:system',
+      JSON.stringify({
+        pixverseVideoPricing: {
+          perSecondRate: 5,
+          qualityBase: { '360p': 10, '540p': 20, '720p': 30, '1080p': 50 },
+        },
+      }),
+    );
+    try {
+      const { token, userId } = await registerUser('cv-admin-tuned@x.com');
+      await grantCredits(userId, 500);
+      const sourceJobId = await sourceJob(userId);
+      const sampleVideoId = await activeSampleWithPricing(10, '540p');
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/jobs/catalog-video',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { sourceJobId, sampleVideoId },
+      });
+      expect(res.statusCode).toBe(201);
+      const { jobId } = res.json();
+      const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+      // 20 (540p base) + 10s * 5/s = 70
+      expect(job.creditsCharged).toBe(70);
+    } finally {
+      await app.redis.del('config:system');
+    }
+  });
+  it('accepts a custom duration+quality request (no sampleVideoId), charges the formula cost, and snapshots the fixed prompt', async () => {
+    const { token, userId } = await registerUser('cv-custom-happy@x.com');
+    await grantCredits(userId, 200);
+    const sourceJobId = await sourceJob(userId);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/catalog-video',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { sourceJobId, duration: 10, quality: '540p' },
+    });
+    expect(res.statusCode).toBe(201);
+    const { jobId } = res.json();
+    const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+    // Default pricing config: qualityBase=150 flat, perSecondRate=0 -> 150
+    // regardless of duration/quality until an admin tunes it (same default
+    // the preset-path formula tests above rely on).
+    expect(job.creditsCharged).toBe(150);
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, jobId));
+    const params = inputs.params as Record<string, unknown>;
+    expect(params.sampleVideoId).toBeNull();
+    expect(params.duration).toBe(10);
+    expect(params.quality).toBe('540p');
+    expect(params.prompt).toBe(PIXVERSE_CUSTOM_VIDEO_PROMPT);
+  });
+  it('uses the admin-configured pricing formula for a custom request, not the hardcoded default', async () => {
+    await app.redis.set(
+      'config:system',
+      JSON.stringify({
+        pixverseVideoPricing: {
+          perSecondRate: 5,
+          qualityBase: { '360p': 10, '540p': 20, '720p': 30, '1080p': 50 },
+        },
+      }),
+    );
+    try {
+      const { token, userId } = await registerUser('cv-custom-tuned@x.com');
+      await grantCredits(userId, 200);
+      const sourceJobId = await sourceJob(userId);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/jobs/catalog-video',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { sourceJobId, duration: 10, quality: '540p' },
+      });
+      expect(res.statusCode).toBe(201);
+      const { jobId } = res.json();
+      const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+      // 20 (540p base) + 10s * 5/s = 70
+      expect(job.creditsCharged).toBe(70);
+    } finally {
+      await app.redis.del('config:system');
+    }
+  });
+  it('rejects duration outside 1-15 on a custom request', async () => {
+    const { token, userId } = await registerUser('cv-custom-badduration@x.com');
+    await grantCredits(userId, 100);
+    const sourceJobId = await sourceJob(userId);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/catalog-video',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { sourceJobId, duration: 16, quality: '540p' },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+  it('rejects an unrecognized quality on a custom request', async () => {
+    const { token, userId } = await registerUser('cv-custom-badquality@x.com');
+    await grantCredits(userId, 100);
+    const sourceJobId = await sourceJob(userId);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/catalog-video',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { sourceJobId, duration: 8, quality: '4k' },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+  it('accepts sampleVideoId together with duration/quality, using the preset prompt but the overridden duration/quality', async () => {
+    const { token, userId } = await registerUser('cv-preset-override@x.com');
+    await grantCredits(userId, 200);
+    const sourceJobId = await sourceJob(userId);
+    // activeSample() defaults to duration=8, quality='720p' — the override
+    // below must win over both.
+    const sampleVideoId = await activeSample();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/catalog-video',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { sourceJobId, sampleVideoId, duration: 3, quality: '360p' },
+    });
+    expect(res.statusCode).toBe(201);
+    const { jobId } = res.json();
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, jobId));
+    const params = inputs.params as Record<string, unknown>;
+    expect(params.sampleVideoId).toBe(sampleVideoId);
+    expect(params.duration).toBe(3);
+    expect(params.quality).toBe('360p');
+    // Prompt still comes from the preset — the override never supplies one.
+    expect(params.prompt).toBe('model turns slowly');
+  });
+  it("falls back to the preset's own duration/quality when sampleVideoId is given alone", async () => {
+    const { token, userId } = await registerUser('cv-preset-no-override@x.com');
+    await grantCredits(userId, 200);
+    const sourceJobId = await sourceJob(userId);
+    const sampleVideoId = await activeSample();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/catalog-video',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { sourceJobId, sampleVideoId },
+    });
+    expect(res.statusCode).toBe(201);
+    const { jobId } = res.json();
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, jobId));
+    const params = inputs.params as Record<string, unknown>;
+    expect(params.duration).toBe(8);
+    expect(params.quality).toBe('720p');
+  });
+  it('rejects a request providing neither sampleVideoId nor a complete duration+quality pair', async () => {
+    const { token, userId } = await registerUser('cv-custom-incomplete@x.com');
+    await grantCredits(userId, 100);
+    const sourceJobId = await sourceJob(userId);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/catalog-video',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { sourceJobId, duration: 8 },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+  it('rejects a request providing quality without duration', async () => {
+    const { token, userId } = await registerUser('cv-custom-incomplete-quality@x.com');
+    await grantCredits(userId, 100);
+    const sourceJobId = await sourceJob(userId);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/catalog-video',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { sourceJobId, quality: '540p' },
     });
     expect(res.statusCode).toBe(400);
   });

@@ -317,6 +317,63 @@ section pointed at placeholder URLs.
 - Not reviewed by a lawyer. Do not treat as binding or submit the plugin to wp.org referencing
   these URLs until that review happens and the bracketed items are resolved.
 
+## 2026-09-09 — Sample-video templates become fully editable again (reversal)
+
+**Done**
+
+Reverses the create-only restriction from the entry immediately below,
+same day. Deliberate product decision: admins want to fix a title/prompt
+typo or retune duration/quality without deleting and re-uploading a whole
+template. `PatchSampleVideoBody` (`packages/types/src/admin.ts`) is back to
+accepting `title`/`prompt`/`sortOrder`/`duration`/`quality`/`isActive`, all
+optional — the same shape it had before that entry's restriction, now
+intentional rather than a bug. **The patch does not touch or re-verify the
+video** — editing prompt/duration/quality can leave the preview showing a
+result that no longer matches what's on the form. Admins are trusted to
+keep the two in sync manually; the admin-web edit drawer
+(`SampleVideoEditDrawer.tsx`, recreated) surfaces a hint to that effect but
+nothing enforces it. `apps/api/src/modules/admin/models.routes.ts`'s PATCH
+handler needed no change (unchanged since the original implementation —
+it already spread the validated body onto the update).
+
+Also moved Sample Videos out of the Assets tab bar into its own top-level
+admin nav item, "Pixverse" (`apps/admin-web/src/pages/PixversePage.tsx`,
+replacing `pages/assets/SampleVideosTab.tsx`) — same functionality,
+decoupled from `AssetsContext` since it no longer shares Assets' tab state.
+
+**Stale-entry note**: the `Sample-video templates become create-only
+(correction)` entry immediately below is now itself stale — its
+create-only restriction on `title`/`prompt`/`duration`/`quality` no longer
+holds. Its design doc
+(`docs/superpowers/specs/2026-09-09-sample-video-immutable-content-design.md`)
+was left as a historical record and was not amended for this reversal.
+
+## 2026-09-09 — Sample-video templates become create-only (correction)
+
+Plan: `docs/superpowers/plans/2026-09-09-sample-video-immutable-content.md`.
+Design: `docs/superpowers/specs/2026-09-09-sample-video-immutable-content-design.md`.
+
+**Done**
+
+A `sample_videos` row's uploaded preview clip is a real PixVerse output
+generated for one exact `prompt`/`duration`/`quality` combination — editing
+any of those after creation would leave the preview showing a result the
+template no longer produces. This branch had briefly added an admin edit
+drawer for `duration`/`quality` (Task 12 of the 2026-08-25 plan, added and
+implemented same-day after the whole-branch review, then reverted here).
+That drawer is now removed, and `PatchSampleVideoBody`
+(`packages/types/src/admin.ts`) is narrowed to `{ isActive, sortOrder }` —
+`title`/`prompt`/`duration`/`quality` are create-only; delete + re-upload is
+the only way to change them. `isActive` and `sortOrder` stay patchable since
+neither is a PixVerse generation input. No `.strict()` was introduced — a
+stray PATCH still sending `duration`/`quality` is a silent no-op on those
+keys (Zod's default strip-unknown-keys behavior), not a 400.
+
+**Stale-entry note**: the `2026-08-25 — PixVerse dynamic duration & quality
+for catalog video` entry below states `POST/PATCH /admin/assets/sample-videos`
+"require/accept `duration`/`quality`". That is still true for POST (create)
+but no longer true for PATCH — see above.
+
 ## 2026-09-08 — Dispatcher crash-recovery can push `attempts` past MAX_ATTEMPTS
 
 **Open question / known issue (not yet fixed).**
@@ -1298,6 +1355,88 @@ Support ticket: `docs/audits/2026-08-28-datamart-thermal-ticket.md`.
   - Added integration test suite `apps/api/test/integration/admin-jobs-delete-assets.test.ts` covering 403 role & password gates, 409 non-terminal state rejection, selective result deletion, selective customer photo deletion, selective tryon direct personKey deletion, and full dual deletion with audit log verification (all 7 integration tests passing).
   - Executed automated end-to-end verification checklist with Playwright against live API (`http://localhost:4000`) and Admin Web (`http://localhost:5173`) covering all 6 manual verification steps (super admin login, checkbox visibility on completed tryon direct job, wrong password error handling with modal retention, successful result deletion and live card removal, successful person image deletion and live input tile removal, non-terminal queued/generating suppression of checkboxes, and moderator role suppression of checkboxes).
 
+## 2026-08-25 — PixVerse dynamic duration & quality for catalog video
+
+Plan: `docs/superpowers/plans/2026-08-25-pixverse-dynamic-duration-quality.md`.
+Design: `docs/superpowers/specs/2026-08-25-pixverse-dynamic-duration-quality-design.md`.
+
+**Done**
+- **Schema**: `sample_videos` (the admin-curated catalog-video template table)
+  gained `duration integer NOT NULL DEFAULT 8` and `quality text NOT NULL
+  DEFAULT '720p'` columns, with `CHECK` constraints (`duration BETWEEN 1 AND
+  15`, `quality IN ('360p','540p','720p','1080p')`) matching PixVerse v6's
+  real API range (verified against PixVerse's own OpenAPI spec text, not the
+  narrower ComfyUI partner-node subset).
+- **Pricing formula replaces the flat field**: the old admin config
+  `pixverse.creditCost` (a single flat number, resolved by
+  `getPixverseCreditCost()`) is **gone**. It's replaced by
+  `pixverseVideoPricing: { perSecondRate, qualityBase: Record<'360p'|'540p'|'720p'|'1080p', number> }`,
+  computed via the new pure function `computePixverseVideoCost(duration,
+  quality, config)` in `packages/types/src/jobs.ts` (single source of truth,
+  called by both the API cost resolver and the admin cost-preview UI so they
+  can't drift). The API resolver is now `getPixverseVideoCreditCost(app,
+  duration, quality)` in `apps/api/src/lib/resolution-config.ts`, replacing
+  `getPixverseCreditCost(app)`. Default config (`perSecondRate: 0`, every
+  tier's `qualityBase: 150`) reproduces the old flat 150-credit cost exactly
+  until an admin tunes the formula.
+- **Full wiring**: `POST/PATCH /admin/assets/sample-videos` require/accept
+  `duration`/`quality`; `GET /v1/models/sample-videos` now returns a
+  **per-item** `creditCost` (no more single top-level `creditCost` — see
+  stale-entry note below); `createCatalogVideoJob`
+  (`apps/api/src/modules/jobs/create.ts`) prices each job by the chosen
+  sample video's own duration/quality and snapshots both onto
+  `job_inputs.params` at creation time (same immutable-input pattern as
+  `prompt`); the dispatcher (`apps/dispatcher/src/job/processor.ts`,
+  `pixverse/client.ts`) forwards the job's snapshotted duration/quality to
+  PixVerse instead of the old hardcoded `8`/`'720p'`, with type *and
+  range/enum* validated fallbacks to `8`/`'720p'` for malformed/pre-existing
+  rows; admin-web (`SampleVideoUploadModal.tsx`, `JobCostsTab.tsx`) and
+  catalogues-web pick up duration/quality inputs and the live formula-based
+  cost preview.
+- **Final-review cleanup pass** (same day, after the 11-task plan landed):
+  fixed a misleading integration-test title that claimed omitting
+  duration/quality on create falls back to a default (it 400s — they're
+  required, no `.default()`) and added the actual negative-case test for
+  that; had `JobCostsTab.tsx` import `PIXVERSE_QUALITIES` /
+  `PixverseVideoPricingConfig` from `@aivastra/types` instead of a second,
+  separately-hardcoded quality-tier literal (same pattern
+  `SampleVideoUploadModal.tsx` already used); strengthened the dispatcher's
+  duration/quality fallback guards to also catch out-of-range/unrecognized
+  values (previously only a `typeof` check, so e.g. `duration: 99` or
+  `quality: '4k'` would have been forwarded to PixVerse verbatim and failed
+  the request); guarded `computePixverseVideoCost` against a non-finite
+  result (a `qualityBase` missing the requested tier previously produced
+  `NaN`, which would have flowed into `atomicDeduct` on the money path) —
+  floors to `1` instead, matching the existing legitimately-low-value floor;
+  and corrected a backwards test comment in `admin-config.test.ts` that
+  claimed a partial `qualityBase` PATCH "merges" — it doesn't: `PATCH
+  /admin/config` does a shallow top-level replace
+  (`config.routes.ts`: `{ ...cur, ...body }`), and the untouched tiers only
+  reappear because `GET`/`getPixverseVideoCreditCost` default-fill missing
+  tiers from `DEFAULT_PIXVERSE_VIDEO_PRICING` on **read**, not because the
+  PATCH merged anything.
+
+**Deploy note — clean cutover, no fallback to the old flat field**
+
+This is a hard replace, not an additive change: once this branch ships,
+`cfg.pixverse` in the `config:system` Redis key is no longer read by
+anything. Before/during deploy: **check production's `config:system` Redis
+key for an existing `pixverse.creditCost` value.** If it's set to something
+other than the new default (every quality tier's `qualityBase` at 150,
+`perSecondRate` 0), PATCH the equivalent `pixverseVideoPricing.qualityBase`
+values through the admin panel (Settings → Job Costs → Catalog Video Pricing)
+*before or immediately after* deploy, so pricing doesn't silently reset to
+150/tier. There is no code-level migration of the old value — it has to be
+copied over manually, once, by whoever deploys this.
+
+**Stale-entry note**: an older entry in this same file (search for `GET
+/v1/models/sample-videos` and `getPixverseCreditCost()`) describes that
+endpoint returning a single top-level `creditCost` via a `getPixverseCreditCost()`
+function. Per this file's append-only convention that entry is left as-is,
+but it is now **historical/stale** — that response shape and that function no
+longer exist. Current state: per-item `creditCost` on each entry in `items`,
+computed via `getPixverseVideoCreditCost(app, duration, quality)` as
+described above.
 ## 2026-08-25 — Admin panel password desync general fix & reset-password audit logging
 
 **Done**

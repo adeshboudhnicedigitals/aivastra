@@ -8,7 +8,12 @@ import {
   jobsProcessedTotal,
 } from '@aivastra/observability';
 import { keys, type StorageProvider } from '@aivastra/storage';
-import { WORKER_POOL } from '@aivastra/types';
+import {
+  PIXVERSE_DURATION_MAX,
+  PIXVERSE_DURATION_MIN,
+  PIXVERSE_QUALITIES,
+  WORKER_POOL,
+} from '@aivastra/types';
 import type { S3Client } from '@aws-sdk/client-s3';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { and, eq, sql } from 'drizzle-orm';
@@ -849,6 +854,24 @@ async function processVideoJob(
   const { db, redis, pub, storage, s3, r2Bucket } = cfg;
   const sourceImageKey = rawParams.sourceImageKey as string;
   const prompt = rawParams.prompt as string;
+  // Fallback to today's previous hardcoded values for job_inputs rows written
+  // before this field existed (or seeded directly in tests), and defensively
+  // for any out-of-range/unrecognized value — every job created via
+  // createCatalogVideoJob (Task 6) always sets both to DB-CHECK-constrained
+  // values, so this is unreachable in normal operation, but forwarding a bad
+  // value to PixVerse verbatim would fail the request and burn a retry before
+  // eventually refunding.
+  const duration =
+    typeof rawParams.duration === 'number' &&
+    rawParams.duration >= PIXVERSE_DURATION_MIN &&
+    rawParams.duration <= PIXVERSE_DURATION_MAX
+      ? rawParams.duration
+      : 8;
+  const quality =
+    typeof rawParams.quality === 'string' &&
+    (PIXVERSE_QUALITIES as readonly string[]).includes(rawParams.quality)
+      ? rawParams.quality
+      : '720p';
 
   const env = loadEnv();
   // Fail fast rather than sending an empty key: PixVerse would 401, handleFailure
@@ -879,6 +902,8 @@ async function processVideoJob(
       env.PIXVERSE_API_KEY,
       imageUrl,
       prompt,
+      duration,
+      quality,
       jobLog,
     );
     await db.insert(schema.jobEvents).values({
