@@ -333,7 +333,13 @@ export function ConfigPanel({
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <label style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Quality</label>
-                  <div style={{ border: `1px solid ${C.border2}`, borderRadius: 8 }}>
+                  <div
+                    style={{
+                      border: `1px solid ${C.border2}`,
+                      borderRadius: 8,
+                      background: C.field,
+                    }}
+                  >
                     <PremiumSelect
                       value={quality}
                       onChange={(val) => setQuality(val as PixverseQuality)}
