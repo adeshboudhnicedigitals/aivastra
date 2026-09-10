@@ -64,6 +64,7 @@ import { catalogRoutes } from './modules/catalog/routes.js';
 import { creditsRoutes } from './modules/credits/routes.js';
 import { unlimitedPlanLoginCheckRoutes } from './modules/credits/unlimited-plan-login-check.routes.js';
 import { unlimitedPlanRenewalRoutes } from './modules/credits/unlimited-plan-renewal.routes.js';
+import { devBackgroundsRoutes } from './modules/dev/backgrounds.routes.js';
 import { devCatalogRoutes } from './modules/dev/catalog.routes.js';
 import { devRoutes } from './modules/dev/routes.js';
 import { googleDriveRoutes } from './modules/google-drive/routes.js';
@@ -402,6 +403,7 @@ export async function buildServer(env: Env) {
   await app.register(merchantApiKeysRoutes);
   await app.register(devRoutes);
   await app.register(devCatalogRoutes);
+  await app.register(devBackgroundsRoutes);
   await app.register(shopifyRoutes);
   await app.register(shopifyCustomerRoutes);
   await app.register(shopifyFunnelRulesRoutes);

@@ -2,7 +2,71 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
-## 2026-09-09 (latest still) — WordPress live chat: real local e2e test, two bugs found and fixed
+## 2026-09-10 — Dev API: merchant-uploaded custom backgrounds for catalog/generate
+
+- **Ask:** the internal bulk-try-on tool (a `/v1/dev/*` API-key caller) needed to mix a
+  client-specific custom background into `POST /v1/dev/catalog/generate`, alongside the
+  admin-curated face/pose/lower/shoe slugs — previously every axis but `garment` was
+  slug-only. Scoped down from a broader "custom image for every axis" proposal to just
+  background, since it's the axis with no rights/consent question and no workflow
+  node-mapping eligibility logic like lower/shoe have.
+- **Design:** a merchant IS a user (`merchants.userId`), and `createJob`'s existing
+  background validation (`apps/api/src/modules/jobs/create.ts:466-492`) already accepts
+  any `scope='user'` `model_backgrounds` row whose `userId` matches the `userId` passed
+  into `createJob` — which for the dev catalog route is `req.merchantUserId`. So storing
+  dev-uploaded backgrounds as `scope='user', userId=merchantUserId` (reusing the existing
+  `keys.userBackground` R2 key builder as-is) validates end-to-end with **zero schema
+  migration**. A confirmed background's own UUID doubles as its public slug — it already
+  satisfies `PUBLIC_SLUG`'s regex, so no `publicApiSlug` generation was needed either.
+- **Built:**
+  - `apps/api/src/modules/backgrounds/normalize.ts` — extracted the shared
+    validate/normalize/store pipeline out of `backgrounds/routes.ts` (used by both the
+    platform-user `/v1/backgrounds/mine/*` routes and the new dev routes).
+  - `apps/api/src/modules/dev/backgrounds.routes.ts` — new
+    `GET/POST/DELETE /v1/dev/backgrounds*` (list, presign, confirm, delete), API-key
+    auth (`requireApiKey` + `requireDevScope('full')`), scoped by `merchantUserId`. Byte
+    cap uses the existing admin-tunable `devApiMaxBytes` config (not a new hardcoded
+    constant); a `MAX_ACTIVE_DEV_BACKGROUNDS = 200` soft cap guards against unbounded
+    storage growth since uploads cost no credits.
+  - `apps/api/src/modules/dev/resolve-slugs.ts` — `resolveCatalogSelection` takes an
+    optional `merchantUserId` and merges the caller's own active backgrounds into the
+    slug-pick pool for `looks[].background`, via a small **uncached** query kept
+    deliberately outside the Redis-cached `getCatalogOptions` (that cache's key has no
+    tenant dimension — adding one would explode the key space for a low-cardinality
+    per-merchant set).
+  - Deliberately did NOT merge merchant backgrounds into `GET /v1/dev/catalog/options`:
+    that route's ETag/304 caching is keyed only on the shared cache generation, which a
+    background upload doesn't bump — merging in tenant data there would let a stale
+    `If-None-Match` wrongly 304 and hide a caller's own new upload. `POST
+    /v1/dev/backgrounds/confirm`'s response already returns the id/slug to use directly,
+    so this wasn't required.
+- **Tests:** `apps/api/test/dev-backgrounds.test.ts` (8 new) — upload round-trip,
+  cross-merchant 403 on confirm / 404 on delete, oversized-upload rejection, and three
+  `catalog/generate` resolution cases (own upload resolves; another merchant's id is
+  `BAD_SLUG`; a soft-deleted one is `BAD_SLUG`). Re-ran `dev-catalog.test.ts`,
+  `backgrounds-mine.test.ts`, and `jobs-create-background-ownership.test.ts` to confirm
+  the `normalize.ts` extraction didn't regress the platform-user path — all pass.
+- **Not done / explicitly out of scope:** the broader proposal (custom face/lower/shoe
+  images too) was scoped down to background only, per explicit ask. No rights/consent
+  attestation flag was needed since background carries no likeness question.
+
+## 2026-09-10 — Fix download button tooltip hidden in catalogues sticky toolbar
+
+- **Issue:** The download button tooltip in `apps/catalogues-web` on the `/catalogs` page was partially cut off and hidden beneath the top bar (`TopBar`) and the scroll container boundary. Additionally, the tooltip arrow triangle direction was inverted (pointing into the tooltip box rather than toward the target element).
+- **Cause:**
+  1. The toolbar (`catalogues-sticky-toolbar`) sits at `top: 0` inside `.catalogues-page-wrapper` (`overflow-y: auto`). Tooltips in the toolbar were configured with `position="top"`, which placed them above the top bound of `.catalogues-page-wrapper`, clipping them under `overflow-y: auto` and the `TopBar`.
+  2. The download button is on the far-right edge of the toolbar; centering a wide tooltip on the 56px button caused the right side of the tooltip to push against or overflow the right viewport boundary.
+  3. In `apps/catalogues-web/src/components/ui/tooltip.tsx`, the CSS border logic for the arrow triangle had `borderTop` and `borderBottom` inverted: `position === 'top'` was setting `borderBottom` (pointing up into the box) instead of `borderTop` (pointing down to the button), and vice versa.
+- **Fix:**
+  1. Updated `apps/catalogues-web/src/components/ui/tooltip.tsx`:
+     - Fixed arrow triangle borders so `position === 'top'` sets `borderTop` (pointing down) and `position === 'bottom'` sets `borderBottom` (pointing up).
+     - Added `align?: 'start' | 'center' | 'end'` support (defaults to `'center'`), allowing right-aligned (`align="end"`) and left-aligned (`align="start"`) tooltips with matching arrow offsets.
+  2. Updated `apps/catalogues-web/src/app/(app)/catalogs/page.tsx`:
+     - Changed toolbar tooltips (normal mode download button, normal mode Select All, selection mode download button, selection mode Select All, and clear selection) to use `position="bottom"` so they render cleanly below the sticky toolbar.
+     - Added `align="end"` to the download button tooltips to prevent right-edge container overflow.
+- **Verification:** Verified with `pnpm --filter @aivastra/web typecheck` and `pnpm --filter @aivastra/web build`.
+
+## 2026-09-09 — WordPress live chat: real local e2e test, two bugs found and fixed
 
 Set up a full local end-to-end test of the WordPress live-chat feature added earlier today
 (previous entry below) — `apps/api` and `apps/chatbot` were already running locally via

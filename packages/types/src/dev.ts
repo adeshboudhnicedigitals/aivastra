@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AssetContentType } from './admin.js';
 
 export const DevJobStatus = z.enum(['QUEUED', 'RUNNING', 'COMPLETED', 'FAILED']);
 
@@ -138,6 +139,52 @@ export const DevCatalogGenerateResponse = z.object({
     }),
   ),
 });
+
+// ---------------------------------------------------------------------------
+// Merchant-uploaded backgrounds — the dev-API equivalent of
+// /v1/backgrounds/mine/*, scoped by API key instead of a platform-user
+// session. A confirmed background's `id` doubles as its public slug: it's a
+// lowercase UUID, which already satisfies PUBLIC_SLUG's shape, so it can be
+// passed straight into DevCatalogGenerateJsonBody's looks[].background
+// alongside admin-curated slugs with no separate publicApiSlug step.
+// ---------------------------------------------------------------------------
+
+export const DevBackgroundPresignBody = z.object({
+  contentType: AssetContentType,
+  // The real enforcement is the post-hoc headObject check in the confirm handler,
+  // against the live admin-tunable devApiMaxBytes config — this cap is only the
+  // outer bound (the hard ceiling AssetContentType-adjacent upload limits share,
+  // see packages/types/src/admin.ts).
+  contentLength: z.number().int().positive().max(52_428_800),
+});
+
+export const DevBackgroundConfirmBody = z.object({
+  r2Key: z.string().min(1),
+  label: z.string().min(1).max(120).optional(),
+});
+
+export const DevBackgroundItem = z.object({
+  id: z.string().uuid(),
+  label: z.string(),
+  thumbnailUrl: z.string(),
+});
+
+export const DevBackgroundsListResponse = z.object({
+  items: z.array(DevBackgroundItem),
+});
+
+export const DevBackgroundPresignResponse = z.object({
+  uploadUrl: z.string(),
+  r2Key: z.string(),
+  id: z.string().uuid(),
+  expiresIn: z.number().int(),
+});
+
+export const DevBackgroundConfirmResponse = DevBackgroundItem;
+
+export const DevBackgroundParams = z.object({ id: z.string().uuid() });
+
+export const DevBackgroundDeleteResponse = z.object({ deleted: z.literal(true) });
 
 export const DevCatalogueParams = z.object({ id: z.string().uuid() });
 

@@ -255,8 +255,9 @@ export async function devCatalogRoutes(app: FastifyInstance) {
       if (!garmentFile) throw new AppError('VALIDATION', 400, 'garment image is required');
 
       // Resolve slugs BEFORE uploading: a typo'd slug should cost neither an R2 write
-      // nor a credit.
-      const selection = await resolveCatalogSelection(app, body);
+      // nor a credit. merchantUserId lets a caller's own dev-uploaded backgrounds
+      // (POST /v1/dev/backgrounds/confirm) resolve alongside curated slugs.
+      const selection = await resolveCatalogSelection(app, body, merchantUserId);
 
       const garmentKey = keys.devUpload(
         merchantId,
