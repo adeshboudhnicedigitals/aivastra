@@ -14,6 +14,7 @@ import { useEffect, useState } from 'react';
 
 import { C } from '@/components/tokens';
 import { GradBtn } from '@/components/ui/grad-btn';
+import { PremiumSelect } from '@/components/ui/premium-select';
 import { Tooltip } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
 import { JobThumbnail } from './JobThumbnail';
@@ -79,11 +80,17 @@ export function ConfigPanel({
   // Changing (or clearing) the source image invalidates whatever config step
   // the user was on — jumping Review's "Generate" straight from a stale
   // source would generate a video for the wrong photo.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sourceKey is a deliberate trigger, not referenced in the body
   useEffect(() => {
     setConfigStep('select');
   }, [sourceKey]);
 
-  const { data: sampleVideos, isLoading: sampleVideosLoading } = useQuery<SampleVideosResponse>({
+  const {
+    data: sampleVideos,
+    isLoading: sampleVideosLoading,
+    isError: sampleVideosError,
+    refetch: refetchSampleVideos,
+  } = useQuery<SampleVideosResponse>({
     queryKey: ['sample-videos'],
     queryFn: () => api.get('/v1/models/sample-videos'),
     enabled: source !== null,
@@ -102,7 +109,13 @@ export function ConfigPanel({
   const cost = mode === 'preset' ? selectedSample?.creditCost : customCost;
   const insufficientCredits =
     typeof cost === 'number' && typeof balance === 'number' && balance < cost;
-  const continueDisabled = mode === 'preset' ? !sampleVideoId : typeof customCost !== 'number';
+  // Custom mode's choice (duration + quality) is always complete once
+  // initialized — it never actually needs the pricing fetch to have
+  // succeeded, since the client-side cost is cosmetic and the server is the
+  // sole source of truth for what actually gets charged. Gating Continue on
+  // `customCost` being a number would permanently disable it if the
+  // sample-videos fetch (which pricing rides along with) ever fails.
+  const continueDisabled = mode === 'custom' ? false : !sampleVideoId;
 
   function handleGenerate() {
     if (insufficientCredits || submitting) return;
@@ -199,6 +212,29 @@ export function ConfigPanel({
             {mode === 'preset' ? (
               sampleVideosLoading ? (
                 <p style={{ color: C.mid, fontSize: 13 }}>Loading motion templates...</p>
+              ) : sampleVideosError ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <p style={{ margin: 0, color: '#D63B4C', fontSize: 13 }}>
+                    Couldn't load video options.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => refetchSampleVideos()}
+                    style={{
+                      alignSelf: 'flex-start',
+                      border: `1px solid ${C.border2}`,
+                      borderRadius: 8,
+                      background: 'transparent',
+                      color: C.text,
+                      padding: '6px 12px',
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Retry
+                  </button>
+                </div>
               ) : (sampleVideos?.items.length ?? 0) === 0 ? (
                 <p style={{ color: C.mid, fontSize: 13 }}>No video templates are available.</p>
               ) : (
@@ -273,14 +309,17 @@ export function ConfigPanel({
                   </label>
                   <input
                     type="number"
+                    step={1}
                     min={PIXVERSE_DURATION_MIN}
                     max={PIXVERSE_DURATION_MAX}
                     value={duration}
                     onChange={(event) =>
                       setDuration(
-                        Math.min(
-                          PIXVERSE_DURATION_MAX,
-                          Math.max(PIXVERSE_DURATION_MIN, Number(event.target.value)),
+                        Math.round(
+                          Math.min(
+                            PIXVERSE_DURATION_MAX,
+                            Math.max(PIXVERSE_DURATION_MIN, Number(event.target.value)),
+                          ),
                         ),
                       )
                     }
@@ -294,22 +333,17 @@ export function ConfigPanel({
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <label style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Quality</label>
-                  <select
-                    value={quality}
-                    onChange={(event) => setQuality(event.target.value as PixverseQuality)}
-                    style={{
-                      padding: '8px 12px',
-                      borderRadius: 8,
-                      border: `1px solid ${C.border2}`,
-                      fontSize: 14,
-                    }}
-                  >
-                    {PIXVERSE_QUALITIES.map((q) => (
-                      <option key={q} value={q}>
-                        {q}
-                      </option>
-                    ))}
-                  </select>
+                  <div style={{ border: `1px solid ${C.border2}`, borderRadius: 8 }}>
+                    <PremiumSelect
+                      value={quality}
+                      onChange={(val) => setQuality(val as PixverseQuality)}
+                      options={PIXVERSE_QUALITIES.map((q) => ({ value: q, label: q }))}
+                      fullWidth
+                      height={38}
+                      fontSize={14}
+                      ariaLabel="Quality"
+                    />
+                  </div>
                 </div>
                 {typeof customCost === 'number' && (
                   <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: C.mid }}>

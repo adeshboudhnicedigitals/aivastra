@@ -478,4 +478,16 @@ describe('POST /v1/jobs/catalog-video', () => {
     });
     expect(res.statusCode).toBe(400);
   });
+  it('rejects a request providing quality without duration', async () => {
+    const { token, userId } = await registerUser('cv-custom-incomplete-quality@x.com');
+    await grantCredits(userId, 100);
+    const sourceJobId = await sourceJob(userId);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/catalog-video',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { sourceJobId, quality: '540p' },
+    });
+    expect(res.statusCode).toBe(400);
+  });
 });

@@ -5,18 +5,15 @@ import { useQuery } from '@tanstack/react-query';
 import { C } from '@/components/tokens';
 import { api } from '@/lib/api';
 
-// Shared between CatalogVideoWizard's step 1 and CataloguePickerModal — both
-// render a grid of the user's completed catalogue images.
-export interface CatalogueImageOption {
-  jobId: string;
-  catalogueId: string;
-}
-
 export type CatalogueResponse = Array<{
   catalogueId: string;
   jobs: Array<{ id: string; status: string }>;
 }>;
 
+// Shared by CataloguePickerModal (picking a source from past catalogue jobs),
+// SourcePanel (previewing an already-selected existing-job source), and
+// ConfigPanel (the Review step's source thumbnail).
+//
 // `/v1/catalogues` only carries one cover thumbnail per catalogue (correct for
 // the catalogue grid, which shows one card per catalogue) — a catalogue with
 // several completed pose jobs has no per-job thumbnail there. Fetch each job's

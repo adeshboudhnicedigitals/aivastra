@@ -95,7 +95,12 @@ export default function CatalogVideoPage(): React.ReactElement {
   // from it (a new upload, switching to a catalogue image, clearing on
   // submit, or unmount) — never the currently active one. Same pattern
   // CatalogVideoWizard used to own before `source` moved up to this page.
+  // Also clear any stale submit error here: it's scoped to the source that
+  // was active when the submit failed, and letting it survive a source
+  // change would misleadingly reappear under a different image once the
+  // user steps forward to Review again.
   useEffect(() => {
+    setSubmitError(null);
     return () => {
       if (source?.kind === 'upload') URL.revokeObjectURL(source.previewUrl);
     };
@@ -153,6 +158,10 @@ export default function CatalogVideoPage(): React.ReactElement {
         ...choice,
       });
       await qc.invalidateQueries({ queryKey: ['catalog-videos'] });
+      // Credits were deducted server-side — refresh the shared ['credits']
+      // balance so it doesn't keep showing a stale, too-high number (e.g. to
+      // the user menu, or if the user immediately configures another video).
+      qc.invalidateQueries({ queryKey: ['credits'] });
       // Back to the empty state on both panels — nothing left to configure
       // once the job is queued.
       setSource(null);

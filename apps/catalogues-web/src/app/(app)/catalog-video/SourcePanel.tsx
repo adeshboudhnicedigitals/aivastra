@@ -25,9 +25,9 @@ const CARD_STYLE: React.CSSProperties = {
 // file onto the card, or clicking the card itself) uploads a fresh photo.
 // Once `source` is set, the empty-state prompt is replaced by a preview of
 // the chosen image with a "Change image" control — same
-// preview-with-remove-button pattern CatalogVideoWizard's UploadDropzone
-// already uses, so picking a source has a visible result instead of the
-// card silently staying the same.
+// preview-with-remove-button pattern CatalogVideoWizard's UploadDropzone used
+// before it was deleted in favor of this page, so picking a source has a
+// visible result instead of the card silently staying the same.
 export function SourcePanel({
   source,
   onFile,
