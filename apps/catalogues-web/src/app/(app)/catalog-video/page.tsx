@@ -1,5 +1,6 @@
 'use client';
 
+import type { PixverseQuality } from '@aivastra/types';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Film } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -11,7 +12,7 @@ import { api } from '@/lib/api';
 import { isSupportedImageBytes } from '@/lib/image-validation';
 
 import { CataloguePickerModal } from './CataloguePickerModal';
-import { CatalogVideoWizard } from './CatalogVideoWizard';
+import { ConfigPanel } from './ConfigPanel';
 import { SourcePanel } from './SourcePanel';
 import type { ImageSource } from './types';
 
@@ -53,15 +54,14 @@ function statusLabel(status: string): string {
 
 export default function CatalogVideoPage(): React.ReactElement {
   const qc = useQueryClient();
-  // The wizard now only ever opens pre-seeded with a source picked on this
-  // page (see SourcePanel below) — it starts on step 2 (template selection)
-  // and step 1 is reachable only via its own "Back" button.
-  const [wizardSource, setWizardSource] = useState<ImageSource | null>(null);
+  const [source, setSource] = useState<ImageSource | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const uploadAbortRef = useRef<AbortController | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const { data: items, isLoading } = useQuery<CatalogVideoItem[]>({
     queryKey: ['catalog-videos'],
@@ -86,10 +86,20 @@ export default function CatalogVideoPage(): React.ReactElement {
     ),
   );
 
-  // Abort any in-flight upload on unmount, same as the wizard's own dropzone.
+  // Abort any in-flight upload on unmount.
   useEffect(() => {
     return () => uploadAbortRef.current?.abort();
   }, []);
+
+  // Revoke the previous upload's blob URL whenever `source` changes away
+  // from it (a new upload, switching to a catalogue image, clearing on
+  // submit, or unmount) — never the currently active one. Same pattern
+  // CatalogVideoWizard used to own before `source` moved up to this page.
+  useEffect(() => {
+    return () => {
+      if (source?.kind === 'upload') URL.revokeObjectURL(source.previewUrl);
+    };
+  }, [source]);
 
   async function handleUpload(file: File) {
     if (uploading) return;
@@ -114,7 +124,7 @@ export default function CatalogVideoPage(): React.ReactElement {
         expiresIn: number;
       }>('/v1/uploads/presign', { contentType: file.type, contentLength: file.size });
       await api.uploadToR2WithProgress(uploadUrl, file, setUploadProgress, abort.signal);
-      setWizardSource({ kind: 'upload', r2Key, previewUrl });
+      setSource({ kind: 'upload', r2Key, previewUrl });
     } catch (e) {
       URL.revokeObjectURL(previewUrl);
       if (e instanceof DOMException && e.name === 'AbortError') return;
@@ -126,6 +136,30 @@ export default function CatalogVideoPage(): React.ReactElement {
       );
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function handleGenerate(
+    choice: { sampleVideoId: string } | { duration: number; quality: PixverseQuality },
+  ) {
+    if (!source || submitting) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      await api.post('/v1/jobs/catalog-video', {
+        ...(source.kind === 'existing'
+          ? { sourceJobId: source.jobId }
+          : { sourceImageKey: source.r2Key }),
+        ...choice,
+      });
+      await qc.invalidateQueries({ queryKey: ['catalog-videos'] });
+      // Back to the empty state on both panels — nothing left to configure
+      // once the job is queued.
+      setSource(null);
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Failed to start video generation');
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -167,13 +201,12 @@ export default function CatalogVideoPage(): React.ReactElement {
           gap: 16px;
         }
 
-        /* Main creation surface: source (left) + result preview (right),
-           same split as Studio's studio-left-column / studio-right-column.
-           min-height fills the full viewport under the 76px TopBar (minus
-           this section's own share of .cat-video-main's padding) so both
-           columns stand as tall as the screen, same as Studio — "Your
-           Videos" below is reachable by scrolling further, not squeezed
-           into the same screen. */
+        /* Main creation surface: source (left) + config (right), same split
+           as Studio's studio-left-column / studio-right-column. min-height
+           fills the full viewport under the 76px TopBar (minus this
+           section's own share of .cat-video-main's padding) so both columns
+           stand as tall as the screen — "Your Videos" below is reachable by
+           scrolling further, not squeezed into the same screen. */
         .cat-video-two-col {
           display: flex;
           gap: 20px;
@@ -234,43 +267,22 @@ export default function CatalogVideoPage(): React.ReactElement {
         <div className="cat-video-two-col">
           <div className="cat-video-source-col">
             <SourcePanel
-              source={wizardSource}
+              source={source}
               onFile={handleUpload}
               onBrowseCatalogues={() => setPickerOpen(true)}
-              onRemove={() => setWizardSource(null)}
+              onRemove={() => setSource(null)}
               uploading={uploading}
               progress={uploadProgress}
               error={uploadError}
             />
           </div>
           <div className="cat-video-result-col">
-            <div
-              style={{
-                width: '100%',
-                height: '100%',
-                minHeight: 360,
-                borderRadius: 20,
-                background: C.card,
-                boxShadow: `inset 0 0 0 1.5px ${C.border2}, 0 4px 15px rgba(0,0,0,0.08)`,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 12,
-                padding: 40,
-                boxSizing: 'border-box',
-                textAlign: 'center',
-                color: C.mid,
-              }}
-            >
-              <Film size={28} strokeWidth={1.5} />
-              <span style={{ fontSize: 15, fontWeight: 700, color: C.text }}>
-                Your animated video will appear here
-              </span>
-              <span style={{ fontSize: 13, maxWidth: 280, lineHeight: 1.5 }}>
-                Upload a photo on the left, then choose a motion template to generate your video.
-              </span>
-            </div>
+            <ConfigPanel
+              source={source}
+              submitting={submitting}
+              submitError={submitError}
+              onSubmit={handleGenerate}
+            />
           </div>
         </div>
 
@@ -386,16 +398,8 @@ export default function CatalogVideoPage(): React.ReactElement {
           onClose={() => setPickerOpen(false)}
           onSelect={(jobId) => {
             setPickerOpen(false);
-            setWizardSource({ kind: 'existing', jobId });
+            setSource({ kind: 'existing', jobId });
           }}
-        />
-      )}
-
-      {wizardSource && (
-        <CatalogVideoWizard
-          initialSource={wizardSource}
-          onClose={() => setWizardSource(null)}
-          onCreated={() => setWizardSource(null)}
         />
       )}
     </>
