@@ -453,18 +453,52 @@ describe('POST /v1/jobs/catalog-video', () => {
     });
     expect(res.statusCode).toBe(400);
   });
-  it('rejects a request providing both sampleVideoId and duration/quality', async () => {
-    const { token, userId } = await registerUser('cv-mixed@x.com');
-    await grantCredits(userId, 100);
+  it('accepts sampleVideoId together with duration/quality, using the preset prompt but the overridden duration/quality', async () => {
+    const { token, userId } = await registerUser('cv-preset-override@x.com');
+    await grantCredits(userId, 200);
+    const sourceJobId = await sourceJob(userId);
+    // activeSample() defaults to duration=8, quality='720p' — the override
+    // below must win over both.
+    const sampleVideoId = await activeSample();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/catalog-video',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { sourceJobId, sampleVideoId, duration: 3, quality: '360p' },
+    });
+    expect(res.statusCode).toBe(201);
+    const { jobId } = res.json();
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, jobId));
+    const params = inputs.params as Record<string, unknown>;
+    expect(params.sampleVideoId).toBe(sampleVideoId);
+    expect(params.duration).toBe(3);
+    expect(params.quality).toBe('360p');
+    // Prompt still comes from the preset — the override never supplies one.
+    expect(params.prompt).toBe('model turns slowly');
+  });
+  it("falls back to the preset's own duration/quality when sampleVideoId is given alone", async () => {
+    const { token, userId } = await registerUser('cv-preset-no-override@x.com');
+    await grantCredits(userId, 200);
     const sourceJobId = await sourceJob(userId);
     const sampleVideoId = await activeSample();
     const res = await app.inject({
       method: 'POST',
       url: '/v1/jobs/catalog-video',
       headers: { authorization: `Bearer ${token}` },
-      payload: { sourceJobId, sampleVideoId, duration: 8, quality: '540p' },
+      payload: { sourceJobId, sampleVideoId },
     });
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(201);
+    const { jobId } = res.json();
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, jobId));
+    const params = inputs.params as Record<string, unknown>;
+    expect(params.duration).toBe(8);
+    expect(params.quality).toBe('720p');
   });
   it('rejects a request providing neither sampleVideoId nor a complete duration+quality pair', async () => {
     const { token, userId } = await registerUser('cv-custom-incomplete@x.com');

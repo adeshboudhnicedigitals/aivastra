@@ -1203,12 +1203,14 @@ export async function createCatalogVideoJob(
     throw new AppError('FORBIDDEN', 403, 'catalog video is not enabled for this account');
   }
 
-  // Exactly one of sampleVideoId or (duration + quality) is present —
+  // At least one of sampleVideoId or (duration + quality) is present —
   // enforced by CreateCatalogVideoJobRequest's refine checks. sampleVideoId
-  // reuses an admin-curated prompt/duration/quality combo; the custom path
-  // (Motion Studio's Custom mode) lets the caller pick duration/quality
-  // directly, with a fixed system prompt — no free-text prompt from end
-  // users.
+  // always supplies the prompt (never user- or client-suppliable); its own
+  // duration/quality are only the fallback — Motion Studio's normal flow
+  // lets the caller override a preset's duration/quality while keeping its
+  // prompt, so body.duration/body.quality win when present. The standalone
+  // custom path (no sampleVideoId, fixed system prompt) still works
+  // unchanged for any caller that omits sampleVideoId entirely.
   let prompt: string;
   let duration: number;
   let quality: PixverseQuality;
@@ -1221,8 +1223,8 @@ export async function createCatalogVideoJob(
     if (!sample || sample.deletedAt) throw new AppError('NOT_FOUND', 404, 'sample video not found');
     if (!sample.isActive) throw new AppError('VALIDATION', 400, 'sample video is not active');
     prompt = sample.prompt;
-    duration = sample.duration;
-    quality = sample.quality as PixverseQuality;
+    duration = body.duration ?? sample.duration;
+    quality = body.quality ?? (sample.quality as PixverseQuality);
     sampleVideoId = body.sampleVideoId;
   } else {
     // Unreachable per the schema's refine checks — guarded here so

@@ -99,6 +99,8 @@ describe('GET /v1/models/sample-videos', () => {
       id: string;
       thumbnailUrl: string;
       previewVideoUrl: string;
+      duration: number;
+      quality: string;
       creditCost: number;
     }>;
     expect(items.map((i) => i.id)).toEqual([active2.id, active1.id]);
@@ -109,6 +111,13 @@ describe('GET /v1/models/sample-videos', () => {
     // than a shared or hoisted value.
     expect(items[0].creditCost).toBe(125);
     expect(items[1].creditCost).toBe(70);
+    // Motion Studio pre-fills its duration/quality controls from these when
+    // a preset is picked — each item must expose its own admin-set values,
+    // not just the derived cost.
+    expect(items[0].duration).toBe(15);
+    expect(items[0].quality).toBe('1080p');
+    expect(items[1].duration).toBe(8);
+    expect(items[1].quality).toBe('720p');
     expect(items[0].thumbnailUrl).toContain('sample-videos/b.thumb.jpg');
     expect(items[0].previewVideoUrl).toContain('sample-videos/b.mp4');
     expect(items[0].thumbnailUrl).toContain('X-Amz-Signature');

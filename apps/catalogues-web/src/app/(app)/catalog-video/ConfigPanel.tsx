@@ -9,15 +9,14 @@ import {
   type PixverseVideoPricingConfig,
 } from '@aivastra/types';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronLeft, SlidersHorizontal } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { X } from 'lucide-react';
+import { useState } from 'react';
 
 import { C } from '@/components/tokens';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { PremiumSelect } from '@/components/ui/premium-select';
 import { Tooltip } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
-import { JobThumbnail } from './JobThumbnail';
 import type { ImageSource } from './types';
 
 interface SampleVideoOption {
@@ -25,6 +24,8 @@ interface SampleVideoOption {
   title: string;
   thumbnailUrl: string;
   previewVideoUrl: string;
+  duration: number;
+  quality: PixverseQuality;
   creditCost: number;
 }
 
@@ -33,7 +34,12 @@ interface SampleVideosResponse {
   pixverseVideoPricing: PixverseVideoPricingConfig;
 }
 
-type Choice = { sampleVideoId: string } | { duration: number; quality: PixverseQuality };
+type Choice = { sampleVideoId: string; duration: number; quality: PixverseQuality };
+
+// The inline grid shows a fixed 4x2 page of presets; anything beyond that
+// only surfaces through the "View all" picker modal, so the panel doesn't
+// grow taller as the admin-curated catalogue grows.
+const VISIBLE_PRESET_COUNT = 8;
 
 const CARD_STYLE: React.CSSProperties = {
   width: '100%',
@@ -48,13 +54,17 @@ const CARD_STYLE: React.CSSProperties = {
   overflow: 'hidden',
 };
 
-// Right half of the Motion Studio main screen. Two internal steps ("select"
-// then "review") sit on top of a Preset/Custom mode choice — Preset reuses
-// the admin-curated sample_videos catalogue (same grid CatalogVideoWizard's
-// step 2 had); Custom lets the caller pick duration + quality directly, no
-// prompt field (the server fills one in — see PIXVERSE_CUSTOM_VIDEO_PROMPT
-// in packages/types). Disabled (no mode toggle at all) until a source image
-// is chosen on the left.
+// Right half of the Motion Studio main screen — a single screen, not a
+// multi-step wizard: pick a preset (which supplies the prompt), adjust its
+// duration/quality if wanted, and Generate — cost and the Generate button
+// sit fixed at the bottom throughout. No standalone Custom mode for now —
+// every video comes from an admin-curated preset. The preset grid and the
+// duration/quality controls are all preloaded unconditionally (not gated on
+// `source` or on picking a preset first) so the user can browse and adjust
+// everything up front — Generate itself still requires a source and a preset.
+const DEFAULT_DURATION = 8;
+const DEFAULT_QUALITY: PixverseQuality = '720p';
+
 export function ConfigPanel({
   source,
   submitting,
@@ -66,24 +76,10 @@ export function ConfigPanel({
   submitError: string | null;
   onSubmit: (choice: Choice) => void;
 }): React.ReactElement {
-  const [configStep, setConfigStep] = useState<'select' | 'review'>('select');
-  const [mode, setMode] = useState<'preset' | 'custom'>('preset');
   const [sampleVideoId, setSampleVideoId] = useState<string | null>(null);
-  const [duration, setDuration] = useState(5);
-  const [quality, setQuality] = useState<PixverseQuality>('720p');
-
-  // Identity key for the current source — a plain object-reference check
-  // would also fire on every re-render of an unrelated parent state change
-  // if `source` were ever recreated with the same values, so key on the
-  // field that actually identifies it.
-  const sourceKey = source ? (source.kind === 'existing' ? source.jobId : source.r2Key) : null;
-  // Changing (or clearing) the source image invalidates whatever config step
-  // the user was on — jumping Review's "Generate" straight from a stale
-  // source would generate a video for the wrong photo.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: sourceKey is a deliberate trigger, not referenced in the body
-  useEffect(() => {
-    setConfigStep('select');
-  }, [sourceKey]);
+  const [duration, setDuration] = useState<number>(DEFAULT_DURATION);
+  const [quality, setQuality] = useState<PixverseQuality>(DEFAULT_QUALITY);
+  const [presetPickerOpen, setPresetPickerOpen] = useState(false);
 
   const {
     data: sampleVideos,
@@ -93,83 +89,57 @@ export function ConfigPanel({
   } = useQuery<SampleVideosResponse>({
     queryKey: ['sample-videos'],
     queryFn: () => api.get('/v1/models/sample-videos'),
-    enabled: source !== null,
   });
 
   const { data: creditsData } = useQuery<{ balance: number }>({
     queryKey: ['credits'],
     queryFn: () => api.get('/v1/credits'),
-    enabled: source !== null,
   });
 
   const balance = creditsData?.balance;
   const pricing = sampleVideos?.pixverseVideoPricing;
-  const selectedSample = sampleVideos?.items.find((option) => option.id === sampleVideoId);
-  const customCost = pricing ? computePixverseVideoCost(duration, quality, pricing) : undefined;
-  const cost = mode === 'preset' ? selectedSample?.creditCost : customCost;
+  const allPresets = sampleVideos?.items ?? [];
+  const visiblePresets = allPresets.slice(0, VISIBLE_PRESET_COUNT);
+  const hasMorePresets = allPresets.length > VISIBLE_PRESET_COUNT;
+  const selectedSample = allPresets.find((option) => option.id === sampleVideoId);
+  // Duration/quality are always set (defaulted up front, then pre-filled from
+  // whichever preset is picked) — cost recomputes live via the same formula
+  // the server charges with, so an override is reflected immediately. Falls
+  // back to the preset's own listed creditCost only while pricing hasn't
+  // loaded yet.
+  const cost = pricing
+    ? computePixverseVideoCost(duration, quality, pricing)
+    : selectedSample?.creditCost;
   const insufficientCredits =
     typeof cost === 'number' && typeof balance === 'number' && balance < cost;
-  // Custom mode's choice (duration + quality) is always complete once
-  // initialized — it never actually needs the pricing fetch to have
-  // succeeded, since the client-side cost is cosmetic and the server is the
-  // sole source of truth for what actually gets charged. Gating Continue on
-  // `customCost` being a number would permanently disable it if the
-  // sample-videos fetch (which pricing rides along with) ever fails.
-  const continueDisabled = mode === 'custom' ? false : !sampleVideoId;
+  const generateDisabled = !source || !sampleVideoId;
 
-  function handleGenerate() {
-    if (insufficientCredits || submitting) return;
-    if (mode === 'preset' && sampleVideoId) onSubmit({ sampleVideoId });
-    else if (mode === 'custom') onSubmit({ duration, quality });
+  function selectPreset(option: SampleVideoOption) {
+    setSampleVideoId(option.id);
+    // Always reset to the newly picked preset's own values, discarding any
+    // override left over from a previously selected preset — "pre-fill from
+    // the preset" should hold for every fresh selection, not just the first.
+    setDuration(option.duration);
+    setQuality(option.quality);
   }
 
-  if (!source) {
-    return (
-      <div
-        style={{
-          ...CARD_STYLE,
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 12,
-          padding: 40,
-          textAlign: 'center',
-          color: C.mid,
-        }}
-      >
-        <SlidersHorizontal size={28} strokeWidth={1.5} />
-        <span style={{ fontSize: 15, fontWeight: 700, color: C.text }}>
-          Choose a source image to continue
-        </span>
-        <span style={{ fontSize: 13, maxWidth: 280, lineHeight: 1.5 }}>
-          Upload or browse a catalogue image on the left, then configure your video here.
-        </span>
-      </div>
-    );
+  function handleGenerate() {
+    if (!source || !sampleVideoId) return;
+    if (insufficientCredits || submitting) return;
+    onSubmit({ sampleVideoId, duration, quality });
   }
 
   return (
     <div style={CARD_STYLE}>
       <style>{`
-        .config-panel-mode-toggle button {
-          padding: 8px 16px;
-          border-radius: 999px;
-          font-size: 13px;
-          font-weight: 600;
-          cursor: pointer;
-        }
         .config-panel-preset-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-          gap: 12px;
-        }
-        .config-panel-review-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 16px;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 8px;
         }
         @media (max-width: 639px) {
-          .config-panel-review-grid {
-            grid-template-columns: 1fr;
+          .config-panel-preset-grid {
+            grid-template-columns: repeat(2, 1fr);
           }
         }
       `}</style>
@@ -182,311 +152,399 @@ export function ConfigPanel({
           color: C.text,
         }}
       >
-        {configStep === 'select' ? 'Configure your video' : 'Review & generate'}
+        Configure your video
       </div>
 
       <div style={{ padding: 20, overflowY: 'auto', flex: 1, minHeight: 0 }}>
-        {configStep === 'select' ? (
-          <>
-            <div
-              className="config-panel-mode-toggle"
-              style={{ display: 'flex', gap: 8, marginBottom: 16 }}
-            >
-              {(['preset', 'custom'] as const).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  aria-pressed={mode === m}
-                  onClick={() => setMode(m)}
-                  style={{
-                    border: `1px solid ${mode === m ? C.pink : C.border}`,
-                    background: mode === m ? 'rgba(245,92,122,0.08)' : 'transparent',
-                    color: mode === m ? C.pink : C.mid,
-                  }}
-                >
-                  {m === 'preset' ? 'Preset' : 'Custom'}
-                </button>
-              ))}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {sampleVideosLoading ? (
+            <p style={{ color: C.mid, fontSize: 13 }}>Loading motion templates...</p>
+          ) : sampleVideosError ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <p style={{ margin: 0, color: '#D63B4C', fontSize: 13 }}>
+                Couldn't load video options.
+              </p>
+              <button
+                type="button"
+                onClick={() => refetchSampleVideos()}
+                style={{
+                  alignSelf: 'flex-start',
+                  border: `1px solid ${C.border2}`,
+                  borderRadius: 8,
+                  background: 'transparent',
+                  color: C.text,
+                  padding: '6px 12px',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Retry
+              </button>
             </div>
-
-            {mode === 'preset' ? (
-              sampleVideosLoading ? (
-                <p style={{ color: C.mid, fontSize: 13 }}>Loading motion templates...</p>
-              ) : sampleVideosError ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <p style={{ margin: 0, color: '#D63B4C', fontSize: 13 }}>
-                    Couldn't load video options.
-                  </p>
+          ) : allPresets.length === 0 ? (
+            <p style={{ color: C.mid, fontSize: 13 }}>No video templates are available.</p>
+          ) : (
+            <div className="config-panel-preset-grid">
+              {visiblePresets.map((option) => {
+                const selected = option.id === sampleVideoId;
+                return (
                   <button
+                    key={option.id}
                     type="button"
-                    onClick={() => refetchSampleVideos()}
+                    aria-pressed={selected}
+                    onClick={() => selectPreset(option)}
                     style={{
-                      alignSelf: 'flex-start',
-                      border: `1px solid ${C.border2}`,
+                      position: 'relative',
+                      padding: 0,
+                      textAlign: 'left',
+                      overflow: 'hidden',
+                      border: selected ? `2px solid ${C.pink}` : `1px solid ${C.border}`,
                       borderRadius: 8,
-                      background: 'transparent',
-                      color: C.text,
-                      padding: '6px 12px',
-                      fontSize: 13,
-                      fontWeight: 600,
+                      background: C.card,
                       cursor: 'pointer',
                     }}
                   >
-                    Retry
-                  </button>
-                </div>
-              ) : (sampleVideos?.items.length ?? 0) === 0 ? (
-                <p style={{ color: C.mid, fontSize: 13 }}>No video templates are available.</p>
-              ) : (
-                <div className="config-panel-preset-grid">
-                  {(sampleVideos?.items ?? []).map((option) => {
-                    const selected = option.id === sampleVideoId;
-                    return (
-                      <button
-                        key={option.id}
-                        type="button"
-                        aria-pressed={selected}
-                        onClick={() => setSampleVideoId(option.id)}
+                    <div style={{ aspectRatio: '3 / 4', background: C.lighter }}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      {/* biome-ignore lint/performance/noImgElement: animated GIF preview, presigned R2 URL */}
+                      <img
+                        src={option.thumbnailUrl}
+                        alt={option.title}
                         style={{
-                          position: 'relative',
-                          padding: 0,
-                          textAlign: 'left',
-                          overflow: 'hidden',
-                          border: selected ? `2px solid ${C.pink}` : `1px solid ${C.border}`,
-                          borderRadius: 8,
-                          background: C.card,
-                          cursor: 'pointer',
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover',
+                          display: 'block',
                         }}
-                      >
-                        <div style={{ aspectRatio: '9 / 16', background: C.lighter }}>
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          {/* biome-ignore lint/performance/noImgElement: animated GIF preview, presigned R2 URL */}
-                          <img
-                            src={option.thumbnailUrl}
-                            alt={option.title}
-                            style={{
-                              width: '100%',
-                              height: '100%',
-                              objectFit: 'cover',
-                              display: 'block',
-                            }}
-                          />
-                        </div>
-                        <span
-                          style={{
-                            display: 'block',
-                            padding: '10px 12px',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            color: C.text,
-                            fontSize: 13,
-                            fontWeight: 600,
-                          }}
-                        >
-                          {option.title}
-                        </span>
-                        <span
-                          style={{
-                            display: 'block',
-                            padding: '0 12px 10px',
-                            fontSize: 11,
-                            color: C.mid,
-                          }}
-                        >
-                          {option.creditCost} credits
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 320 }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <label style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
-                    Duration (seconds)
-                  </label>
-                  <input
-                    type="number"
-                    step={1}
-                    min={PIXVERSE_DURATION_MIN}
-                    max={PIXVERSE_DURATION_MAX}
-                    value={duration}
-                    onChange={(event) =>
-                      setDuration(
-                        Math.round(
-                          Math.min(
-                            PIXVERSE_DURATION_MAX,
-                            Math.max(PIXVERSE_DURATION_MIN, Number(event.target.value)),
-                          ),
-                        ),
-                      )
-                    }
-                    style={{
-                      padding: '8px 12px',
-                      borderRadius: 8,
-                      border: `1px solid ${C.border2}`,
-                      fontSize: 14,
-                    }}
-                  />
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <label style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Quality</label>
-                  <div
-                    style={{
-                      border: `1px solid ${C.border2}`,
-                      borderRadius: 8,
-                      background: C.field,
-                    }}
-                  >
-                    <PremiumSelect
-                      value={quality}
-                      onChange={(val) => setQuality(val as PixverseQuality)}
-                      options={PIXVERSE_QUALITIES.map((q) => ({ value: q, label: q }))}
-                      fullWidth
-                      height={38}
-                      fontSize={14}
-                      ariaLabel="Quality"
-                    />
-                  </div>
-                </div>
-                {typeof customCost === 'number' && (
-                  <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: C.mid }}>
-                    {customCost} credits
-                  </p>
-                )}
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="config-panel-review-grid">
-            <div style={{ border: `1px solid ${C.border}`, borderRadius: 6, overflow: 'hidden' }}>
-              <div style={{ aspectRatio: '3 / 4', background: C.lighter }}>
-                {source.kind === 'existing' ? (
-                  <JobThumbnail jobId={source.jobId} alt="Selected source" />
-                ) : (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  // biome-ignore lint/performance/noImgElement: local blob URL preview
-                  <img
-                    src={source.previewUrl}
-                    alt="Selected source"
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  />
-                )}
-              </div>
-              <div style={{ padding: 10, color: C.mid, fontSize: 12 }}>
-                {source.kind === 'upload' ? 'Uploaded image' : 'Catalogue image'}
-              </div>
+                      />
+                    </div>
+                    <span
+                      style={{
+                        display: 'block',
+                        padding: '6px 8px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        textAlign: 'center',
+                        color: C.text,
+                        fontSize: 11,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {option.title}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-            <div style={{ border: `1px solid ${C.border}`, borderRadius: 6, overflow: 'hidden' }}>
-              <div style={{ aspectRatio: '3 / 4', background: C.lighter }}>
-                {mode === 'preset' && selectedSample && (
-                  <video
-                    src={selectedSample.previewVideoUrl}
-                    poster={selectedSample.thumbnailUrl}
-                    muted
-                    controls
-                    style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                  />
-                )}
-                {mode === 'custom' && (
-                  <div
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      display: 'grid',
-                      placeItems: 'center',
-                      color: C.mid,
-                      fontSize: 14,
-                      fontWeight: 600,
-                    }}
-                  >
-                    {duration}s · {quality}
-                  </div>
-                )}
-              </div>
-              <div style={{ padding: 10, color: C.mid, fontSize: 12 }}>
-                {mode === 'preset'
-                  ? (selectedSample?.title ?? 'Motion template')
-                  : 'Custom configuration'}
-              </div>
-            </div>
-            {typeof cost === 'number' && (
-              <p
-                style={{
-                  gridColumn: '1 / -1',
-                  margin: 0,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: insufficientCredits ? '#D63B4C' : C.mid,
-                }}
-              >
-                {cost} credits required
-                {typeof balance === 'number' ? ` — you have ${balance} credits` : ''}
-                {insufficientCredits ? '. Top up to generate a video.' : ''}
-              </p>
-            )}
-            {submitError && (
-              <p style={{ gridColumn: '1 / -1', margin: 0, color: '#D63B4C', fontSize: 13 }}>
-                {submitError}
-              </p>
-            )}
-          </div>
-        )}
+          )}
+
+          {hasMorePresets && (
+            <button
+              type="button"
+              onClick={() => setPresetPickerOpen(true)}
+              style={{
+                alignSelf: 'flex-start',
+                border: `1px solid ${C.border2}`,
+                borderRadius: 8,
+                background: 'transparent',
+                color: C.text,
+                padding: '6px 12px',
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              View all {allPresets.length} templates
+            </button>
+          )}
+
+          {submitError && (
+            <p style={{ margin: 0, color: '#D63B4C', fontSize: 13 }}>{submitError}</p>
+          )}
+        </div>
       </div>
 
       <div
         style={{
           display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12,
+          flexDirection: 'column',
+          gap: 14,
           padding: '16px 20px',
           borderTop: `1px solid ${C.border}`,
         }}
       >
-        {configStep === 'review' ? (
-          <button
-            type="button"
-            disabled={submitting}
-            onClick={() => setConfigStep('select')}
+        <div style={{ display: 'flex', gap: 12 }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <label style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
+              Duration (seconds)
+            </label>
+            <input
+              type="number"
+              step={1}
+              min={PIXVERSE_DURATION_MIN}
+              max={PIXVERSE_DURATION_MAX}
+              value={duration}
+              onChange={(event) =>
+                setDuration(
+                  Math.round(
+                    Math.min(
+                      PIXVERSE_DURATION_MAX,
+                      Math.max(PIXVERSE_DURATION_MIN, Number(event.target.value)),
+                    ),
+                  ),
+                )
+              }
+              style={{
+                padding: '8px 12px',
+                borderRadius: 8,
+                border: `1px solid ${C.border2}`,
+                fontSize: 14,
+              }}
+            />
+          </div>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <label style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Quality</label>
+            <div
+              style={{
+                border: `1px solid ${C.border2}`,
+                borderRadius: 8,
+                background: C.field,
+              }}
+            >
+              <PremiumSelect
+                value={quality}
+                onChange={(val) => setQuality(val as PixverseQuality)}
+                options={PIXVERSE_QUALITIES.map((q) => ({ value: q, label: q }))}
+                fullWidth
+                height={38}
+                fontSize={14}
+                ariaLabel="Quality"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+          }}
+        >
+          <span
             style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              border: 'none',
-              background: 'transparent',
-              color: C.mid,
-              padding: 8,
-              fontSize: 13,
-              cursor: submitting ? 'not-allowed' : 'pointer',
+              fontSize: 12,
+              fontWeight: 600,
+              color: insufficientCredits ? '#D63B4C' : C.mid,
             }}
           >
-            <ChevronLeft size={16} />
-            Back
-          </button>
-        ) : (
-          <span />
-        )}
-        {configStep === 'select' ? (
-          <GradBtn disabled={continueDisabled} onClick={() => setConfigStep('review')}>
-            Continue
-          </GradBtn>
-        ) : (
+            {typeof cost === 'number'
+              ? `${cost} credits required${
+                  typeof balance === 'number' ? ` — you have ${balance} credits` : ''
+                }${insufficientCredits ? '. Top up to generate a video.' : ''}`
+              : 'Loading pricing...'}
+          </span>
           <Tooltip
             tip={
               insufficientCredits
                 ? `You need ${cost} credits and have ${balance}. Top up to continue.`
-                : undefined
+                : !source && sampleVideoId
+                  ? 'Choose a source image on the left to continue'
+                  : undefined
             }
           >
-            <GradBtn disabled={submitting || insufficientCredits} onClick={handleGenerate}>
+            <GradBtn
+              disabled={generateDisabled || submitting || insufficientCredits}
+              onClick={handleGenerate}
+            >
               {submitting ? 'Starting...' : 'Generate video'}
             </GradBtn>
           </Tooltip>
-        )}
+        </div>
       </div>
+
+      {presetPickerOpen && (
+        <PresetPickerModal
+          items={allPresets}
+          selectedId={sampleVideoId}
+          onClose={() => setPresetPickerOpen(false)}
+          onSelect={(option) => {
+            selectPreset(option);
+            setPresetPickerOpen(false);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+// "View all" surface for the preset grid above — same backdrop/dialog
+// pattern CataloguePickerModal uses, scoped to its own class names so the
+// two modals' styles can't collide if either changes independently.
+function PresetPickerModal({
+  items,
+  selectedId,
+  onClose,
+  onSelect,
+}: {
+  items: SampleVideoOption[];
+  selectedId: string | null;
+  onClose: () => void;
+  onSelect: (option: SampleVideoOption) => void;
+}): React.ReactElement {
+  return (
+    <>
+      <style>{`
+        .preset-picker-backdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 1000;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 20px;
+          background: rgba(8, 12, 24, 0.62);
+        }
+
+        .preset-picker-dialog {
+          width: min(760px, calc(100vw - 40px));
+          height: min(680px, calc(100vh - 40px));
+          overflow: hidden;
+          border: 1px solid ${C.border};
+          border-radius: 8px;
+          background: ${C.card};
+          box-shadow: 0 20px 56px rgba(0, 0, 0, 0.32);
+          display: flex;
+          flex-direction: column;
+        }
+
+        .preset-picker-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+          gap: 12px;
+        }
+
+        @media (max-width: 639px) {
+          .preset-picker-backdrop {
+            padding: 10px;
+          }
+          .preset-picker-dialog {
+            width: calc(100vw - 20px);
+            height: calc(100vh - 20px);
+          }
+          .preset-picker-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+          }
+        }
+      `}</style>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop; click outside dismisses */}
+      <div
+        role="presentation"
+        className="preset-picker-backdrop"
+        onMouseDown={(event) => {
+          if (event.target === event.currentTarget) onClose();
+        }}
+      >
+        <section
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="preset-picker-title"
+          className="preset-picker-dialog"
+        >
+          <header
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 16,
+              padding: '18px 20px',
+              borderBottom: `1px solid ${C.border}`,
+            }}
+          >
+            <h2 id="preset-picker-title" style={{ margin: 0, color: C.text, fontSize: 18 }}>
+              All motion templates
+            </h2>
+            <button
+              type="button"
+              aria-label="Close"
+              onClick={onClose}
+              style={{
+                width: 32,
+                height: 32,
+                border: `1px solid ${C.border}`,
+                borderRadius: 6,
+                background: 'transparent',
+                color: C.mid,
+                display: 'grid',
+                placeItems: 'center',
+                cursor: 'pointer',
+              }}
+            >
+              <X size={16} />
+            </button>
+          </header>
+
+          <div style={{ padding: 20, overflowY: 'auto', flex: 1, minHeight: 0 }}>
+            <div className="preset-picker-grid">
+              {items.map((option) => {
+                const selected = option.id === selectedId;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => onSelect(option)}
+                    style={{
+                      position: 'relative',
+                      padding: 0,
+                      textAlign: 'left',
+                      overflow: 'hidden',
+                      border: selected ? `2px solid ${C.pink}` : `1px solid ${C.border}`,
+                      borderRadius: 8,
+                      background: C.card,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ aspectRatio: '3 / 4', background: C.lighter }}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      {/* biome-ignore lint/performance/noImgElement: animated GIF preview, presigned R2 URL */}
+                      <img
+                        src={option.thumbnailUrl}
+                        alt={option.title}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover',
+                          display: 'block',
+                        }}
+                      />
+                    </div>
+                    <span
+                      style={{
+                        display: 'block',
+                        padding: '10px 12px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        textAlign: 'center',
+                        color: C.text,
+                        fontSize: 13,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {option.title}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+      </div>
+    </>
   );
 }

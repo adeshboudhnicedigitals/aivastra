@@ -102,6 +102,11 @@ export async function modelsRoutes(app: FastifyInstance) {
           title: row.title,
           thumbnailUrl: thumbnail.url,
           previewVideoUrl: video.url,
+          // The preset's own admin-set values — Motion Studio pre-fills its
+          // duration/quality controls from these when a preset is picked,
+          // then lets the caller override them (see CreateCatalogVideoJobRequest).
+          duration: row.duration,
+          quality: row.quality as PixverseQuality,
           creditCost: computePixverseVideoCost(
             row.duration,
             row.quality as PixverseQuality,

@@ -170,10 +170,15 @@ export const CreateCatalogVideoJobRequest = z
     // below, same XOR style as upperGarmentKey/mannequinJobId above.
     sourceJobId: z.string().uuid().optional(),
     sourceImageKey: z.string().regex(INPUT_GARMENT_KEY).optional(),
-    // Exactly one of sampleVideoId (an admin-curated prompt/duration/quality
-    // preset) or duration+quality together (Motion Studio's Custom mode — no
-    // prompt field; the server fills in PIXVERSE_CUSTOM_VIDEO_PROMPT) is
-    // required — enforced by the two refine checks below.
+    // At least one of sampleVideoId (an admin-curated preset — prompt,
+    // duration, quality) or duration+quality (Motion Studio's standalone
+    // Custom path — no prompt field; the server fills in
+    // PIXVERSE_CUSTOM_VIDEO_PROMPT) is required — enforced below. The two
+    // are no longer mutually exclusive: sampleVideoId + duration + quality
+    // together means "use this preset's prompt, but this duration/quality
+    // instead of the preset's own" — Motion Studio's normal flow, since a
+    // user can adjust a preset's duration/quality rather than only
+    // accepting it as-is.
     sampleVideoId: z.string().uuid().optional(),
     duration: z.number().int().min(PIXVERSE_DURATION_MIN).max(PIXVERSE_DURATION_MAX).optional(),
     quality: z.enum(PIXVERSE_QUALITIES).optional(),
@@ -182,18 +187,17 @@ export const CreateCatalogVideoJobRequest = z
     message: 'Provide either sourceJobId or sourceImageKey, not both',
     path: ['sourceJobId'],
   })
-  .refine((d) => Boolean(d.sampleVideoId) !== Boolean(d.duration || d.quality), {
-    message:
-      'Provide either sampleVideoId, or duration and quality — not sampleVideoId together with duration/quality',
-    path: ['sampleVideoId'],
-  })
   .refine(
-    (d) => d.sampleVideoId !== undefined || (d.duration !== undefined && d.quality !== undefined),
+    (d) => Boolean(d.sampleVideoId) || (d.duration !== undefined && d.quality !== undefined),
     {
-      message: 'duration and quality must be provided together when sampleVideoId is omitted',
-      path: ['duration'],
+      message: 'Provide sampleVideoId, or duration and quality, or both',
+      path: ['sampleVideoId'],
     },
-  );
+  )
+  .refine((d) => (d.duration !== undefined) === (d.quality !== undefined), {
+    message: 'duration and quality must be provided together',
+    path: ['duration'],
+  });
 
 export const CreateSareeMannequinJobRequest = z.object({
   garmentTypeId: z.string().uuid(),
